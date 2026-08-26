@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="description" content="软泥守望是一款可直接在浏览器游玩的横屏史莱姆城镇防守游戏。自由建造阵地，主动开启波次，并在暂停中打出技能与道具。" />
+    <meta name="application-name" content="软泥守望" />
+    <meta name="theme-color" content="#ddefe5" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content="zh_CN" />
+    <meta property="og:title" content="软泥守望 · 横屏防守试玩" />
+    <meta property="og:description" content="自由建造史莱姆城镇，主动开波，在暂停中安排技能与道具。" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="软泥守望 · 横屏防守试玩" />
+    <meta name="twitter:description" content="自由建造史莱姆城镇，主动开波，在暂停中安排技能与道具。" />
+    <title>软泥守望 · 横屏防守试玩</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main id="app" aria-label="软泥守望游戏试玩版">
+      <canvas id="game" width="1280" height="720" aria-label="6乘6史莱姆城镇防守战场">
+        当前浏览器不支持 Canvas，无法运行软泥守望。
+      </canvas>
+      <div id="rotateHint" role="status">
+        <div class="rotate-card">
+          <span class="rotate-slime" aria-hidden="true"></span>
+          <strong>把设备横过来吧</strong>
+          <span>史莱姆们需要更宽的战场</span>
+        </div>
+      </div>
+      <div id="loading" role="status" aria-live="polite">
+        <span class="loading-blob"></span>
+        <span>正在唤醒软泥庭院…</span>
+      </div>
+      <noscript>
+        <div class="no-script">软泥守望需要启用 JavaScript 才能运行。</div>
+      </noscript>
+    </main>
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>

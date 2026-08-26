@@ -1,0 +1,1448 @@
+{
+  "schemaVersion": 1,
+  "generatedFrom": [
+    "assets/asset-spec.json",
+    "src/catalog.js",
+    "src/draw.js",
+    "src/game.js"
+  ],
+  "frameFormat": {
+    "container": "PNG",
+    "colorMode": "RGBA",
+    "transparent": true,
+    "numbering": "从01开始连续编号",
+    "anchorPolicy": "同一owner的所有帧保持画布、地面锚点和基础比例完全一致",
+    "exportPolicy": "逐帧独立透明PNG，不导出视频、GIF或带底色图集"
+  },
+  "idlePolicy": "待机呼吸、轻微弹性、选中脉冲、淡入淡出和整体位移由程序变形完成，不制作待机帧。",
+  "animations": [
+    {
+      "id": "survivor-shell-shell-attack",
+      "ownerId": "survivor-shell-shell",
+      "state": "attack",
+      "frameCount": 5,
+      "frames": [
+        {
+          "index": 1,
+          "path": "assets/generated/animation/survivor-shell-shell/attack_01.png"
+        },
+        {
+          "index": 2,
+          "path": "assets/generated/animation/survivor-shell-shell/attack_02.png"
+        },
+        {
+          "index": 3,
+          "path": "assets/generated/animation/survivor-shell-shell/attack_03.png"
+        },
+        {
+          "index": 4,
+          "path": "assets/generated/animation/survivor-shell-shell/attack_04.png"
+        },
+        {
+          "index": 5,
+          "path": "assets/generated/animation/survivor-shell-shell/attack_05.png"
+        }
+      ],
+      "fps": 12,
+      "loop": false,
+      "pathPattern": "assets/generated/animation/survivor-shell-shell/attack_{frame:02}.png",
+      "canvas": {
+        "width": 512,
+        "height": 512
+      },
+      "width": 512,
+      "height": 512,
+      "maxBytes": 360000,
+      "brief": "壳壳先压低重心、胶壳后摆蓄力，再向右完成短距离壳撞，命中帧横向挤压，末帧回到可衔接待机的轮廓。",
+      "runtimeSize": "68×68；欢迎页可放大至112×112逻辑像素"
+    },
+    {
+      "id": "survivor-shell-shell-hurt",
+      "ownerId": "survivor-shell-shell",
+      "state": "hurt",
+      "frameCount": 2,
+      "frames": [
+        {
+          "index": 1,
+          "path": "assets/generated/animation/survivor-shell-shell/hurt_01.png"
+        },
+        {
+          "index": 2,
+          "path": "assets/generated/animation/survivor-shell-shell/hurt_02.png"
+        }
+      ],
+      "fps": 16,
+      "loop": false,
+      "pathPattern": "assets/generated/animation/survivor-shell-shell/hurt_{frame:02}.png",
+      "canvas": {
+        "width": 512,
+        "height": 512
+      },
+      "width": 512,
+      "height": 512,
+      "maxBytes": 360000,
+      "brief": "壳壳受击时向左压扁、壳体轻微错位，第二帧弹回七成；白闪与屏幕震动由程序叠加。",
+      "runtimeSize": "68×68逻辑像素"
+    },
+    {
+      "id": "survivor-crystal-pin-attack",
+      "ownerId": "survivor-crystal-pin",
+      "state": "attack",
+      "frameCount": 5,
+      "frames": [
+        {
+          "index": 1,
+          "path": "assets/generated/animation/survivor-crystal-pin/attack_01.png"
+        },
+        {
+          "index": 2,
+          "path": "assets/generated/animation/survivor-crystal-pin/attack_02.png"
+        },
+        {
+          "index": 3,
+          "path": "assets/generated/animation/survivor-crystal-pin/attack_03.png"
+        },
+        {
+          "index": 4,
+          "path": "assets/generated/animation/survivor-crystal-pin/attack_04.png"
+        },
+        {
+          "index": 5,
+          "path": "assets/generated/animation/survivor-crystal-pin/attack_05.png"
+        }
+      ],
+      "fps": 14,
+      "loop": false,
+      "pathPattern": "assets/generated/animation/survivor-crystal-pin/attack_{frame:02}.png",
+      "canvas": {
+        "width": 512,
+        "height": 512
+      },
+      "width": 512,
+      "height": 512,
+      "maxBytes": 360000,
+      "brief": "亮钉向后收紧晶刺、头顶晶针亮起，随后朝右射出并产生轻微后坐，末帧恢复基础剪影；投射物不画入角色帧。",
+      "runtimeSize": "68×68逻辑像素"
+    },
+    {
+      "id": "survivor-crystal-pin-hurt",
+      "ownerId": "survivor-crystal-pin",
+      "state": "hurt",
+      "frameCount": 2,
+      "frames": [
+        {
+          "index": 1,
+          "path": "assets/generated/animation/survivor-crystal-pin/hurt_01.png"
+        },
+        {
+          "index": 2,
+          "path": "assets/generated/animation/survivor-crystal-pin/hurt_02.png"
+        }
+      ],
+      "fps": 16,
+      "loop": false,
+      "pathPattern": "assets/generated/animation/survivor-crystal-pin/hurt_{frame:02}.png",
+      "canvas": {
+        "width": 512,
+        "height": 512
+      },
+      "width": 512,
+      "height": 512,
+      "maxBytes": 360000,
+      "brief": "亮钉胶体向左歪斜并压扁，晶刺保持完整只发生弹性偏转，第二帧回弹；不新增永久裂纹。",
+      "runtimeSize": "68×68逻辑像素"
+    },
+    {
+      "id": "survivor-bubble-float-attack",
+      "ownerId": "survivor-bubble-float",
+      "state": "attack",
+      "frameCount": 5,
+      "frames": [
+        {
+          "index": 1,
+          "path": "assets/generated/animation/survivor-bubble-float/attack_01.png"
+        },
+        {
+          "index": 2,
+          "path": "assets/generated/animation/survivor-bubble-float/attack_02.png"
+        },
+        {
+          "index": 3,
+          "path": "assets/generated/animation/survivor-bubble-float/attack_03.png"
+        },
+        {
+          "index": 4,
+          "path": "assets/generated/animation/survivor-bubble-float/attack_04.png"
+        },
+        {
+          "index": 5,
+          "path": "assets/generated/animation/survivor-bubble-float/attack_05.png"
+        }
+      ],
+      "fps": 12,
+      "loop": false,
+      "pathPattern": "assets/generated/animation/survivor-bubble-float/attack_{frame:02}.png",
+      "canvas": {
+        "width": 512,
+        "height": 512
+      },
+      "width": 512,
+      "height": 512,
+      "maxBytes": 360000,
+      "brief": "浮浮吸气鼓起、嘴前泡膜膨胀、向右释放水泡并轻微后仰，末帧回到基础姿态；独立泡泡投射物不画入末段。",
+      "runtimeSize": "68×68逻辑像素"
+    },
+    {
+      "id": "survivor-bubble-float-hurt",
+      "ownerId": "survivor-bubble-float",
+      "state": "hurt",
+      "frameCount": 2,
+      "frames": [
+        {
+          "index": 1,
+          "path": "assets/generated/animation/survivor-bubble-float/hurt_01.png"
+        },
+        {
+          "index": 2,
+          "path": "assets/generated/animation/survivor-bubble-float/hurt_02.png"
+        }
+      ],
+      "fps": 16,
+      "loop": false,
+      "pathPattern": "assets/generated/animation/survivor-bubble-float/hurt_{frame:02}.png",
+      "canvas": {
+        "width": 512,
+        "height": 512
+      },
+      "width": 512,
+      "height": 512,
+      "maxBytes": 360000,
+      "brief": "浮浮受击时主泡罩侧向挤压成椭圆、周围小泡错位，第二帧回弹；泡罩不能破裂消失。",
+      "runtimeSize": "68×68逻辑像素"
+    },
+    {
+      "id": "survivor-moss-sprout-attack",
+      "ownerId": "survivor-moss-sprout",
+      "state": "attack",
+      "frameCount": 5,
+      "frames": [
+        {
+          "index": 1,
+          "path": "assets/generated/animation/survivor-moss-sprout/attack_01.png"
+        },
+        {
+          "index": 2,
+          "path": "assets/generated/animation/survivor-moss-sprout/attack_02.png"
+        },
+        {
+          "index": 3,
+          "path": "assets/generated/animation/survivor-moss-sprout/attack_03.png"
+        },
+        {
+          "index": 4,
+          "path": "assets/generated/animation/survivor-moss-sprout/attack_04.png"
+        },
+        {
+          "index": 5,
+          "path": "assets/generated/animation/survivor-moss-sprout/attack_05.png"
+        }
+      ],
+      "fps": 12,
+      "loop": false,
+      "pathPattern": "assets/generated/animation/survivor-moss-sprout/attack_{frame:02}.png",
+      "canvas": {
+        "width": 512,
+        "height": 512
+      },
+      "width": 512,
+      "height": 512,
+      "maxBytes": 360000,
+      "brief": "芽芽先俯身蓄力，头顶双叶展开，向右抛出一颗绿色胶种，随即柔和回弹；种子飞行体与治愈叶片留给独立特效。",
+      "runtimeSize": "68×68逻辑像素"
+    },
+    {
+      "id": "survivor-moss-sprout-hurt",
+      "ownerId": "survivor-moss-sprout",
+      "state": "hurt",
+      "frameCount": 2,
+      "frames": [
+        {
+          "index": 1,
+          "path": "assets/generated/animation/survivor-moss-sprout/hurt_01.png"
+        },
+        {
+          "index": 2,
+          "path": "assets/generated/animation/survivor-moss-sprout/hurt_02.png"
+        }
+      ],
+      "fps": 16,
+      "loop": false,
+      "pathPattern": "assets/generated/animation/survivor-moss-sprout/hurt_{frame:02}.png",
+      "canvas": {
+        "width": 512,
+        "height": 512
+      },
+      "width": 512,
+      "height": 512,
+      "maxBytes": 360000,
+      "brief": "芽芽身体侧向压扁，双叶合拢保护头部，第二帧恢复七成；保持温和全年龄表情。",
+      "runtimeSize": "68×68逻辑像素"
+    },
+    {
+      "id": "enemy-soft-biter-move",
+      "ownerId": "enemy-soft-biter",
+      "state": "move",
+      "frameCount": 4,
+      "frames": [
+        {
+          "index": 1,
+          "path": "assets/generated/animation/enemy-soft-biter/move_01.png"
+        },
+        {
+          "index": 2,
+          "path": "assets/generated/animation/enemy-soft-biter/move_02.png"
+        },
+        {
+          "index": 3,
+          "path": "assets/generated/animation/enemy-soft-biter/move_03.png"
+        },
+        {
+          "index": 4,
+          "path": "assets/generated/animation/enemy-soft-biter/move_04.png"
+        }
+      ],
+      "fps": 10,
+      "loop": true,
+      "pathPattern": "assets/generated/animation/enemy-soft-biter/move_{frame:02}.png",
+      "canvas": {
+        "width": 512,
+        "height": 512
+      },
+      "width": 512,
+      "height": 512,
+      "maxBytes": 360000,
+      "brief": "软壳虫四帧循环：前腿抬起、身体向左伸长、六足交替落地、软壳回弹；首尾地面锚点完全一致。",
+      "runtimeSize": "62×62逻辑像素"
+    },
+    {
+      "id": "enemy-soft-biter-attack",
+      "ownerId": "enemy-soft-biter",
+      "state": "attack",
+      "frameCount": 4,
+      "frames": [
+        {
+          "index": 1,
+          "path": "assets/generated/animation/enemy-soft-biter/attack_01.png"
+        },
+        {
+          "index": 2,
+          "path": "assets/generated/animation/enemy-soft-biter/attack_02.png"
+        },
+        {
+          "index": 3,
+          "path": "assets/generated/animation/enemy-soft-biter/attack_03.png"
+        },
+        {
+          "index": 4,
+          "path": "assets/generated/animation/enemy-soft-biter/attack_04.png"
+        }
+      ],
+      "fps": 14,
+      "loop": false,
+      "pathPattern": "assets/generated/animation/enemy-soft-biter/attack_{frame:02}.png",
+      "canvas": {
+        "width": 512,
+        "height": 512
+      },
+      "width": 512,
+      "height": 512,
+      "maxBytes": 360000,
+      "brief": "软壳虫向后缩、张开小口，再朝左快速啃咬并弹回；攻击轮廓短促清楚，不画血液或目标。",
+      "runtimeSize": "62×62逻辑像素"
+    },
+    {
+      "id": "enemy-soft-biter-hurt",
+      "ownerId": "enemy-soft-biter",
+      "state": "hurt",
+      "frameCount": 2,
+      "frames": [
+        {
+          "index": 1,
+          "path": "assets/generated/animation/enemy-soft-biter/hurt_01.png"
+        },
+        {
+          "index": 2,
+          "path": "assets/generated/animation/enemy-soft-biter/hurt_02.png"
+        }
+      ],
+      "fps": 16,
+      "loop": false,
+      "pathPattern": "assets/generated/animation/enemy-soft-biter/hurt_{frame:02}.png",
+      "canvas": {
+        "width": 512,
+        "height": 512
+      },
+      "width": 512,
+      "height": 512,
+      "maxBytes": 360000,
+      "brief": "软壳虫被推向右并纵向压扁，腿部蜷起，第二帧局部回弹。",
+      "runtimeSize": "62×62逻辑像素"
+    },
+    {
+      "id": "enemy-soft-biter-death",
+      "ownerId": "enemy-soft-biter",
+      "state": "death",
+      "frameCount": 4,
+      "frames": [
+        {
+          "index": 1,
+          "path": "assets/generated/animation/enemy-soft-biter/death_01.png"
+        },
+        {
+          "index": 2,
+          "path": "assets/generated/animation/enemy-soft-biter/death_02.png"
+        },
+        {
+          "index": 3,
+          "path": "assets/generated/animation/enemy-soft-biter/death_03.png"
+        },
+        {
+          "index": 4,
+          "path": "assets/generated/animation/enemy-soft-biter/death_04.png"
+        }
+      ],
+      "fps": 12,
+      "loop": false,
+      "pathPattern": "assets/generated/animation/enemy-soft-biter/death_{frame:02}.png",
+      "canvas": {
+        "width": 512,
+        "height": 512
+      },
+      "width": 512,
+      "height": 512,
+      "maxBytes": 360000,
+      "brief": "软壳虫腿部依次收起、身体失去支撑并摊成低矮胶团，最后只留一小滩半透明软胶；淡出由程序控制。",
+      "runtimeSize": "62×62逻辑像素"
+    },
+    {
+      "id": "enemy-windcap-move",
+      "ownerId": "enemy-windcap",
+      "state": "move",
+      "frameCount": 4,
+      "frames": [
+        {
+          "index": 1,
+          "path": "assets/generated/animation/enemy-windcap/move_01.png"
+        },
+        {
+          "index": 2,
+          "path": "assets/generated/animation/enemy-windcap/move_02.png"
+        },
+        {
+          "index": 3,
+          "path": "assets/generated/animation/enemy-windcap/move_03.png"
+        },
+        {
+          "index": 4,
+          "path": "assets/generated/animation/enemy-windcap/move_04.png"
+        }
+      ],
+      "fps": 12,
+      "loop": true,
+      "pathPattern": "assets/generated/animation/enemy-windcap/move_{frame:02}.png",
+      "canvas": {
+        "width": 512,
+        "height": 512
+      },
+      "width": 512,
+      "height": 512,
+      "maxBytes": 360000,
+      "brief": "风帽菇四帧轻快循环，菌柄左右弹跳、后掠菌帽随速度滞后摆动，落地帧短暂压扁；首尾锚点一致。",
+      "runtimeSize": "62×62逻辑像素"
+    },
+    {
+      "id": "enemy-windcap-attack",
+      "ownerId": "enemy-windcap",
+      "state": "attack",
+      "frameCount": 4,
+      "frames": [
+        {
+          "index": 1,
+          "path": "assets/generated/animation/enemy-windcap/attack_01.png"
+        },
+        {
+          "index": 2,
+          "path": "assets/generated/animation/enemy-windcap/attack_02.png"
+        },
+        {
+          "index": 3,
+          "path": "assets/generated/animation/enemy-windcap/attack_03.png"
+        },
+        {
+          "index": 4,
+          "path": "assets/generated/animation/enemy-windcap/attack_04.png"
+        }
+      ],
+      "fps": 14,
+      "loop": false,
+      "pathPattern": "assets/generated/animation/enemy-windcap/attack_{frame:02}.png",
+      "canvas": {
+        "width": 512,
+        "height": 512
+      },
+      "width": 512,
+      "height": 512,
+      "maxBytes": 360000,
+      "brief": "风帽菇先让菌帽向后兜风，再朝左突进撞击，帽缘向前翻卷，最后回弹。",
+      "runtimeSize": "62×62逻辑像素"
+    },
+    {
+      "id": "enemy-windcap-hurt",
+      "ownerId": "enemy-windcap",
+      "state": "hurt",
+      "frameCount": 2,
+      "frames": [
+        {
+          "index": 1,
+          "path": "assets/generated/animation/enemy-windcap/hurt_01.png"
+        },
+        {
+          "index": 2,
+          "path": "assets/generated/animation/enemy-windcap/hurt_02.png"
+        }
+      ],
+      "fps": 16,
+      "loop": false,
+      "pathPattern": "assets/generated/animation/enemy-windcap/hurt_{frame:02}.png",
+      "canvas": {
+        "width": 512,
+        "height": 512
+      },
+      "width": 512,
+      "height": 512,
+      "maxBytes": 360000,
+      "brief": "风帽菇菌柄弯向右侧、菌帽受惯性前倾，第二帧快速摆回。",
+      "runtimeSize": "62×62逻辑像素"
+    },
+    {
+      "id": "enemy-windcap-death",
+      "ownerId": "enemy-windcap",
+      "state": "death",
+      "frameCount": 4,
+      "frames": [
+        {
+          "index": 1,
+          "path": "assets/generated/animation/enemy-windcap/death_01.png"
+        },
+        {
+          "index": 2,
+          "path": "assets/generated/animation/enemy-windcap/death_02.png"
+        },
+        {
+          "index": 3,
+          "path": "assets/generated/animation/enemy-windcap/death_03.png"
+        },
+        {
+          "index": 4,
+          "path": "assets/generated/animation/enemy-windcap/death_04.png"
+        }
+      ],
+      "fps": 12,
+      "loop": false,
+      "pathPattern": "assets/generated/animation/enemy-windcap/death_{frame:02}.png",
+      "canvas": {
+        "width": 512,
+        "height": 512
+      },
+      "width": 512,
+      "height": 512,
+      "maxBytes": 360000,
+      "brief": "风帽菇失去风力后菌帽下塌，细柄缩入帽下，最后化为低矮菌帽与两颗柔和孢子；透明淡出由程序完成。",
+      "runtimeSize": "62×62逻辑像素"
+    },
+    {
+      "id": "enemy-stone-lump-move",
+      "ownerId": "enemy-stone-lump",
+      "state": "move",
+      "frameCount": 4,
+      "frames": [
+        {
+          "index": 1,
+          "path": "assets/generated/animation/enemy-stone-lump/move_01.png"
+        },
+        {
+          "index": 2,
+          "path": "assets/generated/animation/enemy-stone-lump/move_02.png"
+        },
+        {
+          "index": 3,
+          "path": "assets/generated/animation/enemy-stone-lump/move_03.png"
+        },
+        {
+          "index": 4,
+          "path": "assets/generated/animation/enemy-stone-lump/move_04.png"
+        }
+      ],
+      "fps": 8,
+      "loop": true,
+      "pathPattern": "assets/generated/animation/enemy-stone-lump/move_{frame:02}.png",
+      "canvas": {
+        "width": 512,
+        "height": 512
+      },
+      "width": 512,
+      "height": 512,
+      "maxBytes": 380000,
+      "brief": "石壳团四帧沉重循环：重心前移、前侧岩块抬起、整体拖行一小步、落地震动；位移本身由程序完成。",
+      "runtimeSize": "62×62逻辑像素"
+    },
+    {
+      "id": "enemy-stone-lump-attack",
+      "ownerId": "enemy-stone-lump",
+      "state": "attack",
+      "frameCount": 4,
+      "frames": [
+        {
+          "index": 1,
+          "path": "assets/generated/animation/enemy-stone-lump/attack_01.png"
+        },
+        {
+          "index": 2,
+          "path": "assets/generated/animation/enemy-stone-lump/attack_02.png"
+        },
+        {
+          "index": 3,
+          "path": "assets/generated/animation/enemy-stone-lump/attack_03.png"
+        },
+        {
+          "index": 4,
+          "path": "assets/generated/animation/enemy-stone-lump/attack_04.png"
+        }
+      ],
+      "fps": 10,
+      "loop": false,
+      "pathPattern": "assets/generated/animation/enemy-stone-lump/attack_{frame:02}.png",
+      "canvas": {
+        "width": 512,
+        "height": 512
+      },
+      "width": 512,
+      "height": 512,
+      "maxBytes": 380000,
+      "brief": "石壳团向后积蓄重量，抬起前方岩肩，朝左砸落并产生强烈压扁感，最后缓慢复位。",
+      "runtimeSize": "62×62逻辑像素"
+    },
+    {
+      "id": "enemy-stone-lump-hurt",
+      "ownerId": "enemy-stone-lump",
+      "state": "hurt",
+      "frameCount": 2,
+      "frames": [
+        {
+          "index": 1,
+          "path": "assets/generated/animation/enemy-stone-lump/hurt_01.png"
+        },
+        {
+          "index": 2,
+          "path": "assets/generated/animation/enemy-stone-lump/hurt_02.png"
+        }
+      ],
+      "fps": 14,
+      "loop": false,
+      "pathPattern": "assets/generated/animation/enemy-stone-lump/hurt_{frame:02}.png",
+      "canvas": {
+        "width": 512,
+        "height": 512
+      },
+      "width": 512,
+      "height": 512,
+      "maxBytes": 380000,
+      "brief": "石壳团受击时岩块短暂错位、内部胶层向右挤出，第二帧重新嵌合；不要新增不可恢复碎裂。",
+      "runtimeSize": "62×62逻辑像素"
+    },
+    {
+      "id": "enemy-stone-lump-death",
+      "ownerId": "enemy-stone-lump",
+      "state": "death",
+      "frameCount": 4,
+      "frames": [
+        {
+          "index": 1,
+          "path": "assets/generated/animation/enemy-stone-lump/death_01.png"
+        },
+        {
+          "index": 2,
+          "path": "assets/generated/animation/enemy-stone-lump/death_02.png"
+        },
+        {
+          "index": 3,
+          "path": "assets/generated/animation/enemy-stone-lump/death_03.png"
+        },
+        {
+          "index": 4,
+          "path": "assets/generated/animation/enemy-stone-lump/death_04.png"
+        }
+      ],
+      "fps": 10,
+      "loop": false,
+      "pathPattern": "assets/generated/animation/enemy-stone-lump/death_{frame:02}.png",
+      "canvas": {
+        "width": 512,
+        "height": 512
+      },
+      "width": 512,
+      "height": 512,
+      "maxBytes": 380000,
+      "brief": "石壳团核心光熄灭，顶层岩块依次滑落，最后成为几块圆角岩石与少量暗胶；不出现爆炸火焰。",
+      "runtimeSize": "62×62逻辑像素"
+    },
+    {
+      "id": "enemy-acid-shell-king-move",
+      "ownerId": "enemy-acid-shell-king",
+      "state": "move",
+      "frameCount": 4,
+      "frames": [
+        {
+          "index": 1,
+          "path": "assets/generated/animation/enemy-acid-shell-king/move_01.png"
+        },
+        {
+          "index": 2,
+          "path": "assets/generated/animation/enemy-acid-shell-king/move_02.png"
+        },
+        {
+          "index": 3,
+          "path": "assets/generated/animation/enemy-acid-shell-king/move_03.png"
+        },
+        {
+          "index": 4,
+          "path": "assets/generated/animation/enemy-acid-shell-king/move_04.png"
+        }
+      ],
+      "fps": 7,
+      "loop": true,
+      "pathPattern": "assets/generated/animation/enemy-acid-shell-king/move_{frame:02}.png",
+      "canvas": {
+        "width": 768,
+        "height": 768
+      },
+      "width": 768,
+      "height": 768,
+      "maxBytes": 720000,
+      "brief": "酸壳蜗王四帧缓慢蠕动，腹足波从后向前传递，巨大酸壳略有滞后摇摆，王冠轻弹；首尾地面锚点一致。",
+      "runtimeSize": "100×100逻辑像素"
+    },
+    {
+      "id": "enemy-acid-shell-king-attack",
+      "ownerId": "enemy-acid-shell-king",
+      "state": "attack",
+      "frameCount": 6,
+      "frames": [
+        {
+          "index": 1,
+          "path": "assets/generated/animation/enemy-acid-shell-king/attack_01.png"
+        },
+        {
+          "index": 2,
+          "path": "assets/generated/animation/enemy-acid-shell-king/attack_02.png"
+        },
+        {
+          "index": 3,
+          "path": "assets/generated/animation/enemy-acid-shell-king/attack_03.png"
+        },
+        {
+          "index": 4,
+          "path": "assets/generated/animation/enemy-acid-shell-king/attack_04.png"
+        },
+        {
+          "index": 5,
+          "path": "assets/generated/animation/enemy-acid-shell-king/attack_05.png"
+        },
+        {
+          "index": 6,
+          "path": "assets/generated/animation/enemy-acid-shell-king/attack_06.png"
+        }
+      ],
+      "fps": 10,
+      "loop": false,
+      "pathPattern": "assets/generated/animation/enemy-acid-shell-king/attack_{frame:02}.png",
+      "canvas": {
+        "width": 768,
+        "height": 768
+      },
+      "width": 768,
+      "height": 768,
+      "maxBytes": 720000,
+      "brief": "蜗王标准近战攻击：先缩入壳侧蓄力，再伸长头部朝左重咬或撞击，壳体延迟跟进，随后分两帧恢复。",
+      "runtimeSize": "100×100逻辑像素"
+    },
+    {
+      "id": "enemy-acid-shell-king-hurt",
+      "ownerId": "enemy-acid-shell-king",
+      "state": "hurt",
+      "frameCount": 2,
+      "frames": [
+        {
+          "index": 1,
+          "path": "assets/generated/animation/enemy-acid-shell-king/hurt_01.png"
+        },
+        {
+          "index": 2,
+          "path": "assets/generated/animation/enemy-acid-shell-king/hurt_02.png"
+        }
+      ],
+      "fps": 14,
+      "loop": false,
+      "pathPattern": "assets/generated/animation/enemy-acid-shell-king/hurt_{frame:02}.png",
+      "canvas": {
+        "width": 768,
+        "height": 768
+      },
+      "width": 768,
+      "height": 768,
+      "maxBytes": 720000,
+      "brief": "蜗王受击时头部缩短、腹足横向挤压、酸壳轻摆，第二帧回弹；王冠不脱落。",
+      "runtimeSize": "100×100逻辑像素"
+    },
+    {
+      "id": "enemy-acid-shell-king-death",
+      "ownerId": "enemy-acid-shell-king",
+      "state": "death",
+      "frameCount": 6,
+      "frames": [
+        {
+          "index": 1,
+          "path": "assets/generated/animation/enemy-acid-shell-king/death_01.png"
+        },
+        {
+          "index": 2,
+          "path": "assets/generated/animation/enemy-acid-shell-king/death_02.png"
+        },
+        {
+          "index": 3,
+          "path": "assets/generated/animation/enemy-acid-shell-king/death_03.png"
+        },
+        {
+          "index": 4,
+          "path": "assets/generated/animation/enemy-acid-shell-king/death_04.png"
+        },
+        {
+          "index": 5,
+          "path": "assets/generated/animation/enemy-acid-shell-king/death_05.png"
+        },
+        {
+          "index": 6,
+          "path": "assets/generated/animation/enemy-acid-shell-king/death_06.png"
+        }
+      ],
+      "fps": 9,
+      "loop": false,
+      "pathPattern": "assets/generated/animation/enemy-acid-shell-king/death_{frame:02}.png",
+      "canvas": {
+        "width": 768,
+        "height": 768
+      },
+      "width": 768,
+      "height": 768,
+      "maxBytes": 720000,
+      "brief": "蜗王王冠滑落，酸壳出现柔和裂口，身体逐步摊平并失去光泽，最后保留低矮壳体剪影；避免恶心液体和暴力碎裂。",
+      "runtimeSize": "100×100逻辑像素"
+    },
+    {
+      "id": "enemy-acid-shell-king-charge",
+      "ownerId": "enemy-acid-shell-king",
+      "state": "charge",
+      "frameCount": 6,
+      "frames": [
+        {
+          "index": 1,
+          "path": "assets/generated/animation/enemy-acid-shell-king/charge_01.png"
+        },
+        {
+          "index": 2,
+          "path": "assets/generated/animation/enemy-acid-shell-king/charge_02.png"
+        },
+        {
+          "index": 3,
+          "path": "assets/generated/animation/enemy-acid-shell-king/charge_03.png"
+        },
+        {
+          "index": 4,
+          "path": "assets/generated/animation/enemy-acid-shell-king/charge_04.png"
+        },
+        {
+          "index": 5,
+          "path": "assets/generated/animation/enemy-acid-shell-king/charge_05.png"
+        },
+        {
+          "index": 6,
+          "path": "assets/generated/animation/enemy-acid-shell-king/charge_06.png"
+        }
+      ],
+      "fps": 8,
+      "loop": false,
+      "pathPattern": "assets/generated/animation/enemy-acid-shell-king/charge_{frame:02}.png",
+      "canvas": {
+        "width": 768,
+        "height": 768
+      },
+      "width": 768,
+      "height": 768,
+      "maxBytes": 720000,
+      "brief": "蜗王喷酸蓄力，头部逐步抬起，壳内黄绿酸光由弱到强，嘴部酸泡变大；第六帧为可长时间保持的满蓄力姿态，不把酸弹画进角色帧。",
+      "runtimeSize": "100×100逻辑像素"
+    },
+    {
+      "id": "building-mushroom-home-active",
+      "ownerId": "building-mushroom-home",
+      "state": "active",
+      "frameCount": 4,
+      "frames": [
+        {
+          "index": 1,
+          "path": "assets/generated/animation/building-mushroom-home/active_01.png"
+        },
+        {
+          "index": 2,
+          "path": "assets/generated/animation/building-mushroom-home/active_02.png"
+        },
+        {
+          "index": 3,
+          "path": "assets/generated/animation/building-mushroom-home/active_03.png"
+        },
+        {
+          "index": 4,
+          "path": "assets/generated/animation/building-mushroom-home/active_04.png"
+        }
+      ],
+      "fps": 10,
+      "loop": false,
+      "pathPattern": "assets/generated/animation/building-mushroom-home/active_{frame:02}.png",
+      "canvas": {
+        "width": 512,
+        "height": 512
+      },
+      "width": 512,
+      "height": 512,
+      "maxBytes": 420000,
+      "brief": "蘑菇小屋在波次开始时菌帽轻压，门窗同时亮起，一层蘑菇形水蓝护盾从屋顶向外展开；最后回到稳定亮灯状态。",
+      "runtimeSize": "1×1地块内88×88逻辑像素"
+    },
+    {
+      "id": "building-honey-plot-active",
+      "ownerId": "building-honey-plot",
+      "state": "active",
+      "frameCount": 4,
+      "frames": [
+        {
+          "index": 1,
+          "path": "assets/generated/animation/building-honey-plot/active_01.png"
+        },
+        {
+          "index": 2,
+          "path": "assets/generated/animation/building-honey-plot/active_02.png"
+        },
+        {
+          "index": 3,
+          "path": "assets/generated/animation/building-honey-plot/active_03.png"
+        },
+        {
+          "index": 4,
+          "path": "assets/generated/animation/building-honey-plot/active_04.png"
+        }
+      ],
+      "fps": 6,
+      "loop": true,
+      "pathPattern": "assets/generated/animation/building-honey-plot/active_{frame:02}.png",
+      "canvas": {
+        "width": 768,
+        "height": 512
+      },
+      "width": 768,
+      "height": 512,
+      "maxBytes": 520000,
+      "brief": "蜜胶菜圃四帧低频循环，三行蜂蜜表面高光缓慢流动、嫩芽交替轻摆；轮廓与地面锚点绝不移动。",
+      "runtimeSize": "2×1地块内104×88逻辑像素"
+    },
+    {
+      "id": "building-bubble-tower-active",
+      "ownerId": "building-bubble-tower",
+      "state": "active",
+      "frameCount": 5,
+      "frames": [
+        {
+          "index": 1,
+          "path": "assets/generated/animation/building-bubble-tower/active_01.png"
+        },
+        {
+          "index": 2,
+          "path": "assets/generated/animation/building-bubble-tower/active_02.png"
+        },
+        {
+          "index": 3,
+          "path": "assets/generated/animation/building-bubble-tower/active_03.png"
+        },
+        {
+          "index": 4,
+          "path": "assets/generated/animation/building-bubble-tower/active_04.png"
+        },
+        {
+          "index": 5,
+          "path": "assets/generated/animation/building-bubble-tower/active_05.png"
+        }
+      ],
+      "fps": 12,
+      "loop": false,
+      "pathPattern": "assets/generated/animation/building-bubble-tower/active_{frame:02}.png",
+      "canvas": {
+        "width": 512,
+        "height": 512
+      },
+      "width": 512,
+      "height": 512,
+      "maxBytes": 420000,
+      "brief": "泡泡水塔罐体先压缩、内部水位上顶，右侧喷口吐出泡膜并产生后坐，随后支架回弹；飞行泡泡不保留在末帧。",
+      "runtimeSize": "1×1地块内88×88逻辑像素"
+    },
+    {
+      "id": "building-bouncy-fence-active",
+      "ownerId": "building-bouncy-fence",
+      "state": "active",
+      "frameCount": 4,
+      "frames": [
+        {
+          "index": 1,
+          "path": "assets/generated/animation/building-bouncy-fence/active_01.png"
+        },
+        {
+          "index": 2,
+          "path": "assets/generated/animation/building-bouncy-fence/active_02.png"
+        },
+        {
+          "index": 3,
+          "path": "assets/generated/animation/building-bouncy-fence/active_03.png"
+        },
+        {
+          "index": 4,
+          "path": "assets/generated/animation/building-bouncy-fence/active_04.png"
+        }
+      ],
+      "fps": 14,
+      "loop": false,
+      "pathPattern": "assets/generated/animation/building-bouncy-fence/active_{frame:02}.png",
+      "canvas": {
+        "width": 768,
+        "height": 512
+      },
+      "width": 768,
+      "height": 512,
+      "maxBytes": 480000,
+      "brief": "蹦蹦围栏被向左压弯、胶条蓄力，再猛烈朝右回弹并过冲，最后恢复直立；木桩只小幅摇晃。",
+      "runtimeSize": "2×1地块内104×88逻辑像素"
+    },
+    {
+      "id": "building-weather-scout-active",
+      "ownerId": "building-weather-scout",
+      "state": "active",
+      "frameCount": 5,
+      "frames": [
+        {
+          "index": 1,
+          "path": "assets/generated/animation/building-weather-scout/active_01.png"
+        },
+        {
+          "index": 2,
+          "path": "assets/generated/animation/building-weather-scout/active_02.png"
+        },
+        {
+          "index": 3,
+          "path": "assets/generated/animation/building-weather-scout/active_03.png"
+        },
+        {
+          "index": 4,
+          "path": "assets/generated/animation/building-weather-scout/active_04.png"
+        },
+        {
+          "index": 5,
+          "path": "assets/generated/animation/building-weather-scout/active_05.png"
+        }
+      ],
+      "fps": 6,
+      "loop": true,
+      "pathPattern": "assets/generated/animation/building-weather-scout/active_{frame:02}.png",
+      "canvas": {
+        "width": 512,
+        "height": 512
+      },
+      "width": 512,
+      "height": 512,
+      "maxBytes": 420000,
+      "brief": "气象台五帧扫描循环，观测盘从左到右缓慢摆动，紫晶枢轴明暗变化，小风旗保持轻微滞后；底座完全静止。",
+      "runtimeSize": "1×1地块内88×88逻辑像素"
+    },
+    {
+      "id": "town-soft-core-hit",
+      "ownerId": "town-soft-core",
+      "state": "hit",
+      "frameCount": 3,
+      "frames": [
+        {
+          "index": 1,
+          "path": "assets/generated/animation/town-soft-core/hit_01.png"
+        },
+        {
+          "index": 2,
+          "path": "assets/generated/animation/town-soft-core/hit_02.png"
+        },
+        {
+          "index": 3,
+          "path": "assets/generated/animation/town-soft-core/hit_03.png"
+        }
+      ],
+      "fps": 16,
+      "loop": false,
+      "pathPattern": "assets/generated/animation/town-soft-core/hit_{frame:02}.png",
+      "canvas": {
+        "width": 768,
+        "height": 768
+      },
+      "width": 768,
+      "height": 768,
+      "maxBytes": 720000,
+      "brief": "软核受击三帧：核心球压扁并偏向左侧、强烈白光与可叠加裂纹出现、随后回弹到七成；生命阶段裂纹由独立覆盖层控制。",
+      "runtimeSize": "118×118逻辑像素"
+    },
+    {
+      "id": "rift-entry-portal-loop",
+      "ownerId": "rift-entry-portal",
+      "state": "loop",
+      "frameCount": 4,
+      "frames": [
+        {
+          "index": 1,
+          "path": "assets/generated/animation/rift-entry-portal/loop_01.png"
+        },
+        {
+          "index": 2,
+          "path": "assets/generated/animation/rift-entry-portal/loop_02.png"
+        },
+        {
+          "index": 3,
+          "path": "assets/generated/animation/rift-entry-portal/loop_03.png"
+        },
+        {
+          "index": 4,
+          "path": "assets/generated/animation/rift-entry-portal/loop_04.png"
+        }
+      ],
+      "fps": 6,
+      "loop": true,
+      "pathPattern": "assets/generated/animation/rift-entry-portal/loop_{frame:02}.png",
+      "canvas": {
+        "width": 768,
+        "height": 768
+      },
+      "width": 768,
+      "height": 768,
+      "maxBytes": 720000,
+      "brief": "裂隙入口四帧无缝循环，拱门与底部岩块完全静止，内部紫色旋涡每帧旋转四分之一圈，高光亮度轻微呼吸。",
+      "runtimeSize": "138×138逻辑像素"
+    },
+    {
+      "id": "skill-jelly-bounce-world-cast",
+      "ownerId": "skill-jelly-bounce-icon",
+      "state": "world-cast",
+      "frameCount": 4,
+      "frames": [
+        {
+          "index": 1,
+          "path": "assets/generated/animation/skill-jelly-bounce-icon/world-cast_01.png"
+        },
+        {
+          "index": 2,
+          "path": "assets/generated/animation/skill-jelly-bounce-icon/world-cast_02.png"
+        },
+        {
+          "index": 3,
+          "path": "assets/generated/animation/skill-jelly-bounce-icon/world-cast_03.png"
+        },
+        {
+          "index": 4,
+          "path": "assets/generated/animation/skill-jelly-bounce-icon/world-cast_04.png"
+        }
+      ],
+      "fps": 14,
+      "loop": false,
+      "pathPattern": "assets/generated/animation/skill-jelly-bounce-icon/world-cast_{frame:02}.png",
+      "canvas": {
+        "width": 768,
+        "height": 512
+      },
+      "width": 768,
+      "height": 512,
+      "maxBytes": 420000,
+      "brief": "果冻弹射四帧：地面胶体聚拢、第一层弧浪鼓起、三层薄荷水蓝胶浪向右推出、尾部圆滴散开；中心不能带敌人剪影。",
+      "runtimeSize": "目标区域120–230×60–110逻辑像素"
+    },
+    {
+      "id": "skill-honey-line-world-cast",
+      "ownerId": "skill-honey-line-icon",
+      "state": "world-cast",
+      "frameCount": 4,
+      "frames": [
+        {
+          "index": 1,
+          "path": "assets/generated/animation/skill-honey-line-icon/world-cast_01.png"
+        },
+        {
+          "index": 2,
+          "path": "assets/generated/animation/skill-honey-line-icon/world-cast_02.png"
+        },
+        {
+          "index": 3,
+          "path": "assets/generated/animation/skill-honey-line-icon/world-cast_03.png"
+        },
+        {
+          "index": 4,
+          "path": "assets/generated/animation/skill-honey-line-icon/world-cast_04.png"
+        }
+      ],
+      "fps": 12,
+      "loop": false,
+      "pathPattern": "assets/generated/animation/skill-honey-line-icon/world-cast_{frame:02}.png",
+      "canvas": {
+        "width": 768,
+        "height": 256
+      },
+      "width": 768,
+      "height": 256,
+      "maxBytes": 300000,
+      "brief": "蜜胶画线四帧，从起点生成一滴琥珀胶，沿指定方向依次延伸到第二、第三格，最后留下完整拉丝胶线；可整体旋转适配四方向。",
+      "runtimeSize": "跨三个地块234×30逻辑像素"
+    },
+    {
+      "id": "skill-soft-swap-world-cast",
+      "ownerId": "skill-soft-swap-icon",
+      "state": "world-cast",
+      "frameCount": 4,
+      "frames": [
+        {
+          "index": 1,
+          "path": "assets/generated/animation/skill-soft-swap-icon/world-cast_01.png"
+        },
+        {
+          "index": 2,
+          "path": "assets/generated/animation/skill-soft-swap-icon/world-cast_02.png"
+        },
+        {
+          "index": 3,
+          "path": "assets/generated/animation/skill-soft-swap-icon/world-cast_03.png"
+        },
+        {
+          "index": 4,
+          "path": "assets/generated/animation/skill-soft-swap-icon/world-cast_04.png"
+        }
+      ],
+      "fps": 14,
+      "loop": false,
+      "pathPattern": "assets/generated/animation/skill-soft-swap-icon/world-cast_{frame:02}.png",
+      "canvas": {
+        "width": 768,
+        "height": 512
+      },
+      "width": 768,
+      "height": 512,
+      "maxBytes": 420000,
+      "brief": "软体换位四帧，两端圆形落点先亮起，紫蓝与薄荷双弧在中点交叉，第三帧完成互换闪光，第四帧仅留快速消散尾迹；中心不画角色。",
+      "runtimeSize": "两目标之间80–360逻辑像素"
+    },
+    {
+      "id": "skill-sprout-renewal-world-cast",
+      "ownerId": "skill-sprout-renewal-icon",
+      "state": "world-cast",
+      "frameCount": 5,
+      "frames": [
+        {
+          "index": 1,
+          "path": "assets/generated/animation/skill-sprout-renewal-icon/world-cast_01.png"
+        },
+        {
+          "index": 2,
+          "path": "assets/generated/animation/skill-sprout-renewal-icon/world-cast_02.png"
+        },
+        {
+          "index": 3,
+          "path": "assets/generated/animation/skill-sprout-renewal-icon/world-cast_03.png"
+        },
+        {
+          "index": 4,
+          "path": "assets/generated/animation/skill-sprout-renewal-icon/world-cast_04.png"
+        },
+        {
+          "index": 5,
+          "path": "assets/generated/animation/skill-sprout-renewal-icon/world-cast_05.png"
+        }
+      ],
+      "fps": 12,
+      "loop": false,
+      "pathPattern": "assets/generated/animation/skill-sprout-renewal-icon/world-cast_{frame:02}.png",
+      "canvas": {
+        "width": 512,
+        "height": 512
+      },
+      "width": 512,
+      "height": 512,
+      "maxBytes": 320000,
+      "brief": "苔芽回春五帧，地面嫩芽破土、绿色圆环上升、六片叶子旋转展开、奶油星光达到峰值，最后只留两片缓慢飘落叶。",
+      "runtimeSize": "目标周围72–120逻辑像素"
+    },
+    {
+      "id": "effect-particle-impact-spark-burst",
+      "ownerId": "effect-particle-impact-spark",
+      "state": "burst",
+      "frameCount": 4,
+      "frames": [
+        {
+          "index": 1,
+          "path": "assets/generated/animation/effect-particle-impact-spark/burst_01.png"
+        },
+        {
+          "index": 2,
+          "path": "assets/generated/animation/effect-particle-impact-spark/burst_02.png"
+        },
+        {
+          "index": 3,
+          "path": "assets/generated/animation/effect-particle-impact-spark/burst_03.png"
+        },
+        {
+          "index": 4,
+          "path": "assets/generated/animation/effect-particle-impact-spark/burst_04.png"
+        }
+      ],
+      "fps": 16,
+      "loop": false,
+      "pathPattern": "assets/generated/animation/effect-particle-impact-spark/burst_{frame:02}.png",
+      "canvas": {
+        "width": 256,
+        "height": 256
+      },
+      "width": 256,
+      "height": 256,
+      "maxBytes": 100000,
+      "brief": "通用命中星芒四帧，从一点迅速张开四角圆润星光，峰值带小型外环，末帧碎成四颗微光；允许运行时染色。",
+      "runtimeSize": "命中点24–56逻辑像素"
+    },
+    {
+      "id": "effect-spawn-rift-burst-sequence",
+      "ownerId": "effect-spawn-rift-burst",
+      "state": "burst",
+      "frameCount": 4,
+      "frames": [
+        {
+          "index": 1,
+          "path": "assets/generated/animation/effect-spawn-rift-burst/burst_01.png"
+        },
+        {
+          "index": 2,
+          "path": "assets/generated/animation/effect-spawn-rift-burst/burst_02.png"
+        },
+        {
+          "index": 3,
+          "path": "assets/generated/animation/effect-spawn-rift-burst/burst_03.png"
+        },
+        {
+          "index": 4,
+          "path": "assets/generated/animation/effect-spawn-rift-burst/burst_04.png"
+        }
+      ],
+      "fps": 12,
+      "loop": false,
+      "pathPattern": "assets/generated/animation/effect-spawn-rift-burst/burst_{frame:02}.png",
+      "canvas": {
+        "width": 512,
+        "height": 512
+      },
+      "width": 512,
+      "height": 512,
+      "maxBytes": 280000,
+      "brief": "怪物出生四帧，紫色裂隙环张开、八片胶雾向外翻卷、中央闪暗、胶雾快速变薄；中心始终留给怪物。",
+      "runtimeSize": "入口周围80–150逻辑像素"
+    },
+    {
+      "id": "effect-building-destruction-puff-sequence",
+      "ownerId": "effect-building-destruction-puff",
+      "state": "burst",
+      "frameCount": 5,
+      "frames": [
+        {
+          "index": 1,
+          "path": "assets/generated/animation/effect-building-destruction-puff/burst_01.png"
+        },
+        {
+          "index": 2,
+          "path": "assets/generated/animation/effect-building-destruction-puff/burst_02.png"
+        },
+        {
+          "index": 3,
+          "path": "assets/generated/animation/effect-building-destruction-puff/burst_03.png"
+        },
+        {
+          "index": 4,
+          "path": "assets/generated/animation/effect-building-destruction-puff/burst_04.png"
+        },
+        {
+          "index": 5,
+          "path": "assets/generated/animation/effect-building-destruction-puff/burst_05.png"
+        }
+      ],
+      "fps": 12,
+      "loop": false,
+      "pathPattern": "assets/generated/animation/effect-building-destruction-puff/burst_{frame:02}.png",
+      "canvas": {
+        "width": 512,
+        "height": 512
+      },
+      "width": 512,
+      "height": 512,
+      "maxBytes": 280000,
+      "brief": "建筑击破五帧，暖灰胶尘鼓起、四块圆角碎片弹开、两颗胶滴达到顶点、碎片落下、尘团变薄；不画火焰和黑烟。",
+      "runtimeSize": "建筑周围72–140逻辑像素"
+    },
+    {
+      "id": "effect-shield-dome-break",
+      "ownerId": "effect-shield-dome",
+      "state": "break",
+      "frameCount": 4,
+      "frames": [
+        {
+          "index": 1,
+          "path": "assets/generated/animation/effect-shield-dome/break_01.png"
+        },
+        {
+          "index": 2,
+          "path": "assets/generated/animation/effect-shield-dome/break_02.png"
+        },
+        {
+          "index": 3,
+          "path": "assets/generated/animation/effect-shield-dome/break_03.png"
+        },
+        {
+          "index": 4,
+          "path": "assets/generated/animation/effect-shield-dome/break_04.png"
+        }
+      ],
+      "fps": 16,
+      "loop": false,
+      "pathPattern": "assets/generated/animation/effect-shield-dome/break_{frame:02}.png",
+      "canvas": {
+        "width": 512,
+        "height": 512
+      },
+      "width": 512,
+      "height": 512,
+      "maxBytes": 260000,
+      "brief": "护盾破裂四帧，水蓝护罩由命中点出现星形裂纹，裂纹扩散成六片透明弧片，弧片向外弹开并快速淡去；中心留空。",
+      "runtimeSize": "包围单位或建筑80–130逻辑像素"
+    }
+  ]
+}

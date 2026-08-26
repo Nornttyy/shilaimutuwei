@@ -1,0 +1,13 @@
+{
+  "name": "slime-haven-defense-prototype",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "serve": "python3 -m http.server 8080",
+    "build": "node scripts/build-pages.mjs",
+    "test": "node --test tests/core.test.js tests/game.test.js tests/animation.test.js",
+    "test:assets": "node --test tests/assets.test.js",
+    "check": "node --check src/main.js && node --check src/game.js && node --check src/core.js && node --check src/catalog.js && node --check src/assets.js && node --check src/draw.js && node --check src/animation/controller.js && node --check src/animation/clips.js && node --check src/animation/rigs.js"
+  }
+}

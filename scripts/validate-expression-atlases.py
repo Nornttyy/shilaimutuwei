@@ -353,7 +353,10 @@ def validate() -> dict[str, int]:
         mouth = _part(rig, "mouth")
         normal_eyes = _source_crop(eyes)
         normal_mouth = _source_crop(mouth)
-        expected_path = f"assets/generated-v2/rig/{owner}/expressions-v2.png"
+        expression_name = (
+            "expressions-v3.png" if owner == "survivor-shell-shell" else "expressions-v2.png"
+        )
+        expected_path = f"assets/generated-v2/rig/{owner}/{expression_name}"
         expression_paths: set[str] = set()
         all_rects: list[tuple[str, Box]] = []
         variant_images: dict[str, dict[str, Image.Image]] = {"eyes": {}, "mouth": {}}

@@ -29,6 +29,7 @@ DEFAULT_MANIFEST = ROOT / "assets" / "rig-parts.json"
 ALLOWED_ATLAS = re.compile(r"^assets/generated-v2/rig/[^/]+/atlas\.png$")
 ALLOWED_VERSIONED_ATLASES = frozenset(
     {
+        "assets/generated-v2/rig/survivor-shell-shell/atlas-layered-v3.png",
         "assets/generated-v2/rig/survivor-bubble-float/atlas-layered-v2.png",
         "assets/generated-v2/rig/enemy-acid-shell-king/atlas-layered-v2.png",
         "assets/generated-v2/rig/enemy-windcap/atlas-layered-v2.png",
@@ -51,7 +52,7 @@ ROLE_PROFILES = {
         "attack_depths": (0.10, 0.10),
         "attack_focus": 0.045,
         "hurt_depths": (0.17, 0.17),
-        "open_mouth": (0.82, 1.18, 0.0, 1.0, False),
+        "open_mouth": (0.82, 0.96, 0.0, 0.0, False),
         "hurt_mouth": (0.84, 0.76, 0.0, 2.0, True),
     },
     "survivor-crystal-pin": {
@@ -552,7 +553,10 @@ def _generate_rig(owner: str, rig: dict) -> Path:
     normal_mouth = _source_crop(_part(rig, "mouth"))
     atlas = generate_expression_sheet(owner, normal_eyes, normal_mouth)
 
-    output = ROOT / "assets" / "generated-v2" / "rig" / owner / "expressions-v2.png"
+    expression_name = (
+        "expressions-v3.png" if owner == "survivor-shell-shell" else "expressions-v2.png"
+    )
+    output = ROOT / "assets" / "generated-v2" / "rig" / owner / expression_name
     output.parent.mkdir(parents=True, exist_ok=True)
     atlas.save(output, format="PNG", optimize=True)
     return output

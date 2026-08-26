@@ -27,6 +27,11 @@ function sha256(buffer) {
   return createHash('sha256').update(buffer).digest('hex');
 }
 
+function expectedExpressionPath(ownerId) {
+  const version = ownerId === 'survivor-shell-shell' ? 3 : 2;
+  return `assets/generated-v2/rig/${ownerId}/expressions-v${version}.png`;
+}
+
 function rectanglesOverlap(a, b) {
   return (
     Math.max(a.x, b.x) < Math.min(a.x + a.width, b.x + b.width)
@@ -111,7 +116,7 @@ test('all current atlas sourceRects export to deterministic standalone RGBA PNGs
   const parts = rigs.flatMap(([, rig]) => rig.parts);
   const expressions = rigs.flatMap(([, rig]) => rig.expressions);
   assert.equal(rigs.length, 8);
-  assert.equal(parts.length, 52);
+  assert.equal(parts.length, 51);
   assert.equal(expressions.length, 56);
 
   const expectedFiles = [
@@ -119,7 +124,7 @@ test('all current atlas sourceRects export to deterministic standalone RGBA PNGs
     ...parts.map(({ output }) => output),
     ...expressions.map(({ output }) => output),
   ].sort();
-  assert.equal(expectedFiles.length, 109, '108 transparent PNGs plus index.json');
+  assert.equal(expectedFiles.length, 108, '107 transparent PNGs plus index.json');
   assert.deepEqual(await listRelativeFiles(temporaryOutput), expectedFiles);
   assert.deepEqual(await listRelativeFiles(DEFAULT_OUTPUT_ROOT), expectedFiles);
 
@@ -137,7 +142,7 @@ test('all current atlas sourceRects export to deterministic standalone RGBA PNGs
       assert.equal(sha256(decoded.pixels), layer.pixelSha256);
       assert.match(
         layer.sourcePath,
-        /^assets\/generated-v2\/rig\/[^/]+\/(?:atlas(?:-layered-v2)?|expressions-v2)\.png$/,
+        /^assets\/generated-v2\/rig\/[^/]+\/(?:atlas(?:-layered-v[23])?|expressions-v[23])\.png$/,
       );
       assert.ok(layer.visiblePixels > 0, 'layer must contain visible alpha');
       assert.ok(layer.transparentPixels > 0, 'layer must retain a transparent background');
@@ -187,7 +192,7 @@ test('each character exposes seven real expression PNGs including normal', async
         for (const record of records.filter(({ variant }) => variant !== 'normal')) {
           assert.equal(
             record.sourcePath,
-            `assets/generated-v2/rig/${ownerId}/expressions-v2.png`,
+            expectedExpressionPath(ownerId),
           );
           assert.equal(record.width, base.width);
           assert.equal(record.height, base.height);
@@ -254,7 +259,7 @@ test('body, eyes, and mouth are independent atlas cells and pixel exports', asyn
   }
 });
 
-test('layer export reads only current atlas and expressions-v2 paths', async (t) => {
+test('layer export reads only current versioned atlas and expression paths', async (t) => {
   async function rejectsAtlasPath(ownerId, atlasPath, expected) {
     const temporaryParent = await mkdtemp(path.join(os.tmpdir(), 'slime-rig-layers-'));
     const outputRoot = path.join(temporaryParent, 'rig-parts-exported');
@@ -320,7 +325,7 @@ test('layer export reads only current atlas and expressions-v2 paths', async (t)
 
   await rejectsExpressionPath(
     'assets/generated-v2/rig/survivor-shell-shell/expressions.png',
-    /expected expression path .*expressions-v2\.png/i,
+    /expected expression path .*expressions-v3\.png/i,
   );
   await rejectsExpressionPath(
     'assets/generated-v2/review/survivor-shell-shell/expressions-v2.png',

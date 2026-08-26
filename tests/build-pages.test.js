@@ -68,7 +68,9 @@ test('the project Pages whitelist contains every manifest-declared runtime PNG',
     (rig) => rig.parts.map((part) => part.path),
   ))].sort();
   const expectedBaseAtlases = Object.keys(PROJECT_MANIFEST.rigs).map((ownerId) => (
-    ownerId === 'survivor-bubble-float'
+    ownerId === 'survivor-shell-shell'
+      ? 'assets/generated-v2/rig/survivor-shell-shell/atlas-layered-v3.png'
+      : ownerId === 'survivor-bubble-float'
       ? 'assets/generated-v2/rig/survivor-bubble-float/atlas-layered-v2.png'
       : ownerId === 'enemy-acid-shell-king'
         ? 'assets/generated-v2/rig/enemy-acid-shell-king/atlas-layered-v2.png'
@@ -417,7 +419,7 @@ test('manifest paths must be rig atlases, shared inside one rig but never across
   }
   assert.throws(
     () => collectRigImagePaths(unapprovedVersion),
-    /must reference an atlas\.png below assets\/generated-v2\/rig\//,
+    /atlas path must be .*atlas-layered-v2\.png/i,
   );
 });
 

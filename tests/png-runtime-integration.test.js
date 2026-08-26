@@ -185,7 +185,7 @@ test('draw pipeline forwards expression selection to an independent facial layer
   eyes.variants = {
     blink: {
       name: 'blink',
-      path: `assets/generated-v2/rig/${ownerId}/expressions-v2.png`,
+      path: `assets/generated-v2/rig/${ownerId}/expressions-v3.png`,
       sourceRect: { x: 0, y: 0, width: 72, height: 24 },
       bindRect: eyes.bindRect,
       image: { id: `${ownerId}:eyes:blink` },

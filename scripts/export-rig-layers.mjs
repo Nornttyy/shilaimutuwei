@@ -27,9 +27,13 @@ export const PNG_SIGNATURE = Buffer.from([
 
 const SAFE_ATLAS_PATH = /^assets\/generated-v2\/rig\/[^/]+\/atlas\.png$/;
 const VERSIONED_ATLAS_PATHS = Object.freeze({
+  'survivor-shell-shell': 'assets/generated-v2/rig/survivor-shell-shell/atlas-layered-v3.png',
   'survivor-bubble-float': 'assets/generated-v2/rig/survivor-bubble-float/atlas-layered-v2.png',
   'enemy-acid-shell-king': 'assets/generated-v2/rig/enemy-acid-shell-king/atlas-layered-v2.png',
   'enemy-windcap': 'assets/generated-v2/rig/enemy-windcap/atlas-layered-v2.png',
+});
+const VERSIONED_EXPRESSION_PATHS = Object.freeze({
+  'survivor-shell-shell': 'assets/generated-v2/rig/survivor-shell-shell/expressions-v3.png',
 });
 const FORBIDDEN_IMAGE_PATH_SEGMENT = /(?:^|\/)(?:review|preview|candidates?)(?:\/|$)/i;
 const SAFE_ID = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/;
@@ -263,7 +267,8 @@ function resolveSafeAtlas(projectRoot, assetPath, ownerId) {
 }
 
 function resolveSafeExpressionSheet(projectRoot, assetPath, ownerId) {
-  const expectedPath = `assets/generated-v2/rig/${ownerId}/expressions-v2.png`;
+  const expectedPath = VERSIONED_EXPRESSION_PATHS[ownerId]
+    ?? `assets/generated-v2/rig/${ownerId}/expressions-v2.png`;
   if (typeof assetPath !== 'string' || FORBIDDEN_IMAGE_PATH_SEGMENT.test(assetPath)) {
     throw new Error(`${ownerId}: expression path points to a forbidden preview/review/candidate location`);
   }

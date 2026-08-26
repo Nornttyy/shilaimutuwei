@@ -58,6 +58,8 @@ function expressionBones(layer, eyesPivot, mouthPivot) {
 
 const SURVIVOR_EYES_PIVOT = { x: 0, y: -39 };
 const SURVIVOR_MOUTH_PIVOT = { x: 0, y: -22.5 };
+const SHELL_EYES_PIVOT = { x: 18.5, y: -42.5 };
+const SHELL_MOUTH_PIVOT = { x: 21, y: -31.5 };
 
 export const SHELL_RIG = deepFreeze({
   id: 'shell',
@@ -91,28 +93,28 @@ export const SHELL_RIG = deepFreeze({
     shellAssembly: {
       parent: 'deform',
       children: ['shellBack', 'shellFront'],
-      pivot: { x: -35, y: -39 },
+      pivot: { x: -20, y: -63 },
       layer: -10,
     },
     shellBack: {
       parent: 'shellAssembly',
       children: [],
-      pivot: { x: -35, y: -39 },
+      pivot: { x: -20, y: -63 },
       layer: -10,
     },
     shellFront: {
       parent: 'shellAssembly',
       children: [],
-      pivot: { x: 17, y: -8.5 },
+      pivot: { x: -20, y: -63 },
       layer: 5,
     },
     face: {
       parent: 'deform',
       children: ['eyes', 'mouth'],
-      pivot: { x: 0, y: -33 },
+      pivot: { x: 19, y: -38 },
       layer: 10,
     },
-    ...expressionBones(10, SURVIVOR_EYES_PIVOT, SURVIVOR_MOUTH_PIVOT),
+    ...expressionBones(10, SHELL_EYES_PIVOT, SHELL_MOUTH_PIVOT),
   },
 });
 
@@ -321,17 +323,11 @@ export const BUBBLE_RIG = deepFreeze({
     },
     halo: {
       parent: 'deform',
-      children: ['ringBack', 'ringFront'],
+      children: ['ring'],
       pivot: { x: 0, y: -21 },
       layer: 10,
     },
-    ringBack: {
-      parent: 'halo',
-      children: [],
-      pivot: { x: 0, y: 0 },
-      layer: -5,
-    },
-    ringFront: {
+    ring: {
       parent: 'halo',
       children: [],
       pivot: { x: 0, y: 0 },

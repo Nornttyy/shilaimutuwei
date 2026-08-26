@@ -25,6 +25,7 @@ import {
   canPlaceBuilding as coreCanPlaceBuilding,
   findGridPath,
   findRightToLeftRoute,
+  normalizeRotation,
 } from './core.js';
 import { AnimationController } from './animation/controller.js';
 import { ExpressionMixer } from './animation/expression-mixer.js';
@@ -187,9 +188,21 @@ function roundedHit(point, rect) {
   return point.x >= rect.x && point.x <= rect.x + rect.w && point.y >= rect.y && point.y <= rect.y + rect.h;
 }
 
+function canonicalBuildingRotation(rotation = 0) {
+  try {
+    return (normalizeRotation(Number(rotation) || 0) % 2) * 90;
+  } catch {
+    return 0;
+  }
+}
+
+function nextBuildingRotation(rotation = 0) {
+  return (canonicalBuildingRotation(rotation) + 90) % 180;
+}
+
 function rotatedFootprint(card, rotation = 0) {
-  const turn = Math.abs(rotation / 90) % 2;
-  return turn
+  const turns = canonicalBuildingRotation(rotation) / 90;
+  return turns % 2
     ? { width: card.footprint.height, height: card.footprint.width }
     : { width: card.footprint.width, height: card.footprint.height };
 }
@@ -538,7 +551,13 @@ export class SlimeGame {
       if (Array.isArray(saved.buildings) && saved.buildings.length) {
         this.state.buildings = saved.buildings
           .filter((item) => BUILDING_BY_ID[item.cardId])
-          .map((item) => ({ ...item, uid: uid('building'), destroyed: false, placedAt: -10 }));
+          .map((item) => ({
+            ...item,
+            uid: uid('building'),
+            rotation: canonicalBuildingRotation(item.rotation),
+            destroyed: false,
+            placedAt: -10,
+          }));
       }
       if (Array.isArray(saved.survivors) && saved.survivors.length) {
         this.state.survivors = saved.survivors
@@ -1401,6 +1420,14 @@ export class SlimeGame {
   }
 
   entityCanvasPosition(entity) {
+    const buildingCard = BUILDING_BY_ID[entity?.cardId];
+    if (buildingCard) {
+      const shape = rotatedFootprint(buildingCard, entity.rotation);
+      return {
+        x: BOARD.x + (entity.x + shape.width / 2) * BOARD.cell,
+        y: BOARD.y + (entity.y + shape.height) * BOARD.cell - 15,
+      };
+    }
     return {
       x: BOARD.x + (entity.x + 0.5) * BOARD.cell,
       y: BOARD.y + (entity.y + 0.78) * BOARD.cell,
@@ -2038,15 +2065,12 @@ export class SlimeGame {
         continue;
       }
       const card = BUILDING_BY_ID[building.cardId];
-      const shape = rotatedFootprint(card, building.rotation);
-      const centerX = BOARD.x + (building.x + shape.width / 2) * BOARD.cell;
-      const centerY = BOARD.y + (building.y + shape.height) * BOARD.cell - 15;
+      const { x: centerX, y: centerY } = this.entityCanvasPosition(building);
       const selected = this.selection?.uid === building.uid;
       const placeProgress = clamp((this.time - building.placedAt) / 0.24, 0, 1);
       const scale = building.placedAt > 0 ? easeOutBack(placeProgress) : 1;
       ctx.save();
       ctx.translate(centerX, centerY);
-      if (building.rotation % 180 === 90 && (card.footprint.width !== card.footprint.height)) ctx.rotate(Math.PI / 2);
       ctx.scale(scale, scale);
       drawBuilding(ctx, 0, 0, card.footprint.width > 1 ? 104 : 88, BUILDING_VARIANT[card.id], {
         assetStore: this.assetStore,
@@ -2335,7 +2359,14 @@ export class SlimeGame {
       const building = this.state.buildings.find((item) => item.uid === selection.uid);
       const card = building && BUILDING_BY_ID[building.cardId];
       return Boolean(card)
-        && canPlace(this.state.buildings, card, cell.x, cell.y, building.rotation, building.uid);
+        && canPlace(
+          this.state.buildings,
+          card,
+          cell.x,
+          cell.y,
+          selection.rotation ?? building.rotation,
+          building.uid,
+        );
     }
     if (selection.kind === 'place-survivor' || selection.kind === 'move-survivor') {
       const survivor = selection.uid
@@ -2443,10 +2474,54 @@ export class SlimeGame {
         }),
       );
     };
+    const drawBuildingPlacementPreview = () => {
+      if (!this.hoverCell) return false;
+      let card = null;
+      let rotation = 0;
+      if (selection.kind === 'place-building') {
+        card = BUILDING_BY_ID[selection.cardId];
+        rotation = selection.rotation;
+      } else if (selection.kind === 'move-building') {
+        const building = this.state.buildings.find((item) => item.uid === selection.uid);
+        if (!building) return false;
+        card = BUILDING_BY_ID[building.cardId];
+        rotation = selection.rotation ?? building.rotation;
+      } else {
+        return false;
+      }
+      if (!card) return false;
+      const valid = this.selectionCellIsValid(this.hoverCell);
+      for (const cell of footprintCells(
+        card,
+        this.hoverCell.x,
+        this.hoverCell.y,
+        rotation,
+      )) {
+        if (inBoard(cell.x, cell.y)) drawCellOverlay(cell, valid);
+      }
+      const shape = rotatedFootprint(card, rotation);
+      const centerX = BOARD.x + (this.hoverCell.x + shape.width / 2) * BOARD.cell;
+      const centerY = BOARD.y + (this.hoverCell.y + shape.height) * BOARD.cell - 15;
+      drawBuilding(
+        ctx,
+        centerX,
+        centerY,
+        card.footprint.width > 1 ? 104 : 88,
+        BUILDING_VARIANT[card.id],
+        {
+          assetStore: this.assetStore,
+          time: this.time,
+          ghost: true,
+          valid,
+        },
+      );
+      return true;
+    };
     if (selection.origin) {
       drawCellOverlay(selection.origin, true, 0.56 + Math.sin(this.time * 5) * 0.08);
     }
-    if (this.hoverCell) {
+    const drewBuildingPreview = drawBuildingPlacementPreview();
+    if (this.hoverCell && !drewBuildingPreview) {
       drawCellOverlay(this.hoverCell, this.selectionCellIsValid(this.hoverCell));
     }
     if (selection.kind === 'target-card') {
@@ -2552,6 +2627,13 @@ export class SlimeGame {
     ctx.fillText(this.state.phase === 'between' ? '慢慢整备' : (card ? card.name : '你的果冻庭院'), PANEL.x + 28, PANEL.y + 42);
 
     if (card) {
+      const selectedBuilding = card.type === 'building' && this.selection?.uid
+        ? this.state.buildings.find((item) => item.uid === this.selection.uid)
+        : null;
+      const displayedRotation = this.selection?.kind === 'place-building'
+        || this.selection?.kind === 'move-building'
+        ? this.selection.rotation ?? selectedBuilding?.rotation ?? 0
+        : selectedBuilding?.rotation ?? 0;
       const glyph = this.cardGlyph(card);
       drawRoundedRect(ctx, PANEL.x + 26, PANEL.y + 63, 78, 78, {
         radius: 22, fill: card.color, stroke: PALETTE.inkSoft, lineWidth: 3,
@@ -2564,7 +2646,7 @@ export class SlimeGame {
       ctx.fillStyle = PALETTE.textMuted;
       ctx.font = '700 15px "PingFang SC", sans-serif';
       const meta = card.type === 'building'
-        ? `${rotatedFootprint(card, this.selection?.rotation || 0).width}×${rotatedFootprint(card, this.selection?.rotation || 0).height} · 定形值 ${card.cost}`
+        ? `${rotatedFootprint(card, displayedRotation).width}×${rotatedFootprint(card, displayedRotation).height} · 定形值 ${card.cost}`
         : `驻守单位 · 生命 ${card.hp}`;
       ctx.fillText(meta, PANEL.x + 122, PANEL.y + 84);
       ctx.fillStyle = PALETTE.ink;
@@ -2573,12 +2655,29 @@ export class SlimeGame {
 
       const actionY = PANEL.y + 248;
       if (this.selection.kind === 'inspect-building') {
-        this.drawButton(ctx, 'move-building', { x: PANEL.x + 26, y: actionY, w: 102, h: 48 }, '移动', { secondary: true }, () => {
-          this.selection = { kind: 'move-building', uid: this.selection.uid };
+        const rotatable = card.footprint.width !== card.footprint.height;
+        this.drawButton(ctx, 'move-building', {
+          x: PANEL.x + 26,
+          y: actionY,
+          w: rotatable ? 102 : 158,
+          h: 48,
+        }, '移动', { secondary: true }, () => {
+          this.selection = {
+            kind: 'move-building',
+            uid: this.selection.uid,
+            rotation: selectedBuilding?.rotation ?? 0,
+          };
           this.showToast('选择新的建筑位置');
         });
-        this.drawButton(ctx, 'rotate-building', { x: PANEL.x + 140, y: actionY, w: 102, h: 48 }, '旋转', { secondary: true }, () => this.rotateSelection());
-        this.drawButton(ctx, 'remove-building', { x: PANEL.x + 254, y: actionY, w: 102, h: 48 }, '收回', { danger: true }, () => this.removeSelectedBuilding());
+        if (rotatable) {
+          this.drawButton(ctx, 'rotate-building', { x: PANEL.x + 140, y: actionY, w: 102, h: 48 }, '旋转', { secondary: true }, () => this.rotateSelection());
+        }
+        this.drawButton(ctx, 'remove-building', {
+          x: PANEL.x + (rotatable ? 254 : 198),
+          y: actionY,
+          w: rotatable ? 102 : 158,
+          h: 48,
+        }, '收回', { danger: true }, () => this.removeSelectedBuilding());
       } else if (this.selection.kind === 'inspect-survivor') {
         this.drawButton(ctx, 'move-survivor', { x: PANEL.x + 26, y: actionY, w: 158, h: 48 }, '更换驻守位', { secondary: true }, () => {
           this.selection = { kind: 'move-survivor', uid: this.selection.uid };
@@ -2590,7 +2689,18 @@ export class SlimeGame {
           this.drawButton(ctx, 'rotate-new', { x: PANEL.x + 26, y: actionY, w: 158, h: 48 }, '旋转蓝图', { secondary: true }, () => this.rotateSelection());
         }
         this.drawButton(ctx, 'cancel-place', { x: PANEL.x + 198, y: actionY, w: 158, h: 48 }, '取消放置', { secondary: true }, () => { this.selection = null; });
-      } else if (this.selection.kind === 'place-survivor' || this.selection.kind === 'move-survivor' || this.selection.kind === 'move-building') {
+      } else if (this.selection.kind === 'move-building') {
+        const shape = rotatedFootprint(card, displayedRotation);
+        if (shape.width !== shape.height) {
+          this.drawButton(ctx, 'rotate-move', { x: PANEL.x + 26, y: actionY, w: 158, h: 48 }, '旋转蓝图', { secondary: true }, () => this.rotateSelection());
+        }
+        this.drawButton(ctx, 'cancel-move', {
+          x: PANEL.x + (shape.width !== shape.height ? 198 : 26),
+          y: actionY,
+          w: shape.width !== shape.height ? 158 : 330,
+          h: 48,
+        }, '取消', { secondary: true }, () => { this.selection = null; });
+      } else if (this.selection.kind === 'place-survivor' || this.selection.kind === 'move-survivor') {
         this.drawButton(ctx, 'cancel-move', { x: PANEL.x + 26, y: actionY, w: 330, h: 48 }, '取消', { secondary: true }, () => { this.selection = null; });
       }
     } else {
@@ -3198,22 +3308,23 @@ export class SlimeGame {
     const selection = this.selection;
     if (selection?.kind === 'place-building') {
       const card = BUILDING_BY_ID[selection.cardId];
+      const rotation = canonicalBuildingRotation(selection.rotation);
       if (this.shapingUsed() + card.cost > SHAPING_BUDGET) {
         this.showToast(`定形值不足，还需要 ${card.cost} 点`, 'danger');
         this.audio.play('warning');
         return;
       }
-      if (!canPlace(this.state.buildings, card, cell.x, cell.y, selection.rotation)) {
+      if (!canPlace(this.state.buildings, card, cell.x, cell.y, rotation)) {
         this.showToast('这里放不下，换个位置试试', 'danger');
         return;
       }
       this.state.buildings.push({
         uid: uid('building'), cardId: card.id, x: cell.x, y: cell.y,
-        rotation: selection.rotation, hp: card.hp, maxHp: card.hp,
+        rotation, hp: card.hp, maxHp: card.hp,
         cooldown: 0, shotCount: 0, shield: 0, seed: 0,
         fenceTrigger: 1, destroyed: false, placedAt: this.time,
       });
-      const shape = rotatedFootprint(card, selection.rotation);
+      const shape = rotatedFootprint(card, rotation);
       const effectPosition = {
         x: BOARD.x + (cell.x + shape.width / 2) * BOARD.cell,
         y: BOARD.y + (cell.y + shape.height) * BOARD.cell - 8,
@@ -3246,14 +3357,16 @@ export class SlimeGame {
       const building = this.state.buildings.find((item) => item.uid === selection.uid);
       if (!building) return;
       const card = BUILDING_BY_ID[building.cardId];
-      if (!canPlace(this.state.buildings, card, cell.x, cell.y, building.rotation, building.uid)) {
+      const rotation = canonicalBuildingRotation(selection.rotation ?? building.rotation);
+      if (!canPlace(this.state.buildings, card, cell.x, cell.y, rotation, building.uid)) {
         this.showToast('这个位置会和其他建筑重叠', 'danger');
         return;
       }
       building.x = cell.x;
       building.y = cell.y;
+      building.rotation = rotation;
       building.placedAt = this.time;
-      const shape = rotatedFootprint(card, building.rotation);
+      const shape = rotatedFootprint(card, rotation);
       const position = {
         x: BOARD.x + (cell.x + shape.width / 2) * BOARD.cell,
         y: BOARD.y + (cell.y + shape.height) * BOARD.cell - 8,
@@ -3328,13 +3441,21 @@ export class SlimeGame {
 
   rotateSelection() {
     if (this.selection?.kind === 'place-building') {
-      this.selection.rotation = (this.selection.rotation + 90) % 180;
+      this.selection.rotation = nextBuildingRotation(this.selection.rotation);
+      return;
+    }
+    if (this.selection?.kind === 'move-building') {
+      const building = this.state.buildings.find((item) => item.uid === this.selection.uid);
+      if (!building) return;
+      this.selection.rotation = nextBuildingRotation(
+        this.selection.rotation ?? building.rotation,
+      );
       return;
     }
     if (this.selection?.kind === 'inspect-building') {
       const building = this.state.buildings.find((item) => item.uid === this.selection.uid);
       if (!building) return;
-      const nextRotation = (building.rotation + 90) % 180;
+      const nextRotation = nextBuildingRotation(building.rotation);
       const card = BUILDING_BY_ID[building.cardId];
       if (!canPlace(this.state.buildings, card, building.x, building.y, nextRotation, building.uid)) {
         this.showToast('旋转后会和其他建筑重叠', 'danger');

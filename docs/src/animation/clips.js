@@ -77,8 +77,7 @@ const BUBBLE_BONES = [
   'bubbleSmall',
   'bubbleMedium',
   'halo',
-  'ringBack',
-  'ringFront',
+  'ring',
   'face',
   'eyes',
   'mouth',
@@ -125,13 +124,13 @@ const shellClips = {
         scaleY: [[0, 1], [0.7, 0.985], [1.4, 1]],
       },
       shellAssembly: {
-        rotation: [[0, -0.01], [0.7, 0.015], [1.4, -0.01]],
+        rotation: [[0, -0.006], [0.7, 0.008], [1.4, -0.006]],
       },
       face: {
         y: [[0, 0], [0.7, -0.2], [1.4, 0]],
       },
       shellFront: {
-        rotation: [[0, 0.002], [0.7, -0.003], [1.4, 0.002]],
+        rotation: 0,
       },
     },
   },
@@ -152,13 +151,13 @@ const shellClips = {
         scaleY: [[0, 1], [0.12, 1.03], [0.27, 0.96], [0.46, 1]],
       },
       shellAssembly: {
-        rotation: [[0, 0], [0.12, -0.05], [0.27, 0.04], [0.46, 0]],
+        rotation: [[0, 0], [0.12, -0.022], [0.27, 0.02], [0.46, 0]],
       },
       face: {
         x: [[0, 0], [0.12, -0.2], [0.27, 0.4], [0.46, 0]],
       },
       shellFront: {
-        rotation: [[0, 0], [0.12, -0.006], [0.27, 0.008], [0.46, 0]],
+        rotation: 0,
       },
     },
     events: [{ time: 0.27, name: 'hit' }],
@@ -177,13 +176,13 @@ const shellClips = {
         scaleY: [[0, 1], [0.06, 1.05], [0.14, 0.97], [0.32, 1]],
       },
       shellAssembly: {
-        rotation: [[0, 0], [0.06, -0.05], [0.14, 0.035], [0.32, 0]],
+        rotation: [[0, 0], [0.06, -0.024], [0.14, 0.018], [0.32, 0]],
       },
       face: {
         x: [[0, 0], [0.06, -0.35], [0.14, 0.2], [0.32, 0]],
       },
       shellFront: {
-        rotation: [[0, 0], [0.06, -0.006], [0.14, 0.004], [0.32, 0]],
+        rotation: 0,
       },
     },
     events: [{ time: 0.06, name: 'hurt-flash' }],
@@ -202,14 +201,14 @@ const shellClips = {
         scaleY: [[0, 1], [0.22, 0.97], [0.5, 0.94]],
       },
       shellAssembly: {
-        rotation: [[0, 0], [0.5, -0.06]],
+        rotation: [[0, 0], [0.5, -0.03]],
       },
       face: {
         y: [[0, 0], [0.5, 1]],
         rotation: [[0, 0], [0.5, 0.03]],
       },
       shellFront: {
-        rotation: [[0, 0], [0.5, -0.008]],
+        rotation: 0,
       },
     },
     events: [{ time: 0.5, name: 'downed' }],

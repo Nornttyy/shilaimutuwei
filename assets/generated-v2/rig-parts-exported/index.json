@@ -4,242 +4,242 @@
   "outputRoot": "assets/generated-v2/rig-parts-exported",
   "rigs": {
     "survivor-shell-shell": {
-      "atlas": "assets/generated-v2/rig/survivor-shell-shell/atlas.png",
+      "atlas": "assets/generated-v2/rig/survivor-shell-shell/atlas-layered-v3.png",
       "parts": [
         {
           "id": "shellBack",
           "bone": "shellBack",
           "z": -10,
-          "sourcePath": "assets/generated-v2/rig/survivor-shell-shell/atlas.png",
+          "sourcePath": "assets/generated-v2/rig/survivor-shell-shell/atlas-layered-v3.png",
           "sourceRect": {
-            "x": 32,
-            "y": 269,
-            "width": 205,
-            "height": 205
+            "x": 4,
+            "y": 4,
+            "width": 496,
+            "height": 440
           },
           "output": "survivor-shell-shell/shellBack.png",
-          "width": 205,
-          "height": 205,
-          "visiblePixels": 29000,
-          "transparentPixels": 13025,
-          "translucentPixels": 28507,
-          "pixelSha256": "4610fbe72fd72149e063e20ec7318301296766e05bbbb2787875188f7f809adb",
-          "pngSha256": "8f85aa80b038b8fa88fe03ca3708635c20b36c4c6f88dc17ac50ecf753f0cb0a"
+          "width": 496,
+          "height": 440,
+          "visiblePixels": 166209,
+          "transparentPixels": 52031,
+          "translucentPixels": 4851,
+          "pixelSha256": "8746ecba1b82effe78a2ebd9561a5a97f7f9f342886b04ed5e68bab270566537",
+          "pngSha256": "77f924e9a39c76aac820ffdfafe439aca29b407ad529917a8df2910a06aa20f3"
         },
         {
           "id": "body",
           "bone": "body",
           "z": 0,
-          "sourcePath": "assets/generated-v2/rig/survivor-shell-shell/atlas.png",
+          "sourcePath": "assets/generated-v2/rig/survivor-shell-shell/atlas-layered-v3.png",
           "sourceRect": {
-            "x": 28,
-            "y": 36,
-            "width": 214,
-            "height": 187
+            "x": 508,
+            "y": 4,
+            "width": 408,
+            "height": 280
           },
           "output": "survivor-shell-shell/body.png",
-          "width": 214,
-          "height": 187,
-          "visiblePixels": 29083,
-          "transparentPixels": 10935,
-          "translucentPixels": 28636,
-          "pixelSha256": "e40a6133b0fbd183d7d252526daaba112f63d3a3dd0287f770d3d6a49f487291",
-          "pngSha256": "7906df91a44c5950d5770fadbbdda2d537b245c3a2893aad0ab254b7426e0ca8"
+          "width": 408,
+          "height": 280,
+          "visiblePixels": 76981,
+          "transparentPixels": 37259,
+          "translucentPixels": 3181,
+          "pixelSha256": "83e715d876ea12a21597f40fd1dc2b4b91f6f58c56161e4a8e806733966dbbfc",
+          "pngSha256": "4cd2701fd5d4c64a56abdf71b47c4eef944627858132037508e34efd652249a4"
         },
         {
           "id": "shellFront",
           "bone": "shellFront",
           "z": 5,
-          "sourcePath": "assets/generated-v2/rig/survivor-shell-shell/atlas.png",
+          "sourcePath": "assets/generated-v2/rig/survivor-shell-shell/atlas-layered-v3.png",
           "sourceRect": {
-            "x": 303,
-            "y": 363,
-            "width": 174,
-            "height": 87
+            "x": 508,
+            "y": 292,
+            "width": 320,
+            "height": 256
           },
           "output": "survivor-shell-shell/shellFront.png",
-          "width": 174,
-          "height": 87,
-          "visiblePixels": 6749,
-          "transparentPixels": 8389,
-          "translucentPixels": 6451,
-          "pixelSha256": "b52be30a7deaaa478ff127f96ba9ac7990479aa29c8604f6379f7852ab2b5a4a",
-          "pngSha256": "993dd0b6b7269d285b816c245da6c65096fa4af5f8085740400b71296835f41b"
+          "width": 320,
+          "height": 256,
+          "visiblePixels": 28935,
+          "transparentPixels": 52985,
+          "translucentPixels": 2955,
+          "pixelSha256": "f87f6c1a71de2fdc9e704711f803db2a2e20b97e128369217aeb8373347ebcf8",
+          "pngSha256": "be6374febe3adc0499ce163d420cd936c1cadd6397c30f07c336de0401af8e2e"
         },
         {
           "id": "eyes",
           "bone": "eyes",
           "z": 10,
-          "sourcePath": "assets/generated-v2/rig/survivor-shell-shell/atlas.png",
+          "sourcePath": "assets/generated-v2/rig/survivor-shell-shell/atlas-layered-v3.png",
           "sourceRect": {
-            "x": 339,
-            "y": 97,
-            "width": 118,
-            "height": 59
+            "x": 836,
+            "y": 292,
+            "width": 172,
+            "height": 84
           },
           "output": "survivor-shell-shell/eyes.png",
-          "width": 118,
-          "height": 59,
-          "visiblePixels": 2765,
-          "transparentPixels": 4197,
-          "translucentPixels": 2613,
-          "pixelSha256": "5b6a9954741a9d6682c294e60ce6521dfa0ae2208a854538b5310429982ed670",
-          "pngSha256": "18f7c341b1e45fc258157aad4717d76b7744a9bc29cd97fc16a0cf61056bd797"
+          "width": 172,
+          "height": 84,
+          "visiblePixels": 5628,
+          "transparentPixels": 8820,
+          "translucentPixels": 1245,
+          "pixelSha256": "10a4149880717374312b940e0b2031c2c61e223d1fa45ddbfa829b2ee8b46cba",
+          "pngSha256": "b2b79a497d10d9e5a859654cb23a3c4bb6f0c20766b28621ff1977e376eb6f0c"
         },
         {
           "id": "mouth",
           "bone": "mouth",
           "z": 20,
-          "sourcePath": "assets/generated-v2/rig/survivor-shell-shell/atlas.png",
+          "sourcePath": "assets/generated-v2/rig/survivor-shell-shell/atlas-layered-v3.png",
           "sourceRect": {
-            "x": 599,
-            "y": 113,
-            "width": 61,
-            "height": 50
+            "x": 836,
+            "y": 384,
+            "width": 64,
+            "height": 60
           },
           "output": "survivor-shell-shell/mouth.png",
-          "width": 61,
-          "height": 50,
-          "visiblePixels": 513,
-          "transparentPixels": 2537,
-          "translucentPixels": 460,
-          "pixelSha256": "59bba66427acef76f2a9f149731595a44711ec5a478819e37117751367a0767d",
-          "pngSha256": "c97a7b25a86b8a398904422d59c4a26947cbb4092c8f93bc000e95490cb0b27c"
+          "width": 64,
+          "height": 60,
+          "visiblePixels": 2158,
+          "transparentPixels": 1682,
+          "translucentPixels": 542,
+          "pixelSha256": "db472a85f57ec8eb4fb78e97e21a4de0c7966242b54e25f2e0796f5b92a36079",
+          "pngSha256": "2cec00dbce12784811d9e2fbbf532fb4d15557d19a0654904c8bf1ca83c5ac1e"
         }
       ],
       "expressions": [
         {
           "partId": "eyes",
           "variant": "normal",
-          "sourcePath": "assets/generated-v2/rig/survivor-shell-shell/atlas.png",
+          "sourcePath": "assets/generated-v2/rig/survivor-shell-shell/atlas-layered-v3.png",
           "sourceRect": {
-            "x": 339,
-            "y": 97,
-            "width": 118,
-            "height": 59
+            "x": 836,
+            "y": 292,
+            "width": 172,
+            "height": 84
           },
           "output": "survivor-shell-shell/expressions/eyes--normal.png",
-          "width": 118,
-          "height": 59,
-          "visiblePixels": 2765,
-          "transparentPixels": 4197,
-          "translucentPixels": 2613,
-          "pixelSha256": "5b6a9954741a9d6682c294e60ce6521dfa0ae2208a854538b5310429982ed670",
-          "pngSha256": "18f7c341b1e45fc258157aad4717d76b7744a9bc29cd97fc16a0cf61056bd797"
+          "width": 172,
+          "height": 84,
+          "visiblePixels": 5628,
+          "transparentPixels": 8820,
+          "translucentPixels": 1245,
+          "pixelSha256": "10a4149880717374312b940e0b2031c2c61e223d1fa45ddbfa829b2ee8b46cba",
+          "pngSha256": "b2b79a497d10d9e5a859654cb23a3c4bb6f0c20766b28621ff1977e376eb6f0c"
         },
         {
           "partId": "eyes",
           "variant": "blink",
-          "sourcePath": "assets/generated-v2/rig/survivor-shell-shell/expressions-v2.png",
+          "sourcePath": "assets/generated-v2/rig/survivor-shell-shell/expressions-v3.png",
           "sourceRect": {
             "x": 0,
             "y": 0,
-            "width": 118,
-            "height": 59
+            "width": 172,
+            "height": 84
           },
           "output": "survivor-shell-shell/expressions/eyes--blink.png",
-          "width": 118,
-          "height": 59,
-          "visiblePixels": 476,
-          "transparentPixels": 6486,
-          "translucentPixels": 368,
-          "pixelSha256": "0b2927af454621b4043bcf05890282441a3e137f98276e219e189a4067c7de62",
-          "pngSha256": "e52e395a38b8ef09f2867be7d0fc0c1d8f974d633c63ae2c0e4e5e6c76d4839f"
+          "width": 172,
+          "height": 84,
+          "visiblePixels": 758,
+          "transparentPixels": 13690,
+          "translucentPixels": 585,
+          "pixelSha256": "ef3161363e9517f0bd7eb037d118712188064d0a41f0f03de5893fc98a38cca2",
+          "pngSha256": "1428776993207d5246c0a9c4dba3b6e575c27f5baa7a133c0c4487b12cf1c297"
         },
         {
           "partId": "eyes",
           "variant": "hurt",
-          "sourcePath": "assets/generated-v2/rig/survivor-shell-shell/expressions-v2.png",
+          "sourcePath": "assets/generated-v2/rig/survivor-shell-shell/expressions-v3.png",
           "sourceRect": {
-            "x": 118,
+            "x": 172,
             "y": 0,
-            "width": 118,
-            "height": 59
+            "width": 172,
+            "height": 84
           },
           "output": "survivor-shell-shell/expressions/eyes--hurt.png",
-          "width": 118,
-          "height": 59,
-          "visiblePixels": 2547,
-          "transparentPixels": 4415,
-          "translucentPixels": 2443,
-          "pixelSha256": "d073213394dc5fe1063daefe5fb1d26d9948927d6e056e610ff35dfcdeca524d",
-          "pngSha256": "d87c707735e069b4022030c0fdaa28b976870414c884dc522558a503323467fe"
+          "width": 172,
+          "height": 84,
+          "visiblePixels": 5072,
+          "transparentPixels": 9376,
+          "translucentPixels": 1321,
+          "pixelSha256": "8dde80256740d2587bc8a760c2e292154abb7ef02df74ce601c8601c243f1c57",
+          "pngSha256": "8b1c2cfe28b642bb575e75e1689980e77e7694e768b54de0156b5ed19264481c"
         },
         {
           "partId": "eyes",
           "variant": "attack",
-          "sourcePath": "assets/generated-v2/rig/survivor-shell-shell/expressions-v2.png",
+          "sourcePath": "assets/generated-v2/rig/survivor-shell-shell/expressions-v3.png",
           "sourceRect": {
-            "x": 236,
+            "x": 344,
             "y": 0,
-            "width": 118,
-            "height": 59
+            "width": 172,
+            "height": 84
           },
           "output": "survivor-shell-shell/expressions/eyes--attack.png",
-          "width": 118,
-          "height": 59,
-          "visiblePixels": 2664,
-          "transparentPixels": 4298,
-          "translucentPixels": 2550,
-          "pixelSha256": "b03b976887b7665e9fc8ef12ecf18d3eabdf44e9b8622143488166b14b8db939",
-          "pngSha256": "68cda134fbf36cad72d882cb293ff6b0ba83c21b33f0cc3bcf4038c493524a09"
+          "width": 172,
+          "height": 84,
+          "visiblePixels": 5357,
+          "transparentPixels": 9091,
+          "translucentPixels": 1328,
+          "pixelSha256": "f581ffd65ba8cf6f134fb5fdbe36496c7529568d0b167a3f39d9afc01e976ca4",
+          "pngSha256": "54d13bc69a8bf5664b143de0d0fc862bfdba94e53e4e67db6401ac5c2dc2e142"
         },
         {
           "partId": "mouth",
           "variant": "normal",
-          "sourcePath": "assets/generated-v2/rig/survivor-shell-shell/atlas.png",
+          "sourcePath": "assets/generated-v2/rig/survivor-shell-shell/atlas-layered-v3.png",
           "sourceRect": {
-            "x": 599,
-            "y": 113,
-            "width": 61,
-            "height": 50
+            "x": 836,
+            "y": 384,
+            "width": 64,
+            "height": 60
           },
           "output": "survivor-shell-shell/expressions/mouth--normal.png",
-          "width": 61,
-          "height": 50,
-          "visiblePixels": 513,
-          "transparentPixels": 2537,
-          "translucentPixels": 460,
-          "pixelSha256": "59bba66427acef76f2a9f149731595a44711ec5a478819e37117751367a0767d",
-          "pngSha256": "c97a7b25a86b8a398904422d59c4a26947cbb4092c8f93bc000e95490cb0b27c"
+          "width": 64,
+          "height": 60,
+          "visiblePixels": 2158,
+          "transparentPixels": 1682,
+          "translucentPixels": 542,
+          "pixelSha256": "db472a85f57ec8eb4fb78e97e21a4de0c7966242b54e25f2e0796f5b92a36079",
+          "pngSha256": "2cec00dbce12784811d9e2fbbf532fb4d15557d19a0654904c8bf1ca83c5ac1e"
         },
         {
           "partId": "mouth",
           "variant": "open",
-          "sourcePath": "assets/generated-v2/rig/survivor-shell-shell/expressions-v2.png",
+          "sourcePath": "assets/generated-v2/rig/survivor-shell-shell/expressions-v3.png",
           "sourceRect": {
             "x": 0,
-            "y": 59,
-            "width": 61,
-            "height": 50
+            "y": 84,
+            "width": 64,
+            "height": 60
           },
           "output": "survivor-shell-shell/expressions/mouth--open.png",
-          "width": 61,
-          "height": 50,
-          "visiblePixels": 597,
-          "transparentPixels": 2453,
-          "translucentPixels": 518,
-          "pixelSha256": "94baa20bb5c593159357efff861dbc4663c776330c42dfb3f883122be802ff32",
-          "pngSha256": "d62ec02ec531303683bde0d5299c193fba24e3efb27b1afdfc92ad9133fc2415"
+          "width": 64,
+          "height": 60,
+          "visiblePixels": 1776,
+          "transparentPixels": 2064,
+          "translucentPixels": 558,
+          "pixelSha256": "57f9959b4340ef9ac164efd812d92bbea7d58d85b9a7cb47ff4124cfdb908445",
+          "pngSha256": "ce6cdd1fa194446cdd777ee360b0ef69de6760da8ee37172f13a0e3ceb35e04e"
         },
         {
           "partId": "mouth",
           "variant": "hurt",
-          "sourcePath": "assets/generated-v2/rig/survivor-shell-shell/expressions-v2.png",
+          "sourcePath": "assets/generated-v2/rig/survivor-shell-shell/expressions-v3.png",
           "sourceRect": {
-            "x": 61,
-            "y": 59,
-            "width": 61,
-            "height": 50
+            "x": 64,
+            "y": 84,
+            "width": 64,
+            "height": 60
           },
           "output": "survivor-shell-shell/expressions/mouth--hurt.png",
-          "width": 61,
-          "height": 50,
-          "visiblePixels": 404,
-          "transparentPixels": 2646,
-          "translucentPixels": 341,
-          "pixelSha256": "2bf15810cf3278420509a49294ba08f6404338bbe61bbaecd0bb154c55ab2e25",
-          "pngSha256": "fc2a50b8444d679f262b961e0f759e7d066e716480fec222581e733b00fa2a7d"
+          "width": 64,
+          "height": 60,
+          "visiblePixels": 1452,
+          "transparentPixels": 2388,
+          "translucentPixels": 470,
+          "pixelSha256": "282975dcef3dcc2966b6908943e39fe1eb4b2b1e019acd6875f7508fbc4202be",
+          "pngSha256": "e09138f0cc4f65c82cd9f952c7d8d1bab20abd87c7189a888a9157b351f1b1ce"
         }
       ]
     },
@@ -667,26 +667,6 @@
           "pngSha256": "7946d8133fbb6ecc1d202476aca573b04308fe7685cfc5c4f3d1711524c0d231"
         },
         {
-          "id": "ringBack",
-          "bone": "ringBack",
-          "z": -10,
-          "sourcePath": "assets/generated-v2/rig/survivor-bubble-float/atlas-layered-v2.png",
-          "sourceRect": {
-            "x": 271,
-            "y": 320,
-            "width": 215,
-            "height": 93
-          },
-          "output": "survivor-bubble-float/ringBack.png",
-          "width": 215,
-          "height": 93,
-          "visiblePixels": 5351,
-          "transparentPixels": 14644,
-          "translucentPixels": 4948,
-          "pixelSha256": "ff047b3c3de6722c4936c3eb92700f7348c986846daed915d60ad7edae8465d1",
-          "pngSha256": "95bd5da22e51a413bfb7abc330b1a4206885f230db650c0f1b368a32dcc0d9e9"
-        },
-        {
           "id": "body",
           "bone": "body",
           "z": 0,
@@ -747,8 +727,8 @@
           "pngSha256": "ac5f695c60ea1903d1927ae11d567af7196d1c062621e94ea74e6fa67056c640"
         },
         {
-          "id": "ringFront",
-          "bone": "ringFront",
+          "id": "ring",
+          "bone": "ring",
           "z": 30,
           "sourcePath": "assets/generated-v2/rig/survivor-bubble-float/atlas-layered-v2.png",
           "sourceRect": {
@@ -757,7 +737,7 @@
             "width": 214,
             "height": 93
           },
-          "output": "survivor-bubble-float/ringFront.png",
+          "output": "survivor-bubble-float/ring.png",
           "width": 214,
           "height": 93,
           "visiblePixels": 4861,

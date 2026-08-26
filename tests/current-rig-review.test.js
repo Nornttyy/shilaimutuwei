@@ -39,7 +39,7 @@ const ACTION_EXPRESSIONS = Object.freeze({
   hurt: 'hurt',
   downed: 'hurt',
   death: 'hurt',
-  charge: 'normal',
+  charge: 'attack',
 });
 
 const ACTION_VARIANTS = Object.freeze({
@@ -50,7 +50,7 @@ const ACTION_VARIANTS = Object.freeze({
   hurt: ['eyes:hurt', 'mouth:hurt'],
   downed: ['eyes:hurt', 'mouth:hurt'],
   death: ['eyes:hurt', 'mouth:hurt'],
-  charge: [],
+  charge: ['eyes:attack', 'mouth:open'],
 });
 
 function sha256(bytes) {

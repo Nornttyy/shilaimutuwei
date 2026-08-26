@@ -610,9 +610,14 @@ test('alignment audit anchors and foreground layers stay calibrated', () => {
   const part = (ownerId, partId) => MANIFEST.rigs[ownerId].parts.find(({ id }) => id === partId);
 
   assert.deepEqual(part('survivor-shell-shell', 'shellBack').bindRect, {
-    x: -68, y: -72, width: 68, height: 68,
+    x: -91, y: -120, width: 124, height: 110,
   });
-  assert.deepEqual(SHELL_RIG.bones.shellAssembly.pivot, { x: -35, y: -39 });
+  assert.deepEqual(SHELL_RIG.bones.shellAssembly.pivot, { x: -20, y: -63 });
+  assert.deepEqual(SHELL_RIG.bones.shellBack.pivot, { x: -20, y: -63 });
+  assert.deepEqual(SHELL_RIG.bones.shellFront.pivot, { x: -20, y: -63 });
+  assert.deepEqual(SHELL_RIG.bones.face.pivot, { x: 19, y: -38 });
+  assert.deepEqual(SHELL_RIG.bones.eyes.pivot, { x: 18.5, y: -42.5 });
+  assert.deepEqual(SHELL_RIG.bones.mouth.pivot, { x: 21, y: -31.5 });
   assert.equal(part('survivor-shell-shell', 'shellFront').z, 5);
   assert.ok(
     part('survivor-shell-shell', 'shellFront').z
@@ -628,8 +633,7 @@ test('alignment audit anchors and foreground layers stay calibrated', () => {
   assert.deepEqual(part('survivor-bubble-float', 'bubbleSmall').bindRect, {
     x: 3, y: -97, width: 12, height: 12,
   });
-  assert.equal(part('survivor-bubble-float', 'ringBack').bindRect.y, -46);
-  assert.equal(part('survivor-bubble-float', 'ringFront').bindRect.y, -46);
+  assert.equal(part('survivor-bubble-float', 'ring').bindRect.y, -30);
   assert.deepEqual(BUBBLE_RIG.bones.bubbles.pivot, { x: 28, y: -88 });
   assert.deepEqual(BUBBLE_RIG.bones.halo.pivot, { x: 0, y: -21 });
 

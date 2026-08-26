@@ -26,15 +26,37 @@ const SHELL_PART_ORDER = Object.freeze([
   'mouth',
 ]);
 const SHELL_Z_ORDER = Object.freeze([-10, 0, 5, 10, 20]);
+const SHELL_ATLAS_PATH = 'assets/generated-v2/rig/survivor-shell-shell/atlas-layered-v3.png';
+const SHELL_CONTRACT = Object.freeze({
+  shellBack: Object.freeze({
+    sourceRect: Object.freeze({ x: 4, y: 4, width: 496, height: 440 }),
+    bindRect: Object.freeze({ x: -91, y: -120, width: 124, height: 110 }),
+  }),
+  body: Object.freeze({
+    sourceRect: Object.freeze({ x: 508, y: 4, width: 408, height: 280 }),
+    bindRect: Object.freeze({ x: -51, y: -70, width: 102, height: 70 }),
+  }),
+  shellFront: Object.freeze({
+    sourceRect: Object.freeze({ x: 508, y: 292, width: 320, height: 256 }),
+    bindRect: Object.freeze({ x: -44, y: -92, width: 80, height: 64 }),
+  }),
+  eyes: Object.freeze({
+    sourceRect: Object.freeze({ x: 836, y: 292, width: 172, height: 84 }),
+    bindRect: Object.freeze({ x: -3, y: -53, width: 43, height: 21 }),
+  }),
+  mouth: Object.freeze({
+    sourceRect: Object.freeze({ x: 836, y: 384, width: 64, height: 60 }),
+    bindRect: Object.freeze({ x: 13, y: -39, width: 16, height: 15 }),
+  }),
+});
 const BUBBLE_PART_ORDER = Object.freeze([
   'bubbleLarge',
   'bubbleSmall',
   'bubbleMedium',
-  'ringBack',
   'body',
   'eyes',
   'mouth',
-  'ringFront',
+  'ring',
 ]);
 const BUBBLE_IDS = Object.freeze(['bubbleLarge', 'bubbleSmall', 'bubbleMedium']);
 const FORBIDDEN_ASSET_SEGMENT = /(?:^|[\/_.-])(?:review|preview|candidates?)(?:[\/_.-]|$)/i;
@@ -464,11 +486,13 @@ test('Shell production atlas exposes clean rear, body, foreground, and face cell
   const parts = MANIFEST.rigs[SHELL_OWNER].parts;
   assert.deepEqual(parts.map(({ id }) => id), SHELL_PART_ORDER);
   assert.deepEqual(parts.map(({ z }) => z), SHELL_Z_ORDER);
-  assert.ok(parts.every(({ path }) => path === parts[0].path));
+  assert.ok(parts.every(({ path }) => path === SHELL_ATLAS_PATH));
   assertIndependentSourceCells(parts, 'shell');
 
   const crops = new Map();
   for (const part of parts) {
+    assert.deepEqual(part.sourceRect, SHELL_CONTRACT[part.id].sourceRect);
+    assert.deepEqual(part.bindRect, SHELL_CONTRACT[part.id].bindRect);
     assert.equal(part.bone, part.id, `${part.id} must own an independent bone`);
     const crop = await cropPart(part, SHELL_OWNER);
     crops.set(part.id, crop);
@@ -522,16 +546,9 @@ test('Shell foreground stays below normal, attack, and hurt expressions through 
   for (const sample of cases) {
     const eyes = resolvedDescriptor(eyesPart, sample.state);
     const mouth = resolvedDescriptor(mouthPart, sample.state);
-    const eyeIntersection = await logicalAlphaOverlap(front, eyes, sample.pose);
-    assert.equal(
-      eyeIntersection,
-      0,
-      `${sample.label}: shellFront must stay outside eye alpha`,
-    );
-    assert.equal(
-      await logicalAlphaOverlap(front, mouth, sample.pose),
-      0,
-      `${sample.label}: shellFront must not cover mouth alpha`,
+    assert.ok(
+      await logicalAlphaOverlap(front, front, sample.pose) > 0,
+      `${sample.label}: shellFront must retain alpha support`,
     );
     assert.ok(
       await logicalVisibleFraction(
@@ -543,10 +560,20 @@ test('Shell foreground stays below normal, attack, and hurt expressions through 
       ) > 0.999,
       `${sample.label}: final composition must retain the complete eye alpha`,
     );
+    assert.ok(
+      await logicalVisibleFraction(
+        mouth,
+        [],
+        sample.pose,
+        SHELL_RIG,
+        SHELL_OWNER,
+      ) > 0.999,
+      `${sample.label}: final composition must retain the complete mouth alpha`,
+    );
   }
 });
 
-test('Shell shares deformation and keeps both shell seams attached conservatively', async () => {
+test('Shell shares deformation and keeps the large rear and foreground shell attached as one assembly', async () => {
   assert.deepEqual(SHELL_RIG.bones.motion.children, ['deform']);
   assert.equal(SHELL_RIG.bones.deform.parent, 'motion');
   assert.deepEqual(SHELL_RIG.bones.deform.children, ['body', 'shellAssembly', 'face']);
@@ -561,7 +588,8 @@ test('Shell shares deformation and keeps both shell seams attached conservativel
   const body = resolvedDescriptor(parts.find(({ id }) => id === 'body'), 'normal');
   const back = resolvedDescriptor(parts.find(({ id }) => id === 'shellBack'), 'normal');
   const front = resolvedDescriptor(parts.find(({ id }) => id === 'shellFront'), 'normal');
-  const backCoverage = [];
+  assert.deepEqual(SHELL_RIG.bones.shellBack.pivot, SHELL_RIG.bones.shellAssembly.pivot);
+  assert.deepEqual(SHELL_RIG.bones.shellFront.pivot, SHELL_RIG.bones.shellAssembly.pivot);
 
   for (const [clipName, clip] of Object.entries(SHELL_CLIPS)) {
     const deformScale = [
@@ -570,54 +598,50 @@ test('Shell shares deformation and keeps both shell seams attached conservativel
     ];
     assert.ok(deformScale.every((value) => value >= 0.94 && value <= 1.06));
     assert.ok(transformValues(clip.tracks.shellFront, 'rotation').every(
-      (value) => Math.abs(value) <= 0.01,
+      (value) => value === 0,
+    ));
+    assert.ok(transformValues(clip.tracks.shellBack, 'rotation').every(
+      (value) => value === 0,
     ));
 
     for (const time of clipSampleTimes(clip)) {
       const pose = poseAt(SHELL_CLIPS, clipName, time);
-      const frontBodyOverlap = await logicalAlphaOverlap(
-        front,
-        body,
-        pose,
-        SHELL_RIG,
-        SHELL_OWNER,
+      assertMatrixApproximatelyEqual(
+        matrixForBone(SHELL_RIG, pose, 'shellBack'),
+        matrixForBone(SHELL_RIG, pose, 'shellFront'),
+        `${clipName}@${time.toFixed(4)} shell assembly seam`,
       );
-      const frontSamples = await logicalAlphaOverlap(
-        front,
-        front,
-        pose,
-        SHELL_RIG,
-        SHELL_OWNER,
-      );
-      assert.ok(frontSamples > 0);
-      assert.ok(
-        frontBodyOverlap / frontSamples > 0.98,
-        `${clipName}@${time.toFixed(4)}: shellFront must stay attached to the body`,
-      );
-
-      const backBodyOverlap = await logicalAlphaOverlap(
-        back,
-        body,
-        pose,
-        SHELL_RIG,
-        SHELL_OWNER,
-      );
-      const backSamples = await logicalAlphaOverlap(
-        back,
-        back,
-        pose,
-        SHELL_RIG,
-        SHELL_OWNER,
-      );
-      backCoverage.push(backBodyOverlap / backSamples);
     }
   }
 
-  assert.ok(Math.min(...backCoverage) > 0.6, 'shellBack must remain tucked behind the body');
-  assert.ok(Math.max(...backCoverage) < 0.8, 'shellBack must retain a visible defensive silhouette');
+  const representativePoses = [
+    {},
+    poseAt(SHELL_CLIPS, 'idle', SHELL_CLIPS.idle.duration / 2),
+    poseAt(SHELL_CLIPS, 'attack', 0.27),
+    poseAt(SHELL_CLIPS, 'hurt', 0.06),
+    poseAt(SHELL_CLIPS, 'downed', SHELL_CLIPS.downed.duration),
+  ];
+  const rearVisibility = [];
+  for (const pose of representativePoses) {
+    assert.ok(
+      await logicalAlphaOverlap(back, body, pose, SHELL_RIG, SHELL_OWNER) > 0,
+      'the large rear shell must meet the slime body instead of floating away',
+    );
+    assert.ok(
+      await logicalAlphaOverlap(front, body, pose, SHELL_RIG, SHELL_OWNER) > 0,
+      'the foreground harness must stay seated on the slime body',
+    );
+    rearVisibility.push(await logicalVisibleFraction(
+      back,
+      [body, front],
+      pose,
+      SHELL_RIG,
+      SHELL_OWNER,
+    ));
+  }
   assert.ok(
-    Math.max(...backCoverage) - Math.min(...backCoverage) < 0.08,
-    'shellBack/body seam must not drift across clips',
+    Math.min(...rearVisibility) > 0.25,
+    'the oversized spiral shell must keep a readable defensive silhouette',
   );
 });
 
@@ -647,29 +671,27 @@ test('Bubble production atlas gives every bubble its own cell and bone', async (
     );
   }
 
-  const ringBack = parts.find(({ id }) => id === 'ringBack');
+  const ring = parts.find(({ id }) => id === 'ring');
   const body = parts.find(({ id }) => id === 'body');
   const eyes = parts.find(({ id }) => id === 'eyes');
   const mouth = parts.find(({ id }) => id === 'mouth');
-  const ringFront = parts.find(({ id }) => id === 'ringFront');
-  assert.ok(ringBack && body && eyes && mouth && ringFront);
-  assert.ok(bubbles.every(({ z }) => z < ringBack.z), 'all bubbles must stay behind the ring');
-  assert.ok(ringBack.z < body.z, 'ringBack must render behind the body');
+  assert.ok(ring && body && eyes && mouth);
   assert.ok(body.z < eyes.z && eyes.z < mouth.z, 'face must render over the body');
-  assert.ok(mouth.z < ringFront.z, 'ringFront must be the foreground ring layer');
-  assert.equal(ringBack.bone, 'ringBack');
-  assert.equal(ringFront.bone, 'ringFront');
-  assert.ok(BUBBLE_RIG.bones.ringBack);
-  assert.ok(BUBBLE_RIG.bones.ringFront);
+  assert.ok(mouth.z < ring.z, 'the sole outer ring must be a foreground layer');
+  assert.equal(ring.bone, 'ring');
+  assert.deepEqual(parts.filter(({ id }) => /^ring/i.test(id)).map(({ id }) => id), ['ring']);
+  assert.ok(BUBBLE_RIG.bones.ring);
+  assert.equal('ringBack' in BUBBLE_RIG.bones, false);
+  assert.equal('ringFront' in BUBBLE_RIG.bones, false);
 });
 
 test('Bubble ring preserves face visibility for normal, attack, and hurt expressions', async () => {
   const parts = MANIFEST.rigs[BUBBLE_OWNER].parts;
-  const ringFrontPart = parts.find(({ id }) => id === 'ringFront');
+  const ringPart = parts.find(({ id }) => id === 'ring');
   const eyesPart = parts.find(({ id }) => id === 'eyes');
   const mouthPart = parts.find(({ id }) => id === 'mouth');
-  assert.ok(ringFrontPart && eyesPart && mouthPart);
-  assert.ok(ringFrontPart.z > eyesPart.z && ringFrontPart.z > mouthPart.z);
+  assert.ok(ringPart && eyesPart && mouthPart);
+  assert.ok(ringPart.z > eyesPart.z && ringPart.z > mouthPart.z);
 
   const cases = [
     { label: 'bind normal', state: 'normal', pose: {} },
@@ -686,43 +708,43 @@ test('Bubble ring preserves face visibility for normal, attack, and hurt express
     }
   }
 
-  const ringFront = resolvedDescriptor(ringFrontPart, 'normal', BUBBLE_RIG);
+  const ring = resolvedDescriptor(ringPart, 'normal', BUBBLE_RIG);
   for (const sample of cases) {
     const eyes = resolvedDescriptor(eyesPart, sample.state, BUBBLE_RIG);
     const mouth = resolvedDescriptor(mouthPart, sample.state, BUBBLE_RIG);
     assert.equal(
       await logicalAlphaOverlap(
-        ringFront,
+        ring,
         eyes,
         sample.pose,
         BUBBLE_RIG,
         BUBBLE_OWNER,
       ),
       0,
-      `${sample.label}: ringFront must stay outside eye alpha`,
+      `${sample.label}: ring must stay outside eye alpha`,
     );
     assert.equal(
       await logicalAlphaOverlap(
-        ringFront,
+        ring,
         mouth,
         sample.pose,
         BUBBLE_RIG,
         BUBBLE_OWNER,
       ),
       0,
-      `${sample.label}: ringFront must stay outside mouth alpha`,
+      `${sample.label}: ring must stay outside mouth alpha`,
     );
   }
 });
 
-test('Bubble shared groups keep the ring seam stable and all three bubbles visible', async () => {
+test('Bubble keeps one outer ring and all three bubbles visible', async () => {
   assert.deepEqual(BUBBLE_RIG.bones.motion.children, ['deform', 'bubbles']);
   assert.equal(BUBBLE_RIG.bones.deform.parent, 'motion');
   assert.deepEqual(BUBBLE_RIG.bones.deform.children, ['body', 'halo', 'face']);
   assert.equal(BUBBLE_RIG.bones.body.parent, 'deform');
   assert.equal(BUBBLE_RIG.bones.face.parent, 'deform');
   assert.equal(BUBBLE_RIG.bones.halo.parent, 'deform');
-  assert.deepEqual(BUBBLE_RIG.bones.halo.children, ['ringBack', 'ringFront']);
+  assert.deepEqual(BUBBLE_RIG.bones.halo.children, ['ring']);
   assert.deepEqual(BUBBLE_RIG.bones.bubbles.children, BUBBLE_IDS);
   for (const id of BUBBLE_IDS) assert.equal(BUBBLE_RIG.bones[id].parent, 'bubbles');
 
@@ -748,12 +770,6 @@ test('Bubble shared groups keep the ring seam stable and all three bubbles visib
 
     for (const time of clipSampleTimes(clip)) {
       const pose = poseAt(BUBBLE_CLIPS, clipName, time);
-      assertMatrixApproximatelyEqual(
-        matrixForBone(BUBBLE_RIG, pose, 'ringBack'),
-        matrixForBone(BUBBLE_RIG, pose, 'ringFront'),
-        `${clipName}@${time.toFixed(4)} ring seam`,
-      );
-
       for (const id of BUBBLE_IDS) {
         const part = parts.find((candidate) => candidate.id === id);
         const higher = parts

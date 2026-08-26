@@ -24,7 +24,7 @@ export const DOCS_OUTPUT_DIRECTORY = 'docs';
 
 const RIG_IMAGE_PREFIX = 'assets/generated-v2/rig/';
 const RIG_ATLAS_PATTERN =
-  /^assets\/generated-v2\/rig\/[A-Za-z0-9_-]+\/atlas(?:-layered-v2)?\.png$/;
+  /^assets\/generated-v2\/rig\/[A-Za-z0-9_-]+\/atlas(?:-layered-v[23])?\.png$/;
 const RIG_IMAGE_PATTERN =
   /^assets\/generated-v2\/rig\/[A-Za-z0-9_-]+\/[A-Za-z0-9][A-Za-z0-9_.-]*\.png$/;
 const DECLARED_ASSET_PATTERN =
@@ -32,6 +32,8 @@ const DECLARED_ASSET_PATTERN =
 const FORBIDDEN_DERIVATIVE_PATTERN =
   /(?:^|[-_.])(source|alpha|preview|review|legacy|candidates?)(?:[-_.]|$)/i;
 const VERSIONED_ATLAS_PATHS = Object.freeze({
+  'survivor-shell-shell':
+    'assets/generated-v2/rig/survivor-shell-shell/atlas-layered-v3.png',
   'survivor-bubble-float':
     'assets/generated-v2/rig/survivor-bubble-float/atlas-layered-v2.png',
   'enemy-acid-shell-king':

@@ -1,0 +1,174 @@
+{
+  "schemaVersion": 1,
+  "generator": "scripts/build-shell-layered-atlas.py",
+  "ownerId": "survivor-shell-shell",
+  "source": {
+    "path": "assets/generated-v2/rig/survivor-shell-shell/layer-master-v3.png",
+    "width": 1536,
+    "height": 1024,
+    "mode": "RGB",
+    "sha256": "76739c65633479f431a3ccc22c133c7d4a9b348a8c499bc50f2875b1a8897e3b"
+  },
+  "matting": {
+    "seed": "chroma >= 12 OR minimum channel < 232",
+    "connectivity": 4,
+    "exteriorLightMatte": "neutral light pixels flood-filled only from cell boundary",
+    "enclosedHighlightsFilled": true,
+    "background": "generated near-white checker removed deterministically"
+  },
+  "output": {
+    "path": "assets/generated-v2/rig/survivor-shell-shell/atlas-layered-v3.png",
+    "width": 1024,
+    "height": 768,
+    "mode": "RGBA",
+    "sha256": "085ed74797054721f0c06d7af927a7a0779cf4123ece3872118b77e6de144faf"
+  },
+  "layers": {
+    "shellBack": {
+      "cell": {
+        "column": 0,
+        "row": 0
+      },
+      "componentAreas": [
+        134993
+      ],
+      "maskPixels": 134473,
+      "cellBounds": {
+        "x": 43,
+        "y": 46,
+        "width": 408,
+        "height": 408
+      },
+      "cropRect": {
+        "x": 39,
+        "y": 42,
+        "width": 416,
+        "height": 416
+      },
+      "sourceRect": {
+        "x": 4,
+        "y": 4,
+        "width": 496,
+        "height": 440
+      },
+      "transparentPadding": 4
+    },
+    "body": {
+      "cell": {
+        "column": 1,
+        "row": 0
+      },
+      "componentAreas": [
+        87220
+      ],
+      "maskPixels": 86791,
+      "cellBounds": {
+        "x": 46,
+        "y": 193,
+        "width": 400,
+        "height": 299
+      },
+      "cropRect": {
+        "x": 42,
+        "y": 189,
+        "width": 408,
+        "height": 307
+      },
+      "sourceRect": {
+        "x": 508,
+        "y": 4,
+        "width": 408,
+        "height": 280
+      },
+      "transparentPadding": 4
+    },
+    "shellFront": {
+      "cell": {
+        "column": 2,
+        "row": 0
+      },
+      "componentAreas": [
+        27133
+      ],
+      "maskPixels": 26752,
+      "cellBounds": {
+        "x": 18,
+        "y": 165,
+        "width": 323,
+        "height": 220
+      },
+      "cropRect": {
+        "x": 14,
+        "y": 161,
+        "width": 331,
+        "height": 228
+      },
+      "sourceRect": {
+        "x": 508,
+        "y": 292,
+        "width": 320,
+        "height": 256
+      },
+      "transparentPadding": 4
+    },
+    "eyes": {
+      "cell": {
+        "column": 0,
+        "row": 1
+      },
+      "componentAreas": [
+        5596,
+        5025
+      ],
+      "maskPixels": 11497,
+      "cellBounds": {
+        "x": 137,
+        "y": 167,
+        "width": 243,
+        "height": 107
+      },
+      "cropRect": {
+        "x": 133,
+        "y": 163,
+        "width": 251,
+        "height": 115
+      },
+      "sourceRect": {
+        "x": 836,
+        "y": 292,
+        "width": 172,
+        "height": 84
+      },
+      "transparentPadding": 4
+    },
+    "mouth": {
+      "cell": {
+        "column": 1,
+        "row": 1
+      },
+      "componentAreas": [
+        4830
+      ],
+      "maskPixels": 4709,
+      "cellBounds": {
+        "x": 206,
+        "y": 221,
+        "width": 82,
+        "height": 73
+      },
+      "cropRect": {
+        "x": 202,
+        "y": 217,
+        "width": 90,
+        "height": 81
+      },
+      "sourceRect": {
+        "x": 836,
+        "y": 384,
+        "width": 64,
+        "height": 60
+      },
+      "transparentPadding": 4
+    }
+  }
+}

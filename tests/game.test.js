@@ -294,6 +294,107 @@ test('generated card and wide-building art is contained without changing its asp
   assert.ok(worldArtCall[4] <= 115 && worldArtCall[5] <= 115, 'world art stays inside its logical slot');
 });
 
+test('rotated wide buildings keep generated PNG art upright and center world effects on the footprint', () => {
+  const art = { key: 'building-bouncy-fence', naturalWidth: 768, naturalHeight: 512 };
+  const store = createReadyAssetStore(new Map([[art.key, art]]));
+  const recording = createRecordingContext();
+  const rotations = [];
+  const translations = [];
+  recording.ctx.rotate = (angle) => rotations.push(angle);
+  recording.ctx.translate = (x, y) => translations.push([x, y]);
+  const { game } = createHarness({ context: recording.ctx, assetStore: store });
+  const building = {
+    uid: 'rotated-fence',
+    cardId: 'building-bouncy-fence',
+    x: 2,
+    y: 1,
+    rotation: 90,
+    hp: 340,
+    maxHp: 340,
+    placedAt: -10,
+  };
+
+  game.drawBuildings(recording.ctx, [building]);
+
+  assert.deepEqual(game.entityCanvasPosition(building), { x: 393, y: 322 });
+  assert.deepEqual(translations[0], [393, 322]);
+  assert.deepEqual(
+    rotations,
+    [],
+    'a front-facing generated illustration must not be rolled sideways with its grid footprint',
+  );
+  assert.ok(recording.calls.some((call) => call[0] === 'drawImage' && call[1] === art));
+});
+
+test('building placement preview paints every rotated footprint cell and keeps its ghost upright', () => {
+  const validTile = { key: 'tile-placement-valid' };
+  const art = { key: 'building-bouncy-fence', naturalWidth: 768, naturalHeight: 512 };
+  const store = createReadyAssetStore(new Map([
+    [validTile.key, validTile],
+    [art.key, art],
+  ]));
+  const recording = createRecordingContext();
+  const rotations = [];
+  recording.ctx.rotate = (angle) => rotations.push(angle);
+  const { game } = createHarness({ context: recording.ctx, assetStore: store });
+  game.state.phase = 'build';
+  game.state.buildings = [];
+  game.selection = {
+    kind: 'place-building',
+    cardId: 'building-bouncy-fence',
+    rotation: 90,
+  };
+  game.hoverCell = { x: 2, y: 1 };
+
+  game.drawSelectionOverlay(recording.ctx);
+
+  const footprintCalls = recording.calls.filter((call) => (
+    call[0] === 'drawImage' && call[1] === validTile
+  ));
+  assert.deepEqual(
+    footprintCalls.map((call) => ({ x: call[2], y: call[3] })),
+    [{ x: 359, y: 186 }, { x: 359, y: 264 }],
+  );
+  assert.ok(recording.calls.some((call) => call[0] === 'drawImage' && call[1] === art));
+  assert.deepEqual(rotations, []);
+});
+
+test('moving a wide building previews rotation without mutating it, then commits that direction', () => {
+  const recording = createRecordingContext();
+  const texts = [];
+  recording.ctx.fillText = (value, ...args) => texts.push([String(value), ...args]);
+  const { game } = createHarness({ context: recording.ctx });
+  const building = {
+    uid: 'moving-fence',
+    cardId: 'building-bouncy-fence',
+    x: 0,
+    y: 0,
+    rotation: 0,
+    hp: 340,
+    maxHp: 340,
+    placedAt: -10,
+  };
+  game.state.phase = 'build';
+  game.state.buildings = [building];
+  game.selection = { kind: 'move-building', uid: building.uid, rotation: building.rotation };
+
+  game.rotateSelection();
+
+  assert.equal(game.selection.rotation, 90);
+  assert.equal(building.rotation, 0, 'canceling a move must leave the placed direction unchanged');
+  assert.equal(game.selectionCellIsValid({ x: 5, y: 4 }), true);
+  game.drawBuildSide(recording.ctx);
+  assert.ok(texts.some(([text]) => text === '1×2 · 定形值 1'));
+
+  game.handleBuildCellTap({ x: 5, y: 4 });
+
+  assert.deepEqual(
+    { x: building.x, y: building.y, rotation: building.rotation },
+    { x: 5, y: 4, rotation: 90 },
+  );
+  assert.deepEqual(game.selection, { kind: 'inspect-building', uid: building.uid });
+});
+
 test('placement, danger rings, and combat statuses request their dedicated PNG layers', () => {
   const keys = [
     'tile-placement-valid', 'tile-placement-invalid',

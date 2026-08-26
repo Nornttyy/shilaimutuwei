@@ -34,11 +34,10 @@ const EXPECTED_PART_ORDER = Object.freeze({
     'bubbleLarge',
     'bubbleSmall',
     'bubbleMedium',
-    'ringBack',
     'body',
     'eyes',
     'mouth',
-    'ringFront',
+    'ring',
   ],
   'survivor-moss-sprout': [
     'body',
@@ -64,7 +63,7 @@ const EXPECTED_PART_ORDER = Object.freeze({
 });
 
 const EXPECTED_GENERATED_BIND_RECTS = Object.freeze({
-  'survivor-shell-shell.shellFront': { x: -2, y: -18, width: 38, height: 19 },
+  'survivor-shell-shell.shellFront': { x: -44, y: -92, width: 80, height: 64 },
   'survivor-crystal-pin.front': {
     x: -22.38, y: -32.709, width: 28.75, height: 22.75,
   },
@@ -79,6 +78,9 @@ const EXPECTED_GENERATED_BIND_RECTS = Object.freeze({
 });
 
 function expectedAtlasPath(ownerId) {
+  if (ownerId === 'survivor-shell-shell') {
+    return 'assets/generated-v2/rig/survivor-shell-shell/atlas-layered-v3.png';
+  }
   if (ownerId === 'survivor-bubble-float') {
     return 'assets/generated-v2/rig/survivor-bubble-float/atlas-layered-v2.png';
   }
@@ -89,6 +91,11 @@ function expectedAtlasPath(ownerId) {
     return 'assets/generated-v2/rig/enemy-windcap/atlas-layered-v2.png';
   }
   return `assets/generated-v2/rig/${ownerId}/atlas.png`;
+}
+
+function expectedExpressionPath(ownerId) {
+  const version = ownerId === 'survivor-shell-shell' ? 3 : 2;
+  return `assets/generated-v2/rig/${ownerId}/expressions-v${version}.png`;
 }
 
 function sourceRectsOverlap(a, b) {
@@ -111,7 +118,7 @@ function selectRigs(...ownerIds) {
 function shellManifestWithExpressionVariants() {
   const source = selectRigs('survivor-shell-shell');
   const rig = source.rigs['survivor-shell-shell'];
-  const expressionsPath = 'assets/generated-v2/rig/survivor-shell-shell/expressions-v2.png';
+  const expressionsPath = expectedExpressionPath('survivor-shell-shell');
   const eyes = rig.parts.find(({ id }) => id === 'eyes');
   const mouth = rig.parts.find(({ id }) => id === 'mouth');
   eyes.variants = {
@@ -212,10 +219,17 @@ test('rig-parts contract covers all eight characters in canonical draw order', (
       assert.ok(part.sourceRect.y >= 0);
       assert.ok(part.sourceRect.width > 0);
       assert.ok(part.sourceRect.height > 0);
-      assert.ok(part.sourceRect.x + part.sourceRect.width <= 768);
+      assert.ok(
+        part.sourceRect.x + part.sourceRect.width
+          <= (ownerId === 'survivor-shell-shell' ? 1024 : 768),
+      );
       assert.ok(
         part.sourceRect.y + part.sourceRect.height
-          <= (ownerId === 'enemy-acid-shell-king' ? 768 : 512),
+          <= (
+            ownerId === 'enemy-acid-shell-king' || ownerId === 'survivor-shell-shell'
+              ? 768
+              : 512
+          ),
       );
 
       const sourceAspect = part.sourceRect.width / part.sourceRect.height;
@@ -250,7 +264,7 @@ test('rig-parts contract covers all eight characters in canonical draw order', (
     assert.equal(atlasPaths.has(rig.atlasPath), false, `shared rig atlas: ${rig.atlasPath}`);
     atlasPaths.add(rig.atlasPath);
   }
-  assert.equal(partCount, 52);
+  assert.equal(partCount, 51);
   assert.equal(atlasPaths.size, 8);
   for (const ownerId of ['survivor-crystal-pin', 'survivor-moss-sprout']) {
     const metadata = MANIFEST_SOURCE.rigs[ownerId].masterDerived;
@@ -269,13 +283,10 @@ test('rig-parts contract covers all eight characters in canonical draw order', (
   }
   const bubble = manifest.rigs['survivor-bubble-float'];
   assert.deepEqual(
-    bubble.parts.find(({ id }) => id === 'ringBack')?.bindRect,
-    { x: -58, y: -46, width: 116, height: 50 },
+    bubble.parts.find(({ id }) => id === 'ring')?.bindRect,
+    { x: -58, y: -30, width: 116, height: 50 },
   );
-  assert.deepEqual(
-    bubble.parts.find(({ id }) => id === 'ringFront')?.bindRect,
-    { x: -58, y: -46, width: 116, height: 50 },
-  );
+  assert.equal(bubble.parts.some(({ id }) => id === 'ringBack' || id === 'ringFront'), false);
   assert.equal(Object.isFrozen(manifest.rigs['survivor-shell-shell'].parts[0].bindRect), true);
   assert.equal(Object.isFrozen(manifest.rigs['survivor-shell-shell'].parts[0].sourceRect), true);
 });
@@ -331,7 +342,10 @@ test('face stays transform-only and unsafe contracts are rejected', async (t) =>
     for (const part of nonAtlas.rigs['survivor-shell-shell'].parts) {
       part.path = 'assets/generated-v2/rig/survivor-shell-shell/sheet.png';
     }
-    assert.throws(() => validateRigPartManifest(nonAtlas), /atlas path must be .*\/atlas\.png/i);
+    assert.throws(
+      () => validateRigPartManifest(nonAtlas),
+      /atlas path must be .*atlas-layered-v3\.png/i,
+    );
 
     const unapprovedVersion = cloneManifest();
     for (const part of unapprovedVersion.rigs['enemy-acid-shell-king'].parts) {
@@ -485,11 +499,11 @@ test('a complete rig becomes ready once and exposes a renderer-ready bundle', as
       factoryCalls += 1;
       const image = fakeImage();
       imagesByPath.set(url, image);
-      if (url.endsWith('/atlas.png')) {
+      if (url === expectedAtlasPath('survivor-shell-shell')) {
         assert.equal(part.id, 'shellBack', 'the first atlas layer is the decode representative');
       } else {
         assert.equal(part.id, 'eyes:blink', 'the first variant is the expression representative');
-        assert.ok(url.endsWith('/expressions-v2.png'));
+        assert.equal(url, expectedExpressionPath('survivor-shell-shell'));
       }
       return image;
     },
@@ -517,7 +531,7 @@ test('a complete rig becomes ready once and exposes a renderer-ready bundle', as
   assert.equal(bundle.rootBone, 'root');
   assert.equal(bundle.faceBone, 'face');
   assert.equal(bundle.canonicalFacing, 1);
-  assert.equal(bundle.atlasPath, 'assets/generated-v2/rig/survivor-shell-shell/atlas.png');
+  assert.equal(bundle.atlasPath, expectedAtlasPath('survivor-shell-shell'));
   assert.deepEqual(bundle.parts.map(({ id }) => id), EXPECTED_PART_ORDER['survivor-shell-shell']);
   for (const part of bundle.parts) {
     assert.equal(part.image, imagesByPath.get(part.path));
@@ -611,11 +625,11 @@ test('expression sheets and standalone variants preload atomically and attach pe
   assert.deepEqual(factoryCalls, [
     {
       id: 'shellBack',
-      path: 'assets/generated-v2/rig/survivor-shell-shell/atlas.png',
+      path: expectedAtlasPath('survivor-shell-shell'),
     },
     {
       id: 'eyes:blink',
-      path: 'assets/generated-v2/rig/survivor-shell-shell/expressions-v2.png',
+      path: expectedExpressionPath('survivor-shell-shell'),
     },
     {
       id: 'eyes:hurt',
@@ -637,7 +651,7 @@ test('one failed expression sheet keeps the whole rig on vector fallback', async
   const store = createRigAssetStore(shellManifestWithExpressionVariants(), {
     resolvePath: (path) => path,
     imageFactory: (representative, path) => fakeImage({
-      fails: path.endsWith('/expressions-v2.png'),
+      fails: path === expectedExpressionPath('survivor-shell-shell'),
     }),
   });
 
@@ -645,7 +659,7 @@ test('one failed expression sheet keeps the whole rig on vector fallback', async
   assert.equal(status.status, 'fallback');
   assert.equal(status.loaded, 0);
   assert.equal(store.get('survivor-shell-shell'), null);
-  assert.match(status.error.message, /expressions-v2\.png/);
+  assert.match(status.error.message, /expressions-v3\.png/);
 });
 
 test('preload reports readiness per whole rig across all eight contracts', async () => {

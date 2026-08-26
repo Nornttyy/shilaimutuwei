@@ -113,7 +113,7 @@ test('exports matching shell and bug clip/rig definitions', () => {
   );
 
   assert.equal(SHELL_RIG.bones.shellAssembly.parent, 'deform');
-  assert.deepEqual(SHELL_RIG.bones.shellAssembly.pivot, { x: -35, y: -39 });
+  assert.deepEqual(SHELL_RIG.bones.shellAssembly.pivot, { x: -20, y: -63 });
   assert.deepEqual(SHELL_RIG.bones.shellAssembly.children, ['shellBack', 'shellFront']);
   assert.equal(BUG_RIG.bones.antennae.parent, 'motion');
   assert.deepEqual(BUG_RIG.bones.antennae.pivot, { x: 0, y: -60 });
@@ -231,8 +231,7 @@ test('new rigs preserve the renderer hierarchy and bind-pose pivots', () => {
       'bubbleSmall',
       'bubbleMedium',
       'halo',
-      'ringBack',
-      'ringFront',
+      'ring',
       'face',
       'eyes',
       'mouth',
@@ -280,7 +279,11 @@ test('new rigs preserve the renderer hierarchy and bind-pose pivots', () => {
   assert.deepEqual(CRYSTAL_RIG.bones.needleBottom.pivot, { x: -48.525, y: -12.911 });
   assert.deepEqual(CRYSTAL_RIG.bones.needleRight.pivot, { x: 28.728, y: -61.329 });
   assert.deepEqual(CRYSTAL_RIG.bones.front.pivot, { x: -19.6, y: -29.4 });
-  assert.deepEqual(SHELL_RIG.bones.shellFront.pivot, { x: 17, y: -8.5 });
+  assert.deepEqual(SHELL_RIG.bones.shellBack.pivot, { x: -20, y: -63 });
+  assert.deepEqual(SHELL_RIG.bones.shellFront.pivot, { x: -20, y: -63 });
+  assert.deepEqual(SHELL_RIG.bones.face.pivot, { x: 19, y: -38 });
+  assert.deepEqual(SHELL_RIG.bones.eyes.pivot, { x: 18.5, y: -42.5 });
+  assert.deepEqual(SHELL_RIG.bones.mouth.pivot, { x: 21, y: -31.5 });
   assert.deepEqual(BUBBLE_RIG.bones.bubbles.pivot, { x: 28, y: -88 });
   assert.deepEqual(BUBBLE_RIG.bones.halo.pivot, { x: 0, y: -21 });
   assert.deepEqual(BUBBLE_RIG.bones.bubbles.children, [
@@ -294,8 +297,7 @@ test('new rigs preserve the renderer hierarchy and bind-pose pivots', () => {
   assert.equal(BUBBLE_RIG.bones.bubbleLarge.parent, 'bubbles');
   assert.equal(BUBBLE_RIG.bones.bubbleSmall.parent, 'bubbles');
   assert.equal(BUBBLE_RIG.bones.bubbleMedium.parent, 'bubbles');
-  assert.equal(BUBBLE_RIG.bones.ringBack.parent, 'halo');
-  assert.equal(BUBBLE_RIG.bones.ringFront.parent, 'halo');
+  assert.equal(BUBBLE_RIG.bones.ring.parent, 'halo');
   assert.deepEqual(SPROUT_RIG.bones.pack.pivot, { x: 31.7, y: -34.5 });
   assert.deepEqual(SPROUT_RIG.bones.sprout.pivot, { x: 7.5, y: -94.3 });
   assert.deepEqual(SPROUT_RIG.bones.sprout.children, ['leafLeft', 'leafRight', 'stemCollar']);
@@ -395,8 +397,7 @@ test('shell and bubble split layers inherit one coherent deform assembly', () =>
   const bubbleBones = ['bubbleLarge', 'bubbleSmall', 'bubbleMedium'];
   for (const [clipName, clip] of Object.entries(BUBBLE_CLIPS)) {
     assert.deepEqual(clip.tracks.body, { rotation: 0 }, `${clipName}.body`);
-    assert.deepEqual(clip.tracks.ringBack, { rotation: 0 }, `${clipName}.ringBack`);
-    assert.deepEqual(clip.tracks.ringFront, { rotation: 0 }, `${clipName}.ringFront`);
+    assert.deepEqual(clip.tracks.ring, { rotation: 0 }, `${clipName}.ring`);
     assert.ok(
       Array.isArray(clip.tracks.deform.scaleX),
       `${clipName}.deform must own the body, halo, and face squash`,

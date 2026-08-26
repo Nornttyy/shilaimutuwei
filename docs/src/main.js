@@ -7,17 +7,20 @@ const loading = document.querySelector('#loading');
 const game = new SlimeGame(canvas);
 game.start();
 
-// Start rendering immediately. The manifest and all per-character bundles
-// load in the background; each card stays entirely vector-rendered until its
-// complete rig bundle is decoded.
-void createRigAssetStoreFromUrl()
-  .then((store) => {
-    game.setRigAssetStore(store);
-    return store.preload();
-  })
-  .catch(() => {
-    // Missing manifests or images are non-fatal: draw.js keeps the vector art.
-  });
+// Layered atlases stay behind an explicit debug switch until every bind pose
+// and animation pivot has been visually calibrated. The public build keeps the
+// stable vector characters instead of exposing a partially aligned rig.
+const layeredRigDebug = new URLSearchParams(window.location.search).get('rigDebug') === '1';
+if (layeredRigDebug) {
+  void createRigAssetStoreFromUrl()
+    .then((store) => {
+      game.setRigAssetStore(store);
+      return store.preload();
+    })
+    .catch(() => {
+      // Missing manifests or images are non-fatal: draw.js keeps the vector art.
+    });
+}
 
 requestAnimationFrame(() => loading?.classList.add('hidden'));
 

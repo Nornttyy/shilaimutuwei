@@ -2,6 +2,8 @@
 
 一个零依赖横屏玩法原型，支持“自由建造 → 主动开启防守 → 暂停出牌”的核心循环，可直接在浏览器和 GitHub Pages 运行。
 
+在线稳定版：<https://nornttyy.github.io/shilaimutuwei/>
+
 ## 运行
 
 ```bash
@@ -18,7 +20,7 @@ python3 -m http.server 8080
 npm run build:docs
 ```
 
-构建会读取 `assets/rig-parts.json`，并要求清单引用的 8 张角色图集都真实存在且具有 PNG 文件签名。每张图集在运行时继续裁成身体、眼睛、嘴巴及必要的前后配件骨骼层。`docs/` 只会包含 `index.html`、`styles.css`、`src/`、骨骼素材清单，以及该清单精确引用的 `assets/generated-v2/rig/` 图片；预览图、旧素材和未被引用的图片不会进入发布包。缺少任何一张图集时，构建会列出具体路径并保留上一次成功产物。
+构建会读取 `assets/rig-parts.json`，并要求清单引用的 8 张角色主图集和 8 张独立表情图集都真实存在且具有 PNG 文件签名。主图集在运行时裁成身体、眼睛、嘴巴及必要的前后配件骨骼层；眼睛和嘴巴状态则从表情图集独立替换。`docs/` 只会包含 `index.html`、`styles.css`、`src/`、骨骼素材清单，以及该清单精确引用的 16 张运行时 PNG；校对图、候选图、独立导出层、旧素材和未被引用的图片不会进入发布包。缺少任何一张运行时图片时，构建会列出具体路径并保留上一次成功产物。
 
 构建通过后提交 `docs/` 并推送 `main`，再到仓库的 **Settings → Pages**：
 
@@ -44,10 +46,20 @@ npm run build
 
 ## 渲染与动画
 
-- 默认使用 Canvas 2D 矢量绘制，不加载 `assets/generated` 下的 PNG。
-- 只有在 `#game` 上显式设置 `data-raster-assets="enabled"` 才会启用 PNG 预加载。
+- 公开入口默认加载生成的 PNG 分层骨骼素材；只有清单或图片加载失败时，单个角色才会整体回退到 Canvas 2D 矢量绘制。需要诊断旧绘制时可在网址后加 `?rig=vector`。
+- 8 个角色共导出 42 个基础部件和 56 个眼睛/嘴巴状态，位于 `assets/generated-v2/rig-parts-exported/`；运行时仍使用图集合批加载，减少网络请求。
 - 4 名幸存者和 4 类敌人均已接入部件骨骼动画，覆盖待机、移动、攻击、受击、倒地与死亡状态；酸壳蜗王另有可被打断的蓄力状态。
 - 骨骼定义、动作片段和播放器位于 `src/animation/`，视觉控制器不进入存档数据。
+
+重新生成并检查当前分层素材：
+
+```bash
+npm run generate:expressions
+npm run export:rig-layers
+npm run review:rig
+```
+
+动作校对表输出到 `assets/generated-v2/rig-review-current/`，不会进入 Pages 发布包。
 
 ## 第一版内容
 

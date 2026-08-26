@@ -170,10 +170,42 @@ test('slime composites one complete card bundle after the outer size and facing 
   assert.deepEqual(ctx.calls.find(([name]) => name === 'scale'), ['scale', -0.5, 0.5]);
   assert.deepEqual(
     ctx.calls.find(([name]) => name === 'drawImage'),
-    ['drawImage', 'rig-surface', -96, -168, 192, 192],
+    ['drawImage', 'rig-surface', -128, -192, 256, 256],
   );
   assert.equal(ctx.compositeDraws, 1);
   assert.equal(ctx.globalAlpha, 1);
+});
+
+test('draw pipeline forwards expression selection to an independent facial layer', () => {
+  resetOffscreen();
+  const ctx = createMainContext();
+  const ownerId = 'survivor-shell-shell';
+  const bundle = readyBundle(ownerId);
+  const eyes = bundle.parts.find(({ id }) => id === 'eyes');
+  eyes.variants = {
+    blink: {
+      name: 'blink',
+      path: `assets/generated-v2/rig/${ownerId}/expressions-v2.png`,
+      sourceRect: { x: 0, y: 0, width: 72, height: 24 },
+      bindRect: eyes.bindRect,
+      image: { id: `${ownerId}:eyes:blink` },
+    },
+  };
+
+  drawSlime(ctx, 30, 70, 50, 'shell', {
+    animate: false,
+    rigAsset: bundle,
+    expression: 'blink',
+  });
+
+  assert.deepEqual(offscreenState.layerDraws, [
+    `${ownerId}:shell`,
+    `${ownerId}:body`,
+    `${ownerId}:eyes:blink`,
+    `${ownerId}:mouth`,
+    `${ownerId}:front`,
+  ]);
+  assert.equal(ctx.compositeDraws, 1);
 });
 
 test('boss keeps its 1.08 visual scale and mirrors only at the outer transform', () => {

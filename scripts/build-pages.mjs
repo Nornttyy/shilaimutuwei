@@ -22,7 +22,14 @@ export const LOCAL_OUTPUT_DIRECTORY = '_site';
 export const DOCS_OUTPUT_DIRECTORY = 'docs';
 
 const RIG_IMAGE_PREFIX = 'assets/generated-v2/rig/';
-const RIG_ATLAS_PATTERN = /^assets\/generated-v2\/rig\/[A-Za-z0-9_-]+\/atlas\.png$/;
+const RIG_ATLAS_PATTERN =
+  /^assets\/generated-v2\/rig\/[A-Za-z0-9_-]+\/atlas(?:-layered-v2)?\.png$/;
+const RIG_IMAGE_PATTERN =
+  /^assets\/generated-v2\/rig\/[A-Za-z0-9_-]+\/[A-Za-z0-9][A-Za-z0-9_.-]*\.png$/;
+const VERSIONED_ATLAS_PATHS = Object.freeze({
+  'enemy-acid-shell-king':
+    'assets/generated-v2/rig/enemy-acid-shell-king/atlas-layered-v2.png',
+});
 const IMAGE_PATTERN = /\.(?:avif|gif|jpe?g|png|webp)$/i;
 const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 
@@ -39,7 +46,7 @@ export function collectRigImagePaths(manifest) {
     throw new TypeError('Rig part manifest must declare at least one rig.');
   }
 
-  const references = [];
+  const references = new Set();
   const ownersByPath = new Map();
 
   for (const [ownerId, rig] of rigEntries) {
@@ -72,15 +79,49 @@ export function collectRigImagePaths(manifest) {
         + `(${ownersByPath.get(atlasPath)} and ${ownerId})`,
       );
     }
-    const expectedAtlasPath = `${RIG_IMAGE_PREFIX}${ownerId}/atlas.png`;
+    const expectedAtlasPath = VERSIONED_ATLAS_PATHS[ownerId]
+      ?? `${RIG_IMAGE_PREFIX}${ownerId}/atlas.png`;
     if (atlasPath !== expectedAtlasPath) {
       throw new TypeError(`Rig "${ownerId}" atlas path must be ${expectedAtlasPath}.`);
     }
     ownersByPath.set(atlasPath, ownerId);
-    references.push(atlasPath);
+    references.add(atlasPath);
+
+    for (const [partIndex, part] of rig.parts.entries()) {
+      const label = `${ownerId}.${part?.id ?? `parts[${partIndex}]`}`;
+      if (
+        part.variants != null
+        && (!part.variants || typeof part.variants !== 'object' || Array.isArray(part.variants))
+      ) {
+        throw new TypeError(`Rig part "${label}" variants must be a JSON object.`);
+      }
+      for (const [variantName, variant] of Object.entries(part.variants ?? {})) {
+        if (!variant || typeof variant !== 'object' || Array.isArray(variant)) {
+          throw new TypeError(`Rig part variant "${label}.${variantName}" must be a JSON object.`);
+        }
+        const variantPath = variant.path ?? part.path;
+        assertSafeRigRuntimeImagePath(variantPath, `${label}.${variantName}`, ownerId);
+        references.add(variantPath);
+      }
+    }
   }
 
-  return references.sort();
+  return [...references].sort();
+}
+
+function assertSafeRigRuntimeImagePath(assetPath, label, ownerId) {
+  const expectedPrefix = `${RIG_IMAGE_PREFIX}${ownerId}/`;
+  if (
+    typeof assetPath !== 'string'
+    || !RIG_IMAGE_PATTERN.test(assetPath)
+    || !assetPath.startsWith(expectedPrefix)
+    || path.posix.normalize(assetPath) !== assetPath
+    || path.posix.isAbsolute(assetPath)
+  ) {
+    throw new TypeError(
+      `Rig part variant "${label}" must reference a PNG directly below ${expectedPrefix}`,
+    );
+  }
 }
 
 export async function readRigManifest(projectRoot) {

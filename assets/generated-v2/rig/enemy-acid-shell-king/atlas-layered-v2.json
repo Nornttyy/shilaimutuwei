@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "generator": "scripts/build-boss-layered-atlas.mjs",
+  "baseAtlas": {
+    "path": "assets/generated-v2/rig/enemy-acid-shell-king/atlas.png",
+    "width": 768,
+    "height": 512,
+    "pngSha256": "8fc2a2b61f37e5b67cc8db3ab9b853f0e7fcf9c5caf7389901f9a419b4cd0be5",
+    "preservedRect": {
+      "x": 0,
+      "y": 0,
+      "width": 768,
+      "height": 512
+    }
+  },
+  "output": {
+    "path": "assets/generated-v2/rig/enemy-acid-shell-king/atlas-layered-v2.png",
+    "width": 768,
+    "height": 768,
+    "pngSha256": "92a769738786d947f18d6ea7e31651eb333be5734bc7c43c69794756eb59352d",
+    "pixelSha256": "79e7334f952f3eea285633065d74c073a2d3f4b3ba226ad71966af8608636cb5"
+  },
+  "resize": "premultiplied-alpha-bilinear",
+  "parts": {
+    "acidShell": {
+      "input": "assets/generated-v2/rig-parts-candidates/enemy-acid-shell-king/shell-crown-split-v2/acidShell.png",
+      "inputWidth": 884,
+      "inputHeight": 601,
+      "inputPngSha256": "3e479d7a9742aba4488750489c5e93724de019f618edade5313b477cb06a8b30",
+      "sourceRect": {
+        "x": 16,
+        "y": 528,
+        "width": 294,
+        "height": 200
+      },
+      "visiblePixels": 38541,
+      "transparentPixels": 20259,
+      "translucentPixels": 38499,
+      "pixelSha256": "070caa2d703a09fe8bdb2c7640c75eae4445782fa010c3f728f312df28ceb6e9"
+    },
+    "crown": {
+      "input": "assets/generated-v2/rig-parts-candidates/enemy-acid-shell-king/shell-crown-split-v2/crown.png",
+      "inputWidth": 421,
+      "inputHeight": 294,
+      "inputPngSha256": "6a2de8070c3a4f69bf9c4a7d64905037a8925c6c98dd47606eb62cf0be8c6178",
+      "sourceRect": {
+        "x": 326,
+        "y": 528,
+        "width": 172,
+        "height": 120
+      },
+      "visiblePixels": 12064,
+      "transparentPixels": 8576,
+      "translucentPixels": 12058,
+      "pixelSha256": "28ef3e16ab944c9e3a605378415800104b26966a60df5909cf4a5e2fc7d43ddc"
+    }
+  }
+}

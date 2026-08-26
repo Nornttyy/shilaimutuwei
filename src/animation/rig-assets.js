@@ -3,7 +3,8 @@
  *
  * The JSON manifest is deliberately kept outside the JavaScript bundle so art
  * can be replaced without editing animation code. Loading is rig-atomic: no
- * partially decoded rig is ever returned to a renderer.
+ * partially decoded rig is ever returned to a renderer. Facial parts may add a
+ * `variants` map; each entry can crop another sheet or load a standalone image.
  */
 
 export const RIG_PART_MANIFEST_URL = new URL(
@@ -17,6 +18,10 @@ const RIG_STATUS = Object.freeze({
   READY: 'ready',
   FALLBACK: 'fallback',
   UNKNOWN: 'unknown',
+});
+
+const VERSIONED_ATLAS_PATHS = Object.freeze({
+  'enemy-acid-shell-king': 'assets/generated-v2/rig/enemy-acid-shell-king/atlas-layered-v2.png',
 });
 
 function deepFreeze(value) {
@@ -83,7 +88,78 @@ function normalizeSourceRect(source, label) {
   return sourceRect;
 }
 
-function normalizePart(source, label, nonVisualBones) {
+function assertSafeAssetPath(path, label) {
+  assertNonEmptyString(path, label);
+  const pathSegments = path.split('/');
+  if (
+    !path.startsWith('assets/')
+    || pathSegments.some((segment) => segment.length === 0 || segment === '..' || segment === '.')
+    || path.startsWith('/')
+    || /[%\\?#\u0000-\u001F\u007F-\u009F]/.test(path)
+    || !/^[A-Za-z0-9._/-]+$/.test(path)
+  ) {
+    throw new RangeError(`${label} must be a safe project-relative assets path.`);
+  }
+  return path;
+}
+
+function assertOwnedRigFilePath(path, ownerId, label) {
+  const ownerDirectory = `assets/generated-v2/rig/${ownerId}/`;
+  const fileName = path.startsWith(ownerDirectory)
+    ? path.slice(ownerDirectory.length)
+    : '';
+  if (!fileName || fileName.includes('/')) {
+    throw new RangeError(`${label} must be a direct file in its owning rig directory.`);
+  }
+  return path;
+}
+
+function normalizePartVariants(source, label, basePart, ownerId) {
+  if (source == null) return {};
+  assertObject(source, label);
+
+  return Object.fromEntries(Object.entries(source).map(([variantName, variant]) => {
+    assertNonEmptyString(variantName, `${label} variant name`);
+    assertObject(variant, `${label}.${variantName}`);
+
+    const variantLabel = `${label}.${variantName}`;
+    const path = assertOwnedRigFilePath(
+      assertSafeAssetPath(
+        variant.path ?? basePart.path,
+        `${variantLabel}.path`,
+      ),
+      ownerId,
+      `${variantLabel}.path`,
+    );
+    const hasSourceRect = variant.sourceRect != null;
+    if (path === basePart.path && !hasSourceRect && variantName !== 'normal') {
+      throw new RangeError(
+        `${variantLabel}.sourceRect is required when a variant uses the base atlas.`,
+      );
+    }
+
+    const normalized = {
+      name: variantName,
+      path,
+      sourceRect: hasSourceRect
+        ? normalizeSourceRect(variant.sourceRect, `${variantLabel}.sourceRect`)
+        : (path === basePart.path ? basePart.sourceRect : null),
+      bindRect: variant.bindRect == null
+        ? basePart.bindRect
+        : normalizeBindRect(variant.bindRect, `${variantLabel}.bindRect`),
+    };
+    if (variant.alpha != null) {
+      assertFiniteNumber(variant.alpha, `${variantLabel}.alpha`);
+      if (variant.alpha < 0 || variant.alpha > 1) {
+        throw new RangeError(`${variantLabel}.alpha must be between zero and one.`);
+      }
+      normalized.alpha = variant.alpha;
+    }
+    return [variantName, normalized];
+  }));
+}
+
+function normalizePart(source, label, nonVisualBones, ownerId) {
   assertObject(source, label);
   assertNonEmptyString(source.id, `${label}.id`);
   assertNonEmptyString(source.bone, `${label}.bone`);
@@ -96,25 +172,25 @@ function normalizePart(source, label, nonVisualBones) {
     throw new RangeError(`${label} cannot attach an image to a non-visual parent bone.`);
   }
 
-  const pathSegments = source.path.split('/');
-  if (
-    !source.path.startsWith('assets/')
-    || pathSegments.includes('..')
-    || pathSegments.includes('.')
-    || source.path.startsWith('/')
-  ) {
-    throw new RangeError(`${label}.path must be a safe project-relative assets path.`);
-  }
-
-  return {
+  const normalized = {
     id: source.id,
     bone: source.bone,
     z: source.z,
-    path: source.path,
+    path: assertSafeAssetPath(source.path, `${label}.path`),
     required: source.required,
     sourceRect: normalizeSourceRect(source.sourceRect, `${label}.sourceRect`),
     bindRect: normalizeBindRect(source.bindRect, `${label}.bindRect`),
   };
+  normalized.variants = normalizePartVariants(
+    source.variants,
+    `${label}.variants`,
+    normalized,
+    ownerId,
+  );
+  if (Object.keys(normalized.variants).length > 0 && !['eyes', 'mouth'].includes(source.id)) {
+    throw new RangeError(`${label}.variants are only supported on eyes or mouth parts.`);
+  }
+  return normalized;
 }
 
 function normalizeRig(source, ownerId, atlasOwners) {
@@ -137,7 +213,12 @@ function normalizeRig(source, ownerId, atlasOwners) {
   const nonVisualBones = new Set([source.rootBone, source.faceBone]);
   let previousZ = -Infinity;
   const parts = source.parts.map((part, index) => {
-    const normalized = normalizePart(part, `${label}.parts[${index}]`, nonVisualBones);
+    const normalized = normalizePart(
+      part,
+      `${label}.parts[${index}]`,
+      nonVisualBones,
+      ownerId,
+    );
     if (partIds.has(normalized.id)) {
       throw new RangeError(`${label} has duplicate part id: ${normalized.id}.`);
     }
@@ -160,7 +241,8 @@ function normalizeRig(source, ownerId, atlasOwners) {
       `Atlas path ${atlasPath} cannot be shared across rigs (${existingOwner} and ${ownerId}).`,
     );
   }
-  const expectedAtlasPath = `assets/generated-v2/rig/${ownerId}/atlas.png`;
+  const expectedAtlasPath = VERSIONED_ATLAS_PATHS[ownerId]
+    ?? `assets/generated-v2/rig/${ownerId}/atlas.png`;
   if (atlasPath !== expectedAtlasPath) {
     throw new RangeError(`${label} atlas path must be ${expectedAtlasPath}.`);
   }
@@ -320,20 +402,41 @@ function unknownStatus(id) {
   });
 }
 
-function loadAtlasImage(
+function assetResourcesFor(definition) {
+  const resources = new Map();
+  const add = (path, representative) => {
+    if (!resources.has(path)) resources.set(path, { path, representative });
+  };
+
+  for (const part of definition.parts) {
+    add(part.path, part);
+    for (const [variantName, variant] of Object.entries(part.variants ?? {})) {
+      add(variant.path, {
+        ...part,
+        ...variant,
+        id: `${part.id}:${variantName}`,
+        partId: part.id,
+        variant: variantName,
+      });
+    }
+  }
+  return [...resources.values()];
+}
+
+function loadRigImage(
   definition,
-  atlasPath,
+  resource,
   { imageFactory, resolvePath, timeoutMs },
 ) {
-  const representativePart = definition.parts.find(({ path }) => path === atlasPath);
+  const { path, representative: representativePart } = resource;
   let url;
   try {
-    url = resolvePath(atlasPath, representativePart, definition);
+    url = resolvePath(path, representativePart, definition);
   } catch (caught) {
     return Promise.resolve({
-      path: atlasPath,
+      path,
       image: null,
-      error: normalizeError(caught, `Could not resolve rig atlas ${atlasPath}`),
+      error: normalizeError(caught, `Could not resolve rig image ${path}`),
     });
   }
 
@@ -342,14 +445,14 @@ function loadAtlasImage(
     image = imageFactory(representativePart, url, definition);
   } catch (caught) {
     return Promise.resolve({
-      path: atlasPath,
+      path,
       image: null,
-      error: normalizeError(caught, `Could not create image for rig atlas ${atlasPath}`),
+      error: normalizeError(caught, `Could not create rig image ${path}`),
     });
   }
   if (!image) {
     return Promise.resolve({
-      path: atlasPath,
+      path,
       image: null,
       error: new Error('This runtime does not provide an Image factory.'),
     });
@@ -364,17 +467,17 @@ function loadAtlasImage(
       if (timeoutId !== null) clearTimeout(timeoutId);
       image.onload = null;
       image.onerror = null;
-      resolve({ path: atlasPath, image: error ? null : image, error });
+      resolve({ path, image: error ? null : image, error });
     };
 
     image.onload = () => finish();
     image.onerror = (event) => finish(normalizeError(
       event,
-      `Failed to load rig atlas ${atlasPath} from ${url}`,
+      `Failed to load rig image ${path} from ${url}`,
     ));
     if (Number.isFinite(timeoutMs) && timeoutMs > 0) {
       timeoutId = setTimeout(
-        () => finish(new Error(`Timed out loading rig atlas ${atlasPath}`)),
+        () => finish(new Error(`Timed out loading rig image ${path}`)),
         timeoutMs,
       );
     }
@@ -382,7 +485,7 @@ function loadAtlasImage(
     try {
       image.src = url;
     } catch (caught) {
-      finish(normalizeError(caught, `Failed to assign image source for rig atlas ${atlasPath}`));
+      finish(normalizeError(caught, `Failed to assign image source for rig image ${path}`));
     }
   });
 }
@@ -392,6 +495,15 @@ function createReadyBundle(definition, results) {
   const parts = definition.parts.map((part) => Object.freeze({
     ...part,
     image: imagesByPath.get(part.path) ?? null,
+    variants: Object.freeze(Object.fromEntries(
+      Object.entries(part.variants ?? {}).map(([variantName, variant]) => [
+        variantName,
+        Object.freeze({
+          ...variant,
+          image: imagesByPath.get(variant.path) ?? null,
+        }),
+      ]),
+    )),
   }));
   return Object.freeze({
     id: definition.ownerId,
@@ -455,9 +567,9 @@ export function createRigAssetStore(
     record.value = null;
     record.error = null;
 
-    const atlasPaths = [...new Set(record.definition.parts.map(({ path }) => path))];
+    const resources = assetResourcesFor(record.definition);
     record.promise = Promise.all(
-      atlasPaths.map((atlasPath) => loadAtlasImage(record.definition, atlasPath, {
+      resources.map((resource) => loadRigImage(record.definition, resource, {
         imageFactory,
         resolvePath,
         timeoutMs,
@@ -470,7 +582,7 @@ export function createRigAssetStore(
         record.value = null;
         record.error = new AggregateError(
           failures.map(({ error }) => error),
-          `Rig ${id} is incomplete; failed atlases: ${failedPaths}`,
+          `Rig ${id} is incomplete; failed images: ${failedPaths}`,
         );
       } else {
         record.status = RIG_STATUS.READY;

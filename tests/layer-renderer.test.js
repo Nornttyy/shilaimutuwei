@@ -16,6 +16,17 @@ const TEST_RIG = Object.freeze({
   }),
 });
 
+const EXPRESSION_RIG = Object.freeze({
+  ...TEST_RIG,
+  expression: Object.freeze({
+    states: Object.freeze({
+      normal: Object.freeze({ eyes: 'normal', mouth: 'normal' }),
+      blink: Object.freeze({ eyes: 'blink', mouth: 'normal' }),
+      attack: Object.freeze({ eyes: 'attack', mouth: 'open' }),
+    }),
+  }),
+});
+
 function createContext({ alpha = 1, failOnImage = null } = {}) {
   const calls = [];
   const stack = [];
@@ -115,6 +126,143 @@ test('crops multiple layers from one shared atlas into independent bindRects', (
       ['drawImage', 'shared-atlas', 128, 16, 72, 30, -18, -51, 36, 15, 1],
     ],
   );
+});
+
+test('cross-fades real expression sourceRects instead of scaling one face image', () => {
+  const ctx = createContext();
+  const atlas = { id: 'expression-sheet' };
+  const bindRect = { x: -18, y: -51, width: 36, height: 15 };
+  const atlasPath = 'assets/test/expressions-v2.png';
+  const entry = manifest([
+    part('eyes', 'face', 10, bindRect, {
+      path: atlasPath,
+      sourceRect: { x: 0, y: 0, width: 72, height: 30 },
+      variants: {
+        blink: {
+          name: 'blink',
+          path: atlasPath,
+          sourceRect: { x: 80, y: 0, width: 72, height: 30 },
+          bindRect,
+        },
+      },
+    }),
+  ]);
+  const expression = {
+    slots: {
+      eyes: {
+        from: 'normal',
+        to: 'blink',
+        weights: { from: 0.25, to: 0.75 },
+      },
+    },
+  };
+
+  assert.equal(
+    renderLayeredRig(ctx, EXPRESSION_RIG, {}, entry, { [atlasPath]: atlas }, expression),
+    true,
+  );
+  assert.deepEqual(
+    ctx.calls.filter(([name]) => name === 'drawImage'),
+    [
+      ['drawImage', 'expression-sheet', 0, 0, 72, 30, -18, -51, 36, 15, 0.25],
+      ['drawImage', 'expression-sheet', 80, 0, 72, 30, -18, -51, 36, 15, 0.75],
+    ],
+  );
+});
+
+test('draws a standalone expression asset and allows its own logical bindRect', () => {
+  const ctx = createContext();
+  const normal = { id: 'normal-eyes' };
+  const attack = { id: 'attack-eyes' };
+  const basePath = 'assets/test/atlas.png';
+  const attackPath = 'assets/test/eyes-attack.png';
+  const entry = manifest([
+    part('eyes', 'face', 10, { x: -18, y: -51, width: 36, height: 15 }, {
+      path: basePath,
+      sourceRect: { x: 0, y: 0, width: 72, height: 30 },
+      variants: {
+        attack: {
+          name: 'attack',
+          path: attackPath,
+          sourceRect: null,
+          bindRect: { x: -20, y: -53, width: 40, height: 18 },
+        },
+      },
+    }),
+  ]);
+
+  assert.equal(renderLayeredRig(
+    ctx,
+    EXPRESSION_RIG,
+    {},
+    entry,
+    { [basePath]: normal, [attackPath]: attack },
+    { eyes: 'attack' },
+  ), true);
+  assert.deepEqual(
+    ctx.calls.find(([name]) => name === 'drawImage'),
+    ['drawImage', 'attack-eyes', -20, -53, 40, 18, 1],
+  );
+});
+
+test('missing undeclared variants safely keep the normal face without double drawing', () => {
+  const ctx = createContext();
+  const atlas = { id: 'legacy-atlas' };
+  const entry = manifest([
+    part(
+      'eyes',
+      'face',
+      10,
+      { x: -18, y: -51, width: 36, height: 15 },
+      {
+        image: atlas,
+        sourceRect: { x: 0, y: 0, width: 72, height: 30 },
+      },
+    ),
+  ]);
+
+  assert.equal(renderLayeredRig(ctx, EXPRESSION_RIG, {}, entry, null, {
+    slots: {
+      eyes: {
+        from: 'normal',
+        to: 'blink',
+        weights: { from: 0.4, to: 0.6 },
+      },
+    },
+  }), true);
+  assert.deepEqual(
+    ctx.calls.filter(([name]) => name === 'drawImage'),
+    [['drawImage', 'legacy-atlas', 0, 0, 72, 30, -18, -51, 36, 15, 1]],
+  );
+});
+
+test('a declared but undecoded expression asset preserves atomic vector fallback', () => {
+  const ctx = createContext();
+  const basePath = 'assets/test/atlas.png';
+  const entry = manifest([
+    part('eyes', 'face', 10, { x: -18, y: -51, width: 36, height: 15 }, {
+      path: basePath,
+      sourceRect: { x: 0, y: 0, width: 72, height: 30 },
+      variants: {
+        blink: {
+          name: 'blink',
+          path: 'assets/test/eyes-blink.png',
+          sourceRect: null,
+          bindRect: { x: -18, y: -51, width: 36, height: 15 },
+        },
+      },
+    }),
+  ]);
+
+  assert.equal(renderLayeredRig(
+    ctx,
+    EXPRESSION_RIG,
+    {},
+    entry,
+    { [basePath]: { id: 'normal' } },
+    'blink',
+  ), false);
+  assert.deepEqual(ctx.calls, []);
 });
 
 test('validates every sourceRect before drawing any layer', () => {

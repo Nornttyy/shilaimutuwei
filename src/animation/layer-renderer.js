@@ -52,10 +52,10 @@ function partsFromEntry(entry) {
   return parts;
 }
 
-function bindRectFor(part, index) {
+function bindRectFor(part, index, suffix = '') {
   const rect = part?.bindRect;
   if (!rect || typeof rect !== 'object') {
-    throw new TypeError(`manifestEntry.parts[${index}].bindRect must be an object.`);
+    throw new TypeError(`manifestEntry.parts[${index}]${suffix}.bindRect must be an object.`);
   }
 
   const result = {
@@ -67,18 +67,18 @@ function bindRectFor(part, index) {
   for (const [property, value] of Object.entries(result)) {
     if (typeof value !== 'number' || !Number.isFinite(value)) {
       throw new TypeError(
-        `manifestEntry.parts[${index}].bindRect.${property} must be a finite number.`,
+        `manifestEntry.parts[${index}]${suffix}.bindRect.${property} must be a finite number.`,
       );
     }
   }
   return result;
 }
 
-function sourceRectFor(part, index) {
+function sourceRectFor(part, index, suffix = '') {
   const rect = part?.sourceRect;
   if (rect == null) return null;
   if (typeof rect !== 'object') {
-    throw new TypeError(`manifestEntry.parts[${index}].sourceRect must be an object.`);
+    throw new TypeError(`manifestEntry.parts[${index}]${suffix}.sourceRect must be an object.`);
   }
 
   const result = {
@@ -90,13 +90,13 @@ function sourceRectFor(part, index) {
   for (const [property, value] of Object.entries(result)) {
     if (typeof value !== 'number' || !Number.isFinite(value)) {
       throw new TypeError(
-        `manifestEntry.parts[${index}].sourceRect.${property} must be a finite number.`,
+        `manifestEntry.parts[${index}]${suffix}.sourceRect.${property} must be a finite number.`,
       );
     }
   }
   if (result.width <= 0 || result.height <= 0) {
     throw new RangeError(
-      `manifestEntry.parts[${index}].sourceRect width and height must be greater than zero.`,
+      `manifestEntry.parts[${index}]${suffix}.sourceRect width and height must be greater than zero.`,
     );
   }
   return result;
@@ -157,6 +157,24 @@ function imageForPart(part, images) {
   return null;
 }
 
+function imageForVariant(part, variantName, variant, images) {
+  if (variant.image != null) return unwrapImage(variant.image);
+  const keys = [
+    `${part.id}:${variantName}`,
+    `${part.id}.${variantName}`,
+    variant.assetId,
+    variant.key,
+    variant.path,
+    variant.src,
+  ];
+  for (const key of keys) {
+    const image = mappedImage(images, key);
+    if (image != null) return image;
+  }
+  if (variant.path != null && variant.path === part.path) return imageForPart(part, images);
+  return null;
+}
+
 function zForPart(part, rig) {
   return finiteOr(
     part.z,
@@ -164,21 +182,133 @@ function zForPart(part, rig) {
   );
 }
 
-function prepareParts(rig, entry, images) {
-  const parts = partsFromEntry(entry).map((part, index) => {
+function expressionSlotsFor(rig, expression) {
+  if (expression == null) return null;
+  if (typeof expression === 'string') {
+    const state = rig.expression?.states?.[expression];
+    if (!state || typeof state !== 'object') {
+      throw new RangeError(`Unknown expression state: ${expression}.`);
+    }
+    return state;
+  }
+  if (!expression || typeof expression !== 'object' || Array.isArray(expression)) {
+    throw new TypeError('expression must be a state name or expression sample object.');
+  }
+  if (expression.slots != null) {
+    if (typeof expression.slots !== 'object' || Array.isArray(expression.slots)) {
+      throw new TypeError('expression.slots must be an object.');
+    }
+    return expression.slots;
+  }
+  if (typeof expression.state === 'string') {
+    return expressionSlotsFor(rig, expression.state);
+  }
+  return expression;
+}
+
+function assertWeight(value, label) {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1) {
+    throw new RangeError(`${label} must be a finite number between zero and one.`);
+  }
+  return value;
+}
+
+function variantWeightsFor(part, slots) {
+  const selection = slots?.[part.id] ?? slots?.[part.bone];
+  if (selection == null) return [{ name: 'normal', weight: 1 }];
+  if (typeof selection === 'string') return [{ name: selection, weight: 1 }];
+  if (!selection || typeof selection !== 'object' || Array.isArray(selection)) {
+    throw new TypeError(`expression slot ${part.id} must select a variant.`);
+  }
+  if (typeof selection.variant === 'string') {
+    return [{ name: selection.variant, weight: 1 }];
+  }
+  if (typeof selection.from !== 'string' || typeof selection.to !== 'string') {
+    throw new TypeError(`expression slot ${part.id} must provide from and to variants.`);
+  }
+  const fromWeight = assertWeight(
+    selection.weights?.from,
+    `expression slot ${part.id}.weights.from`,
+  );
+  const toWeight = assertWeight(
+    selection.weights?.to,
+    `expression slot ${part.id}.weights.to`,
+  );
+  if (Math.abs(fromWeight + toWeight - 1) > 1e-6) {
+    throw new RangeError(`expression slot ${part.id} weights must add up to one.`);
+  }
+  return [
+    { name: selection.from, weight: fromWeight },
+    { name: selection.to, weight: toWeight },
+  ].filter(({ weight }) => weight > 0);
+}
+
+function descriptorForVariant(part, variantName) {
+  const variants = part.variants;
+  if (variants && typeof variants === 'object' && !Array.isArray(variants)) {
+    if (variants[variantName]) return variants[variantName];
+    if (variants.normal) return variants.normal;
+  }
+  return part;
+}
+
+function visualKey(descriptor, image) {
+  const source = descriptor.sourceRect;
+  const bind = descriptor.bindRect;
+  return [
+    image,
+    descriptor.path,
+    source && `${source.x}:${source.y}:${source.width}:${source.height}`,
+    bind && `${bind.x}:${bind.y}:${bind.width}:${bind.height}`,
+    finiteOr(descriptor.alpha, 1),
+  ];
+}
+
+function sameVisual(left, right) {
+  return left.every((value, index) => value === right[index]);
+}
+
+function prepareParts(rig, entry, images, expression) {
+  const slots = expressionSlotsFor(rig, expression);
+  const parts = partsFromEntry(entry).flatMap((part, index) => {
     if (!part || typeof part !== 'object') {
       throw new TypeError(`manifestEntry.parts[${index}] must be an object.`);
     }
     const label = `manifestEntry.parts[${index}]`;
-    return {
-      index,
-      part,
-      image: imageForPart(part, images),
-      rect: bindRectFor(part, index),
-      sourceRect: sourceRectFor(part, index),
-      chain: boneChainFor(rig, part.bone, label),
-      z: zForPart(part, rig),
-    };
+    const chain = boneChainFor(rig, part.bone, label);
+    const z = zForPart(part, rig);
+    const weighted = variantWeightsFor(part, slots);
+    const prepared = [];
+
+    for (const { name: variantName, weight } of weighted) {
+      const descriptor = descriptorForVariant(part, variantName);
+      const isBase = descriptor === part;
+      const image = isBase
+        ? imageForPart(part, images)
+        : imageForVariant(part, variantName, descriptor, images);
+      const suffix = isBase ? '' : `.variants.${variantName}`;
+      const candidate = {
+        index,
+        sequence: prepared.length,
+        part,
+        image,
+        rect: bindRectFor(descriptor, index, suffix),
+        sourceRect: sourceRectFor(descriptor, index, suffix),
+        chain,
+        z,
+        alpha: clampAlpha(part.alpha)
+          * (isBase ? 1 : clampAlpha(descriptor.alpha))
+          * weight,
+        visualKey: visualKey(descriptor, image),
+      };
+      const duplicate = prepared.find((existing) => sameVisual(
+        existing.visualKey,
+        candidate.visualKey,
+      ));
+      if (duplicate) duplicate.alpha += candidate.alpha;
+      else prepared.push(candidate);
+    }
+    return prepared;
   });
 
   // A required missing part must leave the canvas untouched so callers can
@@ -189,7 +319,11 @@ function prepareParts(rig, entry, images) {
 
   return parts
     .filter(({ image }) => image != null)
-    .sort((left, right) => left.z - right.z || left.index - right.index);
+    .sort((left, right) => (
+      left.z - right.z
+      || left.index - right.index
+      || left.sequence - right.sequence
+    ));
 }
 
 function applyBoneTransform(ctx, pose, { name, bone }) {
@@ -216,7 +350,7 @@ function drawPreparedPart(ctx, pose, prepared) {
   ctx.save();
   try {
     for (const bone of prepared.chain) applyBoneTransform(ctx, pose, bone);
-    ctx.globalAlpha *= clampAlpha(prepared.part.alpha);
+    ctx.globalAlpha *= clampAlpha(prepared.alpha);
     const { x, y, width, height } = prepared.rect;
     if (prepared.sourceRect) {
       const source = prepared.sourceRect;
@@ -245,14 +379,24 @@ function drawPreparedPart(ctx, pose, prepared) {
  * The caller owns world position, display scale and facing. Each part uses its
  * own logical bindRect and inherits pose transforms from every ancestor bone.
  * Parts with a sourceRect crop their pixels from a shared atlas; standalone
- * part images retain the five-argument drawImage path.
+ * part images retain the five-argument drawImage path. `expression` accepts a
+ * rig state name, a direct slot map, or `ExpressionMixer.sample()`. Declared
+ * variants are cross-faded as distinct crops/images; an undeclared variant
+ * resolves to the normal base part for backwards compatibility.
  * Returns false without drawing when a required image is unavailable, allowing
  * the caller to use the vector renderer as an atomic fallback.
  */
-export function renderLayeredRig(ctx, rig, pose, manifestEntry, decodedImages = null) {
+export function renderLayeredRig(
+  ctx,
+  rig,
+  pose,
+  manifestEntry,
+  decodedImages = null,
+  expression = null,
+) {
   assertCanvasContext(ctx);
   assertRig(rig);
-  const parts = prepareParts(rig, manifestEntry, decodedImages);
+  const parts = prepareParts(rig, manifestEntry, decodedImages, expression);
   if (parts == null || parts.length === 0) return false;
 
   for (const part of parts) drawPreparedPart(ctx, pose, part);

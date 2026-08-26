@@ -7,6 +7,7 @@ import {
   ExpressionMixer,
   resolveExpressionState,
 } from '../src/animation/expression-mixer.js';
+import { AnimationController } from '../src/animation/controller.js';
 
 const OWNER = 'survivor-bubble-float';
 
@@ -181,6 +182,86 @@ test('setContext maps gameplay actions while owner identity stays isolated', () 
   }), /belongs to survivor-bubble-float/);
 });
 
+test('clip metadata and expression events select real variants with explicit priority', () => {
+  assert.equal(resolveExpressionState({
+    ownerId: OWNER,
+    action: 'idle',
+    clipState: 'attack',
+    currentTime: 0,
+    autoBlink: false,
+  }), 'attack');
+  assert.equal(resolveExpressionState({
+    ownerId: OWNER,
+    action: 'attack',
+    clipState: 'attack',
+    events: [{ name: 'expression', state: 'hurt' }],
+    currentTime: 0,
+    autoBlink: false,
+  }), 'hurt');
+  assert.equal(resolveExpressionState({
+    ownerId: OWNER,
+    clipState: 'attack',
+    events: [{ name: 'cue', expression: 'hurt' }],
+    targetState: 'normal',
+    currentTime: 0,
+    autoBlink: false,
+  }), 'normal');
+});
+
+test('AnimationController exposes clip expression metadata for the mixer', () => {
+  const controller = new AnimationController({
+    idle: {
+      duration: 1,
+      mode: 'loop',
+      expression: 'normal',
+      tracks: {},
+    },
+    cast: {
+      duration: 0.5,
+      mode: 'once',
+      priority: 20,
+      expression: 'attack',
+      tracks: {},
+      events: [{ time: 0.2, name: 'expression', state: 'hurt' }],
+    },
+  }, { base: 'idle', transitionDuration: 0 });
+  const mixer = createExpressionMixer(OWNER, { autoBlink: false });
+
+  assert.equal(controller.expressionState, 'normal');
+  controller.play('cast');
+  assert.equal(controller.expressionState, 'attack');
+  mixer.setAnimationContext(controller);
+  assert.equal(mixer.to, 'attack');
+
+  controller.update(0.2);
+  const events = controller.drainEvents();
+  mixer.setAnimationContext(controller, { events });
+  assert.equal(mixer.pending, 'hurt', 'event retargeting uses the existing two-layer queue');
+
+  controller.update(1);
+  assert.equal(controller.expressionState, 'normal');
+
+  const mappedController = new AnimationController({
+    idle: {
+      duration: 1,
+      mode: 'loop',
+      expression: 'normal',
+      tracks: {},
+    },
+    attack: {
+      duration: 0.5,
+      mode: 'once',
+      priority: 20,
+      tracks: {},
+    },
+  }, { base: 'idle', transitionDuration: 0 });
+  const mappedMixer = createExpressionMixer(OWNER, { autoBlink: false });
+  mappedController.play('attack');
+  assert.equal(mappedController.expressionState, null);
+  mappedMixer.setAnimationContext(mappedController);
+  assert.equal(mappedMixer.to, 'attack', 'an action mapping survives absent clip metadata');
+});
+
 test('rejects unsafe clocks, unknown states, and out-of-band durations', () => {
   assert.throws(() => createExpressionMixer('', {}), /ownerId/);
   assert.throws(
@@ -196,4 +277,14 @@ test('rejects unsafe clocks, unknown states, and out-of-band durations', () => {
   assert.throws(() => mixer.tick(-0.01), /zero or greater/);
   assert.throws(() => mixer.setTarget('surprised'), /known expression state/);
   assert.throws(() => mixer.setContext({ currentTime: Number.NaN }), /finite number/);
+  assert.throws(
+    () => mixer.setContext({ events: [{ name: 'expression', state: 'surprised' }] }),
+    /event expression must name a known expression state/,
+  );
+  assert.throws(
+    () => new AnimationController({
+      idle: { duration: 1, mode: 'loop', expression: {}, tracks: {} },
+    }),
+    /expression must be a non-empty string/,
+  );
 });

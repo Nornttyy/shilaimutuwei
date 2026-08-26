@@ -72,6 +72,11 @@ function normalizeClip(name, source) {
   const priority = source.priority ?? 0;
   assertFiniteNumber(priority, `${name}.priority`);
 
+  const expression = source.expression ?? null;
+  if (expression != null && (typeof expression !== 'string' || expression.length === 0)) {
+    throw new TypeError(`${name}.expression must be a non-empty string when provided.`);
+  }
+
   const sourceTracks = source.tracks ?? {};
   if (!sourceTracks || typeof sourceTracks !== 'object' || Array.isArray(sourceTracks)) {
     throw new TypeError(`${name}.tracks must be an object.`);
@@ -112,6 +117,7 @@ function normalizeClip(name, source) {
     duration,
     mode,
     priority,
+    expression,
     tracks: Object.freeze(tracks),
     events: Object.freeze(events),
   });
@@ -251,6 +257,12 @@ export class AnimationController {
 
   get actionName() {
     return this._action?.name ?? null;
+  }
+
+  /** Optional expression state declared by the active action/base clip. */
+  get expressionState() {
+    if (this._action) return this._clip(this._action.name).expression;
+    return this._base ? this._clip(this._base.name).expression : null;
   }
 
   setBase(name) {

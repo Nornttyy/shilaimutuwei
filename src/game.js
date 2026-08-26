@@ -26,6 +26,7 @@ import {
   findRightToLeftRoute,
 } from './core.js';
 import { AnimationController } from './animation/controller.js';
+import { ExpressionMixer } from './animation/expression-mixer.js';
 import {
   BOSS_CLIPS,
   BUBBLE_CLIPS,
@@ -267,6 +268,7 @@ export class SlimeGame {
     this.dpr = 1;
     this.lastTime = 0;
     this.time = 0;
+    this.animationTime = 0;
     this.hits = [];
     this.hoverId = null;
     this.pointerDown = null;
@@ -277,6 +279,8 @@ export class SlimeGame {
     this.shake = 0;
     this.preBattleSnapshot = null;
     this.animators = new Map();
+    this.expressionMixers = new Map();
+    this.pendingAttackHits = new Map();
     this.state = this.createState();
     this.load();
     this.bindEvents();
@@ -509,6 +513,8 @@ export class SlimeGame {
     this.state.projectiles = [];
     this.state.terrain = [];
     this.state.deployables = [];
+    this.pendingAttackHits.clear();
+    this.expressionMixers.clear();
     this.selection = null;
   }
 
@@ -545,6 +551,9 @@ export class SlimeGame {
   }
 
   update(dt) {
+    const animationsPaused = this.state.phase === 'battle'
+      && (this.state.paused || Boolean(this.selection));
+    const animationDt = animationsPaused ? 0 : dt;
     if (this.toast && this.time >= this.toast.expires) this.toast = null;
     this.shake = Math.max(0, this.shake - dt * 2.8);
     this.state.particles.forEach((particle) => {
@@ -559,15 +568,16 @@ export class SlimeGame {
       floater.y -= dt * 24;
     });
     this.state.floaters = this.state.floaters.filter((floater) => floater.life > 0);
-    this.state.projectiles.forEach((projectile) => { projectile.progress += dt / projectile.duration; });
+    this.state.projectiles.forEach((projectile) => {
+      projectile.progress += animationDt / projectile.duration;
+    });
     this.state.projectiles = this.state.projectiles.filter((projectile) => projectile.progress < 1);
     this.state.survivors.forEach((survivor) => { survivor.hitFlash = Math.max(0, (survivor.hitFlash || 0) - dt * 4); });
     this.state.enemies.forEach((enemy) => { enemy.hitFlash = Math.max(0, (enemy.hitFlash || 0) - dt * 5); });
 
     if (this.state.phase === 'battle' && !this.state.paused && !this.selection) this.updateBattle(dt);
 
-    const animationsPaused = this.state.phase === 'battle' && (this.state.paused || Boolean(this.selection));
-    this.updateEntityAnimations(animationsPaused ? 0 : dt);
+    this.updateEntityAnimations(animationDt);
   }
 
   animationClipsFor(cardId) {
@@ -597,23 +607,85 @@ export class SlimeGame {
     return this.animatorFor(entity)?.play(name, options) || false;
   }
 
+  startEntityAttack(entity, onHit) {
+    const controller = this.animatorFor(entity);
+    if (!controller) {
+      onHit();
+      return true;
+    }
+    if (!controller.play('attack')) return false;
+    const hasHitEvent = this.animationClipsFor(entity.cardId)?.attack?.events
+      .some((event) => event.name === 'hit');
+    if (!hasHitEvent) {
+      onHit();
+      return true;
+    }
+    this.pendingAttackHits.set(entity.uid, { onHit });
+    return true;
+  }
+
+  resolveEntityAnimationEvents(entity, controller, events) {
+    const pending = this.pendingAttackHits.get(entity.uid);
+    if (!pending) return;
+    if (entity.dead || entity.downed) {
+      this.pendingAttackHits.delete(entity.uid);
+      return;
+    }
+    const hitEventFired = events.some((event) => event.clip === 'attack' && event.name === 'hit');
+    if (!hitEventFired) {
+      if (controller.current !== 'attack') this.pendingAttackHits.delete(entity.uid);
+      return;
+    }
+    this.pendingAttackHits.delete(entity.uid);
+    pending.onHit();
+  }
+
   entityAnimationPose(entity) {
     return this.animatorFor(entity)?.sample() || null;
   }
 
+  expressionMixerFor(entity) {
+    if (!entity?.uid || !this.animationClipsFor(entity.cardId)) return null;
+    const current = this.expressionMixers.get(entity.uid);
+    if (current?.cardId === entity.cardId) return current.mixer;
+    const mixer = new ExpressionMixer({ ownerId: entity.cardId });
+    this.expressionMixers.set(entity.uid, { cardId: entity.cardId, mixer });
+    return mixer;
+  }
+
+  entityExpressionSample(entity) {
+    return this.expressionMixerFor(entity)?.sample() || null;
+  }
+
+  updateEntityExpression(entity, controller, events, dt) {
+    const mixer = this.expressionMixerFor(entity);
+    if (!mixer) return;
+    mixer.setAnimationContext(controller, {
+      events,
+      currentTime: this.animationTime,
+    });
+    mixer.tick(dt);
+  }
+
   updateEntityAnimations(dt) {
+    this.animationTime += dt;
     const liveIds = new Set();
     for (const survivor of this.state.survivors) {
       liveIds.add(survivor.uid);
       const previous = this.animators.get(survivor.uid);
-      if (!survivor.downed && previous?.wasDowned) this.animators.delete(survivor.uid);
+      if (!survivor.downed && previous?.wasDowned) {
+        this.animators.delete(survivor.uid);
+        this.expressionMixers.delete(survivor.uid);
+      }
       const controller = this.animatorFor(survivor);
       if (!controller) continue;
       this.animators.get(survivor.uid).wasDowned = survivor.downed;
       controller.setBase('idle');
       if (survivor.downed) controller.play('downed', { restart: false });
       controller.update(dt);
-      controller.drainEvents();
+      const events = controller.drainEvents();
+      this.resolveEntityAnimationEvents(survivor, controller, events);
+      this.updateEntityExpression(survivor, controller, events, dt);
     }
     for (const enemy of this.state.enemies) {
       liveIds.add(enemy.uid);
@@ -627,10 +699,19 @@ export class SlimeGame {
         controller.setBase(base);
       }
       controller.update(dt);
-      controller.drainEvents();
+      const events = controller.drainEvents();
+      this.resolveEntityAnimationEvents(enemy, controller, events);
+      this.updateEntityExpression(enemy, controller, events, dt);
     }
     for (const uid of this.animators.keys()) {
-      if (!liveIds.has(uid)) this.animators.delete(uid);
+      if (!liveIds.has(uid)) {
+        this.animators.delete(uid);
+        this.expressionMixers.delete(uid);
+        this.pendingAttackHits.delete(uid);
+      }
+    }
+    for (const uid of this.expressionMixers.keys()) {
+      if (!liveIds.has(uid)) this.expressionMixers.delete(uid);
     }
   }
 
@@ -716,26 +797,35 @@ export class SlimeGame {
 
     const targets = this.findTargetsForAttack(survivor, card.attack);
     if (!targets.length) return false;
-    this.playEntityAnimation(survivor, 'attack');
     const maxTargets = card.attack.pierce || 1;
-    targets.slice(0, maxTargets).forEach((enemy, index) => {
+    const attackTargets = targets.slice(0, maxTargets);
+    const nextAttackCount = survivor.attackCount + 1;
+    const nextHitCount = survivor.hitCount + 1;
+    const crystalCell = card.id === 'survivor-crystal-pin'
+      && nextAttackCount % card.ability.attacksRequired === 0
+      ? this.nearestCell(attackTargets.at(-1))
+      : null;
+    const bubblePush = card.id === 'survivor-bubble-float'
+      && nextHitCount % card.ability.hitsRequired === 0;
+    const hitStarted = this.startEntityAttack(survivor, () => {
+      attackTargets.forEach((enemy) => this.damageEnemy(enemy, card.attack.damage, survivor));
+      if (crystalCell) {
+        this.state.terrain.push({ type: 'crystal', x: crystalCell.x, y: crystalCell.y, life: card.ability.spikeLifetimeSeconds, damage: card.ability.spikeDamage });
+        const position = this.cellCenter(crystalCell.x, crystalCell.y);
+        this.spawnParticles(position.x, position.y, PALETTE.crystal, 7, 40);
+      }
+      if (bubblePush) {
+        this.pushEnemy(attackTargets[0], card.ability.knockbackTiles, 0, card.ability);
+        this.audio.play('bubble');
+      }
+    });
+    if (!hitStarted) return false;
+    attackTargets.forEach((enemy, index) => {
       this.launchProjectile(survivor, enemy, card.id.includes('crystal') ? 'crystal' : card.id.includes('bubble') ? 'bubble' : 'goo', index * 0.04);
-      this.damageEnemy(enemy, card.attack.damage, survivor);
     });
     survivor.actionCount += 1;
-    survivor.attackCount += 1;
-    survivor.hitCount += 1;
-
-    if (card.id === 'survivor-crystal-pin' && survivor.attackCount % card.ability.attacksRequired === 0) {
-      const target = targets[Math.min(targets.length - 1, maxTargets - 1)];
-      const cell = this.nearestCell(target);
-      this.state.terrain.push({ type: 'crystal', x: cell.x, y: cell.y, life: card.ability.spikeLifetimeSeconds, damage: card.ability.spikeDamage });
-      this.spawnParticles(this.cellCenter(cell.x, cell.y).x, this.cellCenter(cell.x, cell.y).y, PALETTE.crystal, 7, 40);
-    }
-    if (card.id === 'survivor-bubble-float' && survivor.hitCount % card.ability.hitsRequired === 0) {
-      this.pushEnemy(targets[0], card.ability.knockbackTiles, 0, card.ability);
-      this.audio.play('bubble');
-    }
+    survivor.attackCount = nextAttackCount;
+    survivor.hitCount = nextHitCount;
     this.registerFriendlyAction();
     if (!forced) this.audio.play('shoot');
     return true;
@@ -805,9 +895,10 @@ export class SlimeGame {
         const entryBlocker = buildingAt(this.state.buildings, 5, Math.round(enemy.y));
         if (entryBlocker && BUILDING_BY_ID[entryBlocker.cardId].solid && !entryBlocker.destroyed) {
           if (enemy.attackTimer <= 0) {
-            this.playEntityAnimation(enemy, 'attack');
-            this.damageBuilding(entryBlocker, card.damage);
-            enemy.attackTimer = card.attackIntervalSeconds;
+            const started = this.startEntityAttack(enemy, () => {
+              if (!entryBlocker.destroyed) this.damageBuilding(entryBlocker, card.damage);
+            });
+            if (started) enemy.attackTimer = card.attackIntervalSeconds;
           }
           continue;
         }
@@ -833,9 +924,10 @@ export class SlimeGame {
       if (!next) continue;
       if (next.x < 0) {
         if (enemy.attackTimer <= 0) {
-          this.playEntityAnimation(enemy, 'attack');
-          this.damageCore(card.damage);
-          enemy.attackTimer = card.attackIntervalSeconds;
+          const started = this.startEntityAttack(enemy, () => {
+            if (this.state.coreHp > 0) this.damageCore(card.damage);
+          });
+          if (started) enemy.attackTimer = card.attackIntervalSeconds;
         }
         continue;
       }
@@ -850,9 +942,10 @@ export class SlimeGame {
           continue;
         }
         if (enemy.attackTimer <= 0) {
-          this.playEntityAnimation(enemy, 'attack');
-          this.damageBuilding(blocker, card.damage);
-          enemy.attackTimer = card.attackIntervalSeconds;
+          const started = this.startEntityAttack(enemy, () => {
+            if (!blocker.destroyed) this.damageBuilding(blocker, card.damage);
+          });
+          if (started) enemy.attackTimer = card.attackIntervalSeconds;
         }
         continue;
       }
@@ -860,9 +953,10 @@ export class SlimeGame {
       const defender = this.state.survivors.find((survivor) => !survivor.downed && survivor.x === next.x && survivor.y === next.y);
       if (defender && (SURVIVOR_BY_ID[defender.cardId].blockCount > 0 || Math.abs(enemy.x - next.x) < 0.7)) {
         if (enemy.attackTimer <= 0) {
-          this.playEntityAnimation(enemy, 'attack');
-          this.damageSurvivor(defender, card.damage);
-          enemy.attackTimer = card.attackIntervalSeconds;
+          const started = this.startEntityAttack(enemy, () => {
+            if (!defender.downed) this.damageSurvivor(defender, card.damage);
+          });
+          if (started) enemy.attackTimer = card.attackIntervalSeconds;
         }
         continue;
       }
@@ -1025,13 +1119,14 @@ export class SlimeGame {
     this.spawnParticles(position.x, position.y - 10, ENEMY_BY_ID[enemy.cardId].color, 4, 32);
     if (enemy.hp <= 0) {
       enemy.dead = true;
+      this.pendingAttackHits.delete(enemy.uid);
       enemy.diedAt = this.time;
       enemy.deathElapsed = 0;
       this.playEntityAnimation(enemy, 'death');
       this.state.kills += 1;
       this.state.energy = Math.min(10, this.state.energy + (ENEMY_BY_ID[enemy.cardId].elite ? 2 : 1));
       this.spawnParticles(position.x, position.y - 8, '#8B7395', ENEMY_BY_ID[enemy.cardId].elite ? 18 : 9, 75);
-    } else {
+    } else if (!this.pendingAttackHits.has(enemy.uid)) {
       this.playEntityAnimation(enemy, 'hurt');
     }
   }
@@ -1058,7 +1153,9 @@ export class SlimeGame {
     }
     if (damage <= 0) return;
     target.hp -= damage;
-    if (kind === 'survivor') this.playEntityAnimation(target, 'hurt');
+    if (kind === 'survivor' && !this.pendingAttackHits.has(target.uid)) {
+      this.playEntityAnimation(target, 'hurt');
+    }
     const position = this.entityCanvasPosition(target);
     this.floatText(position.x, position.y - 44, `-${Math.round(damage)}`, PALETTE.danger);
     if (target.hp > 0) return;
@@ -1075,6 +1172,7 @@ export class SlimeGame {
     } else {
       target.downed = true;
       target.hp = 0;
+      this.pendingAttackHits.delete(target.uid);
       this.playEntityAnimation(target, 'downed');
     }
     this.shake = Math.max(this.shake, 0.35);
@@ -1668,6 +1766,7 @@ export class SlimeGame {
         drawSlime(ctx, position.x, position.y, 68, SURVIVOR_VARIANT[survivor.cardId], {
           time: this.time,
           pose: this.entityAnimationPose(survivor),
+          expressionSample: this.entityExpressionSample(survivor),
           rigAsset: this.rigAssetFor(survivor.cardId),
           selected,
           disabled: survivor.downed,
@@ -1688,6 +1787,7 @@ export class SlimeGame {
         drawMonster(ctx, position.x, position.y, card.elite ? 100 : 62, ENEMY_VARIANT[enemy.cardId], {
           time: this.time,
           pose: this.entityAnimationPose(enemy),
+          expressionSample: this.entityExpressionSample(enemy),
           rigAsset: this.rigAssetFor(enemy.cardId),
           facing: -1,
           alpha,
@@ -2612,6 +2712,8 @@ export class SlimeGame {
     this.state.projectiles = [];
     this.state.terrain = this.state.terrain.filter((terrain) => terrain.persistent);
     this.state.deployables = [];
+    this.pendingAttackHits.clear();
+    this.expressionMixers.clear();
     this.state.energy = Math.max(this.state.energy || 0, wave.startEnergy);
     this.selection = null;
 
@@ -2690,6 +2792,8 @@ export class SlimeGame {
     this.state.softCrystals += participation;
     this.state.phase = 'result';
     this.state.paused = true;
+    this.pendingAttackHits.clear();
+    this.expressionMixers.clear();
     this.selection = null;
     this.audio.play(victory ? 'win' : 'warning');
     this.save();

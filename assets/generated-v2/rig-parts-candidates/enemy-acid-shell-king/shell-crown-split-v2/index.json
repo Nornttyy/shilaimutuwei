@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 1,
+  "source": "assets/generated-v2/rig/enemy-acid-shell-king/candidates/shell-crown-split-v2.png",
+  "sourceWidth": 1672,
+  "sourceHeight": 941,
+  "padding": 2,
+  "splitRule": "two-largest-4-connected-alpha-components",
+  "parts": {
+    "acidShell": {
+      "output": "acidShell.png",
+      "componentPixels": 345356,
+      "componentBboxInSource": {
+        "x": 99,
+        "y": 168,
+        "width": 880,
+        "height": 595
+      },
+      "retainedAlphaBboxInSource": {
+        "x": 99,
+        "y": 168,
+        "width": 880,
+        "height": 597
+      },
+      "sourceRect": {
+        "x": 97,
+        "y": 166,
+        "width": 884,
+        "height": 601
+      },
+      "width": 884,
+      "height": 601,
+      "alphaBboxInOutput": {
+        "x": 2,
+        "y": 2,
+        "width": 880,
+        "height": 597
+      },
+      "visiblePixels": 346093,
+      "transparentPixels": 185191,
+      "translucentPixels": 344936,
+      "pixelSha256": "73be7c637c86ed7101092d313bc77c0bdb7179109a3402c56cc6c81781f72d82",
+      "pngSha256": "3e479d7a9742aba4488750489c5e93724de019f618edade5313b477cb06a8b30"
+    },
+    "crown": {
+      "output": "crown.png",
+      "componentPixels": 71117,
+      "componentBboxInSource": {
+        "x": 1153,
+        "y": 360,
+        "width": 417,
+        "height": 290
+      },
+      "retainedAlphaBboxInSource": {
+        "x": 1153,
+        "y": 360,
+        "width": 417,
+        "height": 290
+      },
+      "sourceRect": {
+        "x": 1151,
+        "y": 358,
+        "width": 421,
+        "height": 294
+      },
+      "width": 421,
+      "height": 294,
+      "alphaBboxInOutput": {
+        "x": 2,
+        "y": 2,
+        "width": 417,
+        "height": 290
+      },
+      "visiblePixels": 71315,
+      "transparentPixels": 52459,
+      "translucentPixels": 70769,
+      "pixelSha256": "44915f9c2a203fdb4b34486583ece0d2d1efc7e277946affd39ca0b257d7a4b9",
+      "pngSha256": "6a2de8070c3a4f69bf9c4a7d64905037a8925c6c98dd47606eb62cf0be8c6178"
+    }
+  }
+}

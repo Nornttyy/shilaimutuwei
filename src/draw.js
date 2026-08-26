@@ -63,11 +63,11 @@ export const PALETTE = Object.freeze({
 const TAU = Math.PI * 2;
 const KAPPA = 0.5522847498307936;
 const RIG_SURFACE = Object.freeze({
-  width: 384,
-  height: 384,
+  width: 512,
+  height: 512,
   pixelsPerUnit: 2,
-  originX: 192,
-  originY: 336,
+  originX: 256,
+  originY: 384,
 });
 
 let sharedRigSurface = null;
@@ -144,7 +144,7 @@ function clearRigSurface(surface) {
   ctx.clearRect(0, 0, RIG_SURFACE.width, RIG_SURFACE.height);
 }
 
-function renderCompatibleRigAsset(ctx, rig, pose, rigAsset) {
+function renderCompatibleRigAsset(ctx, rig, pose, rigAsset, expression = null) {
   if (
     !rigAsset
     || rigAsset.rigId !== rig.id
@@ -161,7 +161,14 @@ function renderCompatibleRigAsset(ctx, rig, pose, rigAsset) {
     surfaceSaved = true;
     surface.ctx.translate(RIG_SURFACE.originX, RIG_SURFACE.originY);
     surface.ctx.scale(RIG_SURFACE.pixelsPerUnit, RIG_SURFACE.pixelsPerUnit);
-    rendered = renderLayeredRig(surface.ctx, rig, pose ?? {}, rigAsset);
+    rendered = renderLayeredRig(
+      surface.ctx,
+      rig,
+      pose ?? {},
+      rigAsset,
+      null,
+      expression,
+    );
   } catch {
     rendered = false;
   } finally {
@@ -784,6 +791,9 @@ export function drawSlime(ctx, x, y, size, variantOrOptions = 'shell', maybeOpti
     SLIME_RIG_BY_VARIANT[variant],
     options.pose,
     options.rigAsset,
+    options.expressionSample
+      ?? options.expression
+      ?? (options.hit > 0.5 ? 'hurt' : null),
   );
   if (!renderedRig) {
     if (options.pose) {
@@ -1367,6 +1377,9 @@ export function drawMonster(ctx, x, y, size, typeOrOptions = 'bug', maybeOptions
     MONSTER_RIG_BY_TYPE[type],
     options.pose,
     options.rigAsset,
+    options.expressionSample
+      ?? options.expression
+      ?? (options.hit > 0.5 ? 'hurt' : null),
   );
   if (!renderedRig) {
     if (type === 'bug') drawBugMonsterLocal(ctx, options);

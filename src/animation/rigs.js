@@ -38,22 +38,25 @@ export const EXPRESSION_SPEC = deepFreeze({
   },
 });
 
-function expressionBones(layer) {
+function expressionBones(layer, eyesPivot, mouthPivot) {
   return {
     eyes: {
       parent: 'face',
       children: [],
-      pivot: { x: 0, y: 0 },
+      pivot: eyesPivot,
       layer,
     },
     mouth: {
       parent: 'face',
       children: [],
-      pivot: { x: 0, y: 0 },
+      pivot: mouthPivot,
       layer: layer + 1,
     },
   };
 }
+
+const SURVIVOR_EYES_PIVOT = { x: 0, y: -39 };
+const SURVIVOR_MOUTH_PIVOT = { x: 0, y: -22.5 };
 
 export const SHELL_RIG = deepFreeze({
   id: 'shell',
@@ -75,7 +78,7 @@ export const SHELL_RIG = deepFreeze({
     shell: {
       parent: 'body',
       children: [],
-      pivot: { x: -23, y: -39 },
+      pivot: { x: -35, y: -39 },
       layer: -10,
     },
     face: {
@@ -84,11 +87,11 @@ export const SHELL_RIG = deepFreeze({
       pivot: { x: 0, y: -33 },
       layer: 10,
     },
-    ...expressionBones(10),
+    ...expressionBones(10, SURVIVOR_EYES_PIVOT, SURVIVOR_MOUTH_PIVOT),
     front: {
       parent: 'body',
       children: [],
-      pivot: { x: -33.5, y: -16 },
+      pivot: { x: 29, y: -24.5 },
       layer: 20,
     },
   },
@@ -135,7 +138,7 @@ export const BUG_RIG = deepFreeze({
       pivot: { x: 0, y: -36 },
       layer: 20,
     },
-    ...expressionBones(20),
+    ...expressionBones(20, { x: 0, y: -41 }, { x: 0, y: -21 }),
   },
 });
 
@@ -159,7 +162,7 @@ export const CRYSTAL_RIG = deepFreeze({
     needles: {
       parent: 'body',
       children: [],
-      pivot: { x: 0, y: -58 },
+      pivot: { x: -35, y: -34 },
       layer: -10,
     },
     face: {
@@ -168,7 +171,7 @@ export const CRYSTAL_RIG = deepFreeze({
       pivot: { x: 0, y: -33 },
       layer: 10,
     },
-    ...expressionBones(10),
+    ...expressionBones(10, SURVIVOR_EYES_PIVOT, SURVIVOR_MOUTH_PIVOT),
     front: {
       parent: 'body',
       children: [],
@@ -198,7 +201,7 @@ export const BUBBLE_RIG = deepFreeze({
     bubbles: {
       parent: 'body',
       children: ['bubblesBack'],
-      pivot: { x: 0, y: -65 },
+      pivot: { x: -19, y: -72 },
       layer: -10,
     },
     bubblesBack: {
@@ -210,7 +213,7 @@ export const BUBBLE_RIG = deepFreeze({
     halo: {
       parent: 'body',
       children: ['ringBack', 'ringFront'],
-      pivot: { x: 0, y: -27 },
+      pivot: { x: 0, y: -21 },
       layer: 10,
     },
     ringBack: {
@@ -231,7 +234,7 @@ export const BUBBLE_RIG = deepFreeze({
       pivot: { x: 0, y: -33 },
       layer: 20,
     },
-    ...expressionBones(20),
+    ...expressionBones(20, SURVIVOR_EYES_PIVOT, SURVIVOR_MOUTH_PIVOT),
   },
 });
 
@@ -255,14 +258,14 @@ export const SPROUT_RIG = deepFreeze({
     sprout: {
       parent: 'body',
       children: [],
-      pivot: { x: 0, y: -70 },
-      layer: 10,
+      pivot: { x: 0, y: -63 },
+      layer: 30,
     },
     pack: {
       parent: 'body',
       children: [],
       pivot: { x: 31.5, y: -20 },
-      layer: -10,
+      layer: 40,
     },
     face: {
       parent: 'body',
@@ -270,7 +273,7 @@ export const SPROUT_RIG = deepFreeze({
       pivot: { x: 0, y: -33 },
       layer: 20,
     },
-    ...expressionBones(20),
+    ...expressionBones(20, SURVIVOR_EYES_PIVOT, SURVIVOR_MOUTH_PIVOT),
   },
 });
 
@@ -304,7 +307,7 @@ export const WINDCAP_RIG = deepFreeze({
       pivot: { x: 0, y: -35 },
       layer: 20,
     },
-    ...expressionBones(20),
+    ...expressionBones(20, { x: 0, y: -38 }, { x: 0, y: -23 }),
   },
 });
 
@@ -338,7 +341,7 @@ export const STONE_RIG = deepFreeze({
       pivot: { x: 0, y: -34 },
       layer: 20,
     },
-    ...expressionBones(20),
+    ...expressionBones(20, { x: 0, y: -35.5 }, { x: 0, y: -17.5 }),
   },
 });
 
@@ -356,7 +359,7 @@ export const BOSS_RIG = deepFreeze({
     },
     body: {
       parent: 'root',
-      children: ['tentacles', 'crown', 'core', 'face'],
+      children: ['tentacles', 'acidShell', 'core', 'face'],
       pivot: { x: 0, y: 0 },
       layer: 0,
     },
@@ -366,24 +369,30 @@ export const BOSS_RIG = deepFreeze({
       pivot: { x: 0, y: -6 },
       layer: -10,
     },
-    crown: {
+    acidShell: {
       parent: 'body',
+      children: ['crown'],
+      pivot: { x: 0, y: -75 },
+      layer: 10,
+    },
+    crown: {
+      parent: 'acidShell',
       children: [],
-      pivot: { x: 0, y: -91 },
+      pivot: { x: 0, y: -100 },
       layer: 20,
     },
     core: {
       parent: 'body',
       children: [],
       pivot: { x: 0, y: -44 },
-      layer: 10,
+      layer: 30,
     },
     face: {
       parent: 'body',
       children: ['eyes', 'mouth'],
       pivot: { x: 0, y: -49 },
-      layer: 30,
+      layer: 40,
     },
-    ...expressionBones(30),
+    ...expressionBones(40, { x: 0.5, y: -61 }, { x: 1, y: -19.5 }),
   },
 });

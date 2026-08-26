@@ -1,0 +1,1967 @@
+{
+  "schemaVersion": 2,
+  "generatedFrom": "assets/rig-parts.json",
+  "outputRoot": "assets/generated-v2/rig-parts-exported",
+  "rigs": {
+    "survivor-shell-shell": {
+      "atlas": "assets/generated-v2/rig/survivor-shell-shell/atlas.png",
+      "parts": [
+        {
+          "id": "shell",
+          "bone": "shell",
+          "z": -10,
+          "sourcePath": "assets/generated-v2/rig/survivor-shell-shell/atlas.png",
+          "sourceRect": {
+            "x": 32,
+            "y": 269,
+            "width": 205,
+            "height": 205
+          },
+          "output": "survivor-shell-shell/shell.png",
+          "width": 205,
+          "height": 205,
+          "visiblePixels": 29000,
+          "transparentPixels": 13025,
+          "translucentPixels": 28507,
+          "pixelSha256": "4610fbe72fd72149e063e20ec7318301296766e05bbbb2787875188f7f809adb",
+          "pngSha256": "8f85aa80b038b8fa88fe03ca3708635c20b36c4c6f88dc17ac50ecf753f0cb0a"
+        },
+        {
+          "id": "body",
+          "bone": "body",
+          "z": 0,
+          "sourcePath": "assets/generated-v2/rig/survivor-shell-shell/atlas.png",
+          "sourceRect": {
+            "x": 28,
+            "y": 36,
+            "width": 214,
+            "height": 187
+          },
+          "output": "survivor-shell-shell/body.png",
+          "width": 214,
+          "height": 187,
+          "visiblePixels": 29083,
+          "transparentPixels": 10935,
+          "translucentPixels": 28636,
+          "pixelSha256": "e40a6133b0fbd183d7d252526daaba112f63d3a3dd0287f770d3d6a49f487291",
+          "pngSha256": "7906df91a44c5950d5770fadbbdda2d537b245c3a2893aad0ab254b7426e0ca8"
+        },
+        {
+          "id": "eyes",
+          "bone": "eyes",
+          "z": 10,
+          "sourcePath": "assets/generated-v2/rig/survivor-shell-shell/atlas.png",
+          "sourceRect": {
+            "x": 339,
+            "y": 97,
+            "width": 118,
+            "height": 59
+          },
+          "output": "survivor-shell-shell/eyes.png",
+          "width": 118,
+          "height": 59,
+          "visiblePixels": 2765,
+          "transparentPixels": 4197,
+          "translucentPixels": 2613,
+          "pixelSha256": "5b6a9954741a9d6682c294e60ce6521dfa0ae2208a854538b5310429982ed670",
+          "pngSha256": "18f7c341b1e45fc258157aad4717d76b7744a9bc29cd97fc16a0cf61056bd797"
+        },
+        {
+          "id": "mouth",
+          "bone": "mouth",
+          "z": 20,
+          "sourcePath": "assets/generated-v2/rig/survivor-shell-shell/atlas.png",
+          "sourceRect": {
+            "x": 599,
+            "y": 113,
+            "width": 61,
+            "height": 50
+          },
+          "output": "survivor-shell-shell/mouth.png",
+          "width": 61,
+          "height": 50,
+          "visiblePixels": 513,
+          "transparentPixels": 2537,
+          "translucentPixels": 460,
+          "pixelSha256": "59bba66427acef76f2a9f149731595a44711ec5a478819e37117751367a0767d",
+          "pngSha256": "c97a7b25a86b8a398904422d59c4a26947cbb4092c8f93bc000e95490cb0b27c"
+        },
+        {
+          "id": "front",
+          "bone": "front",
+          "z": 30,
+          "sourcePath": "assets/generated-v2/rig/survivor-shell-shell/atlas.png",
+          "sourceRect": {
+            "x": 303,
+            "y": 363,
+            "width": 174,
+            "height": 87
+          },
+          "output": "survivor-shell-shell/front.png",
+          "width": 174,
+          "height": 87,
+          "visiblePixels": 6749,
+          "transparentPixels": 8389,
+          "translucentPixels": 6451,
+          "pixelSha256": "b52be30a7deaaa478ff127f96ba9ac7990479aa29c8604f6379f7852ab2b5a4a",
+          "pngSha256": "993dd0b6b7269d285b816c245da6c65096fa4af5f8085740400b71296835f41b"
+        }
+      ],
+      "expressions": [
+        {
+          "partId": "eyes",
+          "variant": "normal",
+          "sourcePath": "assets/generated-v2/rig/survivor-shell-shell/atlas.png",
+          "sourceRect": {
+            "x": 339,
+            "y": 97,
+            "width": 118,
+            "height": 59
+          },
+          "output": "survivor-shell-shell/expressions/eyes--normal.png",
+          "width": 118,
+          "height": 59,
+          "visiblePixels": 2765,
+          "transparentPixels": 4197,
+          "translucentPixels": 2613,
+          "pixelSha256": "5b6a9954741a9d6682c294e60ce6521dfa0ae2208a854538b5310429982ed670",
+          "pngSha256": "18f7c341b1e45fc258157aad4717d76b7744a9bc29cd97fc16a0cf61056bd797"
+        },
+        {
+          "partId": "eyes",
+          "variant": "blink",
+          "sourcePath": "assets/generated-v2/rig/survivor-shell-shell/expressions-v2.png",
+          "sourceRect": {
+            "x": 0,
+            "y": 0,
+            "width": 118,
+            "height": 59
+          },
+          "output": "survivor-shell-shell/expressions/eyes--blink.png",
+          "width": 118,
+          "height": 59,
+          "visiblePixels": 486,
+          "transparentPixels": 6476,
+          "translucentPixels": 374,
+          "pixelSha256": "3f8c65926696495e1c599cee9c6b9fa0807fdf6c487b46dffc6ff03caaa5c2dd",
+          "pngSha256": "895c3ed2774580128d725a6694ff4e6443ee7871573ceaacab7f9c3f47632bdb"
+        },
+        {
+          "partId": "eyes",
+          "variant": "hurt",
+          "sourcePath": "assets/generated-v2/rig/survivor-shell-shell/expressions-v2.png",
+          "sourceRect": {
+            "x": 118,
+            "y": 0,
+            "width": 118,
+            "height": 59
+          },
+          "output": "survivor-shell-shell/expressions/eyes--hurt.png",
+          "width": 118,
+          "height": 59,
+          "visiblePixels": 876,
+          "transparentPixels": 6086,
+          "translucentPixels": 732,
+          "pixelSha256": "8392ea1d1ca0e9bbc9acb389ee444a6b97cb46f44c758455f294c49f9fcd4207",
+          "pngSha256": "c03a11003525dc3a3f17b409a71b568364b4629564f016fc67d3a1375988530a"
+        },
+        {
+          "partId": "eyes",
+          "variant": "attack",
+          "sourcePath": "assets/generated-v2/rig/survivor-shell-shell/expressions-v2.png",
+          "sourceRect": {
+            "x": 236,
+            "y": 0,
+            "width": 118,
+            "height": 59
+          },
+          "output": "survivor-shell-shell/expressions/eyes--attack.png",
+          "width": 118,
+          "height": 59,
+          "visiblePixels": 1621,
+          "transparentPixels": 5341,
+          "translucentPixels": 627,
+          "pixelSha256": "dca9a7d550d18cd48196e92e937dfa5b4004560054bc4e9c27f08e39bd0471ab",
+          "pngSha256": "34cebef1dbe357f8a68a5f2360466bc54cfef6607368d5fdea077d33164baef9"
+        },
+        {
+          "partId": "mouth",
+          "variant": "normal",
+          "sourcePath": "assets/generated-v2/rig/survivor-shell-shell/atlas.png",
+          "sourceRect": {
+            "x": 599,
+            "y": 113,
+            "width": 61,
+            "height": 50
+          },
+          "output": "survivor-shell-shell/expressions/mouth--normal.png",
+          "width": 61,
+          "height": 50,
+          "visiblePixels": 513,
+          "transparentPixels": 2537,
+          "translucentPixels": 460,
+          "pixelSha256": "59bba66427acef76f2a9f149731595a44711ec5a478819e37117751367a0767d",
+          "pngSha256": "c97a7b25a86b8a398904422d59c4a26947cbb4092c8f93bc000e95490cb0b27c"
+        },
+        {
+          "partId": "mouth",
+          "variant": "open",
+          "sourcePath": "assets/generated-v2/rig/survivor-shell-shell/expressions-v2.png",
+          "sourceRect": {
+            "x": 0,
+            "y": 59,
+            "width": 61,
+            "height": 50
+          },
+          "output": "survivor-shell-shell/expressions/mouth--open.png",
+          "width": 61,
+          "height": 50,
+          "visiblePixels": 716,
+          "transparentPixels": 2334,
+          "translucentPixels": 281,
+          "pixelSha256": "8c9409817251e02a0323a1250668bdad084ed953499d9f4be7b16db07d2de7e5",
+          "pngSha256": "a3357a594fc85b417b4eba059fa86b3afa089984f80680a8dc05020849c6e3d0"
+        },
+        {
+          "partId": "mouth",
+          "variant": "hurt",
+          "sourcePath": "assets/generated-v2/rig/survivor-shell-shell/expressions-v2.png",
+          "sourceRect": {
+            "x": 61,
+            "y": 59,
+            "width": 61,
+            "height": 50
+          },
+          "output": "survivor-shell-shell/expressions/mouth--hurt.png",
+          "width": 61,
+          "height": 50,
+          "visiblePixels": 281,
+          "transparentPixels": 2769,
+          "translucentPixels": 238,
+          "pixelSha256": "55fa4458d2d7af619072d60f854424ce2d0f5f7e9b208045eea35e69ec7b7f69",
+          "pngSha256": "3184718a9e3202c5691e265b3c4c5fd0792ff8721156fe2c82b475f9dd68a4f7"
+        }
+      ]
+    },
+    "survivor-crystal-pin": {
+      "atlas": "assets/generated-v2/rig/survivor-crystal-pin/atlas.png",
+      "parts": [
+        {
+          "id": "needles",
+          "bone": "needles",
+          "z": -10,
+          "sourcePath": "assets/generated-v2/rig/survivor-crystal-pin/atlas.png",
+          "sourceRect": {
+            "x": 19,
+            "y": 290,
+            "width": 257,
+            "height": 164
+          },
+          "output": "survivor-crystal-pin/needles.png",
+          "width": 257,
+          "height": 164,
+          "visiblePixels": 18969,
+          "transparentPixels": 23179,
+          "translucentPixels": 18402,
+          "pixelSha256": "9fe6edbf2394a9c73dbbce5e01796737ca68372ec959ac519904b07481994752",
+          "pngSha256": "f31adb8ef1390df94f4075a1e77ecfcc732d60c247b8e5f8655719bee1afe3ce"
+        },
+        {
+          "id": "body",
+          "bone": "body",
+          "z": 0,
+          "sourcePath": "assets/generated-v2/rig/survivor-crystal-pin/atlas.png",
+          "sourceRect": {
+            "x": 40,
+            "y": 47,
+            "width": 225,
+            "height": 197
+          },
+          "output": "survivor-crystal-pin/body.png",
+          "width": 225,
+          "height": 197,
+          "visiblePixels": 30589,
+          "transparentPixels": 13736,
+          "translucentPixels": 29991,
+          "pixelSha256": "ccb33725bf4b9beebed5fa696ea903fd17e8c3df85e689c4c96d7325f3a45b3e",
+          "pngSha256": "047a8a13a11585186b3db2f5662efd7fbfc7a28959e1d8e3f290056bb7f003f9"
+        },
+        {
+          "id": "eyes",
+          "bone": "eyes",
+          "z": 10,
+          "sourcePath": "assets/generated-v2/rig/survivor-crystal-pin/atlas.png",
+          "sourceRect": {
+            "x": 352,
+            "y": 126,
+            "width": 144,
+            "height": 72
+          },
+          "output": "survivor-crystal-pin/eyes.png",
+          "width": 144,
+          "height": 72,
+          "visiblePixels": 4125,
+          "transparentPixels": 6243,
+          "translucentPixels": 3910,
+          "pixelSha256": "f1bd07545544adfbe8053aac94846c49a1a2c53766f9c6f22c479ca019c11742",
+          "pngSha256": "aab2e64d1c4b0d1fa41ef6ec06ffe9b541d64c4ed7b6cf15ae5c32ae735ac727"
+        },
+        {
+          "id": "mouth",
+          "bone": "mouth",
+          "z": 20,
+          "sourcePath": "assets/generated-v2/rig/survivor-crystal-pin/atlas.png",
+          "sourceRect": {
+            "x": 618,
+            "y": 149,
+            "width": 56,
+            "height": 46
+          },
+          "output": "survivor-crystal-pin/mouth.png",
+          "width": 56,
+          "height": 46,
+          "visiblePixels": 476,
+          "transparentPixels": 2100,
+          "translucentPixels": 414,
+          "pixelSha256": "7b0e15dd5ee0c765dbdf370a2fd74ddb068b2d95629fa76ebad47574e8a969e8",
+          "pngSha256": "35d0c25bfb38f452e3c7a54b9eda5fa1fa7bce139715bf2d9e2c147d43fd4b9f"
+        },
+        {
+          "id": "front",
+          "bone": "front",
+          "z": 30,
+          "sourcePath": "assets/generated-v2/rig/survivor-crystal-pin/atlas.png",
+          "sourceRect": {
+            "x": 341,
+            "y": 355,
+            "width": 128,
+            "height": 82
+          },
+          "output": "survivor-crystal-pin/front.png",
+          "width": 128,
+          "height": 82,
+          "visiblePixels": 4985,
+          "transparentPixels": 5511,
+          "translucentPixels": 4790,
+          "pixelSha256": "a2c96935c4b41beb3e0f6c721456109ade0bcd87afb3146c60f72c5cf4922e59",
+          "pngSha256": "ebcf65f5cda625ab49ae2a53c75adb64543f94466789bb06217399f1e2e9e49f"
+        }
+      ],
+      "expressions": [
+        {
+          "partId": "eyes",
+          "variant": "normal",
+          "sourcePath": "assets/generated-v2/rig/survivor-crystal-pin/atlas.png",
+          "sourceRect": {
+            "x": 352,
+            "y": 126,
+            "width": 144,
+            "height": 72
+          },
+          "output": "survivor-crystal-pin/expressions/eyes--normal.png",
+          "width": 144,
+          "height": 72,
+          "visiblePixels": 4125,
+          "transparentPixels": 6243,
+          "translucentPixels": 3910,
+          "pixelSha256": "f1bd07545544adfbe8053aac94846c49a1a2c53766f9c6f22c479ca019c11742",
+          "pngSha256": "aab2e64d1c4b0d1fa41ef6ec06ffe9b541d64c4ed7b6cf15ae5c32ae735ac727"
+        },
+        {
+          "partId": "eyes",
+          "variant": "blink",
+          "sourcePath": "assets/generated-v2/rig/survivor-crystal-pin/expressions-v2.png",
+          "sourceRect": {
+            "x": 0,
+            "y": 0,
+            "width": 144,
+            "height": 72
+          },
+          "output": "survivor-crystal-pin/expressions/eyes--blink.png",
+          "width": 144,
+          "height": 72,
+          "visiblePixels": 650,
+          "transparentPixels": 9718,
+          "translucentPixels": 504,
+          "pixelSha256": "9c1708ffecd007a51576b10139db4e953f6216b7fbb20e31e0fade109c09ca77",
+          "pngSha256": "d43e5a3bcd470311186c08fbd38cc0c89f3b8ff626281b4f8b6745a1636d932c"
+        },
+        {
+          "partId": "eyes",
+          "variant": "hurt",
+          "sourcePath": "assets/generated-v2/rig/survivor-crystal-pin/expressions-v2.png",
+          "sourceRect": {
+            "x": 144,
+            "y": 0,
+            "width": 144,
+            "height": 72
+          },
+          "output": "survivor-crystal-pin/expressions/eyes--hurt.png",
+          "width": 144,
+          "height": 72,
+          "visiblePixels": 1236,
+          "transparentPixels": 9132,
+          "translucentPixels": 1032,
+          "pixelSha256": "0b80d7a308352168bf6f56c82045ceed2b01e47c8ad60dfc7169797d21700d9b",
+          "pngSha256": "c93efad1f0605996d61d7873bf826de6b8a33530bd00419abd0256e812245696"
+        },
+        {
+          "partId": "eyes",
+          "variant": "attack",
+          "sourcePath": "assets/generated-v2/rig/survivor-crystal-pin/expressions-v2.png",
+          "sourceRect": {
+            "x": 288,
+            "y": 0,
+            "width": 144,
+            "height": 72
+          },
+          "output": "survivor-crystal-pin/expressions/eyes--attack.png",
+          "width": 144,
+          "height": 72,
+          "visiblePixels": 2265,
+          "transparentPixels": 8103,
+          "translucentPixels": 754,
+          "pixelSha256": "ac28eed12df233c5482be4953c440ed74af6bb3bc8ecd5bf75dc37713b657ab1",
+          "pngSha256": "03c7a3fe79bea51fa9cd009b88f4285d912fb4ffd8a650833f1e378625ae6cb3"
+        },
+        {
+          "partId": "mouth",
+          "variant": "normal",
+          "sourcePath": "assets/generated-v2/rig/survivor-crystal-pin/atlas.png",
+          "sourceRect": {
+            "x": 618,
+            "y": 149,
+            "width": 56,
+            "height": 46
+          },
+          "output": "survivor-crystal-pin/expressions/mouth--normal.png",
+          "width": 56,
+          "height": 46,
+          "visiblePixels": 476,
+          "transparentPixels": 2100,
+          "translucentPixels": 414,
+          "pixelSha256": "7b0e15dd5ee0c765dbdf370a2fd74ddb068b2d95629fa76ebad47574e8a969e8",
+          "pngSha256": "35d0c25bfb38f452e3c7a54b9eda5fa1fa7bce139715bf2d9e2c147d43fd4b9f"
+        },
+        {
+          "partId": "mouth",
+          "variant": "open",
+          "sourcePath": "assets/generated-v2/rig/survivor-crystal-pin/expressions-v2.png",
+          "sourceRect": {
+            "x": 0,
+            "y": 72,
+            "width": 56,
+            "height": 46
+          },
+          "output": "survivor-crystal-pin/expressions/mouth--open.png",
+          "width": 56,
+          "height": 46,
+          "visiblePixels": 606,
+          "transparentPixels": 1970,
+          "translucentPixels": 260,
+          "pixelSha256": "425bfbd8b8ec7fc3b49cfa3c97f0ef20f6b6e2bf5c8ab3b5b09187f228340426",
+          "pngSha256": "04272b79b7984f96ed6146d086636bb0e3209fbdd2df92b061cdf91acbed385c"
+        },
+        {
+          "partId": "mouth",
+          "variant": "hurt",
+          "sourcePath": "assets/generated-v2/rig/survivor-crystal-pin/expressions-v2.png",
+          "sourceRect": {
+            "x": 56,
+            "y": 72,
+            "width": 56,
+            "height": 46
+          },
+          "output": "survivor-crystal-pin/expressions/mouth--hurt.png",
+          "width": 56,
+          "height": 46,
+          "visiblePixels": 255,
+          "transparentPixels": 2321,
+          "translucentPixels": 216,
+          "pixelSha256": "561cfd93f29269c7a83a80f9d418ce5ed2082ca567d9085cada2f814b764068e",
+          "pngSha256": "7d743cf83b79826c8e3db6dd32f6214b45c163cbffbaf5cb2a05eaffe03b10ad"
+        }
+      ]
+    },
+    "survivor-bubble-float": {
+      "atlas": "assets/generated-v2/rig/survivor-bubble-float/atlas.png",
+      "parts": [
+        {
+          "id": "bubblesBack",
+          "bone": "bubblesBack",
+          "z": -20,
+          "sourcePath": "assets/generated-v2/rig/survivor-bubble-float/atlas.png",
+          "sourceRect": {
+            "x": 19,
+            "y": 306,
+            "width": 209,
+            "height": 116
+          },
+          "output": "survivor-bubble-float/bubblesBack.png",
+          "width": 209,
+          "height": 116,
+          "visiblePixels": 6470,
+          "transparentPixels": 17774,
+          "translucentPixels": 6086,
+          "pixelSha256": "e3bcfbeed7ed1e88b95f317bd8f33548d27d99a2c3a904088a46f0c15c075b09",
+          "pngSha256": "b36eca1612f7f6500db14414bf09617e77e3fd3f411e7d08725f500fc6c46481"
+        },
+        {
+          "id": "ringBack",
+          "bone": "ringBack",
+          "z": -10,
+          "sourcePath": "assets/generated-v2/rig/survivor-bubble-float/atlas.png",
+          "sourceRect": {
+            "x": 271,
+            "y": 320,
+            "width": 215,
+            "height": 93
+          },
+          "output": "survivor-bubble-float/ringBack.png",
+          "width": 215,
+          "height": 93,
+          "visiblePixels": 5351,
+          "transparentPixels": 14644,
+          "translucentPixels": 4948,
+          "pixelSha256": "ff047b3c3de6722c4936c3eb92700f7348c986846daed915d60ad7edae8465d1",
+          "pngSha256": "95bd5da22e51a413bfb7abc330b1a4206885f230db650c0f1b368a32dcc0d9e9"
+        },
+        {
+          "id": "body",
+          "bone": "body",
+          "z": 0,
+          "sourcePath": "assets/generated-v2/rig/survivor-bubble-float/atlas.png",
+          "sourceRect": {
+            "x": 34,
+            "y": 51,
+            "width": 210,
+            "height": 184
+          },
+          "output": "survivor-bubble-float/body.png",
+          "width": 210,
+          "height": 184,
+          "visiblePixels": 26122,
+          "transparentPixels": 12518,
+          "translucentPixels": 25642,
+          "pixelSha256": "18ba94e1689785bb5e0f33bec540fe4d35102d4928c31c037e99e27fc6e17286",
+          "pngSha256": "f54b3491bed0cb0615366db0c8b6e03894c3f6af7d52a051185b8b88cb8b0038"
+        },
+        {
+          "id": "eyes",
+          "bone": "eyes",
+          "z": 10,
+          "sourcePath": "assets/generated-v2/rig/survivor-bubble-float/atlas.png",
+          "sourceRect": {
+            "x": 327,
+            "y": 106,
+            "width": 152,
+            "height": 76
+          },
+          "output": "survivor-bubble-float/eyes.png",
+          "width": 152,
+          "height": 76,
+          "visiblePixels": 5039,
+          "transparentPixels": 6513,
+          "translucentPixels": 4799,
+          "pixelSha256": "571efd750272e6132370fc6ed9d5140744fe611310d4aff8a5fea0bc0e3f0334",
+          "pngSha256": "32ad76f4704b15f2ae1988029f0fac4cee588c5b9c45ccf79062391db6e94e17"
+        },
+        {
+          "id": "mouth",
+          "bone": "mouth",
+          "z": 20,
+          "sourcePath": "assets/generated-v2/rig/survivor-bubble-float/atlas.png",
+          "sourceRect": {
+            "x": 609,
+            "y": 132,
+            "width": 62,
+            "height": 51
+          },
+          "output": "survivor-bubble-float/mouth.png",
+          "width": 62,
+          "height": 51,
+          "visiblePixels": 612,
+          "transparentPixels": 2550,
+          "translucentPixels": 546,
+          "pixelSha256": "e826be5847d1dc374181eeca8651768392bacbad72358a2c7e436e201efa391f",
+          "pngSha256": "ac5f695c60ea1903d1927ae11d567af7196d1c062621e94ea74e6fa67056c640"
+        },
+        {
+          "id": "ringFront",
+          "bone": "ringFront",
+          "z": 30,
+          "sourcePath": "assets/generated-v2/rig/survivor-bubble-float/atlas.png",
+          "sourceRect": {
+            "x": 526,
+            "y": 345,
+            "width": 214,
+            "height": 93
+          },
+          "output": "survivor-bubble-float/ringFront.png",
+          "width": 214,
+          "height": 93,
+          "visiblePixels": 4861,
+          "transparentPixels": 15041,
+          "translucentPixels": 4450,
+          "pixelSha256": "2ffb9bdeed43ddc29b384b7571b5129d872fe72c8707187f56eb2d665b9bbd57",
+          "pngSha256": "aa04edb281d95f76bb8de0caec7e4df3246ef44b49529d9b68d42a0ad9ceaf63"
+        }
+      ],
+      "expressions": [
+        {
+          "partId": "eyes",
+          "variant": "normal",
+          "sourcePath": "assets/generated-v2/rig/survivor-bubble-float/atlas.png",
+          "sourceRect": {
+            "x": 327,
+            "y": 106,
+            "width": 152,
+            "height": 76
+          },
+          "output": "survivor-bubble-float/expressions/eyes--normal.png",
+          "width": 152,
+          "height": 76,
+          "visiblePixels": 5039,
+          "transparentPixels": 6513,
+          "translucentPixels": 4799,
+          "pixelSha256": "571efd750272e6132370fc6ed9d5140744fe611310d4aff8a5fea0bc0e3f0334",
+          "pngSha256": "32ad76f4704b15f2ae1988029f0fac4cee588c5b9c45ccf79062391db6e94e17"
+        },
+        {
+          "partId": "eyes",
+          "variant": "blink",
+          "sourcePath": "assets/generated-v2/rig/survivor-bubble-float/expressions-v2.png",
+          "sourceRect": {
+            "x": 0,
+            "y": 0,
+            "width": 152,
+            "height": 76
+          },
+          "output": "survivor-bubble-float/expressions/eyes--blink.png",
+          "width": 152,
+          "height": 76,
+          "visiblePixels": 773,
+          "transparentPixels": 10779,
+          "translucentPixels": 588,
+          "pixelSha256": "2aaba19d59cdcfa814c82b38e0e2463227f0ec342bcfad5d1f70d5f07b46acef",
+          "pngSha256": "9c3e8abfa64e1900708f079935930e62232a751400376818221b112c83739201"
+        },
+        {
+          "partId": "eyes",
+          "variant": "hurt",
+          "sourcePath": "assets/generated-v2/rig/survivor-bubble-float/expressions-v2.png",
+          "sourceRect": {
+            "x": 152,
+            "y": 0,
+            "width": 152,
+            "height": 76
+          },
+          "output": "survivor-bubble-float/expressions/eyes--hurt.png",
+          "width": 152,
+          "height": 76,
+          "visiblePixels": 1468,
+          "transparentPixels": 10084,
+          "translucentPixels": 1235,
+          "pixelSha256": "d73c23d31b1677a8d022baacf83822085b62b08e6dafd10f5244a1dc1ecdb05a",
+          "pngSha256": "e4c6c0022ba145bf1e29c6c9638439de7ac537ec68dbd7ff1fb03e293ba27dc4"
+        },
+        {
+          "partId": "eyes",
+          "variant": "attack",
+          "sourcePath": "assets/generated-v2/rig/survivor-bubble-float/expressions-v2.png",
+          "sourceRect": {
+            "x": 304,
+            "y": 0,
+            "width": 152,
+            "height": 76
+          },
+          "output": "survivor-bubble-float/expressions/eyes--attack.png",
+          "width": 152,
+          "height": 76,
+          "visiblePixels": 2815,
+          "transparentPixels": 8737,
+          "translucentPixels": 858,
+          "pixelSha256": "f0ccd888b0975adafed4388a629c7cf2ea9153b1577facfae40f410ee4f9660e",
+          "pngSha256": "82e92bc4a1fd7495b3ae91ff70b839411332845b44b2dfc3972e51789fa9b43e"
+        },
+        {
+          "partId": "mouth",
+          "variant": "normal",
+          "sourcePath": "assets/generated-v2/rig/survivor-bubble-float/atlas.png",
+          "sourceRect": {
+            "x": 609,
+            "y": 132,
+            "width": 62,
+            "height": 51
+          },
+          "output": "survivor-bubble-float/expressions/mouth--normal.png",
+          "width": 62,
+          "height": 51,
+          "visiblePixels": 612,
+          "transparentPixels": 2550,
+          "translucentPixels": 546,
+          "pixelSha256": "e826be5847d1dc374181eeca8651768392bacbad72358a2c7e436e201efa391f",
+          "pngSha256": "ac5f695c60ea1903d1927ae11d567af7196d1c062621e94ea74e6fa67056c640"
+        },
+        {
+          "partId": "mouth",
+          "variant": "open",
+          "sourcePath": "assets/generated-v2/rig/survivor-bubble-float/expressions-v2.png",
+          "sourceRect": {
+            "x": 0,
+            "y": 76,
+            "width": 62,
+            "height": 51
+          },
+          "output": "survivor-bubble-float/expressions/mouth--open.png",
+          "width": 62,
+          "height": 51,
+          "visiblePixels": 770,
+          "transparentPixels": 2392,
+          "translucentPixels": 294,
+          "pixelSha256": "cbb3b1d5858106481d2da56e23ceb3875b1d89ec834d6589c7d1e2430d0d7f3a",
+          "pngSha256": "50fd67817c57164a6d860e5958cc3be29dbfe4c6efdc29418537f2e1fde5c8b9"
+        },
+        {
+          "partId": "mouth",
+          "variant": "hurt",
+          "sourcePath": "assets/generated-v2/rig/survivor-bubble-float/expressions-v2.png",
+          "sourceRect": {
+            "x": 62,
+            "y": 76,
+            "width": 62,
+            "height": 51
+          },
+          "output": "survivor-bubble-float/expressions/mouth--hurt.png",
+          "width": 62,
+          "height": 51,
+          "visiblePixels": 290,
+          "transparentPixels": 2872,
+          "translucentPixels": 247,
+          "pixelSha256": "e361b4096b414b4b7c781289320a0695517b36f06613321b621dc38fac77fab7",
+          "pngSha256": "d862bda8d6c712509d708f44621d4039ed742722dd1e6f4128137bcda33997bb"
+        }
+      ]
+    },
+    "survivor-moss-sprout": {
+      "atlas": "assets/generated-v2/rig/survivor-moss-sprout/atlas.png",
+      "parts": [
+        {
+          "id": "body",
+          "bone": "body",
+          "z": 0,
+          "sourcePath": "assets/generated-v2/rig/survivor-moss-sprout/atlas.png",
+          "sourceRect": {
+            "x": 52,
+            "y": 54,
+            "width": 190,
+            "height": 166
+          },
+          "output": "survivor-moss-sprout/body.png",
+          "width": 190,
+          "height": 166,
+          "visiblePixels": 20435,
+          "transparentPixels": 11105,
+          "translucentPixels": 20113,
+          "pixelSha256": "74cf32badf9eecab750ed0a654e51939e25fc25041b6584cdd7cc2eb190584e9",
+          "pngSha256": "a36b6cdb1ba77a1f1035df9f845c4c9c79cd66bfb9afee3af62f281564fdc215"
+        },
+        {
+          "id": "eyes",
+          "bone": "eyes",
+          "z": 10,
+          "sourcePath": "assets/generated-v2/rig/survivor-moss-sprout/atlas.png",
+          "sourceRect": {
+            "x": 335,
+            "y": 97,
+            "width": 148,
+            "height": 74
+          },
+          "output": "survivor-moss-sprout/eyes.png",
+          "width": 148,
+          "height": 74,
+          "visiblePixels": 4820,
+          "transparentPixels": 6132,
+          "translucentPixels": 4630,
+          "pixelSha256": "3d42e0e09e59a154be754d70fbd30c1e6ef5c7d816f249ef5f3f9bcd9f9d0111",
+          "pngSha256": "01a4f46a5aef30712db213cf8a6bd369b307f999aadc9984592ef6dd49d11a54"
+        },
+        {
+          "id": "mouth",
+          "bone": "mouth",
+          "z": 20,
+          "sourcePath": "assets/generated-v2/rig/survivor-moss-sprout/atlas.png",
+          "sourceRect": {
+            "x": 612,
+            "y": 118,
+            "width": 70,
+            "height": 57
+          },
+          "output": "survivor-moss-sprout/mouth.png",
+          "width": 70,
+          "height": 57,
+          "visiblePixels": 961,
+          "transparentPixels": 3029,
+          "translucentPixels": 895,
+          "pixelSha256": "772b7cac329d25658454137567ef6ffc6150e2cacc45ef007f782b3e077c8b73",
+          "pngSha256": "2cca9c2def7ef468ce2f99a14fb04c4ff8e5790663be55b1fd5123ac9b65c2cb"
+        },
+        {
+          "id": "sprout",
+          "bone": "sprout",
+          "z": 30,
+          "sourcePath": "assets/generated-v2/rig/survivor-moss-sprout/atlas.png",
+          "sourceRect": {
+            "x": 43,
+            "y": 303,
+            "width": 206,
+            "height": 137
+          },
+          "output": "survivor-moss-sprout/sprout.png",
+          "width": 206,
+          "height": 137,
+          "visiblePixels": 11323,
+          "transparentPixels": 16899,
+          "translucentPixels": 11026,
+          "pixelSha256": "b9a3d3c070c7fdb1a66378ad77baae4773df2c7e52305d4cda37a56a2f40ce11",
+          "pngSha256": "553093cfb9f28a623287748779bac73afa83960074befdb4ae8a88f95505585a"
+        },
+        {
+          "id": "pack",
+          "bone": "pack",
+          "z": 40,
+          "sourcePath": "assets/generated-v2/rig/survivor-moss-sprout/atlas.png",
+          "sourceRect": {
+            "x": 316,
+            "y": 274,
+            "width": 178,
+            "height": 217
+          },
+          "output": "survivor-moss-sprout/pack.png",
+          "width": 178,
+          "height": 217,
+          "visiblePixels": 19966,
+          "transparentPixels": 18660,
+          "translucentPixels": 19586,
+          "pixelSha256": "7179c481e269995441426eb67371fc51d86a710ca1e0bc0d7a43d51193be8818",
+          "pngSha256": "4ace2019eb5dde2bb98215173f55b2421be7a3a5610ca9e7ed571b319f33fe0c"
+        }
+      ],
+      "expressions": [
+        {
+          "partId": "eyes",
+          "variant": "normal",
+          "sourcePath": "assets/generated-v2/rig/survivor-moss-sprout/atlas.png",
+          "sourceRect": {
+            "x": 335,
+            "y": 97,
+            "width": 148,
+            "height": 74
+          },
+          "output": "survivor-moss-sprout/expressions/eyes--normal.png",
+          "width": 148,
+          "height": 74,
+          "visiblePixels": 4820,
+          "transparentPixels": 6132,
+          "translucentPixels": 4630,
+          "pixelSha256": "3d42e0e09e59a154be754d70fbd30c1e6ef5c7d816f249ef5f3f9bcd9f9d0111",
+          "pngSha256": "01a4f46a5aef30712db213cf8a6bd369b307f999aadc9984592ef6dd49d11a54"
+        },
+        {
+          "partId": "eyes",
+          "variant": "blink",
+          "sourcePath": "assets/generated-v2/rig/survivor-moss-sprout/expressions-v2.png",
+          "sourceRect": {
+            "x": 0,
+            "y": 0,
+            "width": 148,
+            "height": 74
+          },
+          "output": "survivor-moss-sprout/expressions/eyes--blink.png",
+          "width": 148,
+          "height": 74,
+          "visiblePixels": 736,
+          "transparentPixels": 10216,
+          "translucentPixels": 559,
+          "pixelSha256": "2b8cdd9ce0c818d405623e66e960703c22af8ed048697a044552eea1b0850452",
+          "pngSha256": "f6c98e2bbc57e6616ea90fd0ab0d0afb6024566a693f87bba9620d325ccc0771"
+        },
+        {
+          "partId": "eyes",
+          "variant": "hurt",
+          "sourcePath": "assets/generated-v2/rig/survivor-moss-sprout/expressions-v2.png",
+          "sourceRect": {
+            "x": 148,
+            "y": 0,
+            "width": 148,
+            "height": 74
+          },
+          "output": "survivor-moss-sprout/expressions/eyes--hurt.png",
+          "width": 148,
+          "height": 74,
+          "visiblePixels": 1422,
+          "transparentPixels": 9530,
+          "translucentPixels": 1194,
+          "pixelSha256": "a29743104be97c455af8e8b3879130a8652ec20d6dcd566eb40877e64ac5c679",
+          "pngSha256": "45b67d729af81a339d99b0491c7e549fffc5909df9763fc4eca37aa35251ec2c"
+        },
+        {
+          "partId": "eyes",
+          "variant": "attack",
+          "sourcePath": "assets/generated-v2/rig/survivor-moss-sprout/expressions-v2.png",
+          "sourceRect": {
+            "x": 296,
+            "y": 0,
+            "width": 148,
+            "height": 74
+          },
+          "output": "survivor-moss-sprout/expressions/eyes--attack.png",
+          "width": 148,
+          "height": 74,
+          "visiblePixels": 2690,
+          "transparentPixels": 8262,
+          "translucentPixels": 823,
+          "pixelSha256": "b5fc64bf65ba38a4f94d7a4262d58c111fdbacba25cf2a15e1d07831d9e670ce",
+          "pngSha256": "01294c929316d3741c47f729230105dc007aa59a06d74da93307955e179107c2"
+        },
+        {
+          "partId": "mouth",
+          "variant": "normal",
+          "sourcePath": "assets/generated-v2/rig/survivor-moss-sprout/atlas.png",
+          "sourceRect": {
+            "x": 612,
+            "y": 118,
+            "width": 70,
+            "height": 57
+          },
+          "output": "survivor-moss-sprout/expressions/mouth--normal.png",
+          "width": 70,
+          "height": 57,
+          "visiblePixels": 961,
+          "transparentPixels": 3029,
+          "translucentPixels": 895,
+          "pixelSha256": "772b7cac329d25658454137567ef6ffc6150e2cacc45ef007f782b3e077c8b73",
+          "pngSha256": "2cca9c2def7ef468ce2f99a14fb04c4ff8e5790663be55b1fd5123ac9b65c2cb"
+        },
+        {
+          "partId": "mouth",
+          "variant": "open",
+          "sourcePath": "assets/generated-v2/rig/survivor-moss-sprout/expressions-v2.png",
+          "sourceRect": {
+            "x": 0,
+            "y": 74,
+            "width": 70,
+            "height": 57
+          },
+          "output": "survivor-moss-sprout/expressions/mouth--open.png",
+          "width": 70,
+          "height": 57,
+          "visiblePixels": 963,
+          "transparentPixels": 3027,
+          "translucentPixels": 332,
+          "pixelSha256": "b521edf9c47b45778bb72e47f528df0c326a9ba3993da87424f0029ce683ff2f",
+          "pngSha256": "d672cdd29cef5e0ac28345a1e17a4f4cf9b1bebe8321086e11a4de51df3045c0"
+        },
+        {
+          "partId": "mouth",
+          "variant": "hurt",
+          "sourcePath": "assets/generated-v2/rig/survivor-moss-sprout/expressions-v2.png",
+          "sourceRect": {
+            "x": 70,
+            "y": 74,
+            "width": 70,
+            "height": 57
+          },
+          "output": "survivor-moss-sprout/expressions/mouth--hurt.png",
+          "width": 70,
+          "height": 57,
+          "visiblePixels": 320,
+          "transparentPixels": 3670,
+          "translucentPixels": 268,
+          "pixelSha256": "879da7c090b7ad7e6145296135de16cdc29e2d9aa6c5bcad0e43f5192797afa8",
+          "pngSha256": "ed4621387056c49f2bad1a33848f151d1ab3c2109d51604080cea964f6496aa8"
+        }
+      ]
+    },
+    "enemy-soft-biter": {
+      "atlas": "assets/generated-v2/rig/enemy-soft-biter/atlas.png",
+      "parts": [
+        {
+          "id": "legsA",
+          "bone": "legsA",
+          "z": -30,
+          "sourcePath": "assets/generated-v2/rig/enemy-soft-biter/atlas.png",
+          "sourceRect": {
+            "x": 28,
+            "y": 104,
+            "width": 227,
+            "height": 103
+          },
+          "output": "enemy-soft-biter/legsA.png",
+          "width": 227,
+          "height": 103,
+          "visiblePixels": 10445,
+          "transparentPixels": 12936,
+          "translucentPixels": 9966,
+          "pixelSha256": "e26990c4849f613ccc4f1c6054c3e98424e7244b31f94d8feed0b98292201f53",
+          "pngSha256": "f16a9b253948c4bbf17d2748a35d4480e1bda0b88b082b392e2ef24e526c71e1"
+        },
+        {
+          "id": "legsB",
+          "bone": "legsB",
+          "z": -20,
+          "sourcePath": "assets/generated-v2/rig/enemy-soft-biter/atlas.png",
+          "sourceRect": {
+            "x": 280,
+            "y": 98,
+            "width": 240,
+            "height": 109
+          },
+          "output": "enemy-soft-biter/legsB.png",
+          "width": 240,
+          "height": 109,
+          "visiblePixels": 10097,
+          "transparentPixels": 16063,
+          "translucentPixels": 9649,
+          "pixelSha256": "3f6c50f80cd62e98e899610cffeded7261ee2a864c2cadbe3f85dec2607213ac",
+          "pngSha256": "9e1d39cf1008daa570e3ce1dee5948decbe881cd3e41ab673c7a6761012bfa63"
+        },
+        {
+          "id": "antennae",
+          "bone": "antennae",
+          "z": -10,
+          "sourcePath": "assets/generated-v2/rig/enemy-soft-biter/atlas.png",
+          "sourceRect": {
+            "x": 567,
+            "y": 121,
+            "width": 147,
+            "height": 86
+          },
+          "output": "enemy-soft-biter/antennae.png",
+          "width": 147,
+          "height": 86,
+          "visiblePixels": 4705,
+          "transparentPixels": 7937,
+          "translucentPixels": 4438,
+          "pixelSha256": "fda21db0144bf7373054cbde35d706cc17dd8a231312c410935165577d7311d3",
+          "pngSha256": "29845957484cd8100d06cb1a7b72377d01658dcdabcaf574bb3be8d8ae463ac7"
+        },
+        {
+          "id": "body",
+          "bone": "body",
+          "z": 0,
+          "sourcePath": "assets/generated-v2/rig/enemy-soft-biter/atlas.png",
+          "sourceRect": {
+            "x": 41,
+            "y": 257,
+            "width": 225,
+            "height": 183
+          },
+          "output": "enemy-soft-biter/body.png",
+          "width": 225,
+          "height": 183,
+          "visiblePixels": 19051,
+          "transparentPixels": 22124,
+          "translucentPixels": 18669,
+          "pixelSha256": "290ea9be4b8f2d8bf83094fdad1672b0c5036239d4bebc24442bbcfc7e784167",
+          "pngSha256": "0a1c0ebf7b156701e574b1b8a8402508ec0f20ea729ddf963599d7cdf9d8b525"
+        },
+        {
+          "id": "eyes",
+          "bone": "eyes",
+          "z": 10,
+          "sourcePath": "assets/generated-v2/rig/enemy-soft-biter/atlas.png",
+          "sourceRect": {
+            "x": 346,
+            "y": 331,
+            "width": 156,
+            "height": 71
+          },
+          "output": "enemy-soft-biter/eyes.png",
+          "width": 156,
+          "height": 71,
+          "visiblePixels": 4652,
+          "transparentPixels": 6424,
+          "translucentPixels": 4349,
+          "pixelSha256": "b1a0cff67e1361532a689d5b1aa4ebbb50f2105269b8380830db5d14c3d9f757",
+          "pngSha256": "874d5111125272769ca80dc17b036eae2c2475b7b0186dc9ad51f7ac59bad18c"
+        },
+        {
+          "id": "mouth",
+          "bone": "mouth",
+          "z": 20,
+          "sourcePath": "assets/generated-v2/rig/enemy-soft-biter/atlas.png",
+          "sourceRect": {
+            "x": 600,
+            "y": 342,
+            "width": 82,
+            "height": 60
+          },
+          "output": "enemy-soft-biter/mouth.png",
+          "width": 82,
+          "height": 60,
+          "visiblePixels": 1402,
+          "transparentPixels": 3518,
+          "translucentPixels": 1267,
+          "pixelSha256": "db8f827a118fed45d1ffa2d0b5bdb29c130ece587f7444084c0479352f9821cd",
+          "pngSha256": "80f240e313c783853ee12400b451b01a1810bf7a9a179daf209b8784607a6305"
+        }
+      ],
+      "expressions": [
+        {
+          "partId": "eyes",
+          "variant": "normal",
+          "sourcePath": "assets/generated-v2/rig/enemy-soft-biter/atlas.png",
+          "sourceRect": {
+            "x": 346,
+            "y": 331,
+            "width": 156,
+            "height": 71
+          },
+          "output": "enemy-soft-biter/expressions/eyes--normal.png",
+          "width": 156,
+          "height": 71,
+          "visiblePixels": 4652,
+          "transparentPixels": 6424,
+          "translucentPixels": 4349,
+          "pixelSha256": "b1a0cff67e1361532a689d5b1aa4ebbb50f2105269b8380830db5d14c3d9f757",
+          "pngSha256": "874d5111125272769ca80dc17b036eae2c2475b7b0186dc9ad51f7ac59bad18c"
+        },
+        {
+          "partId": "eyes",
+          "variant": "blink",
+          "sourcePath": "assets/generated-v2/rig/enemy-soft-biter/expressions-v2.png",
+          "sourceRect": {
+            "x": 0,
+            "y": 0,
+            "width": 156,
+            "height": 71
+          },
+          "output": "enemy-soft-biter/expressions/eyes--blink.png",
+          "width": 156,
+          "height": 71,
+          "visiblePixels": 893,
+          "transparentPixels": 10183,
+          "translucentPixels": 676,
+          "pixelSha256": "e6502ef940eea654d035b6f08c0dcc9947ac4877b02619479a24e19d036fe873",
+          "pngSha256": "8fcdf3789386fc10c7748bc7739532f69e3621b677dee83665b99299603c6e2f"
+        },
+        {
+          "partId": "eyes",
+          "variant": "hurt",
+          "sourcePath": "assets/generated-v2/rig/enemy-soft-biter/expressions-v2.png",
+          "sourceRect": {
+            "x": 156,
+            "y": 0,
+            "width": 156,
+            "height": 71
+          },
+          "output": "enemy-soft-biter/expressions/eyes--hurt.png",
+          "width": 156,
+          "height": 71,
+          "visiblePixels": 1507,
+          "transparentPixels": 9569,
+          "translucentPixels": 1246,
+          "pixelSha256": "681830c4d3b9e677d249dfca363e5a7c3b6ab9731fca6a1f72153609af35b976",
+          "pngSha256": "4f6823754db17dab53e6a48091a3e7444e5ecacdc7080c172586558aef023131"
+        },
+        {
+          "partId": "eyes",
+          "variant": "attack",
+          "sourcePath": "assets/generated-v2/rig/enemy-soft-biter/expressions-v2.png",
+          "sourceRect": {
+            "x": 312,
+            "y": 0,
+            "width": 156,
+            "height": 71
+          },
+          "output": "enemy-soft-biter/expressions/eyes--attack.png",
+          "width": 156,
+          "height": 71,
+          "visiblePixels": 2836,
+          "transparentPixels": 8240,
+          "translucentPixels": 834,
+          "pixelSha256": "d305d850c73f90400f0b71751478aa2d9da2b0579b88721dd5efd5143762bcbf",
+          "pngSha256": "169350d21e6687fd794e4e36ef68053fe9ad35e65fdd5f92d0aeb924fe51e6af"
+        },
+        {
+          "partId": "mouth",
+          "variant": "normal",
+          "sourcePath": "assets/generated-v2/rig/enemy-soft-biter/atlas.png",
+          "sourceRect": {
+            "x": 600,
+            "y": 342,
+            "width": 82,
+            "height": 60
+          },
+          "output": "enemy-soft-biter/expressions/mouth--normal.png",
+          "width": 82,
+          "height": 60,
+          "visiblePixels": 1402,
+          "transparentPixels": 3518,
+          "translucentPixels": 1267,
+          "pixelSha256": "db8f827a118fed45d1ffa2d0b5bdb29c130ece587f7444084c0479352f9821cd",
+          "pngSha256": "80f240e313c783853ee12400b451b01a1810bf7a9a179daf209b8784607a6305"
+        },
+        {
+          "partId": "mouth",
+          "variant": "open",
+          "sourcePath": "assets/generated-v2/rig/enemy-soft-biter/expressions-v2.png",
+          "sourceRect": {
+            "x": 0,
+            "y": 71,
+            "width": 82,
+            "height": 60
+          },
+          "output": "enemy-soft-biter/expressions/mouth--open.png",
+          "width": 82,
+          "height": 60,
+          "visiblePixels": 1305,
+          "transparentPixels": 3615,
+          "translucentPixels": 400,
+          "pixelSha256": "b839d0c40df5ca9e7f647fd624e598f123df7e70b6214dcb18a591bf76acd3c6",
+          "pngSha256": "df862741df817ec25dbd9359767eb0238e38acfc14b4d73d4054eee8d51173ad"
+        },
+        {
+          "partId": "mouth",
+          "variant": "hurt",
+          "sourcePath": "assets/generated-v2/rig/enemy-soft-biter/expressions-v2.png",
+          "sourceRect": {
+            "x": 82,
+            "y": 71,
+            "width": 82,
+            "height": 60
+          },
+          "output": "enemy-soft-biter/expressions/mouth--hurt.png",
+          "width": 82,
+          "height": 60,
+          "visiblePixels": 414,
+          "transparentPixels": 4506,
+          "translucentPixels": 340,
+          "pixelSha256": "393dda702cc49a000a5cce420adf5c464bf66997ecda22d23f25a051fae96f6e",
+          "pngSha256": "8fea5fd13c543bbba61a383a39b0ce5911ddeaf2afe74b9f6e10a37db8eb13a4"
+        }
+      ]
+    },
+    "enemy-windcap": {
+      "atlas": "assets/generated-v2/rig/enemy-windcap/atlas.png",
+      "parts": [
+        {
+          "id": "stem",
+          "bone": "stem",
+          "z": 0,
+          "sourcePath": "assets/generated-v2/rig/enemy-windcap/atlas.png",
+          "sourceRect": {
+            "x": 35,
+            "y": 69,
+            "width": 156,
+            "height": 189
+          },
+          "output": "enemy-windcap/stem.png",
+          "width": 156,
+          "height": 189,
+          "visiblePixels": 11190,
+          "transparentPixels": 18294,
+          "translucentPixels": 10876,
+          "pixelSha256": "60f50dfc2e2814765ae5736fd3623d5ca34ac2ed673e6fd10c5bf83a81001a4d",
+          "pngSha256": "3859a777738510be7d9b648a9c3b4abd9d80ec4be8ff7bf90a60da225e51aab8"
+        },
+        {
+          "id": "cap",
+          "bone": "cap",
+          "z": 10,
+          "sourcePath": "assets/generated-v2/rig/enemy-windcap/atlas.png",
+          "sourceRect": {
+            "x": 254,
+            "y": 103,
+            "width": 268,
+            "height": 154
+          },
+          "output": "enemy-windcap/cap.png",
+          "width": 268,
+          "height": 154,
+          "visiblePixels": 27119,
+          "transparentPixels": 14153,
+          "translucentPixels": 26627,
+          "pixelSha256": "5da71f74015b789102e78f37836fa339cef7e45056ce2ce35ae7393f08dd0fc6",
+          "pngSha256": "a7cb407466956cd259aa9b7cc98464b1c6410c8d597cfe0efe3e7c1dd729ec10"
+        },
+        {
+          "id": "eyes",
+          "bone": "eyes",
+          "z": 20,
+          "sourcePath": "assets/generated-v2/rig/enemy-windcap/atlas.png",
+          "sourceRect": {
+            "x": 585,
+            "y": 161,
+            "width": 124,
+            "height": 66
+          },
+          "output": "enemy-windcap/eyes.png",
+          "width": 124,
+          "height": 66,
+          "visiblePixels": 2021,
+          "transparentPixels": 6163,
+          "translucentPixels": 1903,
+          "pixelSha256": "c0333e37971d29fc085775c7d70c5b7d468c7f70860b72241fbedf21827cddf5",
+          "pngSha256": "b628ff79a38eb4d2175c4bf38eb84b17f418246afd5d3a8b31be41dd2cd6c894"
+        },
+        {
+          "id": "mouth",
+          "bone": "mouth",
+          "z": 30,
+          "sourcePath": "assets/generated-v2/rig/enemy-windcap/atlas.png",
+          "sourceRect": {
+            "x": 89,
+            "y": 346,
+            "width": 69,
+            "height": 54
+          },
+          "output": "enemy-windcap/mouth.png",
+          "width": 69,
+          "height": 54,
+          "visiblePixels": 649,
+          "transparentPixels": 3077,
+          "translucentPixels": 575,
+          "pixelSha256": "5c13414437b4a2fc697950c6fca99c211085a70e53195e80ea89f39dacfdcaa4",
+          "pngSha256": "f7789b13e9d533a8aae1e225d1c15b315105a5199e7be0d172b4f15058af16fc"
+        }
+      ],
+      "expressions": [
+        {
+          "partId": "eyes",
+          "variant": "normal",
+          "sourcePath": "assets/generated-v2/rig/enemy-windcap/atlas.png",
+          "sourceRect": {
+            "x": 585,
+            "y": 161,
+            "width": 124,
+            "height": 66
+          },
+          "output": "enemy-windcap/expressions/eyes--normal.png",
+          "width": 124,
+          "height": 66,
+          "visiblePixels": 2021,
+          "transparentPixels": 6163,
+          "translucentPixels": 1903,
+          "pixelSha256": "c0333e37971d29fc085775c7d70c5b7d468c7f70860b72241fbedf21827cddf5",
+          "pngSha256": "b628ff79a38eb4d2175c4bf38eb84b17f418246afd5d3a8b31be41dd2cd6c894"
+        },
+        {
+          "partId": "eyes",
+          "variant": "blink",
+          "sourcePath": "assets/generated-v2/rig/enemy-windcap/expressions-v2.png",
+          "sourceRect": {
+            "x": 0,
+            "y": 0,
+            "width": 124,
+            "height": 66
+          },
+          "output": "enemy-windcap/expressions/eyes--blink.png",
+          "width": 124,
+          "height": 66,
+          "visiblePixels": 502,
+          "transparentPixels": 7682,
+          "translucentPixels": 374,
+          "pixelSha256": "38df81630ae881265fafacad4730a7770fe302f1a9f23f7586b38dbf45279b17",
+          "pngSha256": "f8de628a39970b1a64b2f51b9885a70d33e3916c58c39aed48248f79b9a4be7e"
+        },
+        {
+          "partId": "eyes",
+          "variant": "hurt",
+          "sourcePath": "assets/generated-v2/rig/enemy-windcap/expressions-v2.png",
+          "sourceRect": {
+            "x": 124,
+            "y": 0,
+            "width": 124,
+            "height": 66
+          },
+          "output": "enemy-windcap/expressions/eyes--hurt.png",
+          "width": 124,
+          "height": 66,
+          "visiblePixels": 812,
+          "transparentPixels": 7372,
+          "translucentPixels": 660,
+          "pixelSha256": "195c2b85005d0837601ba70e17ca089d3d2ba019db9ef71ccf0aaef8a4dfc502",
+          "pngSha256": "0da5256367027547086dbd6de8bb979674cc9c0fe1f775047d7b1690c1298a1a"
+        },
+        {
+          "partId": "eyes",
+          "variant": "attack",
+          "sourcePath": "assets/generated-v2/rig/enemy-windcap/expressions-v2.png",
+          "sourceRect": {
+            "x": 248,
+            "y": 0,
+            "width": 124,
+            "height": 66
+          },
+          "output": "enemy-windcap/expressions/eyes--attack.png",
+          "width": 124,
+          "height": 66,
+          "visiblePixels": 1463,
+          "transparentPixels": 6721,
+          "translucentPixels": 572,
+          "pixelSha256": "cda9948586a5002057be2c0b901385696782849c148689a2a20427def59e46fb",
+          "pngSha256": "66e8b1dc6e94128b1d67788360dad6b8b918c4c3f50efce90d807c3e625a73b0"
+        },
+        {
+          "partId": "mouth",
+          "variant": "normal",
+          "sourcePath": "assets/generated-v2/rig/enemy-windcap/atlas.png",
+          "sourceRect": {
+            "x": 89,
+            "y": 346,
+            "width": 69,
+            "height": 54
+          },
+          "output": "enemy-windcap/expressions/mouth--normal.png",
+          "width": 69,
+          "height": 54,
+          "visiblePixels": 649,
+          "transparentPixels": 3077,
+          "translucentPixels": 575,
+          "pixelSha256": "5c13414437b4a2fc697950c6fca99c211085a70e53195e80ea89f39dacfdcaa4",
+          "pngSha256": "f7789b13e9d533a8aae1e225d1c15b315105a5199e7be0d172b4f15058af16fc"
+        },
+        {
+          "partId": "mouth",
+          "variant": "open",
+          "sourcePath": "assets/generated-v2/rig/enemy-windcap/expressions-v2.png",
+          "sourceRect": {
+            "x": 0,
+            "y": 66,
+            "width": 69,
+            "height": 54
+          },
+          "output": "enemy-windcap/expressions/mouth--open.png",
+          "width": 69,
+          "height": 54,
+          "visiblePixels": 806,
+          "transparentPixels": 2920,
+          "translucentPixels": 318,
+          "pixelSha256": "08b969d10de8f305d019055d6e14b90d36e7aad96d94c978f27cd0ac94a55f05",
+          "pngSha256": "482451f19fcb85bad7d4288778579f2a2f0f10ee41188f8718952d7ec4e42a89"
+        },
+        {
+          "partId": "mouth",
+          "variant": "hurt",
+          "sourcePath": "assets/generated-v2/rig/enemy-windcap/expressions-v2.png",
+          "sourceRect": {
+            "x": 69,
+            "y": 66,
+            "width": 69,
+            "height": 54
+          },
+          "output": "enemy-windcap/expressions/mouth--hurt.png",
+          "width": 69,
+          "height": 54,
+          "visiblePixels": 316,
+          "transparentPixels": 3410,
+          "translucentPixels": 269,
+          "pixelSha256": "21e1c4bff92bf4affb99c638e06eaa1ac688633fe7de958976b84c92b660512b",
+          "pngSha256": "9fa38b662401d732bda5e2f9a1ebd3fefcce184c9ded2521dc782a94d6ff3fd4"
+        }
+      ]
+    },
+    "enemy-stone-lump": {
+      "atlas": "assets/generated-v2/rig/enemy-stone-lump/atlas.png",
+      "parts": [
+        {
+          "id": "body",
+          "bone": "body",
+          "z": 0,
+          "sourcePath": "assets/generated-v2/rig/enemy-stone-lump/atlas.png",
+          "sourceRect": {
+            "x": 12,
+            "y": 75,
+            "width": 231,
+            "height": 202
+          },
+          "output": "enemy-stone-lump/body.png",
+          "width": 231,
+          "height": 202,
+          "visiblePixels": 28537,
+          "transparentPixels": 18125,
+          "translucentPixels": 28048,
+          "pixelSha256": "1c90f19c7d68b4abb92a5886a2baa0e22f194ee94fa4f4db238caddd74d45934",
+          "pngSha256": "0f32cdd9a936b6e51aa23c4584e5b7798285ecdc7d3db641ad0906da57481697"
+        },
+        {
+          "id": "rocks",
+          "bone": "rocks",
+          "z": 10,
+          "sourcePath": "assets/generated-v2/rig/enemy-stone-lump/atlas.png",
+          "sourceRect": {
+            "x": 275,
+            "y": 73,
+            "width": 246,
+            "height": 183
+          },
+          "output": "enemy-stone-lump/rocks.png",
+          "width": 246,
+          "height": 183,
+          "visiblePixels": 29479,
+          "transparentPixels": 15539,
+          "translucentPixels": 29034,
+          "pixelSha256": "963a76b85ab54865266e0305cc5f05352cf2fa7db3be4c5d043baa3e268106d7",
+          "pngSha256": "bd2bc6e67b695f546d0234e479a6ae35aa891cef519e4f7a2e6a100766f4069b"
+        },
+        {
+          "id": "eyes",
+          "bone": "eyes",
+          "z": 20,
+          "sourcePath": "assets/generated-v2/rig/enemy-stone-lump/atlas.png",
+          "sourceRect": {
+            "x": 569,
+            "y": 146,
+            "width": 163,
+            "height": 73
+          },
+          "output": "enemy-stone-lump/eyes.png",
+          "width": 163,
+          "height": 73,
+          "visiblePixels": 3615,
+          "transparentPixels": 8284,
+          "translucentPixels": 3355,
+          "pixelSha256": "1c8ec99a1f0c76a42b79cbe04ba406ca8883b10015c7f4fc819cf3c52288de19",
+          "pngSha256": "c9b57a74308ad338af91c9dbb595d91e1166bb6a69de9e960989fa434e33ef16"
+        },
+        {
+          "id": "mouth",
+          "bone": "mouth",
+          "z": 30,
+          "sourcePath": "assets/generated-v2/rig/enemy-stone-lump/atlas.png",
+          "sourceRect": {
+            "x": 71,
+            "y": 346,
+            "width": 114,
+            "height": 57
+          },
+          "output": "enemy-stone-lump/mouth.png",
+          "width": 114,
+          "height": 57,
+          "visiblePixels": 2251,
+          "transparentPixels": 4247,
+          "translucentPixels": 2060,
+          "pixelSha256": "723a73cef49800101d4ded30025d130e9d27a8f8ac64ede2725fa5e453804a55",
+          "pngSha256": "3bae17faa328131842cda3b4b1a40c62c545e23551553277279b5d5fa2f8984f"
+        }
+      ],
+      "expressions": [
+        {
+          "partId": "eyes",
+          "variant": "normal",
+          "sourcePath": "assets/generated-v2/rig/enemy-stone-lump/atlas.png",
+          "sourceRect": {
+            "x": 569,
+            "y": 146,
+            "width": 163,
+            "height": 73
+          },
+          "output": "enemy-stone-lump/expressions/eyes--normal.png",
+          "width": 163,
+          "height": 73,
+          "visiblePixels": 3615,
+          "transparentPixels": 8284,
+          "translucentPixels": 3355,
+          "pixelSha256": "1c8ec99a1f0c76a42b79cbe04ba406ca8883b10015c7f4fc819cf3c52288de19",
+          "pngSha256": "c9b57a74308ad338af91c9dbb595d91e1166bb6a69de9e960989fa434e33ef16"
+        },
+        {
+          "partId": "eyes",
+          "variant": "blink",
+          "sourcePath": "assets/generated-v2/rig/enemy-stone-lump/expressions-v2.png",
+          "sourceRect": {
+            "x": 0,
+            "y": 0,
+            "width": 163,
+            "height": 73
+          },
+          "output": "enemy-stone-lump/expressions/eyes--blink.png",
+          "width": 163,
+          "height": 73,
+          "visiblePixels": 722,
+          "transparentPixels": 11177,
+          "translucentPixels": 536,
+          "pixelSha256": "7857c40230ed8eb7ab4315283b9e8150b9af4e0900b41e73238db727b578ddb8",
+          "pngSha256": "101ea2eac9a2c9d7981d80901b2b9443310b754471ee75e06dfcf92f1208f198"
+        },
+        {
+          "partId": "eyes",
+          "variant": "hurt",
+          "sourcePath": "assets/generated-v2/rig/enemy-stone-lump/expressions-v2.png",
+          "sourceRect": {
+            "x": 163,
+            "y": 0,
+            "width": 163,
+            "height": 73
+          },
+          "output": "enemy-stone-lump/expressions/eyes--hurt.png",
+          "width": 163,
+          "height": 73,
+          "visiblePixels": 1027,
+          "transparentPixels": 10872,
+          "translucentPixels": 780,
+          "pixelSha256": "495d8ab77df00c4ccfa507fb2877050eb979590f680b5c385d0b65c4a1ea59a0",
+          "pngSha256": "6a1637dc2f27ab34cf1d878b16b5f57c7f8418097b37ec8f4126a3252015ea0c"
+        },
+        {
+          "partId": "eyes",
+          "variant": "attack",
+          "sourcePath": "assets/generated-v2/rig/enemy-stone-lump/expressions-v2.png",
+          "sourceRect": {
+            "x": 326,
+            "y": 0,
+            "width": 163,
+            "height": 73
+          },
+          "output": "enemy-stone-lump/expressions/eyes--attack.png",
+          "width": 163,
+          "height": 73,
+          "visiblePixels": 2080,
+          "transparentPixels": 9819,
+          "translucentPixels": 724,
+          "pixelSha256": "20be588f53721131021590d6f09759fffdd8ce87b2cbed50a9ae8d204c9e74e7",
+          "pngSha256": "c693ed13576b448dc84c06c98536e59831a5f8cd9a4e1ff54b43511c5b9c02b2"
+        },
+        {
+          "partId": "mouth",
+          "variant": "normal",
+          "sourcePath": "assets/generated-v2/rig/enemy-stone-lump/atlas.png",
+          "sourceRect": {
+            "x": 71,
+            "y": 346,
+            "width": 114,
+            "height": 57
+          },
+          "output": "enemy-stone-lump/expressions/mouth--normal.png",
+          "width": 114,
+          "height": 57,
+          "visiblePixels": 2251,
+          "transparentPixels": 4247,
+          "translucentPixels": 2060,
+          "pixelSha256": "723a73cef49800101d4ded30025d130e9d27a8f8ac64ede2725fa5e453804a55",
+          "pngSha256": "3bae17faa328131842cda3b4b1a40c62c545e23551553277279b5d5fa2f8984f"
+        },
+        {
+          "partId": "mouth",
+          "variant": "open",
+          "sourcePath": "assets/generated-v2/rig/enemy-stone-lump/expressions-v2.png",
+          "sourceRect": {
+            "x": 0,
+            "y": 73,
+            "width": 114,
+            "height": 57
+          },
+          "output": "enemy-stone-lump/expressions/mouth--open.png",
+          "width": 114,
+          "height": 57,
+          "visiblePixels": 1512,
+          "transparentPixels": 4986,
+          "translucentPixels": 499,
+          "pixelSha256": "cfd189f499cf2ff90642964d6d7201f64056920552f474962ce3fb542633d18f",
+          "pngSha256": "f4c173e89bc924659799d879775559d8b088fb1d3006ebcf3a3bfda3625e1f9b"
+        },
+        {
+          "partId": "mouth",
+          "variant": "hurt",
+          "sourcePath": "assets/generated-v2/rig/enemy-stone-lump/expressions-v2.png",
+          "sourceRect": {
+            "x": 114,
+            "y": 73,
+            "width": 114,
+            "height": 57
+          },
+          "output": "enemy-stone-lump/expressions/mouth--hurt.png",
+          "width": 114,
+          "height": 57,
+          "visiblePixels": 504,
+          "transparentPixels": 5994,
+          "translucentPixels": 426,
+          "pixelSha256": "a9c6f88ba07a41fc4aef3d66cb29a7bda54cb64c4cb5ceb72980619001e454b2",
+          "pngSha256": "462d99d8ba40a143f2320001f0aec61229fd3a2619fcbeeee756e718b7d8d205"
+        }
+      ]
+    },
+    "enemy-acid-shell-king": {
+      "atlas": "assets/generated-v2/rig/enemy-acid-shell-king/atlas-layered-v2.png",
+      "parts": [
+        {
+          "id": "tentacles",
+          "bone": "tentacles",
+          "z": -10,
+          "sourcePath": "assets/generated-v2/rig/enemy-acid-shell-king/atlas-layered-v2.png",
+          "sourceRect": {
+            "x": 36,
+            "y": 161,
+            "width": 206,
+            "height": 76
+          },
+          "output": "enemy-acid-shell-king/tentacles.png",
+          "width": 206,
+          "height": 76,
+          "visiblePixels": 8157,
+          "transparentPixels": 7499,
+          "translucentPixels": 7782,
+          "pixelSha256": "451057a7f977ce792b55c1b4efe93c0e7783bb8d0d7baa82b0ed64015a154feb",
+          "pngSha256": "ac5bb12cf4f44d9deaa323c506d986bb7a76450c20f0049472630f822db0b3e2"
+        },
+        {
+          "id": "body",
+          "bone": "body",
+          "z": 0,
+          "sourcePath": "assets/generated-v2/rig/enemy-acid-shell-king/atlas-layered-v2.png",
+          "sourceRect": {
+            "x": 255,
+            "y": 56,
+            "width": 259,
+            "height": 209
+          },
+          "output": "enemy-acid-shell-king/body.png",
+          "width": 259,
+          "height": 209,
+          "visiblePixels": 33739,
+          "transparentPixels": 20392,
+          "translucentPixels": 33256,
+          "pixelSha256": "fda7d81166a3fff9c7c6aa97643e352d26daa1aa8dc92e44593ffca8e4d3b600",
+          "pngSha256": "f2d6f191c64f726a3ce5d5db8aa8e38964b5256fd6ccc2eb569e0da5225e02b9"
+        },
+        {
+          "id": "acidShell",
+          "bone": "acidShell",
+          "z": 10,
+          "sourcePath": "assets/generated-v2/rig/enemy-acid-shell-king/atlas-layered-v2.png",
+          "sourceRect": {
+            "x": 16,
+            "y": 528,
+            "width": 294,
+            "height": 200
+          },
+          "output": "enemy-acid-shell-king/acidShell.png",
+          "width": 294,
+          "height": 200,
+          "visiblePixels": 38541,
+          "transparentPixels": 20259,
+          "translucentPixels": 38499,
+          "pixelSha256": "070caa2d703a09fe8bdb2c7640c75eae4445782fa010c3f728f312df28ceb6e9",
+          "pngSha256": "835beb6a5d1e179f8b8be699dad03570e56797124bfe545fc4e4fe9a26f4a47b"
+        },
+        {
+          "id": "crown",
+          "bone": "crown",
+          "z": 20,
+          "sourcePath": "assets/generated-v2/rig/enemy-acid-shell-king/atlas-layered-v2.png",
+          "sourceRect": {
+            "x": 326,
+            "y": 528,
+            "width": 172,
+            "height": 120
+          },
+          "output": "enemy-acid-shell-king/crown.png",
+          "width": 172,
+          "height": 120,
+          "visiblePixels": 12064,
+          "transparentPixels": 8576,
+          "translucentPixels": 12058,
+          "pixelSha256": "28ef3e16ab944c9e3a605378415800104b26966a60df5909cf4a5e2fc7d43ddc",
+          "pngSha256": "d01c24ed376c3e61907b311885ccd3db11969d948da85d3a9c83118e4af1e9f5"
+        },
+        {
+          "id": "core",
+          "bone": "core",
+          "z": 30,
+          "sourcePath": "assets/generated-v2/rig/enemy-acid-shell-king/atlas-layered-v2.png",
+          "sourceRect": {
+            "x": 62,
+            "y": 289,
+            "width": 152,
+            "height": 182
+          },
+          "output": "enemy-acid-shell-king/core.png",
+          "width": 152,
+          "height": 182,
+          "visiblePixels": 13728,
+          "transparentPixels": 13936,
+          "translucentPixels": 13421,
+          "pixelSha256": "ad03d98817e046acb2904096b028474da95f1c8063494652e45c8a6675df3bcc",
+          "pngSha256": "86eca0c8fc887dfbc995dd93cfb28e5cbdd40d397e494749f06a419b50e09d41"
+        },
+        {
+          "id": "eyes",
+          "bone": "eyes",
+          "z": 40,
+          "sourcePath": "assets/generated-v2/rig/enemy-acid-shell-king/atlas-layered-v2.png",
+          "sourceRect": {
+            "x": 289,
+            "y": 339,
+            "width": 190,
+            "height": 99
+          },
+          "output": "enemy-acid-shell-king/eyes.png",
+          "width": 190,
+          "height": 99,
+          "visiblePixels": 6783,
+          "transparentPixels": 12027,
+          "translucentPixels": 6500,
+          "pixelSha256": "e86a0e44b2e26e2445cf395769f7f464796acd873d0648562a680318bf1f48a1",
+          "pngSha256": "37e4fe1d7a10cf3b07d042474c7950db1ac171a23929340661ba7c8f03c13a9d"
+        },
+        {
+          "id": "mouth",
+          "bone": "mouth",
+          "z": 50,
+          "sourcePath": "assets/generated-v2/rig/enemy-acid-shell-king/atlas-layered-v2.png",
+          "sourceRect": {
+            "x": 531,
+            "y": 332,
+            "width": 197,
+            "height": 126
+          },
+          "output": "enemy-acid-shell-king/mouth.png",
+          "width": 197,
+          "height": 126,
+          "visiblePixels": 9639,
+          "transparentPixels": 15183,
+          "translucentPixels": 9331,
+          "pixelSha256": "d3a76628865dd77459407c23cd249da1c068f66d9446bcd60698a8764a91bedc",
+          "pngSha256": "a0f45a211babcce7a677cc9f24f1eabdc23e642c266705038b5ffdaf8295c99c"
+        }
+      ],
+      "expressions": [
+        {
+          "partId": "eyes",
+          "variant": "normal",
+          "sourcePath": "assets/generated-v2/rig/enemy-acid-shell-king/atlas-layered-v2.png",
+          "sourceRect": {
+            "x": 289,
+            "y": 339,
+            "width": 190,
+            "height": 99
+          },
+          "output": "enemy-acid-shell-king/expressions/eyes--normal.png",
+          "width": 190,
+          "height": 99,
+          "visiblePixels": 6783,
+          "transparentPixels": 12027,
+          "translucentPixels": 6500,
+          "pixelSha256": "e86a0e44b2e26e2445cf395769f7f464796acd873d0648562a680318bf1f48a1",
+          "pngSha256": "37e4fe1d7a10cf3b07d042474c7950db1ac171a23929340661ba7c8f03c13a9d"
+        },
+        {
+          "partId": "eyes",
+          "variant": "blink",
+          "sourcePath": "assets/generated-v2/rig/enemy-acid-shell-king/expressions-v2.png",
+          "sourceRect": {
+            "x": 0,
+            "y": 0,
+            "width": 190,
+            "height": 99
+          },
+          "output": "enemy-acid-shell-king/expressions/eyes--blink.png",
+          "width": 190,
+          "height": 99,
+          "visiblePixels": 1252,
+          "transparentPixels": 17558,
+          "translucentPixels": 886,
+          "pixelSha256": "fd86f94246c512b9c028d5efbe5877a1a2999d25deb582b3a651bd436e497ed9",
+          "pngSha256": "c5c1f6001b5bc9bae68c8e20d7163836593be0a7c549262116fafdf5f3f084d2"
+        },
+        {
+          "partId": "eyes",
+          "variant": "hurt",
+          "sourcePath": "assets/generated-v2/rig/enemy-acid-shell-king/expressions-v2.png",
+          "sourceRect": {
+            "x": 190,
+            "y": 0,
+            "width": 190,
+            "height": 99
+          },
+          "output": "enemy-acid-shell-king/expressions/eyes--hurt.png",
+          "width": 190,
+          "height": 99,
+          "visiblePixels": 2206,
+          "transparentPixels": 16604,
+          "translucentPixels": 1468,
+          "pixelSha256": "4d056286e42228489fd1ca3acf711d73184713cd67042bf1c5562ba2c3e16e6f",
+          "pngSha256": "857bf7906e047e8a5579984be7e21c48556f9d03e4e751d0bd73b50235c062bf"
+        },
+        {
+          "partId": "eyes",
+          "variant": "attack",
+          "sourcePath": "assets/generated-v2/rig/enemy-acid-shell-king/expressions-v2.png",
+          "sourceRect": {
+            "x": 380,
+            "y": 0,
+            "width": 190,
+            "height": 99
+          },
+          "output": "enemy-acid-shell-king/expressions/eyes--attack.png",
+          "width": 190,
+          "height": 99,
+          "visiblePixels": 4313,
+          "transparentPixels": 14497,
+          "translucentPixels": 1038,
+          "pixelSha256": "d597ab6d72b29f8da1d1d8a8fee946c596aa38514ca13e4bc509d55f5b3cd630",
+          "pngSha256": "b18d5a6890454dda2170cea8bae2825e5b3373046e5a0aaa1460a6f69503797a"
+        },
+        {
+          "partId": "mouth",
+          "variant": "normal",
+          "sourcePath": "assets/generated-v2/rig/enemy-acid-shell-king/atlas-layered-v2.png",
+          "sourceRect": {
+            "x": 531,
+            "y": 332,
+            "width": 197,
+            "height": 126
+          },
+          "output": "enemy-acid-shell-king/expressions/mouth--normal.png",
+          "width": 197,
+          "height": 126,
+          "visiblePixels": 9639,
+          "transparentPixels": 15183,
+          "translucentPixels": 9331,
+          "pixelSha256": "d3a76628865dd77459407c23cd249da1c068f66d9446bcd60698a8764a91bedc",
+          "pngSha256": "a0f45a211babcce7a677cc9f24f1eabdc23e642c266705038b5ffdaf8295c99c"
+        },
+        {
+          "partId": "mouth",
+          "variant": "open",
+          "sourcePath": "assets/generated-v2/rig/enemy-acid-shell-king/expressions-v2.png",
+          "sourceRect": {
+            "x": 0,
+            "y": 99,
+            "width": 197,
+            "height": 126
+          },
+          "output": "enemy-acid-shell-king/expressions/mouth--open.png",
+          "width": 197,
+          "height": 126,
+          "visiblePixels": 7538,
+          "transparentPixels": 17284,
+          "translucentPixels": 996,
+          "pixelSha256": "00afd46f3b73892e25bfb6e32307ecf56a68cd33de0875b7ba776b72726f6a17",
+          "pngSha256": "939940b560017a3cc4836f79cc258e4097830b493b63819f695ecf7d32ce8b85"
+        },
+        {
+          "partId": "mouth",
+          "variant": "hurt",
+          "sourcePath": "assets/generated-v2/rig/enemy-acid-shell-king/expressions-v2.png",
+          "sourceRect": {
+            "x": 197,
+            "y": 99,
+            "width": 197,
+            "height": 126
+          },
+          "output": "enemy-acid-shell-king/expressions/mouth--hurt.png",
+          "width": 197,
+          "height": 126,
+          "visiblePixels": 1835,
+          "transparentPixels": 22987,
+          "translucentPixels": 1133,
+          "pixelSha256": "ac7ee37f8715bf661a386e59f37d672d5fd5f1b2380a814307f201ff3572a00c",
+          "pngSha256": "89d6db1cd004bcf098ec4aad9fa6e5e639d707f514a78c884ad5c3c81e86e4a0"
+        }
+      ]
+    }
+  }
+}

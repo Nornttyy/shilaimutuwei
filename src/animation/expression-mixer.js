@@ -82,16 +82,34 @@ function smoothstep(progress) {
   return progress * progress * (3 - 2 * progress);
 }
 
+function eventExpressionState(events) {
+  if (events == null) return null;
+  if (!Array.isArray(events)) throw new TypeError('events must be an array.');
+
+  let selected = null;
+  for (const event of events) {
+    if (!event || typeof event !== 'object' || Array.isArray(event)) continue;
+    const state = event.expression
+      ?? (event.name === 'expression'
+        ? (event.state ?? event.payload?.state ?? event.payload?.expression)
+        : null);
+    if (state != null) selected = state;
+  }
+  return selected;
+}
+
 /**
  * Resolves a shared expression state from gameplay context.
  *
- * An explicit target always wins. Otherwise action names first use clipStates,
- * then direct state names (useful for `blink`), and finally the default state.
- * Normal/default contexts receive a deterministic owner-staggered blink.
+ * Priority is explicit target, latest expression event, clip metadata, then an
+ * action mapped through clipStates/direct state names. Normal/default contexts
+ * receive a deterministic owner-staggered blink.
  */
 export function resolveExpressionState({
   ownerId,
   action = null,
+  clipState = null,
+  events = null,
   currentTime = 0,
   targetState = null,
   spec = EXPRESSION_SPEC,
@@ -110,6 +128,10 @@ export function resolveExpressionState({
   }
 
   if (targetState != null) return assertState(spec, targetState);
+
+  const eventState = eventExpressionState(events);
+  if (eventState != null) return assertState(spec, eventState, 'event expression');
+  if (clipState != null) return assertState(spec, clipState, 'clip expression');
 
   let state = spec.defaultState;
   if (typeof action === 'string' && action.length > 0) {
@@ -187,6 +209,8 @@ export class ExpressionMixer {
   setContext({
     ownerId = this.ownerId,
     action = null,
+    clipState = null,
+    events = null,
     currentTime = 0,
     targetState = null,
   } = {}) {
@@ -196,6 +220,8 @@ export class ExpressionMixer {
     return this.setTarget(resolveExpressionState({
       ownerId,
       action,
+      clipState,
+      events,
       currentTime,
       targetState,
       spec: this.spec,
@@ -203,6 +229,24 @@ export class ExpressionMixer {
       blinkInterval: this.blinkInterval,
       blinkHold: this.blinkHold,
     }));
+  }
+
+  /** Select from an AnimationController without consuming its event queue. */
+  setAnimationContext(controller, {
+    events = null,
+    currentTime = 0,
+    targetState = null,
+  } = {}) {
+    if (!controller || typeof controller !== 'object') {
+      throw new TypeError('controller must be an AnimationController-like object.');
+    }
+    return this.setContext({
+      action: controller.actionName ?? controller.current ?? null,
+      clipState: controller.expressionState ?? null,
+      events,
+      currentTime,
+      targetState,
+    });
   }
 
   /** Select an explicit state without advancing the transition clock. */

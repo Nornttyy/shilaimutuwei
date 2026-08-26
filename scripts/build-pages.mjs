@@ -32,6 +32,8 @@ const DECLARED_ASSET_PATTERN =
 const FORBIDDEN_DERIVATIVE_PATTERN =
   /(?:^|[-_.])(source|alpha|preview|review|legacy|candidates?)(?:[-_.]|$)/i;
 const VERSIONED_ATLAS_PATHS = Object.freeze({
+  'survivor-bubble-float':
+    'assets/generated-v2/rig/survivor-bubble-float/atlas-layered-v2.png',
   'enemy-acid-shell-king':
     'assets/generated-v2/rig/enemy-acid-shell-king/atlas-layered-v2.png',
   'enemy-windcap':

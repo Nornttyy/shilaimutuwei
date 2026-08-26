@@ -94,15 +94,27 @@ test('exports matching shell and bug clip/rig definitions', () => {
   assert.deepEqual(Object.keys(BUG_CLIPS), ['idle', 'move', 'attack', 'hurt', 'death']);
   assert.deepEqual(
     Object.keys(SHELL_RIG.bones),
-    ['root', 'motion', 'body', 'shell', 'face', 'eyes', 'mouth', 'front'],
+    [
+      'root',
+      'motion',
+      'deform',
+      'body',
+      'shellAssembly',
+      'shellBack',
+      'shellFront',
+      'face',
+      'eyes',
+      'mouth',
+    ],
   );
   assert.deepEqual(
     Object.keys(BUG_RIG.bones),
     ['root', 'motion', 'body', 'legsA', 'legsB', 'antennae', 'face', 'eyes', 'mouth'],
   );
 
-  assert.equal(SHELL_RIG.bones.shell.parent, 'motion');
-  assert.deepEqual(SHELL_RIG.bones.shell.pivot, { x: -35, y: -39 });
+  assert.equal(SHELL_RIG.bones.shellAssembly.parent, 'deform');
+  assert.deepEqual(SHELL_RIG.bones.shellAssembly.pivot, { x: -35, y: -39 });
+  assert.deepEqual(SHELL_RIG.bones.shellAssembly.children, ['shellBack', 'shellFront']);
   assert.equal(BUG_RIG.bones.antennae.parent, 'motion');
   assert.deepEqual(BUG_RIG.bones.antennae.pivot, { x: 0, y: -60 });
   assert.equal(SHELL_CLIPS.attack.events[0].name, 'hit');
@@ -128,9 +140,15 @@ test('all character rigs have reciprocal trees and bone-complete clips', () => {
     assert.deepEqual(rig.bones.motion.pivot, { x: 0, y: 0 });
 
     const bodyBone = label === 'windcap' ? 'stem' : 'body';
-    assert.equal(rig.bones[bodyBone].parent, 'motion');
+    const usesDeformParent = label === 'shell' || label === 'bubble';
+    const visualParent = usesDeformParent ? 'deform' : 'motion';
+    assert.equal(rig.bones[bodyBone].parent, visualParent);
     assert.deepEqual(rig.bones[bodyBone].children, []);
-    assert.equal(rig.bones.face.parent, 'motion');
+    assert.equal(rig.bones.face.parent, visualParent);
+    if (usesDeformParent) {
+      assert.equal(rig.bones.deform.parent, 'motion');
+      assert.deepEqual(rig.bones.deform.pivot, { x: 0, y: 0 });
+    }
 
     for (const boneName of boneNames.filter((name) => name !== bodyBone)) {
       let ancestor = rig.bones[boneName].parent;
@@ -156,7 +174,11 @@ test('all character rigs have reciprocal trees and bone-complete clips', () => {
       }
     };
     visit(rig.root);
-    assert.deepEqual([...visited], boneNames, `${label} hierarchy must reach every bone`);
+    assert.deepEqual(
+      [...visited].sort(),
+      [...boneNames].sort(),
+      `${label} hierarchy must reach every bone`,
+    );
 
     for (const [clipName, clip] of Object.entries(clips)) {
       assert.deepEqual(
@@ -202,9 +224,12 @@ test('new rigs preserve the renderer hierarchy and bind-pose pivots', () => {
     [
       'root',
       'motion',
+      'deform',
       'body',
       'bubbles',
-      'bubblesBack',
+      'bubbleLarge',
+      'bubbleSmall',
+      'bubbleMedium',
       'halo',
       'ringBack',
       'ringFront',
@@ -255,11 +280,20 @@ test('new rigs preserve the renderer hierarchy and bind-pose pivots', () => {
   assert.deepEqual(CRYSTAL_RIG.bones.needleBottom.pivot, { x: -48.525, y: -12.911 });
   assert.deepEqual(CRYSTAL_RIG.bones.needleRight.pivot, { x: 28.728, y: -61.329 });
   assert.deepEqual(CRYSTAL_RIG.bones.front.pivot, { x: -19.6, y: -29.4 });
-  assert.deepEqual(SHELL_RIG.bones.front.pivot, { x: 29, y: -24.5 });
-  assert.deepEqual(BUBBLE_RIG.bones.bubbles.pivot, { x: -19, y: -72 });
+  assert.deepEqual(SHELL_RIG.bones.shellFront.pivot, { x: 17, y: -8.5 });
+  assert.deepEqual(BUBBLE_RIG.bones.bubbles.pivot, { x: 28, y: -88 });
   assert.deepEqual(BUBBLE_RIG.bones.halo.pivot, { x: 0, y: -21 });
-  assert.equal(BUBBLE_RIG.bones.bubblesBack.parent, 'bubbles');
-  assert.deepEqual(BUBBLE_RIG.bones.bubblesBack.pivot, { x: 0, y: 0 });
+  assert.deepEqual(BUBBLE_RIG.bones.bubbles.children, [
+    'bubbleLarge',
+    'bubbleSmall',
+    'bubbleMedium',
+  ]);
+  assert.deepEqual(BUBBLE_RIG.bones.bubbleLarge.pivot, { x: 28, y: -90 });
+  assert.deepEqual(BUBBLE_RIG.bones.bubbleSmall.pivot, { x: 9, y: -91 });
+  assert.deepEqual(BUBBLE_RIG.bones.bubbleMedium.pivot, { x: 45.5, y: -82 });
+  assert.equal(BUBBLE_RIG.bones.bubbleLarge.parent, 'bubbles');
+  assert.equal(BUBBLE_RIG.bones.bubbleSmall.parent, 'bubbles');
+  assert.equal(BUBBLE_RIG.bones.bubbleMedium.parent, 'bubbles');
   assert.equal(BUBBLE_RIG.bones.ringBack.parent, 'halo');
   assert.equal(BUBBLE_RIG.bones.ringFront.parent, 'halo');
   assert.deepEqual(SPROUT_RIG.bones.pack.pivot, { x: 31.7, y: -34.5 });
@@ -322,6 +356,76 @@ test('crystal needles and sprout leaves are independently bound and move conserv
   const right = SPROUT_CLIPS.attack.tracks.leafRight.rotation.map(([, value]) => value);
   left.forEach((value, index) => approximately(value, -right[index]));
   assert.ok(Math.max(...left.map(Math.abs), ...right.map(Math.abs)) <= 0.025);
+});
+
+test('shell and bubble split layers inherit one coherent deform assembly', () => {
+  assert.deepEqual(SHELL_RIG.bones.motion.children, ['deform']);
+  assert.deepEqual(
+    SHELL_RIG.bones.deform.children,
+    ['body', 'shellAssembly', 'face'],
+  );
+  assert.equal(SHELL_RIG.bones.body.parent, 'deform');
+  assert.equal(SHELL_RIG.bones.face.parent, 'deform');
+  assert.equal(SHELL_RIG.bones.shellBack.parent, 'shellAssembly');
+  assert.equal(SHELL_RIG.bones.shellFront.parent, 'shellAssembly');
+
+  for (const [clipName, clip] of Object.entries(SHELL_CLIPS)) {
+    assert.deepEqual(clip.tracks.body, { rotation: 0 }, `${clipName}.body`);
+    assert.deepEqual(clip.tracks.shellBack, { rotation: 0 }, `${clipName}.shellBack`);
+    const shellFrontRotation = clip.tracks.shellFront.rotation;
+    const values = Array.isArray(shellFrontRotation)
+      ? shellFrontRotation.map(([, value]) => value)
+      : [shellFrontRotation];
+    assert.ok(
+      Math.max(...values.map(Math.abs)) <= 0.008,
+      `${clipName}.shellFront must stay attached to the shell assembly`,
+    );
+    assert.ok(
+      Array.isArray(clip.tracks.deform.scaleX),
+      `${clipName}.deform must own the character squash`,
+    );
+  }
+
+  assert.deepEqual(BUBBLE_RIG.bones.motion.children, ['deform', 'bubbles']);
+  assert.deepEqual(BUBBLE_RIG.bones.deform.children, ['body', 'halo', 'face']);
+  assert.equal(BUBBLE_RIG.bones.body.parent, 'deform');
+  assert.equal(BUBBLE_RIG.bones.halo.parent, 'deform');
+  assert.equal(BUBBLE_RIG.bones.face.parent, 'deform');
+
+  const bubbleBones = ['bubbleLarge', 'bubbleSmall', 'bubbleMedium'];
+  for (const [clipName, clip] of Object.entries(BUBBLE_CLIPS)) {
+    assert.deepEqual(clip.tracks.body, { rotation: 0 }, `${clipName}.body`);
+    assert.deepEqual(clip.tracks.ringBack, { rotation: 0 }, `${clipName}.ringBack`);
+    assert.deepEqual(clip.tracks.ringFront, { rotation: 0 }, `${clipName}.ringFront`);
+    assert.ok(
+      Array.isArray(clip.tracks.deform.scaleX),
+      `${clipName}.deform must own the body, halo, and face squash`,
+    );
+
+    for (const boneName of bubbleBones) {
+      const track = clip.tracks[boneName];
+      const translations = ['x', 'y'].flatMap((property) => {
+        const source = track[property];
+        if (source == null) return [];
+        return Array.isArray(source) ? source.map(([, value]) => value) : [source];
+      });
+      const rotation = Array.isArray(track.rotation)
+        ? track.rotation.map(([, value]) => value)
+        : [track.rotation ?? 0];
+      assert.ok(
+        translations.some((value) => value !== 0) || rotation.some((value) => value !== 0),
+        `${clipName}.${boneName} needs a subtle independent drift`,
+      );
+      assert.ok(
+        Math.max(0, ...translations.map(Math.abs)) <= 0.45,
+        `${clipName}.${boneName} translation must remain subtle`,
+      );
+      assert.ok(
+        Math.max(...rotation.map(Math.abs)) <= 0.014,
+        `${clipName}.${boneName} rotation must remain subtle`,
+      );
+    }
+  }
 });
 
 test('all character faces expose separate expression bones with one shared variant contract', () => {
@@ -517,7 +621,9 @@ test('body squash and attack hit timing stay inside the conservative animation c
   };
 
   for (const [label, , clips] of RIG_CASES) {
-    const bodyBone = label === 'windcap' ? 'stem' : 'body';
+    const bodyBone = label === 'windcap'
+      ? 'stem'
+      : (label === 'shell' || label === 'bubble' ? 'deform' : 'body');
     const terminalClip = Object.hasOwn(clips, 'death') ? 'death' : 'downed';
 
     for (const [clipName, clip] of Object.entries(clips)) {

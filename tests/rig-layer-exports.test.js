@@ -111,7 +111,7 @@ test('all current atlas sourceRects export to deterministic standalone RGBA PNGs
   const parts = rigs.flatMap(([, rig]) => rig.parts);
   const expressions = rigs.flatMap(([, rig]) => rig.expressions);
   assert.equal(rigs.length, 8);
-  assert.equal(parts.length, 50);
+  assert.equal(parts.length, 52);
   assert.equal(expressions.length, 56);
 
   const expectedFiles = [
@@ -119,7 +119,7 @@ test('all current atlas sourceRects export to deterministic standalone RGBA PNGs
     ...parts.map(({ output }) => output),
     ...expressions.map(({ output }) => output),
   ].sort();
-  assert.equal(expectedFiles.length, 107, '106 transparent PNGs plus index.json');
+  assert.equal(expectedFiles.length, 109, '108 transparent PNGs plus index.json');
   assert.deepEqual(await listRelativeFiles(temporaryOutput), expectedFiles);
   assert.deepEqual(await listRelativeFiles(DEFAULT_OUTPUT_ROOT), expectedFiles);
 

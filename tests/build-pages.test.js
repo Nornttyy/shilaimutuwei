@@ -68,11 +68,13 @@ test('the project Pages whitelist contains every manifest-declared runtime PNG',
     (rig) => rig.parts.map((part) => part.path),
   ))].sort();
   const expectedBaseAtlases = Object.keys(PROJECT_MANIFEST.rigs).map((ownerId) => (
-    ownerId === 'enemy-acid-shell-king'
-      ? 'assets/generated-v2/rig/enemy-acid-shell-king/atlas-layered-v2.png'
-      : ownerId === 'enemy-windcap'
-        ? 'assets/generated-v2/rig/enemy-windcap/atlas-layered-v2.png'
-      : `assets/generated-v2/rig/${ownerId}/atlas.png`
+    ownerId === 'survivor-bubble-float'
+      ? 'assets/generated-v2/rig/survivor-bubble-float/atlas-layered-v2.png'
+      : ownerId === 'enemy-acid-shell-king'
+        ? 'assets/generated-v2/rig/enemy-acid-shell-king/atlas-layered-v2.png'
+        : ownerId === 'enemy-windcap'
+          ? 'assets/generated-v2/rig/enemy-windcap/atlas-layered-v2.png'
+          : `assets/generated-v2/rig/${ownerId}/atlas.png`
   )).sort();
   const declaredPaths = [...new Set(Object.values(PROJECT_MANIFEST.rigs).flatMap(
     (rig) => rig.parts.flatMap((part) => [

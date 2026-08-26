@@ -16,7 +16,7 @@ const MANIFEST_SOURCE = JSON.parse(await readFile(
 ));
 
 const EXPECTED_PART_ORDER = Object.freeze({
-  'survivor-shell-shell': ['shell', 'body', 'eyes', 'mouth', 'front'],
+  'survivor-shell-shell': ['shellBack', 'body', 'shellFront', 'eyes', 'mouth'],
   'survivor-crystal-pin': [
     'needleBottom',
     'needleLower',
@@ -31,7 +31,9 @@ const EXPECTED_PART_ORDER = Object.freeze({
     'front',
   ],
   'survivor-bubble-float': [
-    'bubblesBack',
+    'bubbleLarge',
+    'bubbleSmall',
+    'bubbleMedium',
     'ringBack',
     'body',
     'eyes',
@@ -62,7 +64,7 @@ const EXPECTED_PART_ORDER = Object.freeze({
 });
 
 const EXPECTED_GENERATED_BIND_RECTS = Object.freeze({
-  'survivor-shell-shell.front': { x: 10, y: -34, width: 38, height: 19 },
+  'survivor-shell-shell.shellFront': { x: -2, y: -18, width: 38, height: 19 },
   'survivor-crystal-pin.front': {
     x: -22.38, y: -32.709, width: 28.75, height: 22.75,
   },
@@ -77,6 +79,9 @@ const EXPECTED_GENERATED_BIND_RECTS = Object.freeze({
 });
 
 function expectedAtlasPath(ownerId) {
+  if (ownerId === 'survivor-bubble-float') {
+    return 'assets/generated-v2/rig/survivor-bubble-float/atlas-layered-v2.png';
+  }
   if (ownerId === 'enemy-acid-shell-king') {
     return 'assets/generated-v2/rig/enemy-acid-shell-king/atlas-layered-v2.png';
   }
@@ -245,7 +250,7 @@ test('rig-parts contract covers all eight characters in canonical draw order', (
     assert.equal(atlasPaths.has(rig.atlasPath), false, `shared rig atlas: ${rig.atlasPath}`);
     atlasPaths.add(rig.atlasPath);
   }
-  assert.equal(partCount, 50);
+  assert.equal(partCount, 52);
   assert.equal(atlasPaths.size, 8);
   for (const ownerId of ['survivor-crystal-pin', 'survivor-moss-sprout']) {
     const metadata = MANIFEST_SOURCE.rigs[ownerId].masterDerived;
@@ -481,7 +486,7 @@ test('a complete rig becomes ready once and exposes a renderer-ready bundle', as
       const image = fakeImage();
       imagesByPath.set(url, image);
       if (url.endsWith('/atlas.png')) {
-        assert.equal(part.id, 'shell', 'the first atlas layer is the decode representative');
+        assert.equal(part.id, 'shellBack', 'the first atlas layer is the decode representative');
       } else {
         assert.equal(part.id, 'eyes:blink', 'the first variant is the expression representative');
         assert.ok(url.endsWith('/expressions-v2.png'));
@@ -541,12 +546,12 @@ test('one failed part sends the entire rig to fallback with no partial bundle', 
   });
 
   const result = await store.load('survivor-bubble-float', { timeoutMs: 100 });
-  assert.deepEqual(constructed, ['bubblesBack', 'eyes:blink']);
+  assert.deepEqual(constructed, ['bubbleLarge', 'eyes:blink']);
   assert.equal(result.status, 'fallback');
   assert.equal(result.ready, false);
   assert.equal(result.loaded, 0, 'partial images must never be advertised as loaded');
   assert.ok(result.error instanceof AggregateError);
-  assert.match(result.error.message, /failed images: .*survivor-bubble-float\/atlas\.png/);
+  assert.match(result.error.message, /failed images: .*survivor-bubble-float\/atlas-layered-v2\.png/);
 
   const vectorFallback = { kind: 'vector' };
   assert.equal(store.get('survivor-bubble-float', vectorFallback), vectorFallback);
@@ -605,7 +610,7 @@ test('expression sheets and standalone variants preload atomically and attach pe
   assert.equal(status.status, 'ready');
   assert.deepEqual(factoryCalls, [
     {
-      id: 'shell',
+      id: 'shellBack',
       path: 'assets/generated-v2/rig/survivor-shell-shell/atlas.png',
     },
     {

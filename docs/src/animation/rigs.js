@@ -72,35 +72,47 @@ export const SHELL_RIG = deepFreeze({
     },
     motion: {
       parent: 'root',
-      children: ['body', 'shell', 'face', 'front'],
+      children: ['deform'],
       pivot: { x: 0, y: 0 },
       layer: -19,
     },
-    body: {
+    deform: {
       parent: 'motion',
+      children: ['body', 'shellAssembly', 'face'],
+      pivot: { x: 0, y: 0 },
+      layer: -18,
+    },
+    body: {
+      parent: 'deform',
       children: [],
       pivot: { x: 0, y: 0 },
       layer: 0,
     },
-    shell: {
-      parent: 'motion',
+    shellAssembly: {
+      parent: 'deform',
+      children: ['shellBack', 'shellFront'],
+      pivot: { x: -35, y: -39 },
+      layer: -10,
+    },
+    shellBack: {
+      parent: 'shellAssembly',
       children: [],
       pivot: { x: -35, y: -39 },
       layer: -10,
     },
+    shellFront: {
+      parent: 'shellAssembly',
+      children: [],
+      pivot: { x: 17, y: -8.5 },
+      layer: 5,
+    },
     face: {
-      parent: 'motion',
+      parent: 'deform',
       children: ['eyes', 'mouth'],
       pivot: { x: 0, y: -33 },
       layer: 10,
     },
     ...expressionBones(10, SURVIVOR_EYES_PIVOT, SURVIVOR_MOUTH_PIVOT),
-    front: {
-      parent: 'motion',
-      children: [],
-      pivot: { x: 29, y: -24.5 },
-      layer: 20,
-    },
   },
 });
 
@@ -267,30 +279,48 @@ export const BUBBLE_RIG = deepFreeze({
     },
     motion: {
       parent: 'root',
-      children: ['body', 'bubbles', 'halo', 'face'],
+      children: ['deform', 'bubbles'],
       pivot: { x: 0, y: 0 },
       layer: -19,
     },
-    body: {
+    deform: {
       parent: 'motion',
+      children: ['body', 'halo', 'face'],
+      pivot: { x: 0, y: 0 },
+      layer: -18,
+    },
+    body: {
+      parent: 'deform',
       children: [],
       pivot: { x: 0, y: 0 },
       layer: 0,
     },
     bubbles: {
       parent: 'motion',
-      children: ['bubblesBack'],
-      pivot: { x: -19, y: -72 },
-      layer: -10,
+      children: ['bubbleLarge', 'bubbleSmall', 'bubbleMedium'],
+      pivot: { x: 28, y: -88 },
+      layer: -20,
     },
-    bubblesBack: {
+    bubbleLarge: {
       parent: 'bubbles',
       children: [],
-      pivot: { x: 0, y: 0 },
-      layer: -10,
+      pivot: { x: 28, y: -90 },
+      layer: -20,
+    },
+    bubbleSmall: {
+      parent: 'bubbles',
+      children: [],
+      pivot: { x: 9, y: -91 },
+      layer: -19,
+    },
+    bubbleMedium: {
+      parent: 'bubbles',
+      children: [],
+      pivot: { x: 45.5, y: -82 },
+      layer: -18,
     },
     halo: {
-      parent: 'motion',
+      parent: 'deform',
       children: ['ringBack', 'ringFront'],
       pivot: { x: 0, y: -21 },
       layer: 10,
@@ -308,7 +338,7 @@ export const BUBBLE_RIG = deepFreeze({
       layer: 30,
     },
     face: {
-      parent: 'motion',
+      parent: 'deform',
       children: ['eyes', 'mouth'],
       pivot: { x: 0, y: -33 },
       layer: 20,

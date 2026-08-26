@@ -199,11 +199,11 @@ test('draw pipeline forwards expression selection to an independent facial layer
   });
 
   assert.deepEqual(offscreenState.layerDraws, [
-    `${ownerId}:shell`,
+    `${ownerId}:shellBack`,
     `${ownerId}:body`,
+    `${ownerId}:shellFront`,
     `${ownerId}:eyes:blink`,
     `${ownerId}:mouth`,
-    `${ownerId}:front`,
   ]);
   assert.equal(ctx.compositeDraws, 1);
 });
@@ -261,8 +261,9 @@ test('a late layer drawImage failure cannot leave a partial PNG character on the
   });
 
   assert.deepEqual(offscreenState.layerDraws, [
-    `${ownerId}:shell`,
+    `${ownerId}:shellBack`,
     `${ownerId}:body`,
+    `${ownerId}:shellFront`,
     `${ownerId}:eyes`,
     `${ownerId}:mouth`,
   ]);

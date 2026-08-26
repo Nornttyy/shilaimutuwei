@@ -29,6 +29,7 @@ DEFAULT_MANIFEST = ROOT / "assets" / "rig-parts.json"
 ALLOWED_ATLAS = re.compile(r"^assets/generated-v2/rig/[^/]+/atlas\.png$")
 ALLOWED_VERSIONED_ATLASES = frozenset(
     {
+        "assets/generated-v2/rig/survivor-bubble-float/atlas-layered-v2.png",
         "assets/generated-v2/rig/enemy-acid-shell-king/atlas-layered-v2.png",
         "assets/generated-v2/rig/enemy-windcap/atlas-layered-v2.png",
     }

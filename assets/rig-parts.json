@@ -24,8 +24,8 @@
       "canonicalFacing": 1,
       "parts": [
         {
-          "id": "shell",
-          "bone": "shell",
+          "id": "shellBack",
+          "bone": "shellBack",
           "z": -10,
           "path": "assets/generated-v2/rig/survivor-shell-shell/atlas.png",
           "sourceRect": { "x": 32, "y": 269, "width": 205, "height": 205 },
@@ -40,6 +40,15 @@
           "sourceRect": { "x": 28, "y": 36, "width": 214, "height": 187 },
           "required": true,
           "bindRect": { "x": -51, "y": -81, "width": 102, "height": 89 }
+        },
+        {
+          "id": "shellFront",
+          "bone": "shellFront",
+          "z": 5,
+          "path": "assets/generated-v2/rig/survivor-shell-shell/atlas.png",
+          "sourceRect": { "x": 303, "y": 363, "width": 174, "height": 87 },
+          "required": true,
+          "bindRect": { "x": -2, "y": -18, "width": 38, "height": 19 }
         },
         {
           "id": "eyes",
@@ -82,15 +91,6 @@
               "sourceRect": { "x": 61, "y": 59, "width": 61, "height": 50 }
             }
           }
-        },
-        {
-          "id": "front",
-          "bone": "front",
-          "z": 30,
-          "path": "assets/generated-v2/rig/survivor-shell-shell/atlas.png",
-          "sourceRect": { "x": 303, "y": 363, "width": 174, "height": 87 },
-          "required": true,
-          "bindRect": { "x": 10, "y": -34, "width": 38, "height": 19 }
         }
       ]
     },
@@ -243,19 +243,37 @@
       "canonicalFacing": 1,
       "parts": [
         {
-          "id": "bubblesBack",
-          "bone": "bubblesBack",
-          "z": -20,
-          "path": "assets/generated-v2/rig/survivor-bubble-float/atlas.png",
-          "sourceRect": { "x": 19, "y": 306, "width": 209, "height": 116 },
+          "id": "bubbleLarge",
+          "bone": "bubbleLarge",
+          "z": -22,
+          "path": "assets/generated-v2/rig/survivor-bubble-float/atlas-layered-v2.png",
+          "sourceRect": { "x": 270, "y": 0, "width": 82, "height": 82 },
           "required": true,
-          "bindRect": { "x": -51, "y": -90, "width": 63, "height": 35 }
+          "bindRect": { "x": 14, "y": -104, "width": 28, "height": 28 }
+        },
+        {
+          "id": "bubbleSmall",
+          "bone": "bubbleSmall",
+          "z": -21,
+          "path": "assets/generated-v2/rig/survivor-bubble-float/atlas-layered-v2.png",
+          "sourceRect": { "x": 450, "y": 0, "width": 35, "height": 35 },
+          "required": true,
+          "bindRect": { "x": 3, "y": -97, "width": 12, "height": 12 }
+        },
+        {
+          "id": "bubbleMedium",
+          "bone": "bubbleMedium",
+          "z": -20,
+          "path": "assets/generated-v2/rig/survivor-bubble-float/atlas-layered-v2.png",
+          "sourceRect": { "x": 370, "y": 0, "width": 59, "height": 55 },
+          "required": true,
+          "bindRect": { "x": 36, "y": -91, "width": 19, "height": 18 }
         },
         {
           "id": "ringBack",
           "bone": "ringBack",
           "z": -10,
-          "path": "assets/generated-v2/rig/survivor-bubble-float/atlas.png",
+          "path": "assets/generated-v2/rig/survivor-bubble-float/atlas-layered-v2.png",
           "sourceRect": { "x": 271, "y": 320, "width": 215, "height": 93 },
           "required": true,
           "bindRect": { "x": -58, "y": -46, "width": 116, "height": 50 }
@@ -264,7 +282,7 @@
           "id": "body",
           "bone": "body",
           "z": 0,
-          "path": "assets/generated-v2/rig/survivor-bubble-float/atlas.png",
+          "path": "assets/generated-v2/rig/survivor-bubble-float/atlas-layered-v2.png",
           "sourceRect": { "x": 34, "y": 51, "width": 210, "height": 184 },
           "required": true,
           "bindRect": { "x": -51, "y": -81, "width": 102, "height": 89 }
@@ -273,7 +291,7 @@
           "id": "eyes",
           "bone": "eyes",
           "z": 10,
-          "path": "assets/generated-v2/rig/survivor-bubble-float/atlas.png",
+          "path": "assets/generated-v2/rig/survivor-bubble-float/atlas-layered-v2.png",
           "sourceRect": { "x": 327, "y": 106, "width": 152, "height": 76 },
           "required": true,
           "bindRect": { "x": -20, "y": -49, "width": 40, "height": 20 },
@@ -296,7 +314,7 @@
           "id": "mouth",
           "bone": "mouth",
           "z": 20,
-          "path": "assets/generated-v2/rig/survivor-bubble-float/atlas.png",
+          "path": "assets/generated-v2/rig/survivor-bubble-float/atlas-layered-v2.png",
           "sourceRect": { "x": 609, "y": 132, "width": 62, "height": 51 },
           "required": true,
           "bindRect": { "x": -8, "y": -29, "width": 16, "height": 13 },
@@ -315,7 +333,7 @@
           "id": "ringFront",
           "bone": "ringFront",
           "z": 30,
-          "path": "assets/generated-v2/rig/survivor-bubble-float/atlas.png",
+          "path": "assets/generated-v2/rig/survivor-bubble-float/atlas-layered-v2.png",
           "sourceRect": { "x": 526, "y": 345, "width": 214, "height": 93 },
           "required": true,
           "bindRect": { "x": -58, "y": -46, "width": 116, "height": 50 }

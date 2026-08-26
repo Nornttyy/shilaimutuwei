@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import { AnimationController } from '../src/animation/controller.js';
 import {
@@ -17,6 +18,7 @@ import {
   BUBBLE_RIG,
   BUG_RIG,
   CRYSTAL_RIG,
+  EXPRESSION_SPEC,
   SHELL_RIG,
   SPROUT_RIG,
   STONE_RIG,
@@ -50,6 +52,11 @@ const RIG_CASES = [
   ['boss', BOSS_RIG, BOSS_CLIPS, ['idle', 'move', 'attack', 'hurt', 'death', 'charge']],
 ];
 
+const ANIMATION_SPEC = JSON.parse(readFileSync(
+  new URL('../assets/animation-spec.json', import.meta.url),
+  'utf8',
+));
+
 function assertDeepFrozen(value, label) {
   if (!value || typeof value !== 'object') return;
   assert.equal(Object.isFrozen(value), true, `${label} should be frozen`);
@@ -61,10 +68,13 @@ function assertDeepFrozen(value, label) {
 test('exports matching shell and bug clip/rig definitions', () => {
   assert.deepEqual(Object.keys(SHELL_CLIPS), ['idle', 'attack', 'hurt', 'downed']);
   assert.deepEqual(Object.keys(BUG_CLIPS), ['idle', 'move', 'attack', 'hurt', 'death']);
-  assert.deepEqual(Object.keys(SHELL_RIG.bones), ['root', 'body', 'shell', 'face', 'front']);
+  assert.deepEqual(
+    Object.keys(SHELL_RIG.bones),
+    ['root', 'body', 'shell', 'face', 'eyes', 'mouth', 'front'],
+  );
   assert.deepEqual(
     Object.keys(BUG_RIG.bones),
-    ['root', 'body', 'legsA', 'legsB', 'antennae', 'face'],
+    ['root', 'body', 'legsA', 'legsB', 'antennae', 'face', 'eyes', 'mouth'],
   );
 
   assert.equal(SHELL_RIG.bones.shell.parent, 'body');
@@ -123,19 +133,49 @@ test('all character rigs have reciprocal trees and bone-complete clips', () => {
 });
 
 test('new rigs preserve the renderer hierarchy and bind-pose pivots', () => {
-  assert.deepEqual(Object.keys(CRYSTAL_RIG.bones), ['root', 'body', 'needles', 'face', 'front']);
-  assert.deepEqual(Object.keys(BUBBLE_RIG.bones), ['root', 'body', 'bubbles', 'halo', 'face']);
-  assert.deepEqual(Object.keys(SPROUT_RIG.bones), ['root', 'body', 'sprout', 'pack', 'face']);
-  assert.deepEqual(Object.keys(WINDCAP_RIG.bones), ['root', 'stem', 'cap', 'face']);
-  assert.deepEqual(Object.keys(STONE_RIG.bones), ['root', 'body', 'rocks', 'face']);
+  assert.deepEqual(
+    Object.keys(CRYSTAL_RIG.bones),
+    ['root', 'body', 'needles', 'face', 'eyes', 'mouth', 'front'],
+  );
+  assert.deepEqual(
+    Object.keys(BUBBLE_RIG.bones),
+    [
+      'root',
+      'body',
+      'bubbles',
+      'bubblesBack',
+      'halo',
+      'ringBack',
+      'ringFront',
+      'face',
+      'eyes',
+      'mouth',
+    ],
+  );
+  assert.deepEqual(
+    Object.keys(SPROUT_RIG.bones),
+    ['root', 'body', 'sprout', 'pack', 'face', 'eyes', 'mouth'],
+  );
+  assert.deepEqual(
+    Object.keys(WINDCAP_RIG.bones),
+    ['root', 'stem', 'cap', 'face', 'eyes', 'mouth'],
+  );
+  assert.deepEqual(
+    Object.keys(STONE_RIG.bones),
+    ['root', 'body', 'rocks', 'face', 'eyes', 'mouth'],
+  );
   assert.deepEqual(
     Object.keys(BOSS_RIG.bones),
-    ['root', 'body', 'tentacles', 'crown', 'core', 'face'],
+    ['root', 'body', 'tentacles', 'crown', 'core', 'face', 'eyes', 'mouth'],
   );
 
   assert.deepEqual(CRYSTAL_RIG.bones.needles.pivot, { x: 0, y: -58 });
   assert.deepEqual(CRYSTAL_RIG.bones.front.pivot, { x: 40, y: -21 });
   assert.deepEqual(BUBBLE_RIG.bones.bubbles.pivot, { x: 0, y: -65 });
+  assert.equal(BUBBLE_RIG.bones.bubblesBack.parent, 'bubbles');
+  assert.deepEqual(BUBBLE_RIG.bones.bubblesBack.pivot, { x: 0, y: 0 });
+  assert.equal(BUBBLE_RIG.bones.ringBack.parent, 'halo');
+  assert.equal(BUBBLE_RIG.bones.ringFront.parent, 'halo');
   assert.deepEqual(SPROUT_RIG.bones.pack.pivot, { x: 31.5, y: -20 });
   assert.deepEqual(WINDCAP_RIG.bones.stem.pivot, { x: 0, y: -6 });
   assert.deepEqual(WINDCAP_RIG.bones.cap.pivot, { x: 1, y: -60 });
@@ -148,6 +188,123 @@ test('new rigs preserve the renderer hierarchy and bind-pose pivots', () => {
   for (const rig of [WINDCAP_RIG, STONE_RIG, BOSS_RIG]) {
     assert.equal(rig.facing, -1);
   }
+});
+
+test('all character faces expose separate expression bones with one shared variant contract', () => {
+  assert.deepEqual(EXPRESSION_SPEC.slots, {
+    eyes: {
+      bone: 'eyes',
+      variants: ['normal', 'blink', 'hurt', 'attack'],
+    },
+    mouth: {
+      bone: 'mouth',
+      variants: ['normal', 'open', 'hurt'],
+    },
+  });
+  assert.deepEqual(EXPRESSION_SPEC.states, {
+    normal: { eyes: 'normal', mouth: 'normal' },
+    blink: { eyes: 'blink', mouth: 'normal' },
+    hurt: { eyes: 'hurt', mouth: 'hurt' },
+    attack: { eyes: 'attack', mouth: 'open' },
+  });
+  assert.deepEqual(EXPRESSION_SPEC.clipStates, {
+    attack: 'attack',
+    hurt: 'hurt',
+    downed: 'hurt',
+    death: 'hurt',
+  });
+
+  for (const [label, rig, clips] of RIG_CASES) {
+    assert.equal(rig.expression, EXPRESSION_SPEC);
+    assert.deepEqual(rig.bones.face.children, ['eyes', 'mouth']);
+    for (const boneName of ['eyes', 'mouth']) {
+      assert.equal(rig.bones[boneName].parent, 'face', `${label}.${boneName} parent`);
+      assert.deepEqual(rig.bones[boneName].children, []);
+      assert.deepEqual(rig.bones[boneName].pivot, { x: 0, y: 0 });
+    }
+
+    for (const [clipName, clip] of Object.entries(clips)) {
+      assert.equal(clip.tracks.eyes.rotation, 0, `${label}.${clipName}.eyes.rotation`);
+      assert.ok(clip.tracks.mouth.rotation !== undefined, `${label}.${clipName}.mouth.rotation`);
+    }
+  }
+
+  assertDeepFrozen(EXPRESSION_SPEC, 'expression spec');
+});
+
+test('animation asset spec publishes the same expression contract for all eight owners', () => {
+  const format = ANIMATION_SPEC.expressionFormat;
+  assert.deepEqual(format.owners, [
+    'survivor-shell-shell',
+    'survivor-crystal-pin',
+    'survivor-bubble-float',
+    'survivor-moss-sprout',
+    'enemy-soft-biter',
+    'enemy-windcap',
+    'enemy-stone-lump',
+    'enemy-acid-shell-king',
+  ]);
+  assert.equal(format.defaultState, EXPRESSION_SPEC.defaultState);
+  assert.equal(format.parentBone, EXPRESSION_SPEC.faceBone);
+  assert.deepEqual(format.slots, EXPRESSION_SPEC.slots);
+  assert.deepEqual(format.states, EXPRESSION_SPEC.states);
+  assert.deepEqual(format.clipStates, EXPRESSION_SPEC.clipStates);
+});
+
+test('legacy face tracks remain the animated parent while expression children animate independently', () => {
+  assert.deepEqual(SHELL_CLIPS.attack.tracks.face.x, [
+    [0, 0],
+    [0.12, -1],
+    [0.27, 2],
+    [0.46, 0],
+  ]);
+
+  const controller = new AnimationController(SHELL_CLIPS, {
+    base: 'attack',
+    transitionDuration: 0,
+  });
+  controller.update(0.27);
+  const pose = controller.sample();
+  approximately(pose.face.x, 2);
+  assert.ok(pose.eyes.scaleY > 0.7 && pose.eyes.scaleY < 0.72);
+  assert.ok(pose.eyes.scaleX > 1.07);
+  assert.ok(pose.mouth.scaleY > 1.3);
+  assert.equal(pose.eyes.x, 0);
+  assert.equal(pose.mouth.x, 0);
+});
+
+test('all eight owners reuse one face image pair for procedural clip expressions', () => {
+  const blinkCenters = [];
+
+  for (const [label, , clips] of RIG_CASES) {
+    const idleBlink = clips.idle.tracks.eyes.scaleY;
+    assert.equal(idleBlink[0][0], 0, `${label} blink starts at clip origin`);
+    assert.equal(idleBlink[0][1], 1);
+    assert.equal(idleBlink.at(-1)[0], clips.idle.duration, `${label} blink spans idle loop`);
+    assert.equal(idleBlink.at(-1)[1], 1);
+    assert.deepEqual(idleBlink.map((frame) => frame[1]), [1, 1, 0.12, 1, 1]);
+    assert.ok(idleBlink.every((frame, index) => index === 0 || frame[0] > idleBlink[index - 1][0]));
+    blinkCenters.push(idleBlink[2][0]);
+
+    const attackEyes = clips.attack.tracks.eyes;
+    const attackMouth = clips.attack.tracks.mouth;
+    assert.ok(Math.min(...attackEyes.scaleY.map((frame) => frame[1])) <= 0.7);
+    assert.ok(Math.max(...attackEyes.scaleX.map((frame) => frame[1])) >= 1.08);
+    assert.ok(Math.max(...attackMouth.scaleY.map((frame) => frame[1])) >= 1.36);
+
+    const hurtEyes = clips.hurt.tracks.eyes;
+    const hurtMouth = clips.hurt.tracks.mouth;
+    assert.ok(Math.min(...hurtEyes.scaleY.map((frame) => frame[1])) <= 0.24);
+    assert.ok(Math.min(...hurtMouth.scaleX.map((frame) => frame[1])) <= 0.72);
+    assert.ok(hurtMouth.rotation.some((frame) => frame[1] !== 0));
+
+    const terminalName = clips.death ? 'death' : 'downed';
+    const terminalEyes = clips[terminalName].tracks.eyes.scaleY;
+    assert.equal(terminalEyes.at(-1)[0], clips[terminalName].duration);
+    assert.equal(terminalEyes.at(-1)[1], 0.12, `${label} terminal pose keeps eyes closed`);
+  }
+
+  assert.equal(new Set(blinkCenters).size, RIG_CASES.length, 'idle blinks should be staggered');
 });
 
 test('clip modes, priorities, death timing, and local-forward attacks stay consistent', () => {

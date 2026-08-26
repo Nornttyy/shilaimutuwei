@@ -15,6 +15,43 @@
     "exportPolicy": "逐帧独立透明PNG，不导出视频、GIF或带底色图集"
   },
   "idlePolicy": "待机呼吸、轻微弹性、选中脉冲、淡入淡出和整体位移由程序变形完成，不制作待机帧。",
+  "expressionFormat": {
+    "owners": [
+      "survivor-shell-shell",
+      "survivor-crystal-pin",
+      "survivor-bubble-float",
+      "survivor-moss-sprout",
+      "enemy-soft-biter",
+      "enemy-windcap",
+      "enemy-stone-lump",
+      "enemy-acid-shell-king"
+    ],
+    "defaultState": "normal",
+    "parentBone": "face",
+    "slots": {
+      "eyes": {
+        "bone": "eyes",
+        "variants": ["normal", "blink", "hurt", "attack"]
+      },
+      "mouth": {
+        "bone": "mouth",
+        "variants": ["normal", "open", "hurt"]
+      }
+    },
+    "states": {
+      "normal": { "eyes": "normal", "mouth": "normal" },
+      "blink": { "eyes": "blink", "mouth": "normal" },
+      "hurt": { "eyes": "hurt", "mouth": "hurt" },
+      "attack": { "eyes": "attack", "mouth": "open" }
+    },
+    "clipStates": {
+      "attack": "attack",
+      "hurt": "hurt",
+      "downed": "hurt",
+      "death": "hurt"
+    },
+    "inheritancePolicy": "eyes与mouth作为face的零偏移子骨骼；旧face轨道继续驱动整张表情，子骨骼只负责独立替换与局部表情动画。"
+  },
   "animations": [
     {
       "id": "survivor-shell-shell-attack",

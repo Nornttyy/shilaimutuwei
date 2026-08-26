@@ -12,9 +12,27 @@ python3 -m http.server 8080
 
 ## 发布到 GitHub Pages
 
-将项目推送到 GitHub 的 `main` 分支后，在仓库的 **Settings → Pages** 中将 **Source** 设为 **Deploy from a branch**，分支选择 **main / (root)**；当前版本和以后每次推送都会自动发布。
+生成可提交的 Pages 白名单包：
 
-发布包只包含 `index.html`、`styles.css` 与 `src/`，不会上传旧图片、素材规范或测试文件。项目内全部使用相对资源路径，可直接运行在 `https://用户名.github.io/仓库名/` 这类子路径。
+```bash
+npm run build:docs
+```
+
+构建会读取 `assets/rig-parts.json`，并要求清单引用的 8 张角色图集都真实存在且具有 PNG 文件签名。每张图集在运行时继续裁成身体、眼睛、嘴巴及必要的前后配件骨骼层。`docs/` 只会包含 `index.html`、`styles.css`、`src/`、骨骼素材清单，以及该清单精确引用的 `assets/generated-v2/rig/` 图片；预览图、旧素材和未被引用的图片不会进入发布包。缺少任何一张图集时，构建会列出具体路径并保留上一次成功产物。
+
+构建通过后提交 `docs/` 并推送 `main`，再到仓库的 **Settings → Pages**：
+
+1. 将 **Source** 设为 **Deploy from a branch**。
+2. 选择 **main /docs** 并保存。
+
+此方案不需要 GitHub Actions 或额外的 workflow 权限。仓库目前若仍使用 **main /(root)**，需要手动改为 **main /docs** 后，白名单发布包才会生效。项目内全部使用相对资源路径，可直接运行在 `https://用户名.github.io/仓库名/` 这类子路径。
+
+本地检查发布包时使用：
+
+```bash
+npm run build
+python3 -m http.server 8080 --directory _site
+```
 
 ## 测试
 

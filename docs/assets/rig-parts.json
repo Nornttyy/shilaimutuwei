@@ -1,0 +1,454 @@
+{
+  "schemaVersion": 2,
+  "coordinateSpace": {
+    "units": "rig-local",
+    "canonicalSize": 100,
+    "origin": "ground-center",
+    "xAxis": "right",
+    "yAxis": "down"
+  },
+  "assetPolicy": {
+    "container": "PNG",
+    "colorMode": "RGBA",
+    "transparent": true,
+    "rootBoneHasImage": false,
+    "faceBoneHasImage": false,
+    "bodyIncludesFacialPixels": false,
+    "readiness": "atomic"
+  },
+  "rigs": {
+    "survivor-shell-shell": {
+      "rigId": "shell",
+      "rootBone": "root",
+      "faceBone": "face",
+      "canonicalFacing": 1,
+      "parts": [
+        {
+          "id": "shell",
+          "bone": "shell",
+          "z": -10,
+          "path": "assets/generated-v2/rig/survivor-shell-shell/atlas.png",
+          "sourceRect": { "x": 32, "y": 269, "width": 205, "height": 205 },
+          "required": true,
+          "bindRect": { "x": -56, "y": -72, "width": 68, "height": 68 }
+        },
+        {
+          "id": "body",
+          "bone": "body",
+          "z": 0,
+          "path": "assets/generated-v2/rig/survivor-shell-shell/atlas.png",
+          "sourceRect": { "x": 28, "y": 36, "width": 214, "height": 187 },
+          "required": true,
+          "bindRect": { "x": -51, "y": -81, "width": 102, "height": 89 }
+        },
+        {
+          "id": "eyes",
+          "bone": "eyes",
+          "z": 10,
+          "path": "assets/generated-v2/rig/survivor-shell-shell/atlas.png",
+          "sourceRect": { "x": 339, "y": 97, "width": 118, "height": 59 },
+          "required": true,
+          "bindRect": { "x": -20, "y": -49, "width": 40, "height": 20 }
+        },
+        {
+          "id": "mouth",
+          "bone": "mouth",
+          "z": 20,
+          "path": "assets/generated-v2/rig/survivor-shell-shell/atlas.png",
+          "sourceRect": { "x": 599, "y": 113, "width": 61, "height": 50 },
+          "required": true,
+          "bindRect": { "x": -8, "y": -29, "width": 16, "height": 13 }
+        },
+        {
+          "id": "front",
+          "bone": "front",
+          "z": 30,
+          "path": "assets/generated-v2/rig/survivor-shell-shell/atlas.png",
+          "sourceRect": { "x": 303, "y": 363, "width": 174, "height": 87 },
+          "required": true,
+          "bindRect": { "x": 10, "y": -34, "width": 38, "height": 19 }
+        }
+      ]
+    },
+    "survivor-crystal-pin": {
+      "rigId": "crystal",
+      "rootBone": "root",
+      "faceBone": "face",
+      "canonicalFacing": 1,
+      "parts": [
+        {
+          "id": "needles",
+          "bone": "needles",
+          "z": -10,
+          "path": "assets/generated-v2/rig/survivor-crystal-pin/atlas.png",
+          "sourceRect": { "x": 19, "y": 290, "width": 257, "height": 164 },
+          "required": true,
+          "bindRect": { "x": -55, "y": -97, "width": 108, "height": 69 }
+        },
+        {
+          "id": "body",
+          "bone": "body",
+          "z": 0,
+          "path": "assets/generated-v2/rig/survivor-crystal-pin/atlas.png",
+          "sourceRect": { "x": 40, "y": 47, "width": 225, "height": 197 },
+          "required": true,
+          "bindRect": { "x": -51, "y": -81, "width": 102, "height": 89 }
+        },
+        {
+          "id": "eyes",
+          "bone": "eyes",
+          "z": 10,
+          "path": "assets/generated-v2/rig/survivor-crystal-pin/atlas.png",
+          "sourceRect": { "x": 352, "y": 126, "width": 144, "height": 72 },
+          "required": true,
+          "bindRect": { "x": -20, "y": -49, "width": 40, "height": 20 }
+        },
+        {
+          "id": "mouth",
+          "bone": "mouth",
+          "z": 20,
+          "path": "assets/generated-v2/rig/survivor-crystal-pin/atlas.png",
+          "sourceRect": { "x": 618, "y": 149, "width": 56, "height": 46 },
+          "required": true,
+          "bindRect": { "x": -8, "y": -29, "width": 16, "height": 13 }
+        },
+        {
+          "id": "front",
+          "bone": "front",
+          "z": 30,
+          "path": "assets/generated-v2/rig/survivor-crystal-pin/atlas.png",
+          "sourceRect": { "x": 341, "y": 355, "width": 128, "height": 82 },
+          "required": true,
+          "bindRect": { "x": 24, "y": -33, "width": 31, "height": 20 }
+        }
+      ]
+    },
+    "survivor-bubble-float": {
+      "rigId": "bubble",
+      "rootBone": "root",
+      "faceBone": "face",
+      "canonicalFacing": 1,
+      "parts": [
+        {
+          "id": "bubblesBack",
+          "bone": "bubblesBack",
+          "z": -20,
+          "path": "assets/generated-v2/rig/survivor-bubble-float/atlas.png",
+          "sourceRect": { "x": 19, "y": 306, "width": 209, "height": 116 },
+          "required": true,
+          "bindRect": { "x": -42, "y": -87, "width": 90, "height": 50 }
+        },
+        {
+          "id": "ringBack",
+          "bone": "ringBack",
+          "z": -10,
+          "path": "assets/generated-v2/rig/survivor-bubble-float/atlas.png",
+          "sourceRect": { "x": 271, "y": 320, "width": 215, "height": 93 },
+          "required": true,
+          "bindRect": { "x": -58, "y": -52, "width": 116, "height": 50 }
+        },
+        {
+          "id": "body",
+          "bone": "body",
+          "z": 0,
+          "path": "assets/generated-v2/rig/survivor-bubble-float/atlas.png",
+          "sourceRect": { "x": 34, "y": 51, "width": 210, "height": 184 },
+          "required": true,
+          "bindRect": { "x": -51, "y": -81, "width": 102, "height": 89 }
+        },
+        {
+          "id": "eyes",
+          "bone": "eyes",
+          "z": 10,
+          "path": "assets/generated-v2/rig/survivor-bubble-float/atlas.png",
+          "sourceRect": { "x": 327, "y": 106, "width": 152, "height": 76 },
+          "required": true,
+          "bindRect": { "x": -20, "y": -49, "width": 40, "height": 20 }
+        },
+        {
+          "id": "mouth",
+          "bone": "mouth",
+          "z": 20,
+          "path": "assets/generated-v2/rig/survivor-bubble-float/atlas.png",
+          "sourceRect": { "x": 609, "y": 132, "width": 62, "height": 51 },
+          "required": true,
+          "bindRect": { "x": -8, "y": -29, "width": 16, "height": 13 }
+        },
+        {
+          "id": "ringFront",
+          "bone": "ringFront",
+          "z": 30,
+          "path": "assets/generated-v2/rig/survivor-bubble-float/atlas.png",
+          "sourceRect": { "x": 526, "y": 345, "width": 214, "height": 93 },
+          "required": true,
+          "bindRect": { "x": -58, "y": -52, "width": 116, "height": 50 }
+        }
+      ]
+    },
+    "survivor-moss-sprout": {
+      "rigId": "sprout",
+      "rootBone": "root",
+      "faceBone": "face",
+      "canonicalFacing": 1,
+      "parts": [
+        {
+          "id": "body",
+          "bone": "body",
+          "z": 0,
+          "path": "assets/generated-v2/rig/survivor-moss-sprout/atlas.png",
+          "sourceRect": { "x": 52, "y": 54, "width": 190, "height": 166 },
+          "required": true,
+          "bindRect": { "x": -51, "y": -81, "width": 102, "height": 89 }
+        },
+        {
+          "id": "eyes",
+          "bone": "eyes",
+          "z": 10,
+          "path": "assets/generated-v2/rig/survivor-moss-sprout/atlas.png",
+          "sourceRect": { "x": 335, "y": 97, "width": 148, "height": 74 },
+          "required": true,
+          "bindRect": { "x": -20, "y": -49, "width": 40, "height": 20 }
+        },
+        {
+          "id": "mouth",
+          "bone": "mouth",
+          "z": 20,
+          "path": "assets/generated-v2/rig/survivor-moss-sprout/atlas.png",
+          "sourceRect": { "x": 612, "y": 118, "width": 70, "height": 57 },
+          "required": true,
+          "bindRect": { "x": -8, "y": -29, "width": 16, "height": 13 }
+        },
+        {
+          "id": "sprout",
+          "bone": "sprout",
+          "z": 30,
+          "path": "assets/generated-v2/rig/survivor-moss-sprout/atlas.png",
+          "sourceRect": { "x": 43, "y": 303, "width": 206, "height": 137 },
+          "required": true,
+          "bindRect": { "x": -24, "y": -94, "width": 48, "height": 32 }
+        },
+        {
+          "id": "pack",
+          "bone": "pack",
+          "z": 40,
+          "path": "assets/generated-v2/rig/survivor-moss-sprout/atlas.png",
+          "sourceRect": { "x": 316, "y": 274, "width": 178, "height": 217 },
+          "required": true,
+          "bindRect": { "x": 20, "y": -34, "width": 23, "height": 28 }
+        }
+      ]
+    },
+    "enemy-soft-biter": {
+      "rigId": "bug",
+      "rootBone": "root",
+      "faceBone": "face",
+      "canonicalFacing": 1,
+      "parts": [
+        {
+          "id": "legsA",
+          "bone": "legsA",
+          "z": -30,
+          "path": "assets/generated-v2/rig/enemy-soft-biter/atlas.png",
+          "sourceRect": { "x": 28, "y": 104, "width": 227, "height": 103 },
+          "required": true,
+          "bindRect": { "x": -55, "y": -38, "width": 110, "height": 50 }
+        },
+        {
+          "id": "legsB",
+          "bone": "legsB",
+          "z": -20,
+          "path": "assets/generated-v2/rig/enemy-soft-biter/atlas.png",
+          "sourceRect": { "x": 280, "y": 98, "width": 240, "height": 109 },
+          "required": true,
+          "bindRect": { "x": -55, "y": -38, "width": 110, "height": 50 }
+        },
+        {
+          "id": "antennae",
+          "bone": "antennae",
+          "z": -10,
+          "path": "assets/generated-v2/rig/enemy-soft-biter/atlas.png",
+          "sourceRect": { "x": 567, "y": 121, "width": 147, "height": 86 },
+          "required": true,
+          "bindRect": { "x": -46, "y": -104, "width": 92, "height": 54 }
+        },
+        {
+          "id": "body",
+          "bone": "body",
+          "z": 0,
+          "path": "assets/generated-v2/rig/enemy-soft-biter/atlas.png",
+          "sourceRect": { "x": 41, "y": 257, "width": 225, "height": 183 },
+          "required": true,
+          "bindRect": { "x": -56, "y": -84, "width": 116, "height": 94 }
+        },
+        {
+          "id": "eyes",
+          "bone": "eyes",
+          "z": 10,
+          "path": "assets/generated-v2/rig/enemy-soft-biter/atlas.png",
+          "sourceRect": { "x": 346, "y": 331, "width": 156, "height": 71 },
+          "required": true,
+          "bindRect": { "x": -22, "y": -51, "width": 44, "height": 20 }
+        },
+        {
+          "id": "mouth",
+          "bone": "mouth",
+          "z": 20,
+          "path": "assets/generated-v2/rig/enemy-soft-biter/atlas.png",
+          "sourceRect": { "x": 600, "y": 342, "width": 82, "height": 60 },
+          "required": true,
+          "bindRect": { "x": -11, "y": -29, "width": 22, "height": 16 }
+        }
+      ]
+    },
+    "enemy-windcap": {
+      "rigId": "windcap",
+      "rootBone": "root",
+      "faceBone": "face",
+      "canonicalFacing": 1,
+      "parts": [
+        {
+          "id": "stem",
+          "bone": "stem",
+          "z": 0,
+          "path": "assets/generated-v2/rig/enemy-windcap/atlas.png",
+          "sourceRect": { "x": 35, "y": 69, "width": 156, "height": 189 },
+          "required": true,
+          "bindRect": { "x": -30, "y": -65, "width": 60, "height": 73 }
+        },
+        {
+          "id": "cap",
+          "bone": "cap",
+          "z": 10,
+          "path": "assets/generated-v2/rig/enemy-windcap/atlas.png",
+          "sourceRect": { "x": 254, "y": 103, "width": 268, "height": 154 },
+          "required": true,
+          "bindRect": { "x": -51, "y": -102, "width": 106, "height": 61 }
+        },
+        {
+          "id": "eyes",
+          "bone": "eyes",
+          "z": 20,
+          "path": "assets/generated-v2/rig/enemy-windcap/atlas.png",
+          "sourceRect": { "x": 585, "y": 161, "width": 124, "height": 66 },
+          "required": true,
+          "bindRect": { "x": -17, "y": -47, "width": 34, "height": 18 }
+        },
+        {
+          "id": "mouth",
+          "bone": "mouth",
+          "z": 30,
+          "path": "assets/generated-v2/rig/enemy-windcap/atlas.png",
+          "sourceRect": { "x": 89, "y": 346, "width": 69, "height": 54 },
+          "required": true,
+          "bindRect": { "x": -9, "y": -30, "width": 18, "height": 14 }
+        }
+      ]
+    },
+    "enemy-stone-lump": {
+      "rigId": "stone",
+      "rootBone": "root",
+      "faceBone": "face",
+      "canonicalFacing": 1,
+      "parts": [
+        {
+          "id": "body",
+          "bone": "body",
+          "z": 0,
+          "path": "assets/generated-v2/rig/enemy-stone-lump/atlas.png",
+          "sourceRect": { "x": 12, "y": 75, "width": 231, "height": 202 },
+          "required": true,
+          "bindRect": { "x": -51, "y": -80, "width": 101, "height": 88 }
+        },
+        {
+          "id": "rocks",
+          "bone": "rocks",
+          "z": 10,
+          "path": "assets/generated-v2/rig/enemy-stone-lump/atlas.png",
+          "sourceRect": { "x": 275, "y": 73, "width": 246, "height": 183 },
+          "required": true,
+          "bindRect": { "x": -42, "y": -75, "width": 81, "height": 60 }
+        },
+        {
+          "id": "eyes",
+          "bone": "eyes",
+          "z": 20,
+          "path": "assets/generated-v2/rig/enemy-stone-lump/atlas.png",
+          "sourceRect": { "x": 569, "y": 146, "width": 163, "height": 73 },
+          "required": true,
+          "bindRect": { "x": -26, "y": -47, "width": 52, "height": 23 }
+        },
+        {
+          "id": "mouth",
+          "bone": "mouth",
+          "z": 30,
+          "path": "assets/generated-v2/rig/enemy-stone-lump/atlas.png",
+          "sourceRect": { "x": 71, "y": 346, "width": 114, "height": 57 },
+          "required": true,
+          "bindRect": { "x": -11, "y": -23, "width": 22, "height": 11 }
+        }
+      ]
+    },
+    "enemy-acid-shell-king": {
+      "rigId": "boss",
+      "rootBone": "root",
+      "faceBone": "face",
+      "canonicalFacing": 1,
+      "parts": [
+        {
+          "id": "tentacles",
+          "bone": "tentacles",
+          "z": -10,
+          "path": "assets/generated-v2/rig/enemy-acid-shell-king/atlas.png",
+          "sourceRect": { "x": 36, "y": 161, "width": 206, "height": 76 },
+          "required": true,
+          "bindRect": { "x": -67, "y": -29, "width": 134, "height": 49 }
+        },
+        {
+          "id": "body",
+          "bone": "body",
+          "z": 0,
+          "path": "assets/generated-v2/rig/enemy-acid-shell-king/atlas.png",
+          "sourceRect": { "x": 255, "y": 56, "width": 259, "height": 209 },
+          "required": true,
+          "bindRect": { "x": -69, "y": -104, "width": 144, "height": 116 }
+        },
+        {
+          "id": "crown",
+          "bone": "crown",
+          "z": 10,
+          "path": "assets/generated-v2/rig/enemy-acid-shell-king/atlas.png",
+          "sourceRect": { "x": 525, "y": 57, "width": 210, "height": 186 },
+          "required": true,
+          "bindRect": { "x": -46, "y": -119, "width": 80, "height": 71 }
+        },
+        {
+          "id": "core",
+          "bone": "core",
+          "z": 20,
+          "path": "assets/generated-v2/rig/enemy-acid-shell-king/atlas.png",
+          "sourceRect": { "x": 62, "y": 289, "width": 152, "height": 182 },
+          "required": true,
+          "bindRect": { "x": -26, "y": -73, "width": 52, "height": 62 }
+        },
+        {
+          "id": "eyes",
+          "bone": "eyes",
+          "z": 30,
+          "path": "assets/generated-v2/rig/enemy-acid-shell-king/atlas.png",
+          "sourceRect": { "x": 289, "y": 339, "width": 190, "height": 99 },
+          "required": true,
+          "bindRect": { "x": -36, "y": -80, "width": 73, "height": 38 }
+        },
+        {
+          "id": "mouth",
+          "bone": "mouth",
+          "z": 40,
+          "path": "assets/generated-v2/rig/enemy-acid-shell-king/atlas.png",
+          "sourceRect": { "x": 531, "y": 332, "width": 197, "height": 126 },
+          "required": true,
+          "bindRect": { "x": -17, "y": -31, "width": 36, "height": 23 }
+        }
+      ]
+    }
+  }
+}

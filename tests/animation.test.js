@@ -94,16 +94,16 @@ test('exports matching shell and bug clip/rig definitions', () => {
   assert.deepEqual(Object.keys(BUG_CLIPS), ['idle', 'move', 'attack', 'hurt', 'death']);
   assert.deepEqual(
     Object.keys(SHELL_RIG.bones),
-    ['root', 'body', 'shell', 'face', 'eyes', 'mouth', 'front'],
+    ['root', 'motion', 'body', 'shell', 'face', 'eyes', 'mouth', 'front'],
   );
   assert.deepEqual(
     Object.keys(BUG_RIG.bones),
-    ['root', 'body', 'legsA', 'legsB', 'antennae', 'face', 'eyes', 'mouth'],
+    ['root', 'motion', 'body', 'legsA', 'legsB', 'antennae', 'face', 'eyes', 'mouth'],
   );
 
-  assert.equal(SHELL_RIG.bones.shell.parent, 'body');
+  assert.equal(SHELL_RIG.bones.shell.parent, 'motion');
   assert.deepEqual(SHELL_RIG.bones.shell.pivot, { x: -35, y: -39 });
-  assert.equal(BUG_RIG.bones.antennae.parent, 'body');
+  assert.equal(BUG_RIG.bones.antennae.parent, 'motion');
   assert.deepEqual(BUG_RIG.bones.antennae.pivot, { x: 0, y: -60 });
   assert.equal(SHELL_CLIPS.attack.events[0].name, 'hit');
   assert.equal(BUG_CLIPS.death.mode, 'hold');
@@ -123,6 +123,26 @@ test('all character rigs have reciprocal trees and bone-complete clips', () => {
     assert.equal(rig.root, 'root');
     assert.deepEqual(Object.keys(clips), expectedClipNames);
     assert.equal(rig.bones.root.parent, null);
+    assert.deepEqual(rig.bones.root.children, ['motion']);
+    assert.equal(rig.bones.motion.parent, 'root');
+    assert.deepEqual(rig.bones.motion.pivot, { x: 0, y: 0 });
+
+    const bodyBone = label === 'windcap' ? 'stem' : 'body';
+    assert.equal(rig.bones[bodyBone].parent, 'motion');
+    assert.deepEqual(rig.bones[bodyBone].children, []);
+    assert.equal(rig.bones.face.parent, 'motion');
+
+    for (const boneName of boneNames.filter((name) => name !== bodyBone)) {
+      let ancestor = rig.bones[boneName].parent;
+      while (ancestor != null) {
+        assert.notEqual(
+          ancestor,
+          bodyBone,
+          `${label}.${boneName} must not inherit non-uniform ${bodyBone} squash`,
+        );
+        ancestor = rig.bones[ancestor].parent;
+      }
+    }
 
     const visited = new Set();
     const visit = (boneName) => {
@@ -159,12 +179,29 @@ test('all character rigs have reciprocal trees and bone-complete clips', () => {
 test('new rigs preserve the renderer hierarchy and bind-pose pivots', () => {
   assert.deepEqual(
     Object.keys(CRYSTAL_RIG.bones),
-    ['root', 'body', 'needles', 'face', 'eyes', 'mouth', 'front'],
+    [
+      'root',
+      'motion',
+      'body',
+      'needles',
+      'needleBottom',
+      'needleLower',
+      'needleMid',
+      'needleMidUpper',
+      'needleUpper',
+      'needleTall',
+      'needleRight',
+      'face',
+      'eyes',
+      'mouth',
+      'front',
+    ],
   );
   assert.deepEqual(
     Object.keys(BUBBLE_RIG.bones),
     [
       'root',
+      'motion',
       'body',
       'bubbles',
       'bubblesBack',
@@ -178,23 +215,46 @@ test('new rigs preserve the renderer hierarchy and bind-pose pivots', () => {
   );
   assert.deepEqual(
     Object.keys(SPROUT_RIG.bones),
-    ['root', 'body', 'sprout', 'pack', 'face', 'eyes', 'mouth'],
+    [
+      'root',
+      'motion',
+      'body',
+      'sprout',
+      'leafLeft',
+      'leafRight',
+      'stemCollar',
+      'pack',
+      'face',
+      'eyes',
+      'mouth',
+    ],
   );
   assert.deepEqual(
     Object.keys(WINDCAP_RIG.bones),
-    ['root', 'stem', 'cap', 'face', 'eyes', 'mouth'],
+    ['root', 'motion', 'stem', 'cap', 'face', 'eyes', 'mouth'],
   );
   assert.deepEqual(
     Object.keys(STONE_RIG.bones),
-    ['root', 'body', 'rocks', 'face', 'eyes', 'mouth'],
+    ['root', 'motion', 'body', 'rocks', 'face', 'eyes', 'mouth'],
   );
   assert.deepEqual(
     Object.keys(BOSS_RIG.bones),
-    ['root', 'body', 'tentacles', 'acidShell', 'crown', 'core', 'face', 'eyes', 'mouth'],
+    ['root', 'motion', 'body', 'tentacles', 'acidShell', 'crown', 'core', 'face', 'eyes', 'mouth'],
   );
 
-  assert.deepEqual(CRYSTAL_RIG.bones.needles.pivot, { x: -35, y: -34 });
-  assert.deepEqual(CRYSTAL_RIG.bones.front.pivot, { x: 40, y: -21 });
+  assert.deepEqual(CRYSTAL_RIG.bones.needles.pivot, { x: -24.3, y: -48.4 });
+  assert.deepEqual(CRYSTAL_RIG.bones.needles.children, [
+    'needleBottom',
+    'needleLower',
+    'needleMid',
+    'needleMidUpper',
+    'needleUpper',
+    'needleTall',
+    'needleRight',
+  ]);
+  assert.deepEqual(CRYSTAL_RIG.bones.needleBottom.pivot, { x: -48.525, y: -12.911 });
+  assert.deepEqual(CRYSTAL_RIG.bones.needleRight.pivot, { x: 28.728, y: -61.329 });
+  assert.deepEqual(CRYSTAL_RIG.bones.front.pivot, { x: -19.6, y: -29.4 });
   assert.deepEqual(SHELL_RIG.bones.front.pivot, { x: 29, y: -24.5 });
   assert.deepEqual(BUBBLE_RIG.bones.bubbles.pivot, { x: -19, y: -72 });
   assert.deepEqual(BUBBLE_RIG.bones.halo.pivot, { x: 0, y: -21 });
@@ -202,15 +262,19 @@ test('new rigs preserve the renderer hierarchy and bind-pose pivots', () => {
   assert.deepEqual(BUBBLE_RIG.bones.bubblesBack.pivot, { x: 0, y: 0 });
   assert.equal(BUBBLE_RIG.bones.ringBack.parent, 'halo');
   assert.equal(BUBBLE_RIG.bones.ringFront.parent, 'halo');
-  assert.deepEqual(SPROUT_RIG.bones.pack.pivot, { x: 31.5, y: -20 });
-  assert.deepEqual(SPROUT_RIG.bones.sprout.pivot, { x: 0, y: -63 });
+  assert.deepEqual(SPROUT_RIG.bones.pack.pivot, { x: 31.7, y: -34.5 });
+  assert.deepEqual(SPROUT_RIG.bones.sprout.pivot, { x: 7.5, y: -94.3 });
+  assert.deepEqual(SPROUT_RIG.bones.sprout.children, ['leafLeft', 'leafRight', 'stemCollar']);
+  assert.deepEqual(SPROUT_RIG.bones.leafLeft.pivot, { x: 6.69, y: -94.39 });
+  assert.deepEqual(SPROUT_RIG.bones.leafRight.pivot, { x: 8.162, y: -94.267 });
+  assert.deepEqual(SPROUT_RIG.bones.stemCollar.pivot, { x: 6.076, y: -79.292 });
   assert.equal(SPROUT_RIG.bones.pack.layer, 40);
   assert.deepEqual(WINDCAP_RIG.bones.stem.pivot, { x: 0, y: -6 });
   assert.deepEqual(WINDCAP_RIG.bones.cap.pivot, { x: 1, y: -60 });
   assert.deepEqual(STONE_RIG.bones.rocks.pivot, { x: 0, y: -43 });
   assert.deepEqual(BOSS_RIG.bones.tentacles.pivot, { x: 0, y: -6 });
   assert.deepEqual(BOSS_RIG.bones.acidShell.pivot, { x: 0, y: -75 });
-  assert.equal(BOSS_RIG.bones.acidShell.parent, 'body');
+  assert.equal(BOSS_RIG.bones.acidShell.parent, 'motion');
   assert.deepEqual(BOSS_RIG.bones.crown.pivot, { x: 0, y: -100 });
   assert.equal(BOSS_RIG.bones.crown.parent, 'acidShell');
   assert.deepEqual(BOSS_RIG.bones.core.pivot, { x: 0, y: -44 });
@@ -222,6 +286,42 @@ test('new rigs preserve the renderer hierarchy and bind-pose pivots', () => {
   for (const rig of [WINDCAP_RIG, STONE_RIG, BOSS_RIG]) {
     assert.equal(rig.facing, -1);
   }
+});
+
+test('crystal needles and sprout leaves are independently bound and move conservatively', () => {
+  const crystalNeedles = [
+    'needleBottom',
+    'needleLower',
+    'needleMid',
+    'needleMidUpper',
+    'needleUpper',
+    'needleTall',
+    'needleRight',
+  ];
+  const sproutParts = ['leafLeft', 'leafRight', 'stemCollar'];
+  const crystalManifest = RIG_PARTS_SPEC.rigs['survivor-crystal-pin'].parts;
+  const sproutManifest = RIG_PARTS_SPEC.rigs['survivor-moss-sprout'].parts;
+
+  for (const boneName of crystalNeedles) {
+    assert.equal(CRYSTAL_RIG.bones[boneName].parent, 'needles');
+    assert.equal(
+      crystalManifest.find(({ id }) => id === boneName).bone,
+      boneName,
+    );
+    const values = CRYSTAL_CLIPS.attack.tracks[boneName].rotation.flatMap((key) => key.slice(1));
+    assert.ok(Math.max(...values.map(Math.abs)) <= 0.014);
+  }
+  for (const boneName of sproutParts) {
+    assert.equal(SPROUT_RIG.bones[boneName].parent, 'sprout');
+    assert.equal(
+      sproutManifest.find(({ id }) => id === boneName).bone,
+      boneName,
+    );
+  }
+  const left = SPROUT_CLIPS.attack.tracks.leafLeft.rotation.map(([, value]) => value);
+  const right = SPROUT_CLIPS.attack.tracks.leafRight.rotation.map(([, value]) => value);
+  left.forEach((value, index) => approximately(value, -right[index]));
+  assert.ok(Math.max(...left.map(Math.abs), ...right.map(Math.abs)) <= 0.025);
 });
 
 test('all character faces expose separate expression bones with one shared variant contract', () => {
@@ -243,6 +343,7 @@ test('all character faces expose separate expression bones with one shared varia
   });
   assert.deepEqual(EXPRESSION_SPEC.clipStates, {
     attack: 'attack',
+    charge: 'attack',
     hurt: 'hurt',
     downed: 'hurt',
     death: 'hurt',
@@ -256,10 +357,14 @@ test('all character faces expose separate expression bones with one shared varia
       assert.equal(rig.bones[boneName].parent, 'face', `${label}.${boneName} parent`);
       assert.deepEqual(rig.bones[boneName].children, []);
       const { bindRect } = parts.find((part) => part.bone === boneName);
-      assert.deepEqual(rig.bones[boneName].pivot, {
-        x: bindRect.x + bindRect.width / 2,
-        y: bindRect.y + bindRect.height / 2,
-      }, `${label}.${boneName} pivot must match its bindRect centre`);
+      approximately(
+        rig.bones[boneName].pivot.x,
+        bindRect.x + bindRect.width / 2,
+      );
+      approximately(
+        rig.bones[boneName].pivot.y,
+        bindRect.y + bindRect.height / 2,
+      );
     }
 
     for (const [clipName, clip] of Object.entries(clips)) {
@@ -269,6 +374,36 @@ test('all character faces expose separate expression bones with one shared varia
   }
 
   assertDeepFrozen(EXPRESSION_SPEC, 'expression spec');
+});
+
+test('animation briefs and clips share the conservative soft-body policy', () => {
+  assert.deepEqual(ANIMATION_SPEC.characterMotionPolicy, {
+    style: '保守软体骨骼动画',
+    bodyScaleMin: 0.94,
+    bodyScaleMax: 1.06,
+    deathSilhouette: '保持角色主体、附属物和身份轮廓完整，不拆落、不摊平',
+    visibilityOwner: '程序淡出',
+    independentParts: '晶针、双叶、茎环等已拆分部件只做轻微且符合角色身份的相对运动',
+  });
+
+  const characterOwners = new Set(Object.values(OWNER_ID_BY_RIG));
+  const exaggerated = /摊成|摊平|低矮胶|低矮菌帽|强烈压扁|缩入帽下|王冠滑落|岩块依次滑落/;
+  for (const animation of ANIMATION_SPEC.animations) {
+    if (!characterOwners.has(animation.ownerId)) continue;
+    assert.doesNotMatch(animation.brief, exaggerated, animation.id);
+  }
+  for (const ownerId of [
+    'enemy-soft-biter',
+    'enemy-windcap',
+    'enemy-stone-lump',
+    'enemy-acid-shell-king',
+  ]) {
+    const death = ANIMATION_SPEC.animations.find((animation) => (
+      animation.ownerId === ownerId && animation.state === 'death'
+    ));
+    assert.match(death.brief, /完整|保持/);
+    assert.match(death.brief, /淡出/);
+  }
 });
 
 test('animation asset spec publishes the same expression contract for all eight owners', () => {
@@ -293,8 +428,8 @@ test('animation asset spec publishes the same expression contract for all eight 
 test('face parent can animate while independent expression layers stay undeformed', () => {
   assert.deepEqual(SHELL_CLIPS.attack.tracks.face.x, [
     [0, 0],
-    [0.12, -1],
-    [0.27, 2],
+    [0.12, -0.2],
+    [0.27, 0.4],
     [0.46, 0],
   ]);
 
@@ -304,7 +439,7 @@ test('face parent can animate while independent expression layers stay undeforme
   });
   controller.update(0.27);
   const pose = controller.sample();
-  approximately(pose.face.x, 2);
+  approximately(pose.face.x, 0.4);
   assert.equal(pose.eyes.scaleX, 1);
   assert.equal(pose.eyes.scaleY, 1);
   assert.equal(pose.mouth.scaleX, 1);
@@ -346,7 +481,7 @@ test('clip modes, priorities, death timing, and local-forward attacks stay consi
   assert.equal(BOSS_CLIPS.death.duration, 0.68);
   assert.equal(BOSS_CLIPS.death.tracks.crown.x, undefined);
   assert.equal(BOSS_CLIPS.death.tracks.crown.y, undefined);
-  assert.deepEqual(BOSS_CLIPS.death.tracks.crown.rotation.at(-1), [0.68, -0.035]);
+  assert.deepEqual(BOSS_CLIPS.death.tracks.crown.rotation.at(-1), [0.68, -0.02]);
   assert.equal(BOSS_CLIPS.charge.duration, 0.75);
   assert.equal(BOSS_CLIPS.charge.mode, 'hold');
 
@@ -363,10 +498,61 @@ test('clip modes, priorities, death timing, and local-forward attacks stay consi
   ]) {
     const finalScaleY = clips.death.tracks[bodyBone].scaleY.at(-1)[1];
     const finalRotation = clips.death.tracks.root.rotation.at(-1)[1];
-    const finalAlpha = clips.death.tracks.root.alpha.at(-1)[1];
-    assert.ok(finalScaleY >= 0.58, `${bodyBone} death pose must stay recognizable`);
-    assert.ok(Math.abs(finalRotation) <= 0.18, 'death pose must not collapse diagonally');
-    assert.ok(finalAlpha >= 0.3, 'death pose must remain readable before cleanup');
+    assert.ok(finalScaleY >= 0.94, `${bodyBone} death pose must not collapse into a pancake`);
+    assert.ok(Math.abs(finalRotation) <= 0.12, 'death pose must not collapse diagonally');
+    assert.equal(clips.death.tracks.root.alpha, undefined, 'cleanup owns death visibility');
+  }
+});
+
+test('body squash and attack hit timing stay inside the conservative animation contract', () => {
+  const attackHitTimes = {
+    shell: 0.27,
+    bug: 0.29,
+    crystal: 0.22,
+    bubble: 0.29,
+    sprout: 0.29,
+    windcap: 0.2,
+    stone: 0.27,
+    boss: 0.37,
+  };
+
+  for (const [label, , clips] of RIG_CASES) {
+    const bodyBone = label === 'windcap' ? 'stem' : 'body';
+    const terminalClip = Object.hasOwn(clips, 'death') ? 'death' : 'downed';
+
+    for (const [clipName, clip] of Object.entries(clips)) {
+      const minimum = clipName === terminalClip ? 0.94 : 0.95;
+      assert.equal(
+        clip.tracks.motion.scaleX,
+        undefined,
+        `${label}.${clipName}.motion must remain a rigid transform`,
+      );
+      assert.equal(
+        clip.tracks.motion.scaleY,
+        undefined,
+        `${label}.${clipName}.motion must remain a rigid transform`,
+      );
+      for (const property of ['scaleX', 'scaleY']) {
+        const source = clip.tracks[bodyBone][property] ?? 1;
+        const values = Array.isArray(source) ? source.map((frame) => frame[1]) : [source];
+        assert.ok(
+          Math.min(...values) >= minimum,
+          `${label}.${clipName}.${bodyBone}.${property} must stay above ${minimum}`,
+        );
+        assert.ok(
+          Math.max(...values) <= 1.06,
+          `${label}.${clipName}.${bodyBone}.${property} must stay below 1.06`,
+        );
+      }
+      assert.equal(
+        clip.tracks.root.alpha,
+        undefined,
+        `${label}.${clipName} must not double-dim renderer-managed opacity`,
+      );
+    }
+
+    const hit = clips.attack.events.filter(({ name }) => name === 'hit');
+    assert.deepEqual(hit, [{ time: attackHitTimes[label], name: 'hit' }]);
   }
 });
 
@@ -378,7 +564,7 @@ test('boss charge can run as a hold base and freezes at the charged pose', () =>
 
   controller.update(4);
   const charged = controller.sample();
-  approximately(charged.core.scaleX, 1.28);
+  approximately(charged.core.scaleX, 1.14);
   approximately(charged.core.alpha, 1);
   assert.deepEqual(controller.drainEvents().map(({ name }) => name), ['charge-ready']);
 

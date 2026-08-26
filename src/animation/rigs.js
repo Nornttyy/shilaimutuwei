@@ -32,6 +32,7 @@ export const EXPRESSION_SPEC = deepFreeze({
   },
   clipStates: {
     attack: 'attack',
+    charge: 'attack',
     hurt: 'hurt',
     downed: 'hurt',
     death: 'hurt',
@@ -65,31 +66,37 @@ export const SHELL_RIG = deepFreeze({
   bones: {
     root: {
       parent: null,
-      children: ['body'],
+      children: ['motion'],
       pivot: { x: 0, y: 0 },
       layer: -20,
     },
-    body: {
+    motion: {
       parent: 'root',
-      children: ['shell', 'face', 'front'],
+      children: ['body', 'shell', 'face', 'front'],
+      pivot: { x: 0, y: 0 },
+      layer: -19,
+    },
+    body: {
+      parent: 'motion',
+      children: [],
       pivot: { x: 0, y: 0 },
       layer: 0,
     },
     shell: {
-      parent: 'body',
+      parent: 'motion',
       children: [],
       pivot: { x: -35, y: -39 },
       layer: -10,
     },
     face: {
-      parent: 'body',
+      parent: 'motion',
       children: ['eyes', 'mouth'],
       pivot: { x: 0, y: -33 },
       layer: 10,
     },
     ...expressionBones(10, SURVIVOR_EYES_PIVOT, SURVIVOR_MOUTH_PIVOT),
     front: {
-      parent: 'body',
+      parent: 'motion',
       children: [],
       pivot: { x: 29, y: -24.5 },
       layer: 20,
@@ -104,36 +111,42 @@ export const BUG_RIG = deepFreeze({
   bones: {
     root: {
       parent: null,
-      children: ['body'],
+      children: ['motion'],
       pivot: { x: 0, y: 0 },
       layer: -20,
     },
-    body: {
+    motion: {
       parent: 'root',
-      children: ['legsA', 'legsB', 'antennae', 'face'],
+      children: ['body', 'legsA', 'legsB', 'antennae', 'face'],
+      pivot: { x: 0, y: 0 },
+      layer: -19,
+    },
+    body: {
+      parent: 'motion',
+      children: [],
       pivot: { x: 0, y: 0 },
       layer: 10,
     },
     legsA: {
-      parent: 'body',
+      parent: 'motion',
       children: [],
       pivot: { x: 0, y: -22 },
       layer: -10,
     },
     legsB: {
-      parent: 'body',
+      parent: 'motion',
       children: [],
       pivot: { x: 0, y: -22 },
       layer: -9,
     },
     antennae: {
-      parent: 'body',
+      parent: 'motion',
       children: [],
       pivot: { x: 0, y: -60 },
       layer: 0,
     },
     face: {
-      parent: 'body',
+      parent: 'motion',
       children: ['eyes', 'mouth'],
       pivot: { x: 0, y: -36 },
       layer: 20,
@@ -149,33 +162,93 @@ export const CRYSTAL_RIG = deepFreeze({
   bones: {
     root: {
       parent: null,
-      children: ['body'],
+      children: ['motion'],
       pivot: { x: 0, y: 0 },
       layer: -20,
     },
-    body: {
+    motion: {
       parent: 'root',
-      children: ['needles', 'face', 'front'],
+      children: ['body', 'needles', 'face', 'front'],
+      pivot: { x: 0, y: 0 },
+      layer: -19,
+    },
+    body: {
+      parent: 'motion',
+      children: [],
       pivot: { x: 0, y: 0 },
       layer: 0,
     },
     needles: {
-      parent: 'body',
+      parent: 'motion',
+      children: [
+        'needleBottom',
+        'needleLower',
+        'needleMid',
+        'needleMidUpper',
+        'needleUpper',
+        'needleTall',
+        'needleRight',
+      ],
+      pivot: { x: -24.3, y: -48.4 },
+      layer: -10,
+    },
+    needleBottom: {
+      parent: 'needles',
       children: [],
-      pivot: { x: -35, y: -34 },
+      pivot: { x: -48.525, y: -12.911 },
+      layer: -70,
+    },
+    needleLower: {
+      parent: 'needles',
+      children: [],
+      pivot: { x: -46.051, y: -21.411 },
+      layer: -60,
+    },
+    needleMid: {
+      parent: 'needles',
+      children: [],
+      pivot: { x: -36.475, y: -34.968 },
+      layer: -50,
+    },
+    needleMidUpper: {
+      parent: 'needles',
+      children: [],
+      pivot: { x: -24.316, y: -48.418 },
+      layer: -40,
+    },
+    needleUpper: {
+      parent: 'needles',
+      children: [],
+      pivot: { x: -0.538, y: -64.342 },
+      layer: -30,
+    },
+    needleTall: {
+      parent: 'needles',
+      children: [],
+      pivot: { x: 16.247, y: -62.62 },
+      layer: -20,
+    },
+    needleRight: {
+      parent: 'needles',
+      children: [],
+      pivot: { x: 28.728, y: -61.329 },
       layer: -10,
     },
     face: {
-      parent: 'body',
+      parent: 'motion',
       children: ['eyes', 'mouth'],
-      pivot: { x: 0, y: -33 },
+      pivot: { x: 22, y: -34 },
       layer: 10,
     },
-    ...expressionBones(10, SURVIVOR_EYES_PIVOT, SURVIVOR_MOUTH_PIVOT),
+    ...expressionBones(
+      10,
+      { x: 21.242, y: -38.063 },
+      { x: 22.854, y: -28.413 },
+    ),
     front: {
-      parent: 'body',
+      parent: 'motion',
       children: [],
-      pivot: { x: 40, y: -21 },
+      pivot: { x: -19.6, y: -29.4 },
       layer: 20,
     },
   },
@@ -188,18 +261,24 @@ export const BUBBLE_RIG = deepFreeze({
   bones: {
     root: {
       parent: null,
-      children: ['body'],
+      children: ['motion'],
       pivot: { x: 0, y: 0 },
       layer: -20,
     },
-    body: {
+    motion: {
       parent: 'root',
-      children: ['bubbles', 'halo', 'face'],
+      children: ['body', 'bubbles', 'halo', 'face'],
+      pivot: { x: 0, y: 0 },
+      layer: -19,
+    },
+    body: {
+      parent: 'motion',
+      children: [],
       pivot: { x: 0, y: 0 },
       layer: 0,
     },
     bubbles: {
-      parent: 'body',
+      parent: 'motion',
       children: ['bubblesBack'],
       pivot: { x: -19, y: -72 },
       layer: -10,
@@ -211,7 +290,7 @@ export const BUBBLE_RIG = deepFreeze({
       layer: -10,
     },
     halo: {
-      parent: 'body',
+      parent: 'motion',
       children: ['ringBack', 'ringFront'],
       pivot: { x: 0, y: -21 },
       layer: 10,
@@ -229,7 +308,7 @@ export const BUBBLE_RIG = deepFreeze({
       layer: 30,
     },
     face: {
-      parent: 'body',
+      parent: 'motion',
       children: ['eyes', 'mouth'],
       pivot: { x: 0, y: -33 },
       layer: 20,
@@ -245,35 +324,63 @@ export const SPROUT_RIG = deepFreeze({
   bones: {
     root: {
       parent: null,
-      children: ['body'],
+      children: ['motion'],
       pivot: { x: 0, y: 0 },
       layer: -20,
     },
-    body: {
+    motion: {
       parent: 'root',
-      children: ['sprout', 'pack', 'face'],
+      children: ['body', 'sprout', 'pack', 'face'],
+      pivot: { x: 0, y: 0 },
+      layer: -19,
+    },
+    body: {
+      parent: 'motion',
+      children: [],
       pivot: { x: 0, y: 0 },
       layer: 0,
     },
     sprout: {
-      parent: 'body',
+      parent: 'motion',
+      children: ['leafLeft', 'leafRight', 'stemCollar'],
+      pivot: { x: 7.5, y: -94.3 },
+      layer: 29,
+    },
+    leafLeft: {
+      parent: 'sprout',
       children: [],
-      pivot: { x: 0, y: -63 },
+      pivot: { x: 6.69, y: -94.39 },
       layer: 30,
     },
-    pack: {
-      parent: 'body',
+    leafRight: {
+      parent: 'sprout',
       children: [],
-      pivot: { x: 31.5, y: -20 },
+      pivot: { x: 8.162, y: -94.267 },
+      layer: 31,
+    },
+    stemCollar: {
+      parent: 'sprout',
+      children: [],
+      pivot: { x: 6.076, y: -79.292 },
+      layer: 32,
+    },
+    pack: {
+      parent: 'motion',
+      children: [],
+      pivot: { x: 31.7, y: -34.5 },
       layer: 40,
     },
     face: {
-      parent: 'body',
+      parent: 'motion',
       children: ['eyes', 'mouth'],
-      pivot: { x: 0, y: -33 },
+      pivot: { x: -10, y: -40 },
       layer: 20,
     },
-    ...expressionBones(20, SURVIVOR_EYES_PIVOT, SURVIVOR_MOUTH_PIVOT),
+    ...expressionBones(
+      20,
+      { x: -9.182, y: -44.067 },
+      { x: -11.566, y: -35.133 },
+    ),
   },
 });
 
@@ -285,24 +392,30 @@ export const WINDCAP_RIG = deepFreeze({
   bones: {
     root: {
       parent: null,
-      children: ['stem'],
+      children: ['motion'],
       pivot: { x: 0, y: 0 },
       layer: -20,
     },
-    stem: {
+    motion: {
       parent: 'root',
-      children: ['cap', 'face'],
+      children: ['stem', 'cap', 'face'],
+      pivot: { x: 0, y: 0 },
+      layer: -19,
+    },
+    stem: {
+      parent: 'motion',
+      children: [],
       pivot: { x: 0, y: -6 },
       layer: 0,
     },
     cap: {
-      parent: 'stem',
+      parent: 'motion',
       children: [],
       pivot: { x: 1, y: -60 },
       layer: 10,
     },
     face: {
-      parent: 'stem',
+      parent: 'motion',
       children: ['eyes', 'mouth'],
       pivot: { x: 0, y: -35 },
       layer: 20,
@@ -319,24 +432,30 @@ export const STONE_RIG = deepFreeze({
   bones: {
     root: {
       parent: null,
-      children: ['body'],
+      children: ['motion'],
       pivot: { x: 0, y: 0 },
       layer: -20,
     },
-    body: {
+    motion: {
       parent: 'root',
-      children: ['rocks', 'face'],
+      children: ['body', 'rocks', 'face'],
+      pivot: { x: 0, y: 0 },
+      layer: -19,
+    },
+    body: {
+      parent: 'motion',
+      children: [],
       pivot: { x: 0, y: 0 },
       layer: 0,
     },
     rocks: {
-      parent: 'body',
+      parent: 'motion',
       children: [],
       pivot: { x: 0, y: -43 },
       layer: 10,
     },
     face: {
-      parent: 'body',
+      parent: 'motion',
       children: ['eyes', 'mouth'],
       pivot: { x: 0, y: -34 },
       layer: 20,
@@ -353,24 +472,30 @@ export const BOSS_RIG = deepFreeze({
   bones: {
     root: {
       parent: null,
-      children: ['body'],
+      children: ['motion'],
       pivot: { x: 0, y: 0 },
       layer: -20,
     },
-    body: {
+    motion: {
       parent: 'root',
-      children: ['tentacles', 'acidShell', 'core', 'face'],
+      children: ['body', 'tentacles', 'acidShell', 'core', 'face'],
+      pivot: { x: 0, y: 0 },
+      layer: -19,
+    },
+    body: {
+      parent: 'motion',
+      children: [],
       pivot: { x: 0, y: 0 },
       layer: 0,
     },
     tentacles: {
-      parent: 'body',
+      parent: 'motion',
       children: [],
       pivot: { x: 0, y: -6 },
       layer: -10,
     },
     acidShell: {
-      parent: 'body',
+      parent: 'motion',
       children: ['crown'],
       pivot: { x: 0, y: -75 },
       layer: 10,
@@ -382,13 +507,13 @@ export const BOSS_RIG = deepFreeze({
       layer: 20,
     },
     core: {
-      parent: 'body',
+      parent: 'motion',
       children: [],
       pivot: { x: 0, y: -44 },
       layer: 30,
     },
     face: {
-      parent: 'body',
+      parent: 'motion',
       children: ['eyes', 'mouth'],
       pivot: { x: 0, y: -49 },
       layer: 40,

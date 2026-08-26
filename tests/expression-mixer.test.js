@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   createExpressionMixer,
+  DEFAULT_BLINK_TRANSITION_DURATION,
   DEFAULT_EXPRESSION_TRANSITION_DURATION,
   ExpressionMixer,
   resolveExpressionState,
@@ -31,6 +32,12 @@ test('resolves action states and gives an explicit target priority', () => {
     currentTime: 0,
     autoBlink: false,
   }), 'hurt');
+  assert.equal(resolveExpressionState({
+    ownerId: 'enemy-acid-shell-king',
+    action: 'charge',
+    currentTime: 0,
+    autoBlink: false,
+  }), 'attack');
   assert.equal(resolveExpressionState({
     ownerId: OWNER,
     action: 'attack',
@@ -61,12 +68,12 @@ test('uses owner and current time for deterministic staggered blinking', () => {
   );
 });
 
-test('cross-fades independent eye and mouth variants in 0.12 seconds', () => {
+test('cross-fades independent eye and mouth variants in 0.075 seconds', () => {
   const mixer = createExpressionMixer(OWNER, { autoBlink: false });
-  assert.equal(DEFAULT_EXPRESSION_TRANSITION_DURATION, 0.12);
+  assert.equal(DEFAULT_EXPRESSION_TRANSITION_DURATION, 0.075);
   assert.equal(mixer.setTarget('attack'), true);
 
-  mixer.tick(0.06);
+  mixer.tick(0.0375);
   const halfway = mixer.sample();
   assert.equal(halfway.from, 'normal');
   assert.equal(halfway.to, 'attack');
@@ -84,7 +91,7 @@ test('cross-fades independent eye and mouth variants in 0.12 seconds', () => {
     weights: { from: 0.5, to: 0.5 },
   });
 
-  mixer.tick(0.06);
+  mixer.tick(0.0375);
   const complete = mixer.sample();
   assert.equal(complete.from, 'attack');
   assert.equal(complete.to, 'attack');
@@ -93,10 +100,12 @@ test('cross-fades independent eye and mouth variants in 0.12 seconds', () => {
   assert.equal(complete.slots.eyes.weights.to, 0);
 });
 
-test('keeps a shared slot variant fully opaque during another slot transition', () => {
+test('uses a shorter blink fade while shared slot variants stay opaque', () => {
   const mixer = createExpressionMixer(OWNER, { autoBlink: false });
+  assert.equal(DEFAULT_BLINK_TRANSITION_DURATION, 0.05);
+  assert.equal(mixer.blinkTransitionDuration, 0.05);
   mixer.setTarget('blink');
-  mixer.tick(0.06);
+  mixer.tick(0.025);
 
   const sample = mixer.sample();
   assert.deepEqual(sample.slots.eyes.weights, { from: 0.5, to: 0.5 });
@@ -144,7 +153,7 @@ test('queues a third rapid target so a two-layer renderer never snaps', () => {
   assert.equal(mixer.sample().pending, 'hurt');
 
   // Finish attack and consume the overshoot in the queued attack -> hurt fade.
-  mixer.tick(0.12);
+  mixer.tick(0.09);
   const after = mixer.sample();
   assert.equal(after.from, 'attack');
   assert.equal(after.to, 'hurt');
@@ -265,12 +274,16 @@ test('AnimationController exposes clip expression metadata for the mixer', () =>
 test('rejects unsafe clocks, unknown states, and out-of-band durations', () => {
   assert.throws(() => createExpressionMixer('', {}), /ownerId/);
   assert.throws(
-    () => createExpressionMixer(OWNER, { transitionDuration: 0.09 }),
-    /between 0.1 and 0.16/,
+    () => createExpressionMixer(OWNER, { transitionDuration: 0.02 }),
+    /between 0.03 and 0.16/,
   );
   assert.throws(
     () => createExpressionMixer(OWNER, { transitionDuration: 0.17 }),
-    /between 0.1 and 0.16/,
+    /between 0.03 and 0.16/,
+  );
+  assert.throws(
+    () => createExpressionMixer(OWNER, { blinkTransitionDuration: 0.02 }),
+    /between 0.03 and 0.16/,
   );
 
   const mixer = createExpressionMixer(OWNER, { autoBlink: false });

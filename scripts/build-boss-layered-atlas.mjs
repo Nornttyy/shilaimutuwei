@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 
 import {
   alphaStats,
+  cropRgba,
   decodeRgbaPng,
   encodeRgbaPng,
   PROJECT_ROOT,
@@ -58,6 +59,16 @@ export const BOSS_LAYERED_ATLAS_LAYOUT = Object.freeze({
       inputHeight: 294,
       inputPngSha256: '6a2de8070c3a4f69bf9c4a7d64905037a8925c6c98dd47606eb62cf0be8c6178',
       sourceRect: Object.freeze({ x: 326, y: 528, width: 172, height: 120 }),
+    }),
+    eyes: Object.freeze({
+      kind: 'derived-three-eye',
+      // Preserve both production facial eyes, then derive a smaller central
+      // eye from the left eye's own pixels. The energy core remains a separate
+      // non-facial layer and is never counted as the third eye.
+      baseSourceRect: Object.freeze({ x: 289, y: 339, width: 190, height: 99 }),
+      donorRect: Object.freeze({ x: 4, y: 15, width: 71, height: 70 }),
+      thirdEyeRect: Object.freeze({ x: 79, y: 2, width: 32, height: 32 }),
+      sourceRect: Object.freeze({ x: 520, y: 528, width: 190, height: 99 }),
     }),
   }),
 });
@@ -206,6 +217,27 @@ export async function composeBossLayeredAtlas() {
 
   const parts = {};
   for (const [id, spec] of Object.entries(BOSS_LAYERED_ATLAS_LAYOUT.parts)) {
+    if (spec.kind === 'derived-three-eye') {
+      const eyes = cropRgba(base, spec.baseSourceRect, 'Boss two-eye source');
+      const donor = cropRgba(eyes, spec.donorRect, 'Boss third-eye donor');
+      const thirdEye = resizeRgbaBilinear(
+        donor,
+        spec.thirdEyeRect.width,
+        spec.thirdEyeRect.height,
+      );
+      blit(eyes, thirdEye, spec.thirdEyeRect.x, spec.thirdEyeRect.y);
+      blit(atlas, eyes, spec.sourceRect.x, spec.sourceRect.y);
+      parts[id] = {
+        kind: spec.kind,
+        baseSourceRect: { ...spec.baseSourceRect },
+        donorRect: { ...spec.donorRect },
+        thirdEyeRect: { ...spec.thirdEyeRect },
+        sourceRect: { ...spec.sourceRect },
+        ...alphaStats(eyes.pixels),
+        pixelSha256: sha256(eyes.pixels),
+      };
+      continue;
+    }
     const candidatePath = path.join(CANDIDATE_ROOT, spec.input);
     const { image: candidate } = await readVerifiedPng({
       path: candidatePath,

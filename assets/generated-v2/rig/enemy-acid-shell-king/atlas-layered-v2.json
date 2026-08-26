@@ -17,8 +17,8 @@
     "path": "assets/generated-v2/rig/enemy-acid-shell-king/atlas-layered-v2.png",
     "width": 768,
     "height": 768,
-    "pngSha256": "92a769738786d947f18d6ea7e31651eb333be5734bc7c43c69794756eb59352d",
-    "pixelSha256": "79e7334f952f3eea285633065d74c073a2d3f4b3ba226ad71966af8608636cb5"
+    "pngSha256": "df3fa9a642ffcee4956d67a8ac13d190685d8d979d16819c28dc04d35e1fd4bc",
+    "pixelSha256": "6bc6be163710920277fb2c265af2a9affa198c2c695ad111371080faaf832520"
   },
   "resize": "premultiplied-alpha-bilinear",
   "parts": {
@@ -53,6 +53,37 @@
       "transparentPixels": 8576,
       "translucentPixels": 12058,
       "pixelSha256": "28ef3e16ab944c9e3a605378415800104b26966a60df5909cf4a5e2fc7d43ddc"
+    },
+    "eyes": {
+      "kind": "derived-three-eye",
+      "baseSourceRect": {
+        "x": 289,
+        "y": 339,
+        "width": 190,
+        "height": 99
+      },
+      "donorRect": {
+        "x": 4,
+        "y": 15,
+        "width": 71,
+        "height": 70
+      },
+      "thirdEyeRect": {
+        "x": 79,
+        "y": 2,
+        "width": 32,
+        "height": 32
+      },
+      "sourceRect": {
+        "x": 520,
+        "y": 528,
+        "width": 190,
+        "height": 99
+      },
+      "visiblePixels": 7502,
+      "transparentPixels": 11308,
+      "translucentPixels": 7210,
+      "pixelSha256": "80dc849c51f292628394bcb1762d3012adb1909c26b85bdbdc330c5aa43474d6"
     }
   }
 }

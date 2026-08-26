@@ -17,10 +17,15 @@ test("all rigs have real, separate expression PNG variants", () => {
 
   assert.deepEqual(result, {
     atlasCount: 8,
+    bossThreeEyeContractCount: 1,
+    enemyIdentityCount: 4,
     eyeVariantCount: 24,
     faceOnlyAtlasCount: 8,
+    fixedFaceCellCount: 40,
     mouthVariantCount: 16,
+    noXHurtOwnerCount: 8,
     rigCount: 8,
+    roleProfileCount: 8,
     variantCount: 40,
   });
 });

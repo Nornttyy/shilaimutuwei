@@ -111,7 +111,7 @@ test('all current atlas sourceRects export to deterministic standalone RGBA PNGs
   const parts = rigs.flatMap(([, rig]) => rig.parts);
   const expressions = rigs.flatMap(([, rig]) => rig.expressions);
   assert.equal(rigs.length, 8);
-  assert.equal(parts.length, 42);
+  assert.equal(parts.length, 50);
   assert.equal(expressions.length, 56);
 
   const expectedFiles = [
@@ -119,7 +119,7 @@ test('all current atlas sourceRects export to deterministic standalone RGBA PNGs
     ...parts.map(({ output }) => output),
     ...expressions.map(({ output }) => output),
   ].sort();
-  assert.equal(expectedFiles.length, 99, '98 transparent PNGs plus index.json');
+  assert.equal(expectedFiles.length, 107, '106 transparent PNGs plus index.json');
   assert.deepEqual(await listRelativeFiles(temporaryOutput), expectedFiles);
   assert.deepEqual(await listRelativeFiles(DEFAULT_OUTPUT_ROOT), expectedFiles);
 
@@ -238,6 +238,12 @@ test('body, eyes, and mouth are independent atlas cells and pixel exports', asyn
           match.ratio < 0.9,
           `${ownerId}.${body.id} appears to contain a duplicate painted ${face.id} layer`,
         );
+        if (ownerId === 'enemy-windcap' && face.id === 'eyes') {
+          assert.ok(
+            match.ratio < 0.08,
+            'enemy-windcap.stem must not retain the old painted eye ink',
+          );
+        }
       }
 
       const bodyExport = await readFile(path.join(DEFAULT_OUTPUT_ROOT, ownerId, `${body.id}.png`));
@@ -274,8 +280,8 @@ test('layer export reads only current atlas and expressions-v2 paths', async (t)
   );
   await rejectsAtlasPath(
     'enemy-windcap',
-    'assets/generated-v2/rig/enemy-windcap/atlas-layered-v2.png',
-    /outside the current rig atlas convention/i,
+    'assets/generated-v2/rig/enemy-windcap/atlas-layered-v3.png',
+    /outside the current rig atlas convention|expected atlas path .*atlas-layered-v2\.png/i,
   );
   await rejectsAtlasPath(
     'enemy-windcap',

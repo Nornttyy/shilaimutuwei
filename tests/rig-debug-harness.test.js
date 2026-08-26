@@ -68,7 +68,7 @@ const TRANSFORM_KEYS = Object.freeze([
   'alpha',
 ]);
 
-const PRIMARY_GROUND_BONES = new Set(['root', 'body', 'stem']);
+const PRIMARY_GROUND_BONES = new Set(['root', 'motion', 'body', 'stem']);
 const SAMPLE_RATE = 180;
 const EPSILON = 1e-8;
 // Mirrors draw.js' 512px offscreen surface, 2 pixels per local unit and
@@ -82,21 +82,30 @@ const RIG_RENDER_VIEWPORT = Object.freeze({
 });
 
 const CLIP_AMPLITUDE_LIMITS = Object.freeze([
-  { rigId: 'crystal', clipName: 'attack', bone: 'needles', property: 'x', maxAbs: 1.5 },
-  { rigId: 'sprout', clipName: '*', bone: 'sprout', property: 'y', maxAbs: 1.5 },
-  { rigId: 'bug', clipName: '*', bone: 'legsA', property: 'rotation', maxAbs: 0.15 },
-  { rigId: 'bug', clipName: '*', bone: 'legsB', property: 'rotation', maxAbs: 0.15 },
-  { rigId: 'windcap', clipName: 'attack', bone: 'cap', property: 'x', maxAbs: 3 },
-  { rigId: 'windcap', clipName: 'attack', bone: 'cap', property: 'rotation', maxAbs: 0.15 },
-  { rigId: 'stone', clipName: 'death', bone: 'rocks', property: 'x', maxAbs: 3 },
-  { rigId: 'stone', clipName: 'death', bone: 'rocks', property: 'y', maxAbs: 3 },
-  { rigId: 'stone', clipName: 'death', bone: 'rocks', property: 'rotation', maxAbs: 0.12 },
+  { rigId: 'crystal', clipName: 'attack', bone: 'needles', property: 'x', maxAbs: 0.5 },
+  { rigId: 'sprout', clipName: '*', bone: 'sprout', property: 'y', maxAbs: 0.5 },
+  { rigId: 'bug', clipName: '*', bone: 'legsA', property: 'rotation', maxAbs: 0.07 },
+  { rigId: 'bug', clipName: '*', bone: 'legsB', property: 'rotation', maxAbs: 0.07 },
+  { rigId: 'bug', clipName: '*', bone: 'antennae', property: 'rotation', maxAbs: 0.1 },
+  { rigId: 'bubble', clipName: '*', bone: 'halo', property: 'x', maxAbs: 1 },
+  { rigId: 'bubble', clipName: '*', bone: 'halo', property: 'scaleX', maxAbs: 1.04 },
+  { rigId: 'bubble', clipName: '*', bone: 'halo', property: 'scaleY', maxAbs: 1.04 },
+  { rigId: 'windcap', clipName: 'attack', bone: 'cap', property: 'x', maxAbs: 1.2 },
+  { rigId: 'windcap', clipName: 'attack', bone: 'cap', property: 'rotation', maxAbs: 0.08 },
+  { rigId: 'stone', clipName: 'death', bone: 'rocks', property: 'x', maxAbs: 0.5 },
+  { rigId: 'stone', clipName: 'death', bone: 'rocks', property: 'y', maxAbs: 0.5 },
+  { rigId: 'stone', clipName: 'death', bone: 'rocks', property: 'rotation', maxAbs: 0.02 },
+  { rigId: 'boss', clipName: '*', bone: 'tentacles', property: 'x', maxAbs: 3 },
+  { rigId: 'boss', clipName: '*', bone: 'tentacles', property: 'y', maxAbs: 3 },
+  { rigId: 'boss', clipName: '*', bone: 'tentacles', property: 'rotation', maxAbs: 0.12 },
   { rigId: 'boss', clipName: '*', bone: 'acidShell', property: 'x', maxAbs: 1.2 },
-  { rigId: 'boss', clipName: '*', bone: 'acidShell', property: 'y', maxAbs: 2 },
-  { rigId: 'boss', clipName: '*', bone: 'acidShell', property: 'rotation', maxAbs: 0.04 },
-  { rigId: 'boss', clipName: '*', bone: 'crown', property: 'x', maxAbs: 3 },
-  { rigId: 'boss', clipName: '*', bone: 'crown', property: 'y', maxAbs: 3 },
-  { rigId: 'boss', clipName: '*', bone: 'crown', property: 'rotation', maxAbs: 0.08 },
+  { rigId: 'boss', clipName: '*', bone: 'acidShell', property: 'y', maxAbs: 1 },
+  { rigId: 'boss', clipName: '*', bone: 'acidShell', property: 'rotation', maxAbs: 0.03 },
+  { rigId: 'boss', clipName: '*', bone: 'crown', property: 'x', maxAbs: 1.8 },
+  { rigId: 'boss', clipName: '*', bone: 'crown', property: 'y', maxAbs: 1.5 },
+  { rigId: 'boss', clipName: '*', bone: 'crown', property: 'rotation', maxAbs: 0.05 },
+  { rigId: 'boss', clipName: 'charge', bone: 'core', property: 'scaleX', maxAbs: 1.14 },
+  { rigId: 'boss', clipName: 'charge', bone: 'core', property: 'scaleY', maxAbs: 1.14 },
 ]);
 
 const CLIP_MINIMUM_LIMITS = Object.freeze([
@@ -613,8 +622,11 @@ test('alignment audit anchors and foreground layers stay calibrated', () => {
   assert.deepEqual(BUBBLE_RIG.bones.bubbles.pivot, { x: -19, y: -72 });
   assert.deepEqual(BUBBLE_RIG.bones.halo.pivot, { x: 0, y: -21 });
 
-  assert.deepEqual(CRYSTAL_RIG.bones.needles.pivot, { x: -35, y: -34 });
-  assert.deepEqual(SPROUT_RIG.bones.sprout.pivot, { x: 0, y: -63 });
+  assert.deepEqual(CRYSTAL_RIG.bones.needles.pivot, { x: -24.3, y: -48.4 });
+  assert.deepEqual(CRYSTAL_RIG.bones.needleMidUpper.pivot, { x: -24.316, y: -48.418 });
+  assert.deepEqual(SPROUT_RIG.bones.sprout.pivot, { x: 7.5, y: -94.3 });
+  assert.deepEqual(SPROUT_RIG.bones.leafLeft.pivot, { x: 6.69, y: -94.39 });
+  assert.deepEqual(SPROUT_RIG.bones.leafRight.pivot, { x: 8.162, y: -94.267 });
   assert.equal(
     SPROUT_RIG.bones.pack.layer,
     part('survivor-moss-sprout', 'pack').z,

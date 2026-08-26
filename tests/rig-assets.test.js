@@ -17,7 +17,19 @@ const MANIFEST_SOURCE = JSON.parse(await readFile(
 
 const EXPECTED_PART_ORDER = Object.freeze({
   'survivor-shell-shell': ['shell', 'body', 'eyes', 'mouth', 'front'],
-  'survivor-crystal-pin': ['needles', 'body', 'eyes', 'mouth', 'front'],
+  'survivor-crystal-pin': [
+    'needleBottom',
+    'needleLower',
+    'needleMid',
+    'needleMidUpper',
+    'needleUpper',
+    'needleTall',
+    'needleRight',
+    'body',
+    'eyes',
+    'mouth',
+    'front',
+  ],
   'survivor-bubble-float': [
     'bubblesBack',
     'ringBack',
@@ -26,7 +38,15 @@ const EXPECTED_PART_ORDER = Object.freeze({
     'mouth',
     'ringFront',
   ],
-  'survivor-moss-sprout': ['body', 'eyes', 'mouth', 'sprout', 'pack'],
+  'survivor-moss-sprout': [
+    'body',
+    'eyes',
+    'mouth',
+    'leafLeft',
+    'leafRight',
+    'stemCollar',
+    'pack',
+  ],
   'enemy-soft-biter': ['legsA', 'legsB', 'antennae', 'body', 'eyes', 'mouth'],
   'enemy-windcap': ['stem', 'cap', 'eyes', 'mouth'],
   'enemy-stone-lump': ['body', 'rocks', 'eyes', 'mouth'],
@@ -43,7 +63,12 @@ const EXPECTED_PART_ORDER = Object.freeze({
 
 const EXPECTED_GENERATED_BIND_RECTS = Object.freeze({
   'survivor-shell-shell.front': { x: 10, y: -34, width: 38, height: 19 },
-  'survivor-crystal-pin.front': { x: 24, y: -33, width: 31, height: 20 },
+  'survivor-crystal-pin.front': {
+    x: -22.38, y: -32.709, width: 28.75, height: 22.75,
+  },
+  'survivor-moss-sprout.pack': {
+    x: 6.812, y: -55.848, width: 60, height: 53.5,
+  },
   'enemy-soft-biter.antennae': { x: -46, y: -104, width: 92, height: 54 },
   'enemy-acid-shell-king.acidShell': {
     x: -48, y: -107.65, width: 96, height: 65.3,
@@ -54,6 +79,9 @@ const EXPECTED_GENERATED_BIND_RECTS = Object.freeze({
 function expectedAtlasPath(ownerId) {
   if (ownerId === 'enemy-acid-shell-king') {
     return 'assets/generated-v2/rig/enemy-acid-shell-king/atlas-layered-v2.png';
+  }
+  if (ownerId === 'enemy-windcap') {
+    return 'assets/generated-v2/rig/enemy-windcap/atlas-layered-v2.png';
   }
   return `assets/generated-v2/rig/${ownerId}/atlas.png`;
 }
@@ -217,8 +245,18 @@ test('rig-parts contract covers all eight characters in canonical draw order', (
     assert.equal(atlasPaths.has(rig.atlasPath), false, `shared rig atlas: ${rig.atlasPath}`);
     atlasPaths.add(rig.atlasPath);
   }
-  assert.equal(partCount, 42);
+  assert.equal(partCount, 50);
   assert.equal(atlasPaths.size, 8);
+  for (const ownerId of ['survivor-crystal-pin', 'survivor-moss-sprout']) {
+    const metadata = MANIFEST_SOURCE.rigs[ownerId].masterDerived;
+    assert.equal(metadata.schemaVersion, 1);
+    assert.equal(metadata.builder, 'scripts/build-master-derived-rigs.py');
+    assert.deepEqual(metadata.independentEyeCells, ['eyeLeft', 'eyeRight']);
+    assert.deepEqual(metadata.runtimeEyesCompatibility, {
+      kind: 'derived-composite',
+      compositeOf: ['eyeLeft', 'eyeRight'],
+    });
+  }
   for (const [partKey, expectedBindRect] of Object.entries(EXPECTED_GENERATED_BIND_RECTS)) {
     const [ownerId, partId] = partKey.split('.');
     const part = manifest.rigs[ownerId].parts.find(({ id }) => id === partId);

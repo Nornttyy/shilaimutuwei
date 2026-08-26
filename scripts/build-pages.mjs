@@ -5,7 +5,6 @@ import {
   lstat,
   mkdir,
   mkdtemp,
-  open,
   readFile,
   readdir,
   rename,
@@ -15,8 +14,10 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { validateRigPartManifest } from '../src/animation/rig-assets.js';
+import { parsePng, verifyAssets } from './verify-assets.mjs';
 
 export const RIG_MANIFEST_PATH = 'assets/rig-parts.json';
+export const ASSET_SPEC_PATH = 'assets/asset-spec.json';
 export const PUBLISH_ENTRIES = Object.freeze(['index.html', 'styles.css', 'src']);
 export const LOCAL_OUTPUT_DIRECTORY = '_site';
 export const DOCS_OUTPUT_DIRECTORY = 'docs';
@@ -26,12 +27,72 @@ const RIG_ATLAS_PATTERN =
   /^assets\/generated-v2\/rig\/[A-Za-z0-9_-]+\/atlas(?:-layered-v2)?\.png$/;
 const RIG_IMAGE_PATTERN =
   /^assets\/generated-v2\/rig\/[A-Za-z0-9_-]+\/[A-Za-z0-9][A-Za-z0-9_.-]*\.png$/;
+const DECLARED_ASSET_PATTERN =
+  /^assets\/generated\/([a-z][a-z0-9-]*)\/([A-Za-z0-9][A-Za-z0-9_.-]*\.png)$/;
+const FORBIDDEN_DERIVATIVE_PATTERN =
+  /(?:^|[-_.])(source|alpha|preview|review|legacy|candidates?)(?:[-_.]|$)/i;
 const VERSIONED_ATLAS_PATHS = Object.freeze({
   'enemy-acid-shell-king':
     'assets/generated-v2/rig/enemy-acid-shell-king/atlas-layered-v2.png',
+  'enemy-windcap':
+    'assets/generated-v2/rig/enemy-windcap/atlas-layered-v2.png',
 });
 const IMAGE_PATTERN = /\.(?:avif|gif|jpe?g|png|webp)$/i;
-const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+
+export function collectDeclaredAssetPaths(spec) {
+  if (!spec || typeof spec !== 'object' || Array.isArray(spec)) {
+    throw new TypeError('Asset spec must be a JSON object.');
+  }
+  if (spec.schemaVersion !== 1) {
+    throw new TypeError('Asset spec schemaVersion must be 1.');
+  }
+  if (!Array.isArray(spec.assets) || spec.assets.length === 0) {
+    throw new TypeError('Asset spec must contain a non-empty "assets" array.');
+  }
+
+  const ids = new Set();
+  const references = new Set();
+  for (const [index, asset] of spec.assets.entries()) {
+    const label = asset?.id ?? `assets[${index}]`;
+    if (typeof asset?.id !== 'string' || !asset.id) {
+      throw new TypeError(`Asset spec entry ${index} must declare a non-empty id.`);
+    }
+    if (ids.has(asset.id)) throw new TypeError(`Asset spec contains duplicate id: ${asset.id}`);
+    ids.add(asset.id);
+
+    const assetPath = asset.path;
+    const match = typeof assetPath === 'string' && DECLARED_ASSET_PATTERN.exec(assetPath);
+    if (
+      !match
+      || path.posix.normalize(assetPath) !== assetPath
+      || path.posix.isAbsolute(assetPath)
+    ) {
+      throw new TypeError(
+        `Asset "${label}" must reference assets/generated/<category>/<filename>.png.`,
+      );
+    }
+    const [, pathCategory, fileName] = match;
+    if (asset.category !== pathCategory) {
+      throw new TypeError(
+        `Asset "${label}" path category must match its category "${asset.category}".`,
+      );
+    }
+    if (asset.filename !== fileName) {
+      throw new TypeError(
+        `Asset "${label}" path filename must match its filename "${asset.filename}".`,
+      );
+    }
+    if (FORBIDDEN_DERIVATIVE_PATTERN.test(fileName)) {
+      throw new TypeError(`Asset "${label}" cannot publish derivative file ${fileName}.`);
+    }
+    if (references.has(assetPath)) {
+      throw new TypeError(`Asset spec cannot publish one PNG path twice: ${assetPath}`);
+    }
+    references.add(assetPath);
+  }
+
+  return [...references].sort();
+}
 
 export function collectRigImagePaths(manifest) {
   if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) {
@@ -111,12 +172,14 @@ export function collectRigImagePaths(manifest) {
 
 function assertSafeRigRuntimeImagePath(assetPath, label, ownerId) {
   const expectedPrefix = `${RIG_IMAGE_PREFIX}${ownerId}/`;
+  const fileName = typeof assetPath === 'string' ? path.posix.basename(assetPath) : '';
   if (
     typeof assetPath !== 'string'
     || !RIG_IMAGE_PATTERN.test(assetPath)
     || !assetPath.startsWith(expectedPrefix)
     || path.posix.normalize(assetPath) !== assetPath
     || path.posix.isAbsolute(assetPath)
+    || FORBIDDEN_DERIVATIVE_PATTERN.test(fileName)
   ) {
     throw new TypeError(
       `Rig part variant "${label}" must reference a PNG directly below ${expectedPrefix}`,
@@ -147,7 +210,31 @@ export async function readRigManifest(projectRoot) {
   }
 }
 
-export async function assertRigImagesExist(projectRoot, imagePaths) {
+export async function readAssetSpec(projectRoot) {
+  const specFile = path.join(projectRoot, ASSET_SPEC_PATH);
+  let source;
+  try {
+    source = await readFile(specFile, 'utf8');
+  } catch (error) {
+    throw new Error(`Cannot read asset spec at ${ASSET_SPEC_PATH}: ${error.message}`);
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(source);
+  } catch (error) {
+    throw new Error(`Invalid JSON in ${ASSET_SPEC_PATH}: ${error.message}`);
+  }
+
+  try {
+    collectDeclaredAssetPaths(parsed);
+  } catch (error) {
+    throw new Error(`Invalid asset contract in ${ASSET_SPEC_PATH}: ${error.message}`);
+  }
+  return parsed;
+}
+
+async function assertPngImagesExist(projectRoot, imagePaths, kind) {
   const missing = [];
   const invalid = [];
 
@@ -159,14 +246,11 @@ export async function assertRigImagesExist(projectRoot, imagePaths) {
         invalid.push(`${assetPath} (not a regular file)`);
         return;
       }
-      const signature = Buffer.alloc(PNG_SIGNATURE.length);
-      const file = await open(source, 'r');
       try {
-        await file.read(signature, 0, signature.length, 0);
-      } finally {
-        await file.close();
+        parsePng(await readFile(source));
+      } catch (error) {
+        invalid.push(`${assetPath} (${error.message})`);
       }
-      if (!signature.equals(PNG_SIGNATURE)) invalid.push(`${assetPath} (invalid PNG signature)`);
     } catch (error) {
       if (error?.code === 'ENOENT') missing.push(assetPath);
       else throw error;
@@ -179,10 +263,37 @@ export async function assertRigImagesExist(projectRoot, imagePaths) {
       ...invalid.sort().map((assetPath) => `invalid: ${assetPath}`),
     ];
     throw new Error(
-      `Cannot build GitHub Pages: ${details.length} rig PNG asset(s) failed validation:\n`
+      `Cannot build GitHub Pages: ${details.length} ${kind} PNG asset(s) failed validation:\n`
       + details.map((detail) => `  - ${detail}`).join('\n'),
     );
   }
+}
+
+export async function assertRigImagesExist(projectRoot, imagePaths) {
+  return assertPngImagesExist(projectRoot, imagePaths, 'rig');
+}
+
+export async function assertDeclaredAssetsExist(projectRoot, imagePaths) {
+  return assertPngImagesExist(projectRoot, imagePaths, 'declared');
+}
+
+async function assertAssetSpecPngsValid(projectRoot, phase) {
+  const result = await verifyAssets({
+    specPath: path.join(projectRoot, ASSET_SPEC_PATH),
+    cwd: projectRoot,
+    allowMissingSpec: false,
+  });
+  if (result.ok) return result;
+
+  const details = result.errors.map((error) => {
+    const subject = error.path ?? error.id;
+    return `[${error.code}] ${subject ? `${subject}: ` : ''}${error.message}`;
+  });
+  throw new Error(
+    `Cannot build GitHub Pages: ${phase} asset-spec PNG validation failed `
+    + `with ${details.length} error(s):\n`
+    + details.map((detail) => `  - ${detail}`).join('\n'),
+  );
 }
 
 export async function listImageFiles(directory) {
@@ -193,21 +304,39 @@ export async function listImageFiles(directory) {
     .sort();
 }
 
-export async function verifyPagesOutput(outputDirectory, expectedImagePaths) {
+export async function verifyPagesOutput(
+  outputDirectory,
+  { assetPaths: expectedAssetPaths, rigImagePaths: expectedRigImagePaths },
+) {
+  const copiedSpec = await readAssetSpec(outputDirectory);
+  const copiedAssetReferences = collectDeclaredAssetPaths(copiedSpec);
+  assertSamePaths(
+    copiedAssetReferences,
+    expectedAssetPaths,
+    'The copied asset spec does not match the source asset spec.',
+  );
+
   const copiedManifest = await readRigManifest(outputDirectory);
   const copiedReferences = collectRigImagePaths(copiedManifest);
   assertSamePaths(
     copiedReferences,
-    expectedImagePaths,
+    expectedRigImagePaths,
     'The copied rig manifest does not match the source manifest.',
   );
 
+  const expectedImagePaths = [...new Set([
+    ...expectedAssetPaths,
+    ...expectedRigImagePaths,
+  ])].sort();
   const outputImages = await listImageFiles(outputDirectory);
   assertSamePaths(
     outputImages,
     expectedImagePaths,
-    'Pages output image files must exactly equal the rig manifest references.',
+    'Pages output image files must exactly equal the two manifest reference sets.',
   );
+  await assertAssetSpecPngsValid(outputDirectory, 'staging');
+  await assertDeclaredAssetsExist(outputDirectory, expectedAssetPaths);
+  await assertRigImagesExist(outputDirectory, expectedRigImagePaths);
 }
 
 export async function buildPages({ projectRoot, outputDirectory } = {}) {
@@ -215,8 +344,11 @@ export async function buildPages({ projectRoot, outputDirectory } = {}) {
   const target = path.resolve(outputDirectory ?? path.join(root, LOCAL_OUTPUT_DIRECTORY));
   assertSafeOutputDirectory(root, target);
 
+  const spec = await readAssetSpec(root);
+  const assetPaths = collectDeclaredAssetPaths(spec);
   const manifest = await readRigManifest(root);
-  const imagePaths = collectRigImagePaths(manifest);
+  const rigImagePaths = collectRigImagePaths(manifest);
+  const imagePaths = [...new Set([...assetPaths, ...rigImagePaths])].sort();
 
   for (const entry of PUBLISH_ENTRIES) {
     try {
@@ -225,7 +357,9 @@ export async function buildPages({ projectRoot, outputDirectory } = {}) {
       throw new Error(`Cannot build GitHub Pages: missing publish entry "${entry}" (${error.message})`);
     }
   }
-  await assertRigImagesExist(root, imagePaths);
+  await assertAssetSpecPngsValid(root, 'source');
+  await assertDeclaredAssetsExist(root, assetPaths);
+  await assertRigImagesExist(root, rigImagePaths);
 
   const stagingDirectory = await mkdtemp(path.join(root, '.pages-build-'));
   try {
@@ -235,12 +369,13 @@ export async function buildPages({ projectRoot, outputDirectory } = {}) {
       });
     }
 
+    await copyProjectFile(root, stagingDirectory, ASSET_SPEC_PATH);
     await copyProjectFile(root, stagingDirectory, RIG_MANIFEST_PATH);
     for (const assetPath of imagePaths) {
       await copyProjectFile(root, stagingDirectory, assetPath);
     }
 
-    await verifyPagesOutput(stagingDirectory, imagePaths);
+    await verifyPagesOutput(stagingDirectory, { assetPaths, rigImagePaths });
     await rm(target, { recursive: true, force: true });
     await rename(stagingDirectory, target);
   } catch (error) {
@@ -250,7 +385,10 @@ export async function buildPages({ projectRoot, outputDirectory } = {}) {
 
   return {
     outputDirectory: target,
+    assetSpecPath: ASSET_SPEC_PATH,
     manifestPath: RIG_MANIFEST_PATH,
+    assetPaths,
+    rigImagePaths,
     imagePaths,
   };
 }

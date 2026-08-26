@@ -1,0 +1,484 @@
+{
+  "schemaVersion": 1,
+  "builder": "scripts/build-master-derived-rigs.py",
+  "sourceMaster": "assets/original-masters/survivor-moss-sprout.png",
+  "sourceMasterSha256": "383c877305c35a3fed5ac79310532d3bad283d1df65b870266360fd2f03f3aa4",
+  "sourceMasterSize": [
+    1536,
+    1024
+  ],
+  "subjectBboxMaster": [
+    289,
+    10,
+    1248,
+    1019
+  ],
+  "rootMaster": [
+    704.5,
+    1019.0
+  ],
+  "rigUnitsPerMasterPixel": 0.122743682,
+  "darkGlowCleanup": {
+    "enabled": true,
+    "strongAlphaThreshold": 192,
+    "retainedEdgeRadiusPixels": 2
+  },
+  "independentCells": {
+    "body": {
+      "atlasRect": {
+        "x": 4,
+        "y": 4,
+        "width": 408,
+        "height": 336
+      },
+      "bindRect": {
+        "x": -51.0,
+        "y": -84.079,
+        "width": 102.0,
+        "height": 84.0
+      },
+      "bone": "body",
+      "pivotMaster": [
+        704.5,
+        1019
+      ],
+      "sourceBboxMaster": [
+        289,
+        334,
+        1120,
+        1019
+      ],
+      "standalone": "assets/generated-v2/rig/survivor-moss-sprout/layers-v1/body.png"
+    },
+    "eyeLeft": {
+      "atlasRect": {
+        "x": 668,
+        "y": 116,
+        "width": 66,
+        "height": 98
+      },
+      "bindRect": {
+        "x": -34.307,
+        "y": -57.567,
+        "width": 16.5,
+        "height": 24.5
+      },
+      "bone": "eyes",
+      "pivotMaster": [
+        494,
+        651
+      ],
+      "sourceBboxMaster": [
+        425,
+        550,
+        560,
+        750
+      ],
+      "standalone": "assets/generated-v2/rig/survivor-moss-sprout/layers-v1/eyeLeft.png"
+    },
+    "eyeRight": {
+      "atlasRect": {
+        "x": 668,
+        "y": 4,
+        "width": 74,
+        "height": 104
+      },
+      "bindRect": {
+        "x": -2.394,
+        "y": -56.585,
+        "width": 18.5,
+        "height": 26.0
+      },
+      "bone": "eyes",
+      "pivotMaster": [
+        760,
+        665
+      ],
+      "sourceBboxMaster": [
+        685,
+        558,
+        835,
+        770
+      ],
+      "standalone": "assets/generated-v2/rig/survivor-moss-sprout/layers-v1/eyeRight.png"
+    },
+    "mouth": {
+      "atlasRect": {
+        "x": 629,
+        "y": 332,
+        "width": 69,
+        "height": 42
+      },
+      "bindRect": {
+        "x": -20.191,
+        "y": -40.383,
+        "width": 17.25,
+        "height": 10.5
+      },
+      "bone": "mouth",
+      "pivotMaster": [
+        610,
+        733
+      ],
+      "sourceBboxMaster": [
+        540,
+        690,
+        680,
+        775
+      ],
+      "standalone": "assets/generated-v2/rig/survivor-moss-sprout/layers-v1/mouth.png"
+    },
+    "leafLeft": {
+      "atlasRect": {
+        "x": 232,
+        "y": 348,
+        "width": 201,
+        "height": 137
+      },
+      "bindRect": {
+        "x": -41.058,
+        "y": -123.848,
+        "width": 50.25,
+        "height": 34.25
+      },
+      "bone": "leafLeft",
+      "pivotMaster": [
+        759,
+        250
+      ],
+      "sourceBboxMaster": [
+        370,
+        10,
+        780,
+        290
+      ],
+      "standalone": "assets/generated-v2/rig/survivor-moss-sprout/layers-v1/leafLeft.png"
+    },
+    "leafRight": {
+      "atlasRect": {
+        "x": 4,
+        "y": 348,
+        "width": 220,
+        "height": 128
+      },
+      "bindRect": {
+        "x": 3.13,
+        "y": -116.606,
+        "width": 55.0,
+        "height": 32.0
+      },
+      "bone": "leafRight",
+      "pivotMaster": [
+        771,
+        251
+      ],
+      "sourceBboxMaster": [
+        730,
+        69,
+        1179,
+        330
+      ],
+      "standalone": "assets/generated-v2/rig/survivor-moss-sprout/layers-v1/leafRight.png"
+    },
+    "stemCollar": {
+      "atlasRect": {
+        "x": 629,
+        "y": 226,
+        "width": 114,
+        "height": 98
+      },
+      "bindRect": {
+        "x": -6.935,
+        "y": -99.3,
+        "width": 28.5,
+        "height": 24.5
+      },
+      "bone": "stemCollar",
+      "pivotMaster": [
+        754,
+        373
+      ],
+      "sourceBboxMaster": [
+        648,
+        210,
+        880,
+        410
+      ],
+      "standalone": "assets/generated-v2/rig/survivor-moss-sprout/layers-v1/stemCollar.png"
+    },
+    "pack": {
+      "atlasRect": {
+        "x": 420,
+        "y": 4,
+        "width": 240,
+        "height": 214
+      },
+      "bindRect": {
+        "x": 6.812,
+        "y": -55.848,
+        "width": 60.0,
+        "height": 53.5
+      },
+      "bone": "pack",
+      "pivotMaster": [
+        963,
+        738
+      ],
+      "sourceBboxMaster": [
+        760,
+        564,
+        1248,
+        1000
+      ],
+      "standalone": "assets/generated-v2/rig/survivor-moss-sprout/layers-v1/pack.png"
+    }
+  },
+  "runtimeCompatibility": {
+    "eyes": {
+      "kind": "derived-composite",
+      "compositeOf": [
+        "eyeLeft",
+        "eyeRight"
+      ],
+      "reason": "runtime schema v2 exposes one expression-enabled eyes slot",
+      "atlasRect": {
+        "x": 420,
+        "y": 226,
+        "width": 201,
+        "height": 108
+      },
+      "standalone": "assets/generated-v2/rig/survivor-moss-sprout/layers-v1/eyes.png"
+    }
+  },
+  "validation": {
+    "reference": "post-alpha-cleanup master",
+    "bindRecomposition": "assets/generated-v2/rig/survivor-moss-sprout/bind-recomposition-v1.png",
+    "metrics": {
+      "alphaIoU": 0.992569,
+      "meanAlphaError": 0.890723,
+      "visibleRgbPsnrDb": 38.4018,
+      "visiblePixelsChangedOver8": 9855,
+      "visiblePixels": 669699
+    }
+  },
+  "atlasSha256": "ff19ab358ee66688da18083b32297e72d11609bdbf0d9b0ac770bfd25254a540",
+  "expressionsSha256": "e2c23af0af588682532adac6821588d0fc222f8e826712ca326748f12beecd01",
+  "layerPngSha256": {
+    "body": "6f987650ec93241b92072c96a3b5d2b66605124eaa323db0a6e25161c6e24950",
+    "eyeLeft": "eb6b5e32c54a0dc2cf5ca3f7c0691990d1314357564c7685c57beca1da749217",
+    "eyeRight": "e826c9113a52ad7f5b85269673599db1a4f2f5c9e1d8905833efb9b249385205",
+    "eyes": "11a6985275a4cb9f9ab91d0c4104ce7b85af0a6419e637940367026b01631593",
+    "leafLeft": "27caa375f56921abb38032be071abf941547f0d1e2d037ce0763b0a46359f7c6",
+    "leafRight": "e01e37d338b2ba504087a81e4de6839ca5cb192acb63abc434127c7944a396f9",
+    "mouth": "7bf3919586d7ecf526a9db7c71584b488b2aa20ced3cc86c3b86c8120a4f829a",
+    "pack": "0550e2745844679cd93804969245d5c299bc1a1d0d928bc8e91fb2907eca5adc",
+    "stemCollar": "8cb33e24978f0873bc39a0374060283da8723876c633f78da9f1ade106cf1522"
+  },
+  "runtimeRig": {
+    "rigId": "sprout",
+    "rootBone": "root",
+    "faceBone": "face",
+    "canonicalFacing": 1,
+    "masterDerived": {
+      "schemaVersion": 1,
+      "sourceMaster": "assets/original-masters/survivor-moss-sprout.png",
+      "builder": "scripts/build-master-derived-rigs.py",
+      "metadataPath": "assets/generated-v2/rig/survivor-moss-sprout/master-derived-v1.json",
+      "independentEyeCells": [
+        "eyeLeft",
+        "eyeRight"
+      ],
+      "runtimeEyesCompatibility": {
+        "kind": "derived-composite",
+        "compositeOf": [
+          "eyeLeft",
+          "eyeRight"
+        ]
+      }
+    },
+    "parts": [
+      {
+        "id": "body",
+        "bone": "body",
+        "z": 0,
+        "path": "assets/generated-v2/rig/survivor-moss-sprout/atlas.png",
+        "sourceRect": {
+          "x": 4,
+          "y": 4,
+          "width": 408,
+          "height": 336
+        },
+        "required": true,
+        "bindRect": {
+          "x": -51.0,
+          "y": -84.079,
+          "width": 102.0,
+          "height": 84.0
+        }
+      },
+      {
+        "id": "eyes",
+        "bone": "eyes",
+        "z": 10,
+        "path": "assets/generated-v2/rig/survivor-moss-sprout/atlas.png",
+        "sourceRect": {
+          "x": 420,
+          "y": 226,
+          "width": 201,
+          "height": 108
+        },
+        "required": true,
+        "bindRect": {
+          "x": -34.307,
+          "y": -57.567,
+          "width": 50.25,
+          "height": 27.0
+        },
+        "variants": {
+          "blink": {
+            "path": "assets/generated-v2/rig/survivor-moss-sprout/expressions-v2.png",
+            "sourceRect": {
+              "x": 0,
+              "y": 0,
+              "width": 201,
+              "height": 108
+            }
+          },
+          "hurt": {
+            "path": "assets/generated-v2/rig/survivor-moss-sprout/expressions-v2.png",
+            "sourceRect": {
+              "x": 201,
+              "y": 0,
+              "width": 201,
+              "height": 108
+            }
+          },
+          "attack": {
+            "path": "assets/generated-v2/rig/survivor-moss-sprout/expressions-v2.png",
+            "sourceRect": {
+              "x": 402,
+              "y": 0,
+              "width": 201,
+              "height": 108
+            }
+          }
+        }
+      },
+      {
+        "id": "mouth",
+        "bone": "mouth",
+        "z": 20,
+        "path": "assets/generated-v2/rig/survivor-moss-sprout/atlas.png",
+        "sourceRect": {
+          "x": 629,
+          "y": 332,
+          "width": 69,
+          "height": 42
+        },
+        "required": true,
+        "bindRect": {
+          "x": -20.191,
+          "y": -40.383,
+          "width": 17.25,
+          "height": 10.5
+        },
+        "variants": {
+          "open": {
+            "path": "assets/generated-v2/rig/survivor-moss-sprout/expressions-v2.png",
+            "sourceRect": {
+              "x": 0,
+              "y": 108,
+              "width": 69,
+              "height": 42
+            }
+          },
+          "hurt": {
+            "path": "assets/generated-v2/rig/survivor-moss-sprout/expressions-v2.png",
+            "sourceRect": {
+              "x": 69,
+              "y": 108,
+              "width": 69,
+              "height": 42
+            }
+          }
+        }
+      },
+      {
+        "id": "leafLeft",
+        "bone": "leafLeft",
+        "z": 30,
+        "path": "assets/generated-v2/rig/survivor-moss-sprout/atlas.png",
+        "sourceRect": {
+          "x": 232,
+          "y": 348,
+          "width": 201,
+          "height": 137
+        },
+        "required": true,
+        "bindRect": {
+          "x": -41.058,
+          "y": -123.848,
+          "width": 50.25,
+          "height": 34.25
+        }
+      },
+      {
+        "id": "leafRight",
+        "bone": "leafRight",
+        "z": 31,
+        "path": "assets/generated-v2/rig/survivor-moss-sprout/atlas.png",
+        "sourceRect": {
+          "x": 4,
+          "y": 348,
+          "width": 220,
+          "height": 128
+        },
+        "required": true,
+        "bindRect": {
+          "x": 3.13,
+          "y": -116.606,
+          "width": 55.0,
+          "height": 32.0
+        }
+      },
+      {
+        "id": "stemCollar",
+        "bone": "stemCollar",
+        "z": 32,
+        "path": "assets/generated-v2/rig/survivor-moss-sprout/atlas.png",
+        "sourceRect": {
+          "x": 629,
+          "y": 226,
+          "width": 114,
+          "height": 98
+        },
+        "required": true,
+        "bindRect": {
+          "x": -6.935,
+          "y": -99.3,
+          "width": 28.5,
+          "height": 24.5
+        }
+      },
+      {
+        "id": "pack",
+        "bone": "pack",
+        "z": 40,
+        "path": "assets/generated-v2/rig/survivor-moss-sprout/atlas.png",
+        "sourceRect": {
+          "x": 420,
+          "y": 4,
+          "width": 240,
+          "height": 214
+        },
+        "required": true,
+        "bindRect": {
+          "x": 6.812,
+          "y": -55.848,
+          "width": 60.0,
+          "height": 53.5
+        }
+      }
+    ]
+  }
+}

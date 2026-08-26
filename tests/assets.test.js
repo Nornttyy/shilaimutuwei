@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { deflateSync } from 'node:zlib';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,25 +11,22 @@ import {
   parsePng,
   verifyAssets,
 } from '../scripts/verify-assets.mjs';
-import {
-  SURVIVORS,
-  SKILLS,
-  ITEMS,
-  BUILDINGS,
-  ENEMIES,
-} from '../src/catalog.js';
 import { ASSET_PATHS, createAssetStore } from '../src/assets.js';
 
 const PROJECT_ROOT = fileURLToPath(new URL('../', import.meta.url));
+const PROJECT_ASSET_SPEC = JSON.parse(await readFile(
+  new URL('../assets/asset-spec.json', import.meta.url),
+  'utf8',
+));
 
-test('the workspace asset manifest passes when present and is tolerated while pending', async () => {
-  const result = await verifyAssets({ cwd: PROJECT_ROOT, allowMissingSpec: true });
+test('the workspace asset manifest strictly validates all 73 finished PNGs', async () => {
+  const result = await verifyAssets({ cwd: PROJECT_ROOT, allowMissingSpec: false });
   assert.equal(result.ok, true, formatErrors(result));
-  if (result.skipped) {
-    assert.equal(result.warnings[0]?.code, 'SPEC_NOT_FOUND');
-  } else {
-    assert.equal(result.summary.checkedAssets, result.summary.declaredAssets);
-  }
+  assert.equal(result.skipped, false);
+  assert.equal(result.summary.declaredAssets, 73);
+  assert.equal(result.summary.checkedAssets, 73);
+  assert.deepEqual(result.errors, [], formatErrors(result));
+  assert.deepEqual(result.warnings, [], formatErrors(result));
 });
 
 test('PNG metadata parser reads dimensions, color type, and alpha', () => {
@@ -181,19 +178,29 @@ test('missing asset-spec is skippable by default and an error in strict mode', a
   }, { writeAssetsDirectory: false });
 });
 
-test('runtime asset map covers every launch catalog entry and scene anchor', () => {
-  for (const collection of [SURVIVORS, SKILLS, ITEMS, BUILDINGS, ENEMIES]) {
-    for (const entry of collection) {
-      assert.equal(typeof ASSET_PATHS[entry.id], 'string', `missing runtime asset: ${entry.id}`);
-      assert.ok(
-        new URL(ASSET_PATHS[entry.id]).pathname.endsWith(`/assets/generated/${entry.id}.png`),
-        `unexpected runtime path for ${entry.id}: ${ASSET_PATHS[entry.id]}`,
-      );
-    }
+test('runtime asset map covers all 73 canonical nested paths and three aliases', () => {
+  assert.equal(PROJECT_ASSET_SPEC.assets.length, 73);
+  for (const asset of PROJECT_ASSET_SPEC.assets) {
+    assert.equal(typeof ASSET_PATHS[asset.id], 'string', `missing runtime asset: ${asset.id}`);
+    assert.ok(
+      new URL(ASSET_PATHS[asset.id]).pathname.endsWith(`/${asset.path}`),
+      `unexpected runtime path for ${asset.id}: ${ASSET_PATHS[asset.id]}`,
+    );
   }
-  for (const key of ['scene-gel-garden', 'town-core', 'enemy-portal']) {
-    assert.equal(typeof ASSET_PATHS[key], 'string', `missing scene asset: ${key}`);
-  }
+  assert.equal(Object.keys(ASSET_PATHS).length, 76);
+  assert.equal(ASSET_PATHS['scene-gel-garden'], ASSET_PATHS['background-garden-base']);
+  assert.equal(ASSET_PATHS['town-core'], ASSET_PATHS['town-soft-core']);
+  assert.equal(ASSET_PATHS['enemy-portal'], ASSET_PATHS['rift-entry-portal']);
+});
+
+test('browser startup attaches and preloads the ordinary asset store before starting', async () => {
+  const source = await readFile(path.join(PROJECT_ROOT, 'src/main.js'), 'utf8');
+  assert.match(source, /import \{ createAssetStore \} from '\.\/assets\.js';/);
+  assert.match(source, /game\.setAssetStore\(assetStore\)|game\.assetStore = assetStore/);
+  const preloadIndex = source.indexOf('assetStore.preload()');
+  const startIndex = source.indexOf('game.start()');
+  assert.ok(preloadIndex >= 0 && preloadIndex < startIndex);
+  assert.match(source, /await Promise\.all\(\[ordinaryAssets, rigAssets\]\)/);
 });
 
 test('isolated asset store loads in parallel and keeps failures recoverable', async () => {

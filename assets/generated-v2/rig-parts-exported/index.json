@@ -140,11 +140,11 @@
           "output": "survivor-shell-shell/expressions/eyes--blink.png",
           "width": 118,
           "height": 59,
-          "visiblePixels": 486,
-          "transparentPixels": 6476,
-          "translucentPixels": 374,
-          "pixelSha256": "3f8c65926696495e1c599cee9c6b9fa0807fdf6c487b46dffc6ff03caaa5c2dd",
-          "pngSha256": "895c3ed2774580128d725a6694ff4e6443ee7871573ceaacab7f9c3f47632bdb"
+          "visiblePixels": 476,
+          "transparentPixels": 6486,
+          "translucentPixels": 368,
+          "pixelSha256": "0b2927af454621b4043bcf05890282441a3e137f98276e219e189a4067c7de62",
+          "pngSha256": "e52e395a38b8ef09f2867be7d0fc0c1d8f974d633c63ae2c0e4e5e6c76d4839f"
         },
         {
           "partId": "eyes",
@@ -159,11 +159,11 @@
           "output": "survivor-shell-shell/expressions/eyes--hurt.png",
           "width": 118,
           "height": 59,
-          "visiblePixels": 876,
-          "transparentPixels": 6086,
-          "translucentPixels": 732,
-          "pixelSha256": "8392ea1d1ca0e9bbc9acb389ee444a6b97cb46f44c758455f294c49f9fcd4207",
-          "pngSha256": "c03a11003525dc3a3f17b409a71b568364b4629564f016fc67d3a1375988530a"
+          "visiblePixels": 2547,
+          "transparentPixels": 4415,
+          "translucentPixels": 2443,
+          "pixelSha256": "d073213394dc5fe1063daefe5fb1d26d9948927d6e056e610ff35dfcdeca524d",
+          "pngSha256": "d87c707735e069b4022030c0fdaa28b976870414c884dc522558a503323467fe"
         },
         {
           "partId": "eyes",
@@ -178,11 +178,11 @@
           "output": "survivor-shell-shell/expressions/eyes--attack.png",
           "width": 118,
           "height": 59,
-          "visiblePixels": 1621,
-          "transparentPixels": 5341,
-          "translucentPixels": 627,
-          "pixelSha256": "dca9a7d550d18cd48196e92e937dfa5b4004560054bc4e9c27f08e39bd0471ab",
-          "pngSha256": "34cebef1dbe357f8a68a5f2360466bc54cfef6607368d5fdea077d33164baef9"
+          "visiblePixels": 2664,
+          "transparentPixels": 4298,
+          "translucentPixels": 2550,
+          "pixelSha256": "b03b976887b7665e9fc8ef12ecf18d3eabdf44e9b8622143488166b14b8db939",
+          "pngSha256": "68cda134fbf36cad72d882cb293ff6b0ba83c21b33f0cc3bcf4038c493524a09"
         },
         {
           "partId": "mouth",
@@ -216,11 +216,11 @@
           "output": "survivor-shell-shell/expressions/mouth--open.png",
           "width": 61,
           "height": 50,
-          "visiblePixels": 716,
-          "transparentPixels": 2334,
-          "translucentPixels": 281,
-          "pixelSha256": "8c9409817251e02a0323a1250668bdad084ed953499d9f4be7b16db07d2de7e5",
-          "pngSha256": "a3357a594fc85b417b4eba059fa86b3afa089984f80680a8dc05020849c6e3d0"
+          "visiblePixels": 597,
+          "transparentPixels": 2453,
+          "translucentPixels": 518,
+          "pixelSha256": "94baa20bb5c593159357efff861dbc4663c776330c42dfb3f883122be802ff32",
+          "pngSha256": "d62ec02ec531303683bde0d5299c193fba24e3efb27b1afdfc92ad9133fc2415"
         },
         {
           "partId": "mouth",
@@ -235,11 +235,11 @@
           "output": "survivor-shell-shell/expressions/mouth--hurt.png",
           "width": 61,
           "height": 50,
-          "visiblePixels": 281,
-          "transparentPixels": 2769,
-          "translucentPixels": 238,
-          "pixelSha256": "55fa4458d2d7af619072d60f854424ce2d0f5f7e9b208045eea35e69ec7b7f69",
-          "pngSha256": "3184718a9e3202c5691e265b3c4c5fd0792ff8721156fe2c82b475f9dd68a4f7"
+          "visiblePixels": 404,
+          "transparentPixels": 2646,
+          "translucentPixels": 341,
+          "pixelSha256": "2bf15810cf3278420509a49294ba08f6404338bbe61bbaecd0bb154c55ab2e25",
+          "pngSha256": "fc2a50b8444d679f262b961e0f759e7d066e716480fec222581e733b00fa2a7d"
         }
       ]
     },
@@ -247,24 +247,144 @@
       "atlas": "assets/generated-v2/rig/survivor-crystal-pin/atlas.png",
       "parts": [
         {
-          "id": "needles",
-          "bone": "needles",
+          "id": "needleBottom",
+          "bone": "needleBottom",
+          "z": -70,
+          "sourcePath": "assets/generated-v2/rig/survivor-crystal-pin/atlas.png",
+          "sourceRect": {
+            "x": 540,
+            "y": 391,
+            "width": 110,
+            "height": 66
+          },
+          "output": "survivor-crystal-pin/needleBottom.png",
+          "width": 110,
+          "height": 66,
+          "visiblePixels": 3744,
+          "transparentPixels": 3516,
+          "translucentPixels": 3571,
+          "pixelSha256": "b534027f6b4968f8df51ae92e636b75ededba6d7ea651fbca73777a23ffcf485",
+          "pngSha256": "30ba2761ab66081aff2cc058dcfb1e45026264ed1c033b47b15f38178911c1d8"
+        },
+        {
+          "id": "needleLower",
+          "bone": "needleLower",
+          "z": -60,
+          "sourcePath": "assets/generated-v2/rig/survivor-crystal-pin/atlas.png",
+          "sourceRect": {
+            "x": 417,
+            "y": 297,
+            "width": 150,
+            "height": 86
+          },
+          "output": "survivor-crystal-pin/needleLower.png",
+          "width": 150,
+          "height": 86,
+          "visiblePixels": 6904,
+          "transparentPixels": 5996,
+          "translucentPixels": 6664,
+          "pixelSha256": "b4690d46c95552ee2be972c5deb7bb629c9e5bf683f20321d391f9ab7e246d92",
+          "pngSha256": "34b093b702693c672f7d8c03b1305bc2d823735b778ddf6d2b608aa12fcc39c5"
+        },
+        {
+          "id": "needleMid",
+          "bone": "needleMid",
+          "z": -50,
+          "sourcePath": "assets/generated-v2/rig/survivor-crystal-pin/atlas.png",
+          "sourceRect": {
+            "x": 557,
+            "y": 4,
+            "width": 189,
+            "height": 123
+          },
+          "output": "survivor-crystal-pin/needleMid.png",
+          "width": 189,
+          "height": 123,
+          "visiblePixels": 13274,
+          "transparentPixels": 9973,
+          "translucentPixels": 12953,
+          "pixelSha256": "039113b08c6c314eff13c336ff65e55c3d05f6cc06f2f7221c08ac3b93eebe51",
+          "pngSha256": "4b24a1ae0923fba6930bfff9e7e939e00e0dc98774b9a458a9e3434b4cc71a9b"
+        },
+        {
+          "id": "needleMidUpper",
+          "bone": "needleMidUpper",
+          "z": -40,
+          "sourcePath": "assets/generated-v2/rig/survivor-crystal-pin/atlas.png",
+          "sourceRect": {
+            "x": 213,
+            "y": 297,
+            "width": 196,
+            "height": 158
+          },
+          "output": "survivor-crystal-pin/needleMidUpper.png",
+          "width": 196,
+          "height": 158,
+          "visiblePixels": 13793,
+          "transparentPixels": 17175,
+          "translucentPixels": 13470,
+          "pixelSha256": "cc888dbf843fa86f9dcd5632645aa5f5546a6e61468a742aeb1194dfbf422b85",
+          "pngSha256": "f0f2b07bb306fc469ffb1c03db8cb0c81678b5ccb0b61fadb8f2d4ea0cb4f5f8"
+        },
+        {
+          "id": "needleUpper",
+          "bone": "needleUpper",
+          "z": -30,
+          "sourcePath": "assets/generated-v2/rig/survivor-crystal-pin/atlas.png",
+          "sourceRect": {
+            "x": 4,
+            "y": 297,
+            "width": 201,
+            "height": 182
+          },
+          "output": "survivor-crystal-pin/needleUpper.png",
+          "width": 201,
+          "height": 182,
+          "visiblePixels": 16452,
+          "transparentPixels": 20130,
+          "translucentPixels": 16104,
+          "pixelSha256": "0f8b54ce48ebdd3ce8520f9565d8962cf2b30c30229f709cd22126a60bb8bf17",
+          "pngSha256": "ec5bb73b1dd403e5cf7b0b54516fe97fa06897f4ddfe4b2064840c7d432ef5da"
+        },
+        {
+          "id": "needleTall",
+          "bone": "needleTall",
+          "z": -20,
+          "sourcePath": "assets/generated-v2/rig/survivor-crystal-pin/atlas.png",
+          "sourceRect": {
+            "x": 420,
+            "y": 4,
+            "width": 129,
+            "height": 217
+          },
+          "output": "survivor-crystal-pin/needleTall.png",
+          "width": 129,
+          "height": 217,
+          "visiblePixels": 15958,
+          "transparentPixels": 12035,
+          "translucentPixels": 15617,
+          "pixelSha256": "45ce4fb3d8f5caf1199d610f3ea02efaade00604f4ae55df2381c13db03462be",
+          "pngSha256": "ad0c1b1ba39eb8114386ef6eed90f71f8bbfa061dce27bd10052b9c821b6f8a7"
+        },
+        {
+          "id": "needleRight",
+          "bone": "needleRight",
           "z": -10,
           "sourcePath": "assets/generated-v2/rig/survivor-crystal-pin/atlas.png",
           "sourceRect": {
-            "x": 19,
-            "y": 290,
-            "width": 257,
-            "height": 164
+            "x": 575,
+            "y": 231,
+            "width": 87,
+            "height": 132
           },
-          "output": "survivor-crystal-pin/needles.png",
-          "width": 257,
-          "height": 164,
-          "visiblePixels": 18969,
-          "transparentPixels": 23179,
-          "translucentPixels": 18402,
-          "pixelSha256": "9fe6edbf2394a9c73dbbce5e01796737ca68372ec959ac519904b07481994752",
-          "pngSha256": "f31adb8ef1390df94f4075a1e77ecfcc732d60c247b8e5f8655719bee1afe3ce"
+          "output": "survivor-crystal-pin/needleRight.png",
+          "width": 87,
+          "height": 132,
+          "visiblePixels": 5701,
+          "transparentPixels": 5783,
+          "translucentPixels": 5512,
+          "pixelSha256": "ff41296b55863cb96f1fa2fca985a66db497a22542b9ff4f69f5297256125ab3",
+          "pngSha256": "69f8c8d45a40f90be80d6596ed2968e040180ea576d5f0f07c930dc679fb2b14"
         },
         {
           "id": "body",
@@ -272,19 +392,19 @@
           "z": 0,
           "sourcePath": "assets/generated-v2/rig/survivor-crystal-pin/atlas.png",
           "sourceRect": {
-            "x": 40,
-            "y": 47,
-            "width": 225,
-            "height": 197
+            "x": 4,
+            "y": 4,
+            "width": 408,
+            "height": 285
           },
           "output": "survivor-crystal-pin/body.png",
-          "width": 225,
-          "height": 197,
-          "visiblePixels": 30589,
-          "transparentPixels": 13736,
-          "translucentPixels": 29991,
-          "pixelSha256": "ccb33725bf4b9beebed5fa696ea903fd17e8c3df85e689c4c96d7325f3a45b3e",
-          "pngSha256": "047a8a13a11585186b3db2f5662efd7fbfc7a28959e1d8e3f290056bb7f003f9"
+          "width": 408,
+          "height": 285,
+          "visiblePixels": 91362,
+          "transparentPixels": 24918,
+          "translucentPixels": 90638,
+          "pixelSha256": "e0cf3e28dbc762ab6bf6a9ff960e521cb1db1beefc36d10f80e7cf1f0a0297af",
+          "pngSha256": "aeb45abe86bc48160ae0b518583b752e0a3ed21a681f452183fbb16c88b631bb"
         },
         {
           "id": "eyes",
@@ -292,19 +412,19 @@
           "z": 10,
           "sourcePath": "assets/generated-v2/rig/survivor-crystal-pin/atlas.png",
           "sourceRect": {
-            "x": 352,
-            "y": 126,
-            "width": 144,
-            "height": 72
+            "x": 557,
+            "y": 135,
+            "width": 151,
+            "height": 88
           },
           "output": "survivor-crystal-pin/eyes.png",
-          "width": 144,
-          "height": 72,
-          "visiblePixels": 4125,
-          "transparentPixels": 6243,
-          "translucentPixels": 3910,
-          "pixelSha256": "f1bd07545544adfbe8053aac94846c49a1a2c53766f9c6f22c479ca019c11742",
-          "pngSha256": "aab2e64d1c4b0d1fa41ef6ec06ffe9b541d64c4ed7b6cf15ae5c32ae735ac727"
+          "width": 151,
+          "height": 88,
+          "visiblePixels": 4941,
+          "transparentPixels": 8347,
+          "translucentPixels": 4696,
+          "pixelSha256": "d766871284c7c7da370e050f72286069062f95cbd8a4aaab461bb1f353c8d06b",
+          "pngSha256": "24bc42e75b28367c1e4b408b609a06c5dc1e4afdf5ddb1e60e5a8dfe7d144b45"
         },
         {
           "id": "mouth",
@@ -312,19 +432,19 @@
           "z": 20,
           "sourcePath": "assets/generated-v2/rig/survivor-crystal-pin/atlas.png",
           "sourceRect": {
-            "x": 618,
-            "y": 149,
-            "width": 56,
-            "height": 46
+            "x": 420,
+            "y": 231,
+            "width": 52,
+            "height": 49
           },
           "output": "survivor-crystal-pin/mouth.png",
-          "width": 56,
-          "height": 46,
-          "visiblePixels": 476,
-          "transparentPixels": 2100,
-          "translucentPixels": 414,
-          "pixelSha256": "7b0e15dd5ee0c765dbdf370a2fd74ddb068b2d95629fa76ebad47574e8a969e8",
-          "pngSha256": "35d0c25bfb38f452e3c7a54b9eda5fa1fa7bce139715bf2d9e2c147d43fd4b9f"
+          "width": 52,
+          "height": 49,
+          "visiblePixels": 1209,
+          "transparentPixels": 1339,
+          "translucentPixels": 1122,
+          "pixelSha256": "34ae1c7527e0847679632f2a8a932443e11a09475100232be514e8a9638d4fa8",
+          "pngSha256": "a02cedd8d83cfbfd0c705ad594e34002313da140364f9fa3ccd90af3d2a5d598"
         },
         {
           "id": "front",
@@ -332,19 +452,19 @@
           "z": 30,
           "sourcePath": "assets/generated-v2/rig/survivor-crystal-pin/atlas.png",
           "sourceRect": {
-            "x": 341,
-            "y": 355,
-            "width": 128,
-            "height": 82
+            "x": 417,
+            "y": 391,
+            "width": 115,
+            "height": 91
           },
           "output": "survivor-crystal-pin/front.png",
-          "width": 128,
-          "height": 82,
-          "visiblePixels": 4985,
-          "transparentPixels": 5511,
-          "translucentPixels": 4790,
-          "pixelSha256": "a2c96935c4b41beb3e0f6c721456109ade0bcd87afb3146c60f72c5cf4922e59",
-          "pngSha256": "ebcf65f5cda625ab49ae2a53c75adb64543f94466789bb06217399f1e2e9e49f"
+          "width": 115,
+          "height": 91,
+          "visiblePixels": 8374,
+          "transparentPixels": 2091,
+          "translucentPixels": 8250,
+          "pixelSha256": "4eae3be202056c0d768089459e4c1d9e8ed63b855cb948c0207a741b3e01e86b",
+          "pngSha256": "7856d5699551dd3e0f60f5c0d93fd301ffb532c07f27db8f6ed1fe064a373c90"
         }
       ],
       "expressions": [
@@ -353,19 +473,19 @@
           "variant": "normal",
           "sourcePath": "assets/generated-v2/rig/survivor-crystal-pin/atlas.png",
           "sourceRect": {
-            "x": 352,
-            "y": 126,
-            "width": 144,
-            "height": 72
+            "x": 557,
+            "y": 135,
+            "width": 151,
+            "height": 88
           },
           "output": "survivor-crystal-pin/expressions/eyes--normal.png",
-          "width": 144,
-          "height": 72,
-          "visiblePixels": 4125,
-          "transparentPixels": 6243,
-          "translucentPixels": 3910,
-          "pixelSha256": "f1bd07545544adfbe8053aac94846c49a1a2c53766f9c6f22c479ca019c11742",
-          "pngSha256": "aab2e64d1c4b0d1fa41ef6ec06ffe9b541d64c4ed7b6cf15ae5c32ae735ac727"
+          "width": 151,
+          "height": 88,
+          "visiblePixels": 4941,
+          "transparentPixels": 8347,
+          "translucentPixels": 4696,
+          "pixelSha256": "d766871284c7c7da370e050f72286069062f95cbd8a4aaab461bb1f353c8d06b",
+          "pngSha256": "24bc42e75b28367c1e4b408b609a06c5dc1e4afdf5ddb1e60e5a8dfe7d144b45"
         },
         {
           "partId": "eyes",
@@ -374,74 +494,74 @@
           "sourceRect": {
             "x": 0,
             "y": 0,
-            "width": 144,
-            "height": 72
+            "width": 151,
+            "height": 88
           },
           "output": "survivor-crystal-pin/expressions/eyes--blink.png",
-          "width": 144,
-          "height": 72,
-          "visiblePixels": 650,
-          "transparentPixels": 9718,
-          "translucentPixels": 504,
-          "pixelSha256": "9c1708ffecd007a51576b10139db4e953f6216b7fbb20e31e0fade109c09ca77",
-          "pngSha256": "d43e5a3bcd470311186c08fbd38cc0c89f3b8ff626281b4f8b6745a1636d932c"
+          "width": 151,
+          "height": 88,
+          "visiblePixels": 648,
+          "transparentPixels": 12640,
+          "translucentPixels": 497,
+          "pixelSha256": "ae3895d23d721f925d377fefb07d33db1e8cc3324ff71a0f8dc4e197a16f5458",
+          "pngSha256": "b2fb53e0938e8bd2ceed1cb799e96096ec6a10776b61e7e45a9754ca3f2f20fd"
         },
         {
           "partId": "eyes",
           "variant": "hurt",
           "sourcePath": "assets/generated-v2/rig/survivor-crystal-pin/expressions-v2.png",
           "sourceRect": {
-            "x": 144,
+            "x": 151,
             "y": 0,
-            "width": 144,
-            "height": 72
+            "width": 151,
+            "height": 88
           },
           "output": "survivor-crystal-pin/expressions/eyes--hurt.png",
-          "width": 144,
-          "height": 72,
-          "visiblePixels": 1236,
-          "transparentPixels": 9132,
-          "translucentPixels": 1032,
-          "pixelSha256": "0b80d7a308352168bf6f56c82045ceed2b01e47c8ad60dfc7169797d21700d9b",
-          "pngSha256": "c93efad1f0605996d61d7873bf826de6b8a33530bd00419abd0256e812245696"
+          "width": 151,
+          "height": 88,
+          "visiblePixels": 4667,
+          "transparentPixels": 8621,
+          "translucentPixels": 4473,
+          "pixelSha256": "e1ef1287f19380e411829e4e44172b23ab42de6add4df4d677b40346ab0570fc",
+          "pngSha256": "09fa95cfa0ed1b8a517c04b2f504fe8cea0a3b4650aaba7c29e087ce2759000e"
         },
         {
           "partId": "eyes",
           "variant": "attack",
           "sourcePath": "assets/generated-v2/rig/survivor-crystal-pin/expressions-v2.png",
           "sourceRect": {
-            "x": 288,
+            "x": 302,
             "y": 0,
-            "width": 144,
-            "height": 72
+            "width": 151,
+            "height": 88
           },
           "output": "survivor-crystal-pin/expressions/eyes--attack.png",
-          "width": 144,
-          "height": 72,
-          "visiblePixels": 2265,
-          "transparentPixels": 8103,
-          "translucentPixels": 754,
-          "pixelSha256": "ac28eed12df233c5482be4953c440ed74af6bb3bc8ecd5bf75dc37713b657ab1",
-          "pngSha256": "03c7a3fe79bea51fa9cd009b88f4285d912fb4ffd8a650833f1e378625ae6cb3"
+          "width": 151,
+          "height": 88,
+          "visiblePixels": 4866,
+          "transparentPixels": 8422,
+          "translucentPixels": 4648,
+          "pixelSha256": "334cd8e2a8818bac39a2896c0d74cc17d8624561a6798fe95283fde1f25ba9a8",
+          "pngSha256": "7a08a149b247648b270f5671e8cf66c8b46af4731e1c23263a4d2e0e9d3cd988"
         },
         {
           "partId": "mouth",
           "variant": "normal",
           "sourcePath": "assets/generated-v2/rig/survivor-crystal-pin/atlas.png",
           "sourceRect": {
-            "x": 618,
-            "y": 149,
-            "width": 56,
-            "height": 46
+            "x": 420,
+            "y": 231,
+            "width": 52,
+            "height": 49
           },
           "output": "survivor-crystal-pin/expressions/mouth--normal.png",
-          "width": 56,
-          "height": 46,
-          "visiblePixels": 476,
-          "transparentPixels": 2100,
-          "translucentPixels": 414,
-          "pixelSha256": "7b0e15dd5ee0c765dbdf370a2fd74ddb068b2d95629fa76ebad47574e8a969e8",
-          "pngSha256": "35d0c25bfb38f452e3c7a54b9eda5fa1fa7bce139715bf2d9e2c147d43fd4b9f"
+          "width": 52,
+          "height": 49,
+          "visiblePixels": 1209,
+          "transparentPixels": 1339,
+          "translucentPixels": 1122,
+          "pixelSha256": "34ae1c7527e0847679632f2a8a932443e11a09475100232be514e8a9638d4fa8",
+          "pngSha256": "a02cedd8d83cfbfd0c705ad594e34002313da140364f9fa3ccd90af3d2a5d598"
         },
         {
           "partId": "mouth",
@@ -449,37 +569,37 @@
           "sourcePath": "assets/generated-v2/rig/survivor-crystal-pin/expressions-v2.png",
           "sourceRect": {
             "x": 0,
-            "y": 72,
-            "width": 56,
-            "height": 46
+            "y": 88,
+            "width": 52,
+            "height": 49
           },
           "output": "survivor-crystal-pin/expressions/mouth--open.png",
-          "width": 56,
-          "height": 46,
-          "visiblePixels": 606,
-          "transparentPixels": 1970,
-          "translucentPixels": 260,
-          "pixelSha256": "425bfbd8b8ec7fc3b49cfa3c97f0ef20f6b6e2bf5c8ab3b5b09187f228340426",
-          "pngSha256": "04272b79b7984f96ed6146d086636bb0e3209fbdd2df92b061cdf91acbed385c"
+          "width": 52,
+          "height": 49,
+          "visiblePixels": 1263,
+          "transparentPixels": 1285,
+          "translucentPixels": 1192,
+          "pixelSha256": "0d054c547d654e071a8fa37f88a12f0cf9d2cb54f5aee1cf02e035e60361206d",
+          "pngSha256": "50e5dfc550d02c4096134fe155a57d5e8e975fac38f17be8b26a501b1586b197"
         },
         {
           "partId": "mouth",
           "variant": "hurt",
           "sourcePath": "assets/generated-v2/rig/survivor-crystal-pin/expressions-v2.png",
           "sourceRect": {
-            "x": 56,
-            "y": 72,
-            "width": 56,
-            "height": 46
+            "x": 52,
+            "y": 88,
+            "width": 52,
+            "height": 49
           },
           "output": "survivor-crystal-pin/expressions/mouth--hurt.png",
-          "width": 56,
-          "height": 46,
-          "visiblePixels": 255,
-          "transparentPixels": 2321,
-          "translucentPixels": 216,
-          "pixelSha256": "561cfd93f29269c7a83a80f9d418ce5ed2082ca567d9085cada2f814b764068e",
-          "pngSha256": "7d743cf83b79826c8e3db6dd32f6214b45c163cbffbaf5cb2a05eaffe03b10ad"
+          "width": 52,
+          "height": 49,
+          "visiblePixels": 911,
+          "transparentPixels": 1637,
+          "translucentPixels": 845,
+          "pixelSha256": "6d3f8c60f8d8bf9ab9b885b504758e9736e1c96d0db5b22e43a641584a571c9d",
+          "pngSha256": "402ab43fce0bed917480913536e2585c852fb1087546b1dfc7c2d622a3819f78"
         }
       ]
     },
@@ -640,11 +760,11 @@
           "output": "survivor-bubble-float/expressions/eyes--blink.png",
           "width": 152,
           "height": 76,
-          "visiblePixels": 773,
-          "transparentPixels": 10779,
-          "translucentPixels": 588,
-          "pixelSha256": "2aaba19d59cdcfa814c82b38e0e2463227f0ec342bcfad5d1f70d5f07b46acef",
-          "pngSha256": "9c3e8abfa64e1900708f079935930e62232a751400376818221b112c83739201"
+          "visiblePixels": 768,
+          "transparentPixels": 10784,
+          "translucentPixels": 602,
+          "pixelSha256": "32fcd157bcf854e38d03907950d1750b59e5c7248e3d16c91ca616b3f58415d3",
+          "pngSha256": "3242abf3ba5c5f9532c16cd09089b6d74e8e91e342536ce0e2f37e795029feee"
         },
         {
           "partId": "eyes",
@@ -659,11 +779,11 @@
           "output": "survivor-bubble-float/expressions/eyes--hurt.png",
           "width": 152,
           "height": 76,
-          "visiblePixels": 1468,
-          "transparentPixels": 10084,
-          "translucentPixels": 1235,
-          "pixelSha256": "d73c23d31b1677a8d022baacf83822085b62b08e6dafd10f5244a1dc1ecdb05a",
-          "pngSha256": "e4c6c0022ba145bf1e29c6c9638439de7ac537ec68dbd7ff1fb03e293ba27dc4"
+          "visiblePixels": 4832,
+          "transparentPixels": 6720,
+          "translucentPixels": 4632,
+          "pixelSha256": "5f5722d9ac9757a70004e937c9a55fd4fd727dd22e247133e9b98f1bb315be42",
+          "pngSha256": "b175982d3c3178b28f9343cb1d7ce0414bc99fdd776183138c51fe80eae02f9b"
         },
         {
           "partId": "eyes",
@@ -678,11 +798,11 @@
           "output": "survivor-bubble-float/expressions/eyes--attack.png",
           "width": 152,
           "height": 76,
-          "visiblePixels": 2815,
-          "transparentPixels": 8737,
-          "translucentPixels": 858,
-          "pixelSha256": "f0ccd888b0975adafed4388a629c7cf2ea9153b1577facfae40f410ee4f9660e",
-          "pngSha256": "82e92bc4a1fd7495b3ae91ff70b839411332845b44b2dfc3972e51789fa9b43e"
+          "visiblePixels": 5036,
+          "transparentPixels": 6516,
+          "translucentPixels": 4816,
+          "pixelSha256": "95e7b73da3371db43f30c5ad4033adc169e62251804203631b3238b7fbff72ac",
+          "pngSha256": "21331c5d0cc11a5af0874f326ad290eed2019f167a40ae5edebc62321c58422f"
         },
         {
           "partId": "mouth",
@@ -716,11 +836,11 @@
           "output": "survivor-bubble-float/expressions/mouth--open.png",
           "width": 62,
           "height": 51,
-          "visiblePixels": 770,
-          "transparentPixels": 2392,
-          "translucentPixels": 294,
-          "pixelSha256": "cbb3b1d5858106481d2da56e23ceb3875b1d89ec834d6589c7d1e2430d0d7f3a",
-          "pngSha256": "50fd67817c57164a6d860e5958cc3be29dbfe4c6efdc29418537f2e1fde5c8b9"
+          "visiblePixels": 536,
+          "transparentPixels": 2626,
+          "translucentPixels": 227,
+          "pixelSha256": "e1985db14ce0f1fe7d72fcc5fddbc428991dee728cc0248d5b6ed6bcb53f4acc",
+          "pngSha256": "46ef0633911f826fdc22969cc206bfab70e91bc2b022c0460eeb6f06cfc65b13"
         },
         {
           "partId": "mouth",
@@ -735,11 +855,11 @@
           "output": "survivor-bubble-float/expressions/mouth--hurt.png",
           "width": 62,
           "height": 51,
-          "visiblePixels": 290,
-          "transparentPixels": 2872,
-          "translucentPixels": 247,
-          "pixelSha256": "e361b4096b414b4b7c781289320a0695517b36f06613321b621dc38fac77fab7",
-          "pngSha256": "d862bda8d6c712509d708f44621d4039ed742722dd1e6f4128137bcda33997bb"
+          "visiblePixels": 466,
+          "transparentPixels": 2696,
+          "translucentPixels": 393,
+          "pixelSha256": "7baa6d951d2bc2e51427865211199bbc603b853ee0d132bd3d16467d7079598b",
+          "pngSha256": "4f6fdabd7df1e21fabcc8a68f764237eb986f3f433e91a1445b071164c0b0df5"
         }
       ]
     },
@@ -752,19 +872,19 @@
           "z": 0,
           "sourcePath": "assets/generated-v2/rig/survivor-moss-sprout/atlas.png",
           "sourceRect": {
-            "x": 52,
-            "y": 54,
-            "width": 190,
-            "height": 166
+            "x": 4,
+            "y": 4,
+            "width": 408,
+            "height": 336
           },
           "output": "survivor-moss-sprout/body.png",
-          "width": 190,
-          "height": 166,
-          "visiblePixels": 20435,
-          "transparentPixels": 11105,
-          "translucentPixels": 20113,
-          "pixelSha256": "74cf32badf9eecab750ed0a654e51939e25fc25041b6584cdd7cc2eb190584e9",
-          "pngSha256": "a36b6cdb1ba77a1f1035df9f845c4c9c79cd66bfb9afee3af62f281564fdc215"
+          "width": 408,
+          "height": 336,
+          "visiblePixels": 109855,
+          "transparentPixels": 27233,
+          "translucentPixels": 4688,
+          "pixelSha256": "9ca421788ab8c97529b91838e673e73bc3a68716b97f08e69068214600b7b98c",
+          "pngSha256": "e8b85d45b372b8956e9d873c49872ff2689c6841cc5fdec54c47ea2f006b21b8"
         },
         {
           "id": "eyes",
@@ -772,19 +892,19 @@
           "z": 10,
           "sourcePath": "assets/generated-v2/rig/survivor-moss-sprout/atlas.png",
           "sourceRect": {
-            "x": 335,
-            "y": 97,
-            "width": 148,
-            "height": 74
+            "x": 420,
+            "y": 226,
+            "width": 201,
+            "height": 108
           },
           "output": "survivor-moss-sprout/eyes.png",
-          "width": 148,
-          "height": 74,
-          "visiblePixels": 4820,
-          "transparentPixels": 6132,
-          "translucentPixels": 4630,
-          "pixelSha256": "3d42e0e09e59a154be754d70fbd30c1e6ef5c7d816f249ef5f3f9bcd9f9d0111",
-          "pngSha256": "01a4f46a5aef30712db213cf8a6bd369b307f999aadc9984592ef6dd49d11a54"
+          "width": 201,
+          "height": 108,
+          "visiblePixels": 7482,
+          "transparentPixels": 14226,
+          "translucentPixels": 1529,
+          "pixelSha256": "e8771a36c7e427d2a6e5a9fe4986fd1655976ab24ae2a4337dda2660849b3972",
+          "pngSha256": "b2508f7c29879fad7ea4dac8b7cd65b4d9f9872210734d0a02818c5a6f552c61"
         },
         {
           "id": "mouth",
@@ -792,39 +912,79 @@
           "z": 20,
           "sourcePath": "assets/generated-v2/rig/survivor-moss-sprout/atlas.png",
           "sourceRect": {
-            "x": 612,
-            "y": 118,
-            "width": 70,
-            "height": 57
+            "x": 629,
+            "y": 332,
+            "width": 69,
+            "height": 42
           },
           "output": "survivor-moss-sprout/mouth.png",
-          "width": 70,
-          "height": 57,
-          "visiblePixels": 961,
-          "transparentPixels": 3029,
-          "translucentPixels": 895,
-          "pixelSha256": "772b7cac329d25658454137567ef6ffc6150e2cacc45ef007f782b3e077c8b73",
-          "pngSha256": "2cca9c2def7ef468ce2f99a14fb04c4ff8e5790663be55b1fd5123ac9b65c2cb"
+          "width": 69,
+          "height": 42,
+          "visiblePixels": 755,
+          "transparentPixels": 2143,
+          "translucentPixels": 425,
+          "pixelSha256": "d9b2a039e0e80d415a586d34f62e80c00863dd27902cdeff3cc14dfd09a5ce62",
+          "pngSha256": "b9d3444d3230238b5ced34ff6827187602dfc5f4c747da782d17ead2a52ccbe2"
         },
         {
-          "id": "sprout",
-          "bone": "sprout",
+          "id": "leafLeft",
+          "bone": "leafLeft",
           "z": 30,
           "sourcePath": "assets/generated-v2/rig/survivor-moss-sprout/atlas.png",
           "sourceRect": {
-            "x": 43,
-            "y": 303,
-            "width": 206,
+            "x": 232,
+            "y": 348,
+            "width": 201,
             "height": 137
           },
-          "output": "survivor-moss-sprout/sprout.png",
-          "width": 206,
+          "output": "survivor-moss-sprout/leafLeft.png",
+          "width": 201,
           "height": 137,
-          "visiblePixels": 11323,
-          "transparentPixels": 16899,
-          "translucentPixels": 11026,
-          "pixelSha256": "b9a3d3c070c7fdb1a66378ad77baae4773df2c7e52305d4cda37a56a2f40ce11",
-          "pngSha256": "553093cfb9f28a623287748779bac73afa83960074befdb4ae8a88f95505585a"
+          "visiblePixels": 18900,
+          "transparentPixels": 8637,
+          "translucentPixels": 1536,
+          "pixelSha256": "61daf30d447dc6a9ee89c7a0cf11efba51e9a6048eecb7c1343a65e188ea7023",
+          "pngSha256": "0ec7578d73b6cd80b8afbbbff250b8c993a01e3f05917ff8ba7b5a0eac6cb1e0"
+        },
+        {
+          "id": "leafRight",
+          "bone": "leafRight",
+          "z": 31,
+          "sourcePath": "assets/generated-v2/rig/survivor-moss-sprout/atlas.png",
+          "sourceRect": {
+            "x": 4,
+            "y": 348,
+            "width": 220,
+            "height": 128
+          },
+          "output": "survivor-moss-sprout/leafRight.png",
+          "width": 220,
+          "height": 128,
+          "visiblePixels": 19576,
+          "transparentPixels": 8584,
+          "translucentPixels": 1691,
+          "pixelSha256": "c88ca5d5febda799567d47212875b517a751dd670a7832d4f88c6170cbfc1c2f",
+          "pngSha256": "d7477439e6a43d5fd6f19d3475d3f732855b3930ad566b697b09a39e9c7abd62"
+        },
+        {
+          "id": "stemCollar",
+          "bone": "stemCollar",
+          "z": 32,
+          "sourcePath": "assets/generated-v2/rig/survivor-moss-sprout/atlas.png",
+          "sourceRect": {
+            "x": 629,
+            "y": 226,
+            "width": 114,
+            "height": 98
+          },
+          "output": "survivor-moss-sprout/stemCollar.png",
+          "width": 114,
+          "height": 98,
+          "visiblePixels": 8506,
+          "transparentPixels": 2666,
+          "translucentPixels": 849,
+          "pixelSha256": "d7ebe8500029f50888789bd5a424e07930b2d1841624255a7b8f3966b3a6a829",
+          "pngSha256": "f6ccaac018169373dbf0574e9a8b07d1179e9d615f10a8fffca90064456e549d"
         },
         {
           "id": "pack",
@@ -832,19 +992,19 @@
           "z": 40,
           "sourcePath": "assets/generated-v2/rig/survivor-moss-sprout/atlas.png",
           "sourceRect": {
-            "x": 316,
-            "y": 274,
-            "width": 178,
-            "height": 217
+            "x": 420,
+            "y": 4,
+            "width": 240,
+            "height": 214
           },
           "output": "survivor-moss-sprout/pack.png",
-          "width": 178,
-          "height": 217,
-          "visiblePixels": 19966,
-          "transparentPixels": 18660,
-          "translucentPixels": 19586,
-          "pixelSha256": "7179c481e269995441426eb67371fc51d86a710ca1e0bc0d7a43d51193be8818",
-          "pngSha256": "4ace2019eb5dde2bb98215173f55b2421be7a3a5610ca9e7ed571b319f33fe0c"
+          "width": 240,
+          "height": 214,
+          "visiblePixels": 36742,
+          "transparentPixels": 14618,
+          "translucentPixels": 2271,
+          "pixelSha256": "89d52bb704b00516494fe5ccc523e34dea3628dfabaffeb6811d21f390c2e93a",
+          "pngSha256": "6d81f40d4356d35fe91e0353dbea09b5f7c792895dace9f7e01fbcd3af208ae2"
         }
       ],
       "expressions": [
@@ -853,19 +1013,19 @@
           "variant": "normal",
           "sourcePath": "assets/generated-v2/rig/survivor-moss-sprout/atlas.png",
           "sourceRect": {
-            "x": 335,
-            "y": 97,
-            "width": 148,
-            "height": 74
+            "x": 420,
+            "y": 226,
+            "width": 201,
+            "height": 108
           },
           "output": "survivor-moss-sprout/expressions/eyes--normal.png",
-          "width": 148,
-          "height": 74,
-          "visiblePixels": 4820,
-          "transparentPixels": 6132,
-          "translucentPixels": 4630,
-          "pixelSha256": "3d42e0e09e59a154be754d70fbd30c1e6ef5c7d816f249ef5f3f9bcd9f9d0111",
-          "pngSha256": "01a4f46a5aef30712db213cf8a6bd369b307f999aadc9984592ef6dd49d11a54"
+          "width": 201,
+          "height": 108,
+          "visiblePixels": 7482,
+          "transparentPixels": 14226,
+          "translucentPixels": 1529,
+          "pixelSha256": "e8771a36c7e427d2a6e5a9fe4986fd1655976ab24ae2a4337dda2660849b3972",
+          "pngSha256": "b2508f7c29879fad7ea4dac8b7cd65b4d9f9872210734d0a02818c5a6f552c61"
         },
         {
           "partId": "eyes",
@@ -874,74 +1034,74 @@
           "sourceRect": {
             "x": 0,
             "y": 0,
-            "width": 148,
-            "height": 74
+            "width": 201,
+            "height": 108
           },
           "output": "survivor-moss-sprout/expressions/eyes--blink.png",
-          "width": 148,
-          "height": 74,
-          "visiblePixels": 736,
-          "transparentPixels": 10216,
-          "translucentPixels": 559,
-          "pixelSha256": "2b8cdd9ce0c818d405623e66e960703c22af8ed048697a044552eea1b0850452",
-          "pngSha256": "f6c98e2bbc57e6616ea90fd0ab0d0afb6024566a693f87bba9620d325ccc0771"
+          "width": 201,
+          "height": 108,
+          "visiblePixels": 1032,
+          "transparentPixels": 20676,
+          "translucentPixels": 743,
+          "pixelSha256": "55fc32b85cab3ef5a63b0358d516681b8e5dfe7b2554416728b6d00efb049c49",
+          "pngSha256": "e855628c392be50efc596c45b4c8268767846cd83cb8f41d98cab792c32e7ca0"
         },
         {
           "partId": "eyes",
           "variant": "hurt",
           "sourcePath": "assets/generated-v2/rig/survivor-moss-sprout/expressions-v2.png",
           "sourceRect": {
-            "x": 148,
+            "x": 201,
             "y": 0,
-            "width": 148,
-            "height": 74
+            "width": 201,
+            "height": 108
           },
           "output": "survivor-moss-sprout/expressions/eyes--hurt.png",
-          "width": 148,
-          "height": 74,
-          "visiblePixels": 1422,
-          "transparentPixels": 9530,
-          "translucentPixels": 1194,
-          "pixelSha256": "a29743104be97c455af8e8b3879130a8652ec20d6dcd566eb40877e64ac5c679",
-          "pngSha256": "45b67d729af81a339d99b0491c7e549fffc5909df9763fc4eca37aa35251ec2c"
+          "width": 201,
+          "height": 108,
+          "visiblePixels": 984,
+          "transparentPixels": 20724,
+          "translucentPixels": 710,
+          "pixelSha256": "a16c59b198c209ba17c1d77c690d8b384822b94d1a3b45bc762021caec2e30d5",
+          "pngSha256": "5cfe7d393ca390715b9ab55ca216ff0b5fb8cfcb303d2988b343d86c8e362c33"
         },
         {
           "partId": "eyes",
           "variant": "attack",
           "sourcePath": "assets/generated-v2/rig/survivor-moss-sprout/expressions-v2.png",
           "sourceRect": {
-            "x": 296,
+            "x": 402,
             "y": 0,
-            "width": 148,
-            "height": 74
+            "width": 201,
+            "height": 108
           },
           "output": "survivor-moss-sprout/expressions/eyes--attack.png",
-          "width": 148,
-          "height": 74,
-          "visiblePixels": 2690,
-          "transparentPixels": 8262,
-          "translucentPixels": 823,
-          "pixelSha256": "b5fc64bf65ba38a4f94d7a4262d58c111fdbacba25cf2a15e1d07831d9e670ce",
-          "pngSha256": "01294c929316d3741c47f729230105dc007aa59a06d74da93307955e179107c2"
+          "width": 201,
+          "height": 108,
+          "visiblePixels": 7381,
+          "transparentPixels": 14327,
+          "translucentPixels": 1590,
+          "pixelSha256": "370d0cb4e032afd17604c36bbc7c6a82d7a85e55efd74e13daf91af9c50be9d4",
+          "pngSha256": "dd2c75345d01f2d2117659d0cfc32ed689f39738cdcb347c8772e4219350fe17"
         },
         {
           "partId": "mouth",
           "variant": "normal",
           "sourcePath": "assets/generated-v2/rig/survivor-moss-sprout/atlas.png",
           "sourceRect": {
-            "x": 612,
-            "y": 118,
-            "width": 70,
-            "height": 57
+            "x": 629,
+            "y": 332,
+            "width": 69,
+            "height": 42
           },
           "output": "survivor-moss-sprout/expressions/mouth--normal.png",
-          "width": 70,
-          "height": 57,
-          "visiblePixels": 961,
-          "transparentPixels": 3029,
-          "translucentPixels": 895,
-          "pixelSha256": "772b7cac329d25658454137567ef6ffc6150e2cacc45ef007f782b3e077c8b73",
-          "pngSha256": "2cca9c2def7ef468ce2f99a14fb04c4ff8e5790663be55b1fd5123ac9b65c2cb"
+          "width": 69,
+          "height": 42,
+          "visiblePixels": 755,
+          "transparentPixels": 2143,
+          "translucentPixels": 425,
+          "pixelSha256": "d9b2a039e0e80d415a586d34f62e80c00863dd27902cdeff3cc14dfd09a5ce62",
+          "pngSha256": "b9d3444d3230238b5ced34ff6827187602dfc5f4c747da782d17ead2a52ccbe2"
         },
         {
           "partId": "mouth",
@@ -949,37 +1109,37 @@
           "sourcePath": "assets/generated-v2/rig/survivor-moss-sprout/expressions-v2.png",
           "sourceRect": {
             "x": 0,
-            "y": 74,
-            "width": 70,
-            "height": 57
+            "y": 108,
+            "width": 69,
+            "height": 42
           },
           "output": "survivor-moss-sprout/expressions/mouth--open.png",
-          "width": 70,
-          "height": 57,
-          "visiblePixels": 963,
-          "transparentPixels": 3027,
-          "translucentPixels": 332,
-          "pixelSha256": "b521edf9c47b45778bb72e47f528df0c326a9ba3993da87424f0029ce683ff2f",
-          "pngSha256": "d672cdd29cef5e0ac28345a1e17a4f4cf9b1bebe8321086e11a4de51df3045c0"
+          "width": 69,
+          "height": 42,
+          "visiblePixels": 399,
+          "transparentPixels": 2499,
+          "translucentPixels": 198,
+          "pixelSha256": "0b350fcbf0a9e1b149be721edffa78e04c8c688767d22f6b6ccb7ab0e3d509ca",
+          "pngSha256": "05d2d01abf886c02a637d052f2824d2de5f80af59644fdbba7f2129ca844f22a"
         },
         {
           "partId": "mouth",
           "variant": "hurt",
           "sourcePath": "assets/generated-v2/rig/survivor-moss-sprout/expressions-v2.png",
           "sourceRect": {
-            "x": 70,
-            "y": 74,
-            "width": 70,
-            "height": 57
+            "x": 69,
+            "y": 108,
+            "width": 69,
+            "height": 42
           },
           "output": "survivor-moss-sprout/expressions/mouth--hurt.png",
-          "width": 70,
-          "height": 57,
-          "visiblePixels": 320,
-          "transparentPixels": 3670,
-          "translucentPixels": 268,
-          "pixelSha256": "879da7c090b7ad7e6145296135de16cdc29e2d9aa6c5bcad0e43f5192797afa8",
-          "pngSha256": "ed4621387056c49f2bad1a33848f151d1ab3c2109d51604080cea964f6496aa8"
+          "width": 69,
+          "height": 42,
+          "visiblePixels": 500,
+          "transparentPixels": 2398,
+          "translucentPixels": 351,
+          "pixelSha256": "0ac2f655510929fda01c3e156ed9ab9a63049ad4f6201d74c262a23eb774bb9a",
+          "pngSha256": "ac2a80c89d64587f30fbb15b89351590288de6f8ae48437858cee7d59fa4d160"
         }
       ]
     },
@@ -1140,11 +1300,11 @@
           "output": "enemy-soft-biter/expressions/eyes--blink.png",
           "width": 156,
           "height": 71,
-          "visiblePixels": 893,
-          "transparentPixels": 10183,
+          "visiblePixels": 868,
+          "transparentPixels": 10208,
           "translucentPixels": 676,
-          "pixelSha256": "e6502ef940eea654d035b6f08c0dcc9947ac4877b02619479a24e19d036fe873",
-          "pngSha256": "8fcdf3789386fc10c7748bc7739532f69e3621b677dee83665b99299603c6e2f"
+          "pixelSha256": "0001de4b62ab5f9f8dca6ac55ca01f4c8c86b565bcfc1b9dd3628d60b135ceda",
+          "pngSha256": "1037b27fc986f8a3106ccc9fbd3d7b97ba1039b905db5e44f650903d75133ecb"
         },
         {
           "partId": "eyes",
@@ -1159,11 +1319,11 @@
           "output": "enemy-soft-biter/expressions/eyes--hurt.png",
           "width": 156,
           "height": 71,
-          "visiblePixels": 1507,
-          "transparentPixels": 9569,
-          "translucentPixels": 1246,
-          "pixelSha256": "681830c4d3b9e677d249dfca363e5a7c3b6ab9731fca6a1f72153609af35b976",
-          "pngSha256": "4f6823754db17dab53e6a48091a3e7444e5ecacdc7080c172586558aef023131"
+          "visiblePixels": 4359,
+          "transparentPixels": 6717,
+          "translucentPixels": 4108,
+          "pixelSha256": "74e47e2bfd5c03cd167e68d2675196201a66b0036c60c62c98417a933993691b",
+          "pngSha256": "0258f82c8668b44ec1fe663ae721005bcf2138f3cb16b971530093d3b6d23b82"
         },
         {
           "partId": "eyes",
@@ -1178,11 +1338,11 @@
           "output": "enemy-soft-biter/expressions/eyes--attack.png",
           "width": 156,
           "height": 71,
-          "visiblePixels": 2836,
-          "transparentPixels": 8240,
-          "translucentPixels": 834,
-          "pixelSha256": "d305d850c73f90400f0b71751478aa2d9da2b0579b88721dd5efd5143762bcbf",
-          "pngSha256": "169350d21e6687fd794e4e36ef68053fe9ad35e65fdd5f92d0aeb924fe51e6af"
+          "visiblePixels": 4578,
+          "transparentPixels": 6498,
+          "translucentPixels": 4311,
+          "pixelSha256": "1ae474799c02c153a618176016c9c95796658e6cf72aef233c7fb539445d4838",
+          "pngSha256": "fdfca738056446d26e03d4b282693fee0c3792be12294ca6f76c0625e7cd5b9e"
         },
         {
           "partId": "mouth",
@@ -1216,11 +1376,11 @@
           "output": "enemy-soft-biter/expressions/mouth--open.png",
           "width": 82,
           "height": 60,
-          "visiblePixels": 1305,
-          "transparentPixels": 3615,
-          "translucentPixels": 400,
-          "pixelSha256": "b839d0c40df5ca9e7f647fd624e598f123df7e70b6214dcb18a591bf76acd3c6",
-          "pngSha256": "df862741df817ec25dbd9359767eb0238e38acfc14b4d73d4054eee8d51173ad"
+          "visiblePixels": 1674,
+          "transparentPixels": 3246,
+          "translucentPixels": 1514,
+          "pixelSha256": "cd4c5e97a9910128f04e87ee5922c46700011b7053437a2bd4c31fff0a8ca92c",
+          "pngSha256": "d22ad51f10b65ece592232fb27c81036f745024c8fd3ad47d0068f5e2f3f5d4c"
         },
         {
           "partId": "mouth",
@@ -1235,22 +1395,22 @@
           "output": "enemy-soft-biter/expressions/mouth--hurt.png",
           "width": 82,
           "height": 60,
-          "visiblePixels": 414,
-          "transparentPixels": 4506,
-          "translucentPixels": 340,
-          "pixelSha256": "393dda702cc49a000a5cce420adf5c464bf66997ecda22d23f25a051fae96f6e",
-          "pngSha256": "8fea5fd13c543bbba61a383a39b0ce5911ddeaf2afe74b9f6e10a37db8eb13a4"
+          "visiblePixels": 1172,
+          "transparentPixels": 3748,
+          "translucentPixels": 1025,
+          "pixelSha256": "f937503caa3becee3797559c0246981b09f18add96eb682f3bba2666e9872c60",
+          "pngSha256": "e11171ddfdda33eb29d8b998ecab4f96237a20875bb9be1fe705ff661d8f4743"
         }
       ]
     },
     "enemy-windcap": {
-      "atlas": "assets/generated-v2/rig/enemy-windcap/atlas.png",
+      "atlas": "assets/generated-v2/rig/enemy-windcap/atlas-layered-v2.png",
       "parts": [
         {
           "id": "stem",
           "bone": "stem",
           "z": 0,
-          "sourcePath": "assets/generated-v2/rig/enemy-windcap/atlas.png",
+          "sourcePath": "assets/generated-v2/rig/enemy-windcap/atlas-layered-v2.png",
           "sourceRect": {
             "x": 35,
             "y": 69,
@@ -1263,14 +1423,14 @@
           "visiblePixels": 11190,
           "transparentPixels": 18294,
           "translucentPixels": 10876,
-          "pixelSha256": "60f50dfc2e2814765ae5736fd3623d5ca34ac2ed673e6fd10c5bf83a81001a4d",
-          "pngSha256": "3859a777738510be7d9b648a9c3b4abd9d80ec4be8ff7bf90a60da225e51aab8"
+          "pixelSha256": "4797995f72c29c3ad6c0af9f07f7ce267e97456224087a60d048d80201f55fd6",
+          "pngSha256": "5662ccbb5438136a7d68d9a156a513f47cd733cc081a2375f87c7924a6cad5ac"
         },
         {
           "id": "cap",
           "bone": "cap",
           "z": 10,
-          "sourcePath": "assets/generated-v2/rig/enemy-windcap/atlas.png",
+          "sourcePath": "assets/generated-v2/rig/enemy-windcap/atlas-layered-v2.png",
           "sourceRect": {
             "x": 254,
             "y": 103,
@@ -1290,7 +1450,7 @@
           "id": "eyes",
           "bone": "eyes",
           "z": 20,
-          "sourcePath": "assets/generated-v2/rig/enemy-windcap/atlas.png",
+          "sourcePath": "assets/generated-v2/rig/enemy-windcap/atlas-layered-v2.png",
           "sourceRect": {
             "x": 585,
             "y": 161,
@@ -1310,7 +1470,7 @@
           "id": "mouth",
           "bone": "mouth",
           "z": 30,
-          "sourcePath": "assets/generated-v2/rig/enemy-windcap/atlas.png",
+          "sourcePath": "assets/generated-v2/rig/enemy-windcap/atlas-layered-v2.png",
           "sourceRect": {
             "x": 89,
             "y": 346,
@@ -1331,7 +1491,7 @@
         {
           "partId": "eyes",
           "variant": "normal",
-          "sourcePath": "assets/generated-v2/rig/enemy-windcap/atlas.png",
+          "sourcePath": "assets/generated-v2/rig/enemy-windcap/atlas-layered-v2.png",
           "sourceRect": {
             "x": 585,
             "y": 161,
@@ -1360,11 +1520,11 @@
           "output": "enemy-windcap/expressions/eyes--blink.png",
           "width": 124,
           "height": 66,
-          "visiblePixels": 502,
-          "transparentPixels": 7682,
-          "translucentPixels": 374,
-          "pixelSha256": "38df81630ae881265fafacad4730a7770fe302f1a9f23f7586b38dbf45279b17",
-          "pngSha256": "f8de628a39970b1a64b2f51b9885a70d33e3916c58c39aed48248f79b9a4be7e"
+          "visiblePixels": 635,
+          "transparentPixels": 7549,
+          "translucentPixels": 485,
+          "pixelSha256": "8d09fbcfa6eed1f61646a9ce9fa7e1987a735af77c4d716d523e2bcbf83a782a",
+          "pngSha256": "dbab9e2d283ba165165d5240cbf4c9e077bb6146dc38a24b48d54b7d655c61cc"
         },
         {
           "partId": "eyes",
@@ -1379,11 +1539,11 @@
           "output": "enemy-windcap/expressions/eyes--hurt.png",
           "width": 124,
           "height": 66,
-          "visiblePixels": 812,
-          "transparentPixels": 7372,
-          "translucentPixels": 660,
-          "pixelSha256": "195c2b85005d0837601ba70e17ca089d3d2ba019db9ef71ccf0aaef8a4dfc502",
-          "pngSha256": "0da5256367027547086dbd6de8bb979674cc9c0fe1f775047d7b1690c1298a1a"
+          "visiblePixels": 1987,
+          "transparentPixels": 6197,
+          "translucentPixels": 1886,
+          "pixelSha256": "9cf5692aaacb7e5aa3a97ef0b61ab60723290ae064812ca639adda2b00422561",
+          "pngSha256": "dd3b6fa67850dbfadd749bdef48beacd3c05a7c55f86995e3bcc773d4716b93c"
         },
         {
           "partId": "eyes",
@@ -1398,16 +1558,16 @@
           "output": "enemy-windcap/expressions/eyes--attack.png",
           "width": 124,
           "height": 66,
-          "visiblePixels": 1463,
-          "transparentPixels": 6721,
-          "translucentPixels": 572,
-          "pixelSha256": "cda9948586a5002057be2c0b901385696782849c148689a2a20427def59e46fb",
-          "pngSha256": "66e8b1dc6e94128b1d67788360dad6b8b918c4c3f50efce90d807c3e625a73b0"
+          "visiblePixels": 2003,
+          "transparentPixels": 6181,
+          "translucentPixels": 1898,
+          "pixelSha256": "27ad6ff02844e792c70d31b555d76cfd8a84ea861d6c5dc65dd01300aeba4010",
+          "pngSha256": "f94285d14d6c0ada419af2a506c6bed365faf58ebb5734844448ef0d7713ebef"
         },
         {
           "partId": "mouth",
           "variant": "normal",
-          "sourcePath": "assets/generated-v2/rig/enemy-windcap/atlas.png",
+          "sourcePath": "assets/generated-v2/rig/enemy-windcap/atlas-layered-v2.png",
           "sourceRect": {
             "x": 89,
             "y": 346,
@@ -1436,11 +1596,11 @@
           "output": "enemy-windcap/expressions/mouth--open.png",
           "width": 69,
           "height": 54,
-          "visiblePixels": 806,
-          "transparentPixels": 2920,
-          "translucentPixels": 318,
-          "pixelSha256": "08b969d10de8f305d019055d6e14b90d36e7aad96d94c978f27cd0ac94a55f05",
-          "pngSha256": "482451f19fcb85bad7d4288778579f2a2f0f10ee41188f8718952d7ec4e42a89"
+          "visiblePixels": 798,
+          "transparentPixels": 2928,
+          "translucentPixels": 697,
+          "pixelSha256": "c5ceb981824220b107793e90121881c1a649c07e3cfc32f0267c61d289795546",
+          "pngSha256": "5c9d4b5b7ca4269018f4f413c1e7c445954fff60adb323cbfc926ecf54f036e9"
         },
         {
           "partId": "mouth",
@@ -1455,11 +1615,11 @@
           "output": "enemy-windcap/expressions/mouth--hurt.png",
           "width": 69,
           "height": 54,
-          "visiblePixels": 316,
-          "transparentPixels": 3410,
-          "translucentPixels": 269,
-          "pixelSha256": "21e1c4bff92bf4affb99c638e06eaa1ac688633fe7de958976b84c92b660512b",
-          "pngSha256": "9fa38b662401d732bda5e2f9a1ebd3fefcce184c9ded2521dc782a94d6ff3fd4"
+          "visiblePixels": 525,
+          "transparentPixels": 3201,
+          "translucentPixels": 433,
+          "pixelSha256": "6ca794fa024402cebc74e082cbebdf9c7474ec461061b62ad41d9c51bd7cee78",
+          "pngSha256": "46e34cf2a94a2796ccea7b8b9a72e643e21bf8d890e9f2d310a993daa8368205"
         }
       ]
     },
@@ -1580,11 +1740,11 @@
           "output": "enemy-stone-lump/expressions/eyes--blink.png",
           "width": 163,
           "height": 73,
-          "visiblePixels": 722,
-          "transparentPixels": 11177,
-          "translucentPixels": 536,
-          "pixelSha256": "7857c40230ed8eb7ab4315283b9e8150b9af4e0900b41e73238db727b578ddb8",
-          "pngSha256": "101ea2eac9a2c9d7981d80901b2b9443310b754471ee75e06dfcf92f1208f198"
+          "visiblePixels": 882,
+          "transparentPixels": 11017,
+          "translucentPixels": 660,
+          "pixelSha256": "e87ee6f75ced2dcd50764e6aab292cca40824409276a3ed0eaab85de16e1f18f",
+          "pngSha256": "d65658bbc5a8d44a8b0e35ece201829932fe2253b210b98916dcd3de2794ffa2"
         },
         {
           "partId": "eyes",
@@ -1599,11 +1759,11 @@
           "output": "enemy-stone-lump/expressions/eyes--hurt.png",
           "width": 163,
           "height": 73,
-          "visiblePixels": 1027,
-          "transparentPixels": 10872,
-          "translucentPixels": 780,
-          "pixelSha256": "495d8ab77df00c4ccfa507fb2877050eb979590f680b5c385d0b65c4a1ea59a0",
-          "pngSha256": "6a1637dc2f27ab34cf1d878b16b5f57c7f8418097b37ec8f4126a3252015ea0c"
+          "visiblePixels": 3508,
+          "transparentPixels": 8391,
+          "translucentPixels": 3291,
+          "pixelSha256": "99b46b1b6fa8777d9f1eb70cd8172e08a4adc5fbee6fcfcda9bf42ab80bf160e",
+          "pngSha256": "992d167cac981ef2ad74743475e4e03c51d66136f6fc4bd4e9aa8c16cc7ee6e1"
         },
         {
           "partId": "eyes",
@@ -1618,11 +1778,11 @@
           "output": "enemy-stone-lump/expressions/eyes--attack.png",
           "width": 163,
           "height": 73,
-          "visiblePixels": 2080,
-          "transparentPixels": 9819,
-          "translucentPixels": 724,
-          "pixelSha256": "20be588f53721131021590d6f09759fffdd8ce87b2cbed50a9ae8d204c9e74e7",
-          "pngSha256": "c693ed13576b448dc84c06c98536e59831a5f8cd9a4e1ff54b43511c5b9c02b2"
+          "visiblePixels": 3594,
+          "transparentPixels": 8305,
+          "translucentPixels": 3357,
+          "pixelSha256": "16ab3640d50d95e83068fa6d2075e0439814619996ce8b0bd56dd46570ef1be3",
+          "pngSha256": "a4073e7e58cf5f860d7083347d660450377ec36105eae4125cf64444a54d0eab"
         },
         {
           "partId": "mouth",
@@ -1656,11 +1816,11 @@
           "output": "enemy-stone-lump/expressions/mouth--open.png",
           "width": 114,
           "height": 57,
-          "visiblePixels": 1512,
-          "transparentPixels": 4986,
-          "translucentPixels": 499,
-          "pixelSha256": "cfd189f499cf2ff90642964d6d7201f64056920552f474962ce3fb542633d18f",
-          "pngSha256": "f4c173e89bc924659799d879775559d8b088fb1d3006ebcf3a3bfda3625e1f9b"
+          "visiblePixels": 2223,
+          "transparentPixels": 4275,
+          "translucentPixels": 2081,
+          "pixelSha256": "b9a273222a24c29ca37532a514700d1f3fe20989ebd36a93ecc290a9e26a45de",
+          "pngSha256": "2eedb5a62f212c373a6e345a85b5dbd158cb50015fdc416725a2754ee73fe07e"
         },
         {
           "partId": "mouth",
@@ -1675,11 +1835,11 @@
           "output": "enemy-stone-lump/expressions/mouth--hurt.png",
           "width": 114,
           "height": 57,
-          "visiblePixels": 504,
-          "transparentPixels": 5994,
-          "translucentPixels": 426,
-          "pixelSha256": "a9c6f88ba07a41fc4aef3d66cb29a7bda54cb64c4cb5ceb72980619001e454b2",
-          "pngSha256": "462d99d8ba40a143f2320001f0aec61229fd3a2619fcbeeee756e718b7d8d205"
+          "visiblePixels": 1573,
+          "transparentPixels": 4925,
+          "translucentPixels": 1404,
+          "pixelSha256": "b94c788af6026e44e1da15aaeb800d11652e8b210011398013887ad51e7802a7",
+          "pngSha256": "477f3bcfd51fd9e253bd4c97db05ab4a878018eeb14feebc9c6fe0e6bf2c4cd9"
         }
       ]
     },
@@ -1792,19 +1952,19 @@
           "z": 40,
           "sourcePath": "assets/generated-v2/rig/enemy-acid-shell-king/atlas-layered-v2.png",
           "sourceRect": {
-            "x": 289,
-            "y": 339,
+            "x": 520,
+            "y": 528,
             "width": 190,
             "height": 99
           },
           "output": "enemy-acid-shell-king/eyes.png",
           "width": 190,
           "height": 99,
-          "visiblePixels": 6783,
-          "transparentPixels": 12027,
-          "translucentPixels": 6500,
-          "pixelSha256": "e86a0e44b2e26e2445cf395769f7f464796acd873d0648562a680318bf1f48a1",
-          "pngSha256": "37e4fe1d7a10cf3b07d042474c7950db1ac171a23929340661ba7c8f03c13a9d"
+          "visiblePixels": 7502,
+          "transparentPixels": 11308,
+          "translucentPixels": 7210,
+          "pixelSha256": "80dc849c51f292628394bcb1762d3012adb1909c26b85bdbdc330c5aa43474d6",
+          "pngSha256": "fd9f0834ef50eeaa5af57a24c4af1e478119449403a383bcbb5232a689340548"
         },
         {
           "id": "mouth",
@@ -1833,19 +1993,19 @@
           "variant": "normal",
           "sourcePath": "assets/generated-v2/rig/enemy-acid-shell-king/atlas-layered-v2.png",
           "sourceRect": {
-            "x": 289,
-            "y": 339,
+            "x": 520,
+            "y": 528,
             "width": 190,
             "height": 99
           },
           "output": "enemy-acid-shell-king/expressions/eyes--normal.png",
           "width": 190,
           "height": 99,
-          "visiblePixels": 6783,
-          "transparentPixels": 12027,
-          "translucentPixels": 6500,
-          "pixelSha256": "e86a0e44b2e26e2445cf395769f7f464796acd873d0648562a680318bf1f48a1",
-          "pngSha256": "37e4fe1d7a10cf3b07d042474c7950db1ac171a23929340661ba7c8f03c13a9d"
+          "visiblePixels": 7502,
+          "transparentPixels": 11308,
+          "translucentPixels": 7210,
+          "pixelSha256": "80dc849c51f292628394bcb1762d3012adb1909c26b85bdbdc330c5aa43474d6",
+          "pngSha256": "fd9f0834ef50eeaa5af57a24c4af1e478119449403a383bcbb5232a689340548"
         },
         {
           "partId": "eyes",
@@ -1860,11 +2020,11 @@
           "output": "enemy-acid-shell-king/expressions/eyes--blink.png",
           "width": 190,
           "height": 99,
-          "visiblePixels": 1252,
-          "transparentPixels": 17558,
-          "translucentPixels": 886,
-          "pixelSha256": "fd86f94246c512b9c028d5efbe5877a1a2999d25deb582b3a651bd436e497ed9",
-          "pngSha256": "c5c1f6001b5bc9bae68c8e20d7163836593be0a7c549262116fafdf5f3f084d2"
+          "visiblePixels": 2252,
+          "transparentPixels": 16558,
+          "translucentPixels": 1205,
+          "pixelSha256": "27aaa00749d81e8762143d074d3375c41a9b5c6ae2e7af68f7beed8cc0976293",
+          "pngSha256": "37a6c13ea52ea895dc2c0816c07833766328c3619def727b2e6e8310fa9dbd93"
         },
         {
           "partId": "eyes",
@@ -1879,11 +2039,11 @@
           "output": "enemy-acid-shell-king/expressions/eyes--hurt.png",
           "width": 190,
           "height": 99,
-          "visiblePixels": 2206,
-          "transparentPixels": 16604,
-          "translucentPixels": 1468,
-          "pixelSha256": "4d056286e42228489fd1ca3acf711d73184713cd67042bf1c5562ba2c3e16e6f",
-          "pngSha256": "857bf7906e047e8a5579984be7e21c48556f9d03e4e751d0bd73b50235c062bf"
+          "visiblePixels": 7359,
+          "transparentPixels": 11451,
+          "translucentPixels": 7096,
+          "pixelSha256": "779e9c056eeb45484aad3f59d33f0a7bcd562eff6c42de664b36ad9917d254f2",
+          "pngSha256": "a1a7911acac79b1bcb40e091dbb2b059be618bc5c8c77eee941f96490e2bcc13"
         },
         {
           "partId": "eyes",
@@ -1898,11 +2058,11 @@
           "output": "enemy-acid-shell-king/expressions/eyes--attack.png",
           "width": 190,
           "height": 99,
-          "visiblePixels": 4313,
-          "transparentPixels": 14497,
-          "translucentPixels": 1038,
-          "pixelSha256": "d597ab6d72b29f8da1d1d8a8fee946c596aa38514ca13e4bc509d55f5b3cd630",
-          "pngSha256": "b18d5a6890454dda2170cea8bae2825e5b3373046e5a0aaa1460a6f69503797a"
+          "visiblePixels": 7460,
+          "transparentPixels": 11350,
+          "translucentPixels": 7185,
+          "pixelSha256": "26ca596247179be9b76c7fecb8da0b923f434107079a191b9138a326989d01d9",
+          "pngSha256": "a94e95a080254b03027b681faaa27afbcd0239ecd1794e6bc9cfada96426e10a"
         },
         {
           "partId": "mouth",
@@ -1936,11 +2096,11 @@
           "output": "enemy-acid-shell-king/expressions/mouth--open.png",
           "width": 197,
           "height": 126,
-          "visiblePixels": 7538,
-          "transparentPixels": 17284,
-          "translucentPixels": 996,
-          "pixelSha256": "00afd46f3b73892e25bfb6e32307ecf56a68cd33de0875b7ba776b72726f6a17",
-          "pngSha256": "939940b560017a3cc4836f79cc258e4097830b493b63819f695ecf7d32ce8b85"
+          "visiblePixels": 10205,
+          "transparentPixels": 14617,
+          "translucentPixels": 9813,
+          "pixelSha256": "fd19adf35a1e2c2ad1f2ed8beaf0a3c4f70d7100b19ca8f3cc5141096c9a1139",
+          "pngSha256": "d8b1716d0258f53a09199cb416894f720c1b900c941d1e33f457c83cd817b9eb"
         },
         {
           "partId": "mouth",
@@ -1955,11 +2115,11 @@
           "output": "enemy-acid-shell-king/expressions/mouth--hurt.png",
           "width": 197,
           "height": 126,
-          "visiblePixels": 1835,
-          "transparentPixels": 22987,
-          "translucentPixels": 1133,
-          "pixelSha256": "ac7ee37f8715bf661a386e59f37d672d5fd5f1b2380a814307f201ff3572a00c",
-          "pngSha256": "89d6db1cd004bcf098ec4aad9fa6e5e639d707f514a78c884ad5c3c81e86e4a0"
+          "visiblePixels": 8678,
+          "transparentPixels": 16144,
+          "translucentPixels": 8319,
+          "pixelSha256": "ee316b208cb364e5333e5f97b29ceb43a41e8ea73eff02dc1b7977b2920261f1",
+          "pngSha256": "d2e82163d47ae3cf971277089ca3cb86d46982fd01ccb7c688f8a11762236a02"
         }
       ]
     }

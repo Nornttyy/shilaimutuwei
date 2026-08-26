@@ -1,0 +1,87 @@
+{
+  "schemaVersion": 1,
+  "generator": "scripts/build-windcap-layered-atlas.mjs",
+  "baseAtlas": {
+    "path": "assets/generated-v2/rig/enemy-windcap/atlas.png",
+    "width": 768,
+    "height": 512,
+    "pngSha256": "8f3e4e9526e44213c1fa3f4ef85495e21c23aff4bea3c6fdcef520e1c556870a"
+  },
+  "output": {
+    "path": "assets/generated-v2/rig/enemy-windcap/atlas-layered-v2.png",
+    "width": 768,
+    "height": 512,
+    "pngSha256": "9308b3cc38f51263779b922119ee6d5406921b6755b60b8b34b1a4da346f757f",
+    "pixelSha256": "ad951447afe314ef160b38e6e59a2459b284e584de0a46cccfec2acf37d363da"
+  },
+  "cleanup": {
+    "part": "stem",
+    "sourceRect": {
+      "x": 35,
+      "y": 69,
+      "width": 156,
+      "height": 189
+    },
+    "mappedEyesRect": {
+      "x": 34,
+      "y": 47,
+      "width": 88,
+      "height": 47
+    },
+    "alphaThreshold": 8,
+    "dilationRadius": 4,
+    "harmonicPasses": 40,
+    "fillRounds": 14,
+    "maskPixels": 1087,
+    "changedPixels": 1050,
+    "outsideMaskChangedPixels": 0,
+    "alphaChangedPixels": 0,
+    "sourcePixelSha256": "60f50dfc2e2814765ae5736fd3623d5ca34ac2ed673e6fd10c5bf83a81001a4d",
+    "outputPixelSha256": "4797995f72c29c3ad6c0af9f07f7ce267e97456224087a60d048d80201f55fd6",
+    "legacyEyeInk": {
+      "before": {
+        "compared": 511,
+        "nearInk": 249,
+        "nearInkRatio": 0.487279843444227,
+        "darkInk": 267,
+        "darkInkRatio": 0.5225048923679061
+      },
+      "after": {
+        "compared": 511,
+        "nearInk": 0,
+        "nearInkRatio": 0,
+        "darkInk": 24,
+        "darkInkRatio": 0.046966731898238745
+      }
+    }
+  },
+  "preservedCells": {
+    "cap": {
+      "sourceRect": {
+        "x": 254,
+        "y": 103,
+        "width": 268,
+        "height": 154
+      },
+      "pixelSha256": "5da71f74015b789102e78f37836fa339cef7e45056ce2ce35ae7393f08dd0fc6"
+    },
+    "eyes": {
+      "sourceRect": {
+        "x": 585,
+        "y": 161,
+        "width": 124,
+        "height": 66
+      },
+      "pixelSha256": "c0333e37971d29fc085775c7d70c5b7d468c7f70860b72241fbedf21827cddf5"
+    },
+    "mouth": {
+      "sourceRect": {
+        "x": 89,
+        "y": 346,
+        "width": 69,
+        "height": 54
+      },
+      "pixelSha256": "5c13414437b4a2fc697950c6fca99c211085a70e53195e80ea89f39dacfdcaa4"
+    }
+  }
+}

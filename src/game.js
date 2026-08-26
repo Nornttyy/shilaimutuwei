@@ -18,6 +18,7 @@ import {
   drawPortal,
   drawStatusIcon,
   drawProjectile,
+  drawAssetOrFallback,
 } from './draw.js';
 import {
   createGridState,
@@ -128,6 +129,58 @@ function wrapText(ctx, text, x, y, maxWidth, lineHeight, maxLines = 3) {
   }
   if (line) ctx.fillText(line, x, y + lineIndex * lineHeight);
   return lineIndex + 1;
+}
+
+function imageDimensions(image, fallbackWidth = 1, fallbackHeight = 1) {
+  const width = Number(image?.naturalWidth || image?.videoWidth || image?.width) || fallbackWidth;
+  const height = Number(image?.naturalHeight || image?.videoHeight || image?.height) || fallbackHeight;
+  return { width, height };
+}
+
+function drawImageContained(ctx, image, x, y, width, height, anchorY = 0.5) {
+  const source = imageDimensions(image);
+  const scale = Math.min(width / source.width, height / source.height);
+  const drawWidth = source.width * scale;
+  const drawHeight = source.height * scale;
+  const drawX = x + (width - drawWidth) / 2;
+  const drawY = y + (height - drawHeight) * clamp(anchorY, 0, 1);
+  ctx.drawImage(image, drawX, drawY, drawWidth, drawHeight);
+}
+
+function drawNineSlice(ctx, image, x, y, width, height) {
+  const source = imageDimensions(image, 512, 384);
+  const sourceLeft = Math.round(source.width * 0.28);
+  const sourceRight = Math.round(source.width * 0.12);
+  const sourceTop = Math.round(source.height * 0.24);
+  const sourceBottom = Math.round(source.height * 0.24);
+  const targetLeft = Math.min(54, Math.max(24, width * 0.38));
+  const targetRight = Math.min(18, width * 0.16);
+  const targetTop = Math.min(20, height * 0.28);
+  const targetBottom = Math.min(20, height * 0.28);
+  const sourceColumns = [0, sourceLeft, source.width - sourceRight, source.width];
+  const sourceRows = [0, sourceTop, source.height - sourceBottom, source.height];
+  const targetColumns = [x, x + targetLeft, x + width - targetRight, x + width];
+  const targetRows = [y, y + targetTop, y + height - targetBottom, y + height];
+  for (let row = 0; row < 3; row += 1) {
+    for (let column = 0; column < 3; column += 1) {
+      const sourceWidth = sourceColumns[column + 1] - sourceColumns[column];
+      const sourceHeight = sourceRows[row + 1] - sourceRows[row];
+      const targetWidth = targetColumns[column + 1] - targetColumns[column];
+      const targetHeight = targetRows[row + 1] - targetRows[row];
+      if (sourceWidth <= 0 || sourceHeight <= 0 || targetWidth <= 0 || targetHeight <= 0) continue;
+      ctx.drawImage(
+        image,
+        sourceColumns[column],
+        sourceRows[row],
+        sourceWidth,
+        sourceHeight,
+        targetColumns[column],
+        targetRows[row],
+        targetWidth,
+        targetHeight,
+      );
+    }
+  }
 }
 
 function roundedHit(point, rect) {
@@ -257,10 +310,12 @@ export class SlimeGame {
   constructor(canvas, options = {}) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d', { alpha: false });
+    this.assetStore = null;
     this.rigAssetStore = null;
     this.setRigAssetStore(
       typeof options?.get === 'function' ? options : options?.rigAssetStore,
     );
+    this.setAssetStore(options?.assetStore);
     this.audio = new TinyAudio();
     this.scale = 1;
     this.offsetX = 0;
@@ -271,6 +326,7 @@ export class SlimeGame {
     this.animationTime = 0;
     this.hits = [];
     this.hoverId = null;
+    this.hoverCell = null;
     this.pointerDown = null;
     this.buildTab = 'buildings';
     this.selection = null;
@@ -289,6 +345,15 @@ export class SlimeGame {
 
   setRigAssetStore(store = null) {
     this.rigAssetStore = store && typeof store.get === 'function' ? store : null;
+    return this;
+  }
+
+  setAssetStore(store = null) {
+    this.assetStore = store
+      && typeof store.get === 'function'
+      && typeof store.useOrFallback === 'function'
+      ? store
+      : null;
     return this;
   }
 
@@ -318,6 +383,7 @@ export class SlimeGame {
       deployables: [],
       projectiles: [],
       particles: [],
+      worldEffects: [],
       floaters: [],
       kills: 0,
       rescuedBuildings: 0,
@@ -378,6 +444,7 @@ export class SlimeGame {
     };
     this.onPointerMove = (event) => {
       const point = this.toGamePoint(event);
+      this.hoverCell = this.pointToCell(point);
       this.hoverId = this.hits.findLast?.((hit) => hit.enabled !== false && roundedHit(point, hit))?.id
         || [...this.hits].reverse().find((hit) => hit.enabled !== false && roundedHit(point, hit))?.id
         || null;
@@ -385,6 +452,7 @@ export class SlimeGame {
     this.onPointerCancel = () => {
       this.pointerDown = null;
       this.hoverId = null;
+      this.hoverCell = null;
     };
     this.canvas.addEventListener('pointerdown', this.onPointerDown, { passive: false });
     this.canvas.addEventListener('pointerup', this.onPointerUp, { passive: false });
@@ -511,6 +579,7 @@ export class SlimeGame {
     this.state.paused = false;
     this.state.enemies = [];
     this.state.projectiles = [];
+    this.state.worldEffects = [];
     this.state.terrain = [];
     this.state.deployables = [];
     this.pendingAttackHits.clear();
@@ -572,6 +641,8 @@ export class SlimeGame {
       projectile.progress += animationDt / projectile.duration;
     });
     this.state.projectiles = this.state.projectiles.filter((projectile) => projectile.progress < 1);
+    this.state.worldEffects.forEach((effect) => { effect.life -= animationDt; });
+    this.state.worldEffects = this.state.worldEffects.filter((effect) => effect.life > 0).slice(-32);
     this.state.survivors.forEach((survivor) => { survivor.hitFlash = Math.max(0, (survivor.hitFlash || 0) - dt * 4); });
     this.state.enemies.forEach((enemy) => { enemy.hitFlash = Math.max(0, (enemy.hitFlash || 0) - dt * 5); });
 
@@ -755,7 +826,20 @@ export class SlimeGame {
       this.showToast('气象台已标记酸壳蜗王', 'good');
     }
     this.state.enemies.push(enemy);
-    this.spawnParticles(BOARD.x + BOARD.cell * 6.65, this.cellCenter(0, row).y, '#9D7CA8', 8, 55);
+    const spawnPosition = {
+      x: BOARD.x + BOARD.cell * 6.65,
+      y: this.cellCenter(0, row).y - 28,
+    };
+    this.spawnWorldEffect(
+      'effect-spawn-rift-burst',
+      spawnPosition.x,
+      spawnPosition.y,
+      136,
+      136,
+      0.52,
+      { layer: 'back', scaleFrom: 0.62, scaleTo: 1.08 },
+    );
+    this.spawnParticles(spawnPosition.x, spawnPosition.y + 28, '#9D7CA8', 8, 55);
   }
 
   updateDeployables(dt) {
@@ -821,7 +905,14 @@ export class SlimeGame {
     });
     if (!hitStarted) return false;
     attackTargets.forEach((enemy, index) => {
-      this.launchProjectile(survivor, enemy, card.id.includes('crystal') ? 'crystal' : card.id.includes('bubble') ? 'bubble' : 'goo', index * 0.04);
+      const projectileType = card.id.includes('crystal')
+        ? 'crystal'
+        : card.id.includes('bubble')
+          ? 'bubble'
+          : card.id.includes('moss-sprout')
+            ? 'seed'
+            : 'goo';
+      this.launchProjectile(survivor, enemy, projectileType, index * 0.04);
     });
     survivor.actionCount += 1;
     survivor.attackCount = nextAttackCount;
@@ -843,6 +934,15 @@ export class SlimeGame {
     if (choice.ratio >= 0.995) choice.target.seed = Math.max(choice.target.seed || 0, card.ability.fullHealthShield);
     else choice.target.hp = Math.min(choice.target.maxHp, choice.target.hp + card.ability.heal);
     const position = this.entityCanvasPosition(choice.target);
+    this.spawnWorldEffect(
+      'effect-heal-burst',
+      position.x,
+      position.y - 38,
+      104,
+      104,
+      0.62,
+      { scaleFrom: 0.68, scaleTo: 1.08 },
+    );
     this.spawnParticles(position.x, position.y - 25, PALETTE.heal, 10, 45);
     this.floatText(position.x, position.y - 40, choice.ratio >= 0.995 ? '萌芽' : `+${card.ability.heal}`, PALETTE.heal);
     this.audio.play('heal');
@@ -851,6 +951,7 @@ export class SlimeGame {
 
   updateBuildings(dt) {
     for (const building of this.state.buildings) {
+      building.poisoned = Math.max(0, (building.poisoned || 0) - dt);
       if (building.destroyed) continue;
       const card = BUILDING_BY_ID[building.cardId];
       if (!card.attack) continue;
@@ -881,6 +982,7 @@ export class SlimeGame {
       const card = ENEMY_BY_ID[enemy.cardId];
       enemy.stagger = Math.max(0, enemy.stagger - dt);
       enemy.rooted = Math.max(0, enemy.rooted - dt);
+      enemy.bubbleStatus = Math.max(0, (enemy.bubbleStatus || 0) - dt);
       enemy.attackTimer = Math.max(0, enemy.attackTimer - dt);
       enemy.routeTimer -= dt;
 
@@ -988,9 +1090,12 @@ export class SlimeGame {
       if (enemy.telegraph <= 0 && enemy.telegraphTarget) {
         const target = this.state.buildings.find((building) => building.uid === enemy.telegraphTarget && !building.destroyed);
         if (target) {
+          this.launchProjectile(enemy, target, 'acid');
+          target.poisoned = Math.max(target.poisoned || 0, 1.2);
           this.damageBuilding(target, card.ability.buildingDamage);
           for (const other of this.state.buildings) {
             if (other.uid !== target.uid && !other.destroyed && distance(other, target) <= card.ability.splashRadiusTiles) {
+              other.poisoned = Math.max(other.poisoned || 0, 0.8);
               this.damageBuilding(other, Math.round(card.ability.buildingDamage * 0.45));
             }
           }
@@ -1116,7 +1221,14 @@ export class SlimeGame {
     enemy.hitFlash = 1;
     const position = this.entityCanvasPosition(enemy);
     this.floatText(position.x, position.y - 40, `-${damage}`, enemy.marked ? '#F4C85E' : '#FFF8E9');
-    this.spawnParticles(position.x, position.y - 10, ENEMY_BY_ID[enemy.cardId].color, 4, 32);
+    this.spawnParticles(
+      position.x,
+      position.y - 10,
+      ENEMY_BY_ID[enemy.cardId].color,
+      4,
+      32,
+      source?.cardId === 'survivor-shell-shell' ? 'effect-particle-goo-drop' : null,
+    );
     if (enemy.hp <= 0) {
       enemy.dead = true;
       this.pendingAttackHits.delete(enemy.uid);
@@ -1169,6 +1281,15 @@ export class SlimeGame {
     if (kind === 'building') {
       target.destroyed = true;
       target.hp = 0;
+      this.spawnWorldEffect(
+        'effect-building-destruction-puff',
+        position.x,
+        position.y - 32,
+        132,
+        132,
+        0.64,
+        { scaleFrom: 0.58, scaleTo: 1.12 },
+      );
     } else {
       target.downed = true;
       target.hp = 0;
@@ -1201,6 +1322,7 @@ export class SlimeGame {
     enemy.path = [];
     enemy.routeTimer = 0;
     enemy.justPushed = true;
+    enemy.bubbleStatus = Math.max(enemy.bubbleStatus || 0, 0.55);
     const collision = this.state.enemies.find((other) => other.uid !== enemy.uid && !other.dead && distance(enemy, other) < 0.38);
     if (collision && effect.collisionDamage) {
       this.damageEnemy(enemy, effect.collisionDamage, effect);
@@ -1224,12 +1346,32 @@ export class SlimeGame {
     });
   }
 
-  spawnParticles(x, y, color, count = 6, speed = 45) {
+  spawnWorldEffect(assetKey, x, y, width, height, duration = 0.55, options = {}) {
+    if (!assetKey || !Number.isFinite(x) || !Number.isFinite(y)) return null;
+    const maxLife = Math.max(0.05, Number(duration) || 0.55);
+    const effect = {
+      assetKey,
+      x,
+      y,
+      width: Math.max(1, Number(width) || 1),
+      height: Math.max(1, Number(height) || 1),
+      rotation: Number(options.rotation) || 0,
+      layer: options.layer === 'back' ? 'back' : 'front',
+      scaleFrom: Number.isFinite(options.scaleFrom) ? options.scaleFrom : 0.82,
+      scaleTo: Number.isFinite(options.scaleTo) ? options.scaleTo : 1.05,
+      life: maxLife,
+      maxLife,
+    };
+    this.state.worldEffects.push(effect);
+    return effect;
+  }
+
+  spawnParticles(x, y, color, count = 6, speed = 45, assetKey = null) {
     for (let index = 0; index < count && this.state.particles.length < 80; index += 1) {
       const angle = (index / count) * TAU + Math.random() * 0.6;
       const velocity = speed * (0.45 + Math.random() * 0.7);
       this.state.particles.push({
-        x, y, color,
+        x, y, color, assetKey,
         vx: Math.cos(angle) * velocity,
         vy: Math.sin(angle) * velocity - 18,
         gravity: 75,
@@ -1319,7 +1461,17 @@ export class SlimeGame {
         return;
       }
       affected.forEach((enemy) => this.pushEnemy(enemy, card.effect.knockbackTiles, 0, card.effect));
-      this.spawnParticles(this.cellCenter(cell.x, cell.y).x, this.cellCenter(cell.x, cell.y).y, PALETTE.bubble, 14, 80);
+      const position = this.cellCenter(cell.x, cell.y);
+      this.spawnWorldEffect(
+        'effect-jelly-bounce-wave',
+        position.x + 42,
+        position.y - 18,
+        220,
+        128,
+        0.52,
+        { scaleFrom: 0.7, scaleTo: 1.08 },
+      );
+      this.spawnParticles(position.x, position.y, PALETTE.bubble, 14, 80);
       this.consumeCard(card);
       return;
     }
@@ -1348,12 +1500,38 @@ export class SlimeGame {
           return;
         }
         cells.forEach((target) => this.state.terrain.push({ type: 'honey', ...target, life: card.effect.lifetimeSeconds }));
-        this.spawnParticles(this.cellCenter(selection.origin.x, selection.origin.y).x, this.cellCenter(selection.origin.x, selection.origin.y).y, '#F6BE58', 12, 55);
+        const middle = this.cellCenter(selection.origin.x + dx, selection.origin.y + dy);
+        this.spawnWorldEffect(
+          'effect-honey-draw-trail',
+          middle.x,
+          middle.y,
+          BOARD.cell * 3,
+          78,
+          0.72,
+          { rotation: Math.atan2(dy, dx), scaleFrom: 0.78, scaleTo: 1 },
+        );
+        this.spawnParticles(
+          this.cellCenter(selection.origin.x, selection.origin.y).x,
+          this.cellCenter(selection.origin.x, selection.origin.y).y,
+          '#F6BE58',
+          12,
+          55,
+        );
       } else {
         this.state.deployables.push({
           uid: uid('pad'), type: 'pad', ...selection.origin,
           dx, dy, tiles: card.effect.knockbackTiles, life: Infinity, consumed: false,
         });
+        const position = this.cellCenter(selection.origin.x, selection.origin.y);
+        this.spawnWorldEffect(
+          'effect-particle-expanding-ring',
+          position.x,
+          position.y + 9,
+          76,
+          38,
+          0.44,
+          { scaleFrom: 0.45, scaleTo: 1.12 },
+        );
       }
       this.consumeCard(card);
       return;
@@ -1376,6 +1554,19 @@ export class SlimeGame {
         this.showToast('请选择另一名幸存者', 'danger');
         return;
       }
+      const firstPosition = this.entityCanvasPosition(first);
+      const targetPosition = this.entityCanvasPosition(target);
+      const effectDx = targetPosition.x - firstPosition.x;
+      const effectDy = targetPosition.y - firstPosition.y;
+      this.spawnWorldEffect(
+        'effect-soft-swap-arc',
+        (firstPosition.x + targetPosition.x) / 2,
+        (firstPosition.y + targetPosition.y) / 2 - 30,
+        Math.max(112, Math.hypot(effectDx, effectDy) + 76),
+        112,
+        0.66,
+        { rotation: Math.atan2(effectDy, effectDx), scaleFrom: 0.72, scaleTo: 1.04 },
+      );
       [first.x, target.x] = [target.x, first.x];
       [first.y, target.y] = [target.y, first.y];
       this.performSurvivorAction(first, true);
@@ -1399,7 +1590,17 @@ export class SlimeGame {
         target.hp = Math.min(target.maxHp, target.hp + card.effect.heal);
         this.floatText(this.entityCanvasPosition(target).x, this.entityCanvasPosition(target).y - 50, `+${card.effect.heal}`, PALETTE.heal);
       }
-      this.spawnParticles(this.entityCanvasPosition(target).x, this.entityCanvasPosition(target).y - 20, PALETTE.heal, 14, 58);
+      const position = this.entityCanvasPosition(target);
+      this.spawnWorldEffect(
+        'effect-heal-burst',
+        position.x,
+        position.y - 38,
+        112,
+        112,
+        0.64,
+        { scaleFrom: 0.62, scaleTo: 1.1 },
+      );
+      this.spawnParticles(position.x, position.y - 20, PALETTE.heal, 14, 58);
       this.audio.play('heal');
       this.consumeCard(card);
       return;
@@ -1418,6 +1619,16 @@ export class SlimeGame {
         eating: card.effect.eatingSeconds,
         consumed: false,
       });
+      const position = this.cellCenter(cell.x, cell.y);
+      this.spawnWorldEffect(
+        'effect-particle-dust-puff',
+        position.x,
+        position.y + 18,
+        72,
+        36,
+        0.42,
+        { scaleFrom: 0.7, scaleTo: 1.08 },
+      );
       this.consumeCard(card);
       return;
     }
@@ -1459,7 +1670,17 @@ export class SlimeGame {
         source.y = cell.y;
       }
       this.state.enemies.forEach((enemy) => { enemy.routeTimer = 0; });
-      this.spawnParticles(this.cellCenter(cell.x, cell.y).x, this.cellCenter(cell.x, cell.y).y, PALETTE.bubble, 16, 70);
+      const position = this.cellCenter(cell.x, cell.y);
+      this.spawnWorldEffect(
+        'item-moving-bubble-world',
+        position.x,
+        position.y - 34,
+        112,
+        112,
+        0.58,
+        { layer: 'back', scaleFrom: 0.74, scaleTo: 1.08 },
+      );
+      this.spawnParticles(position.x, position.y, PALETTE.bubble, 16, 70);
       this.consumeCard(card);
     }
   }
@@ -1493,6 +1714,7 @@ export class SlimeGame {
     this.hits = [];
     this.drawBackground(ctx);
     this.drawBattlefield(ctx);
+    this.drawForeground(ctx);
     this.drawTopHud(ctx);
     this.drawSidePanel(ctx);
     this.drawBottomBar(ctx);
@@ -1504,6 +1726,23 @@ export class SlimeGame {
   }
 
   drawBackground(ctx) {
+    const renderedBackground = drawAssetOrFallback(
+      ctx,
+      this.assetStore,
+      'background-garden-base',
+      (asset) => ctx.drawImage(asset, 0, 0, VIEW.width, VIEW.height),
+      () => {},
+    );
+    if (renderedBackground) {
+      drawAssetOrFallback(ctx, this.assetStore, 'background-cloud-overlay', (asset) => {
+        const drift = (this.time * 3) % VIEW.width;
+        ctx.globalAlpha *= 0.72;
+        ctx.drawImage(asset, -drift, 0, VIEW.width, 426);
+        ctx.drawImage(asset, VIEW.width - drift, 0, VIEW.width, 426);
+      }, () => {});
+      return;
+    }
+
     const sky = ctx.createLinearGradient(0, 0, 0, VIEW.height);
     sky.addColorStop(0, '#E7F4EC');
     sky.addColorStop(0.52, '#C8E3CF');
@@ -1563,6 +1802,12 @@ export class SlimeGame {
     ctx.restore();
   }
 
+  drawForeground(ctx) {
+    drawAssetOrFallback(ctx, this.assetStore, 'background-foreground-grass', (asset) => {
+      ctx.drawImage(asset, 0, VIEW.height - 320, VIEW.width, 320);
+    }, () => {});
+  }
+
   drawBattlefield(ctx) {
     drawRoundedRect(ctx, BOARD.x - 20, BOARD.y - 18, BOARD.cell * 6 + 40, BOARD.cell * 6 + 36, {
       radius: 28,
@@ -1576,40 +1821,57 @@ export class SlimeGame {
         const x = BOARD.x + col * BOARD.cell;
         const y = BOARD.y + row * BOARD.cell;
         const alpha = this.state.phase === 'battle' ? 0.7 : 1;
-        drawRoundedRect(ctx, x + 3, y + 3, BOARD.cell - 6, BOARD.cell - 6, {
-          radius: 14,
-          fill: (row + col) % 2 ? `rgba(223,204,162,${alpha})` : `rgba(235,221,187,${alpha})`,
-          stroke: this.state.phase === 'battle' ? 'rgba(51,71,80,0.06)' : 'rgba(51,71,80,0.13)',
-          lineWidth: 2,
-        });
+        drawAssetOrFallback(
+          ctx,
+          this.assetStore,
+          (row + col) % 2 ? 'tile-build-dark' : 'tile-build-light',
+          (asset) => {
+            ctx.globalAlpha *= alpha;
+            ctx.drawImage(asset, x + 3, y + 3, BOARD.cell - 6, BOARD.cell - 6);
+          },
+          () => drawRoundedRect(ctx, x + 3, y + 3, BOARD.cell - 6, BOARD.cell - 6, {
+            radius: 14,
+            fill: (row + col) % 2
+              ? `rgba(223,204,162,${alpha})`
+              : `rgba(235,221,187,${alpha})`,
+            stroke: this.state.phase === 'battle'
+              ? 'rgba(51,71,80,0.06)'
+              : 'rgba(51,71,80,0.13)',
+            lineWidth: 2,
+          }),
+        );
       }
     }
 
+    const corePosition = { x: 116, y: BOARD.y + BOARD.cell * 3.55 };
+    const portalPosition = { x: BOARD.x + BOARD.cell * 6 + 91, y: BOARD.y + BOARD.cell * 3.62 };
+
     this.drawRoutes(ctx);
     this.drawTerrain(ctx);
-    this.drawBuildings(ctx);
-    this.drawDeployables(ctx);
-    this.drawUnits(ctx);
-    this.drawProjectilesAndParticles(ctx);
-    this.drawSelectionOverlay(ctx);
-
-    const corePosition = { x: 116, y: BOARD.y + BOARD.cell * 3.55 };
     drawCore(ctx, corePosition.x, corePosition.y, 118, {
+      assetStore: this.assetStore,
       time: this.time,
       health: this.state.coreHp / this.state.coreMaxHp,
       danger: this.state.coreHp / this.state.coreMaxHp < 0.35,
     });
-    drawPortal(ctx, BOARD.x + BOARD.cell * 6 + 91, BOARD.y + BOARD.cell * 3.62, 138, {
+    drawPortal(ctx, portalPosition.x, portalPosition.y, 138, {
+      assetStore: this.assetStore,
       time: this.time,
       open: this.state.phase === 'battle' ? 1 : 0.62,
     });
+    this.drawWorldEffects(ctx, 'back');
+    this.drawMovingBubblePreview(ctx);
+    this.drawWorldActors(ctx);
+    this.drawWorldEffects(ctx, 'front');
+    this.drawProjectilesAndParticles(ctx);
+    this.drawSelectionOverlay(ctx);
 
     ctx.save();
     ctx.font = '700 15px "PingFang SC", sans-serif';
     ctx.textAlign = 'center';
     ctx.fillStyle = PALETTE.inkSoft;
     ctx.fillText('软核', corePosition.x, BOARD.y + BOARD.cell * 5.93);
-    ctx.fillText('裂隙入口', BOARD.x + BOARD.cell * 6 + 91, BOARD.y + BOARD.cell * 5.93);
+    ctx.fillText('裂隙入口', portalPosition.x, BOARD.y + BOARD.cell * 5.93);
     ctx.restore();
   }
 
@@ -1618,76 +1880,161 @@ export class SlimeGame {
     const routeWaveIndex = this.state.phase === 'between' ? this.state.waveIndex + 1 : this.state.waveIndex;
     const wave = WAVES[Math.min(routeWaveIndex, WAVES.length - 1)];
     const rows = [...new Set(wave.groups.flatMap((group) => group.rowIndices))].slice(0, 4);
-    ctx.save();
-    ctx.lineWidth = 5;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.setLineDash([10, 10]);
     rows.forEach((row, routeIndex) => {
       const path = routeFor(this.state.buildings, { x: 5, y: row });
       const crossesBuilding = path.some((cell) => cell.x >= 0 && BUILDING_BY_ID[buildingAt(this.state.buildings, cell.x, cell.y)?.cardId]?.solid);
-      ctx.strokeStyle = crossesBuilding ? `rgba(228,95,104,${0.48 - routeIndex * 0.05})` : `rgba(67,160,115,${0.45 - routeIndex * 0.05})`;
-      ctx.beginPath();
-      path.forEach((cell, index) => {
-        const position = cell.x < 0
+      const alpha = (crossesBuilding ? 0.48 : 0.45) - routeIndex * 0.05;
+      const points = [
+        { x: BOARD.x + BOARD.cell * 6 + 48, y: this.cellCenter(0, row).y },
+        ...path.map((cell) => (cell.x < 0
           ? { x: BOARD.x - 48, y: this.cellCenter(0, cell.y).y }
-          : this.cellCenter(cell.x, cell.y);
-        if (index === 0) ctx.moveTo(BOARD.x + BOARD.cell * 6 + 48, position.y);
-        ctx.lineTo(position.x, position.y);
-      });
-      ctx.stroke();
+          : this.cellCenter(cell.x, cell.y))),
+      ];
+      for (let index = 1; index < points.length; index += 1) {
+        const from = points[index - 1];
+        const to = points[index];
+        const dx = to.x - from.x;
+        const dy = to.y - from.y;
+        const length = Math.hypot(dx, dy);
+        if (length < 1) continue;
+        drawAssetOrFallback(
+          ctx,
+          this.assetStore,
+          crossesBuilding ? 'tile-route-breach' : 'tile-route-open',
+          (asset) => {
+            ctx.globalAlpha *= alpha;
+            ctx.translate((from.x + to.x) / 2, (from.y + to.y) / 2);
+            ctx.rotate(Math.atan2(dy, dx));
+            ctx.drawImage(asset, -length / 2 - 1, -9, length + 2, 18);
+          },
+          () => {
+            ctx.globalAlpha *= alpha;
+            ctx.strokeStyle = crossesBuilding ? '#E45F68' : '#43A073';
+            ctx.lineWidth = 5;
+            ctx.lineCap = 'round';
+            ctx.setLineDash([10, 10]);
+            ctx.beginPath();
+            ctx.moveTo(from.x, from.y);
+            ctx.lineTo(to.x, to.y);
+            ctx.stroke();
+          },
+        );
+      }
     });
-    ctx.restore();
   }
 
   drawTerrain(ctx) {
     for (const terrain of this.state.terrain) {
       const position = this.cellCenter(terrain.x, terrain.y);
       if (terrain.type === 'honey') {
-        ctx.save();
-        ctx.globalAlpha = 0.72;
-        ctx.fillStyle = '#E9B84F';
-        ctx.strokeStyle = '#AF7C28';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.ellipse(position.x, position.y + 17, 29, 18, -0.1, 0, TAU);
-        ctx.ellipse(position.x - 18, position.y + 9, 12, 9, 0.3, 0, TAU);
-        ctx.fill();
-        ctx.stroke();
-        ctx.restore();
-        drawStatusIcon(ctx, position.x + 25, position.y - 23, 22, 'sticky', { time: this.time, shadow: false });
-      } else if (terrain.type === 'crystal') {
-        ctx.save();
-        ctx.translate(position.x, position.y + 22);
-        ctx.fillStyle = PALETTE.crystal;
-        ctx.strokeStyle = PALETTE.inkSoft;
-        ctx.lineWidth = 2;
-        for (const offset of [-15, 0, 15]) {
+        drawAssetOrFallback(ctx, this.assetStore, 'tile-honey-puddle', (asset) => {
+          ctx.globalAlpha *= 0.82;
+          ctx.drawImage(asset, position.x - 34, position.y - 24, 68, 68);
+        }, () => {
+          ctx.globalAlpha = 0.72;
+          ctx.fillStyle = '#E9B84F';
+          ctx.strokeStyle = '#AF7C28';
+          ctx.lineWidth = 2;
           ctx.beginPath();
-          ctx.moveTo(offset - 7, 8);
-          ctx.lineTo(offset, -18 - Math.abs(offset) * 0.25);
-          ctx.lineTo(offset + 7, 8);
-          ctx.closePath();
+          ctx.ellipse(position.x, position.y + 17, 29, 18, -0.1, 0, TAU);
+          ctx.ellipse(position.x - 18, position.y + 9, 12, 9, 0.3, 0, TAU);
           ctx.fill();
           ctx.stroke();
-        }
-        ctx.restore();
+        });
+        drawStatusIcon(ctx, position.x + 25, position.y - 23, 22, 'sticky', {
+          assetStore: this.assetStore,
+          time: this.time,
+          shadow: false,
+        });
+      } else if (terrain.type === 'crystal') {
+        drawAssetOrFallback(ctx, this.assetStore, 'tile-crystal-spikes', (asset) => {
+          ctx.drawImage(asset, position.x - 30, position.y - 30, 60, 60);
+        }, () => {
+          ctx.translate(position.x, position.y + 22);
+          ctx.fillStyle = PALETTE.crystal;
+          ctx.strokeStyle = PALETTE.inkSoft;
+          ctx.lineWidth = 2;
+          for (const offset of [-15, 0, 15]) {
+            ctx.beginPath();
+            ctx.moveTo(offset - 7, 8);
+            ctx.lineTo(offset, -18 - Math.abs(offset) * 0.25);
+            ctx.lineTo(offset + 7, 8);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+          }
+        });
       }
     }
   }
 
-  drawBuildings(ctx) {
-    const sorted = [...this.state.buildings].sort((a, b) => a.y - b.y || a.x - b.x);
+  drawMovingBubblePreview(ctx) {
+    const selection = this.selection;
+    if (selection?.kind !== 'target-card'
+      || selection.cardId !== 'item-moving-bubble'
+      || !selection.sourceUid) return;
+    const source = selection.sourceType === 'survivor'
+      ? this.state.survivors.find((item) => item.uid === selection.sourceUid)
+      : this.state.buildings.find((item) => item.uid === selection.sourceUid);
+    if (!source) return;
+    const position = this.entityCanvasPosition(source);
+    drawAssetOrFallback(ctx, this.assetStore, 'item-moving-bubble-world', (asset) => {
+      ctx.globalAlpha *= 0.9;
+      ctx.drawImage(asset, position.x - 56, position.y - 106, 112, 112);
+    }, () => {});
+  }
+
+  drawWorldActors(ctx) {
+    const actors = [];
+    for (const building of this.state.buildings) {
+      const card = BUILDING_BY_ID[building.cardId];
+      const shape = rotatedFootprint(card, building.rotation);
+      // Match the building's visible ground contact (centerY is 15px above the
+      // footprint edge). Equal-depth units then paint after the structure, so a
+      // survivor stationed inside a home remains visible instead of vanishing behind it.
+      actors.push({
+        kind: 'building',
+        entity: building,
+        depth: building.y + shape.height - 0.22,
+        rank: 0,
+      });
+    }
+    for (const item of this.state.deployables) {
+      actors.push({ kind: 'deployable', entity: item, depth: item.y + 0.72, rank: 1 });
+    }
+    for (const survivor of this.state.survivors) {
+      actors.push({ kind: 'survivor', entity: survivor, depth: survivor.y + 0.78, rank: 2 });
+    }
+    for (const enemy of this.state.enemies) {
+      actors.push({ kind: 'enemy', entity: enemy, depth: enemy.y + 0.78, rank: 2 });
+    }
+    actors.sort((left, right) => (
+      left.depth - right.depth
+      || left.rank - right.rank
+      || (left.entity.x || 0) - (right.entity.x || 0)
+    ));
+    for (const actor of actors) {
+      if (actor.kind === 'building') this.drawBuildings(ctx, [actor.entity]);
+      else if (actor.kind === 'deployable') this.drawDeployables(ctx, [actor.entity]);
+      else this.drawUnits(ctx, [actor]);
+    }
+  }
+
+  drawBuildings(ctx, buildings = this.state.buildings) {
+    const sorted = [...buildings].sort((a, b) => a.y - b.y || a.x - b.x);
     for (const building of sorted) {
       if (building.destroyed && this.state.phase === 'battle') {
         const position = this.entityCanvasPosition(building);
-        ctx.save();
-        ctx.globalAlpha = 0.38;
-        ctx.fillStyle = '#756B67';
-        ctx.beginPath();
-        ctx.ellipse(position.x, position.y - 5, 30, 13, 0, 0, TAU);
-        ctx.fill();
-        ctx.restore();
+        drawAssetOrFallback(ctx, this.assetStore, 'tile-building-rubble', (asset) => {
+          ctx.globalAlpha *= 0.72;
+          ctx.drawImage(asset, position.x - 34, position.y - 39, 68, 68);
+        }, () => {
+          ctx.globalAlpha = 0.38;
+          ctx.fillStyle = '#756B67';
+          ctx.beginPath();
+          ctx.ellipse(position.x, position.y - 5, 30, 13, 0, 0, TAU);
+          ctx.fill();
+        });
         continue;
       }
       const card = BUILDING_BY_ID[building.cardId];
@@ -1702,6 +2049,7 @@ export class SlimeGame {
       if (building.rotation % 180 === 90 && (card.footprint.width !== card.footprint.height)) ctx.rotate(Math.PI / 2);
       ctx.scale(scale, scale);
       drawBuilding(ctx, 0, 0, card.footprint.width > 1 ? 104 : 88, BUILDING_VARIANT[card.id], {
+        assetStore: this.assetStore,
         time: this.time,
         selected,
         active: this.state.phase === 'battle',
@@ -1709,61 +2057,89 @@ export class SlimeGame {
         disabled: building.destroyed,
       });
       ctx.restore();
-      if (this.state.phase === 'battle' && !building.destroyed) this.drawHealthBar(ctx, centerX, centerY - 96, 54, building.hp / building.maxHp, building.shield > 0);
-    }
-  }
-
-  drawDeployables(ctx) {
-    for (const item of this.state.deployables) {
-      const position = this.cellCenter(item.x, item.y);
-      if (item.type === 'pad') {
-        ctx.save();
-        ctx.translate(position.x, position.y + 14);
-        ctx.fillStyle = '#79D886';
-        ctx.strokeStyle = PALETTE.inkSoft;
-        ctx.lineWidth = 3;
-        roundedRectPath(ctx, -28, -18, 56, 36, 12);
-        ctx.fill();
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(item.dx * 17, item.dy * 17);
-        ctx.lineTo(-item.dy * 9 - item.dx * 5, item.dx * 9 - item.dy * 5);
-        ctx.lineTo(item.dy * 9 - item.dx * 5, -item.dx * 9 - item.dy * 5);
-        ctx.closePath();
-        ctx.fillStyle = '#FFF8E9';
-        ctx.fill();
-        ctx.restore();
-      } else if (item.type === 'lure') {
-        const wobble = Math.sin(this.time * 5) * 3;
-        ctx.save();
-        ctx.translate(position.x, position.y + 10);
-        ctx.fillStyle = '#F3A85F';
-        ctx.strokeStyle = PALETTE.inkSoft;
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.moveTo(-25, 6);
-        ctx.quadraticCurveTo(-28, -20 + wobble, 0, -23 - wobble);
-        ctx.quadraticCurveTo(28, -20 + wobble, 25, 6);
-        ctx.quadraticCurveTo(0, 17, -25, 6);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-        ctx.restore();
+      if (this.state.phase === 'battle' && !building.destroyed) {
+        this.drawHealthBar(ctx, centerX, centerY - 96, 54, building.hp / building.maxHp, building.shield > 0);
+        let statusX = centerX + 34;
+        if (building.shield > 0) {
+          drawStatusIcon(ctx, statusX, centerY - 84, 22, 'shield', {
+            assetStore: this.assetStore, time: this.time, shadow: false,
+          });
+          statusX += 22;
+        }
+        if (building.poisoned > 0) {
+          drawStatusIcon(ctx, statusX, centerY - 84, 22, 'poison', {
+            assetStore: this.assetStore, time: this.time, shadow: false,
+          });
+        }
       }
     }
   }
 
-  drawUnits(ctx) {
-    const units = [];
-    this.state.survivors.forEach((survivor) => units.push({ kind: 'survivor', entity: survivor, depth: survivor.y + 0.15 }));
-    this.state.enemies.forEach((enemy) => units.push({ kind: 'enemy', entity: enemy, depth: enemy.y + 0.5 }));
+  drawDeployables(ctx, deployables = this.state.deployables) {
+    for (const item of deployables) {
+      const position = this.cellCenter(item.x, item.y);
+      if (item.type === 'pad') {
+        drawAssetOrFallback(ctx, this.assetStore, 'item-spring-pad-world', (asset) => {
+          ctx.translate(position.x, position.y + 14);
+          ctx.rotate(Math.atan2(item.dy, item.dx));
+          ctx.drawImage(asset, -28, -28, 56, 56);
+        }, () => {
+          ctx.translate(position.x, position.y + 14);
+          ctx.fillStyle = '#79D886';
+          ctx.strokeStyle = PALETTE.inkSoft;
+          ctx.lineWidth = 3;
+          roundedRectPath(ctx, -28, -18, 56, 36, 12);
+          ctx.fill();
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(item.dx * 17, item.dy * 17);
+          ctx.lineTo(-item.dy * 9 - item.dx * 5, item.dx * 9 - item.dy * 5);
+          ctx.lineTo(item.dy * 9 - item.dx * 5, -item.dx * 9 - item.dy * 5);
+          ctx.closePath();
+          ctx.fillStyle = '#FFF8E9';
+          ctx.fill();
+        });
+      } else if (item.type === 'lure') {
+        const wobble = Math.sin(this.time * 5) * 3;
+        drawAssetOrFallback(ctx, this.assetStore, 'item-lure-jelly-world', (asset) => {
+          ctx.translate(position.x, position.y + 10);
+          ctx.scale(1 - wobble * 0.006, 1 + wobble * 0.006);
+          ctx.drawImage(asset, -25, -40, 50, 50);
+        }, () => {
+          ctx.translate(position.x, position.y + 10);
+          ctx.fillStyle = '#F3A85F';
+          ctx.strokeStyle = PALETTE.inkSoft;
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.moveTo(-25, 6);
+          ctx.quadraticCurveTo(-28, -20 + wobble, 0, -23 - wobble);
+          ctx.quadraticCurveTo(28, -20 + wobble, 25, 6);
+          ctx.quadraticCurveTo(0, 17, -25, 6);
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+        });
+      }
+    }
+  }
+
+  drawUnits(ctx, providedUnits = null) {
+    const units = providedUnits ? [...providedUnits] : [];
+    if (!providedUnits) {
+      this.state.survivors.forEach((survivor) => units.push({ kind: 'survivor', entity: survivor, depth: survivor.y + 0.15 }));
+      this.state.enemies.forEach((enemy) => units.push({ kind: 'enemy', entity: enemy, depth: enemy.y + 0.5 }));
+    }
     units.sort((a, b) => a.depth - b.depth);
     for (const unit of units) {
       if (unit.kind === 'survivor') {
         const survivor = unit.entity;
         const position = this.entityCanvasPosition(survivor);
+        // The sprout's tall leaves share the row above; a small grounded offset
+        // keeps them visually separate from a crystal defender in that row.
+        if (survivor.cardId === 'survivor-moss-sprout') position.y += 7;
         const selected = this.selection?.uid === survivor.uid || this.selection?.firstUid === survivor.uid || this.selection?.sourceUid === survivor.uid;
         drawSlime(ctx, position.x, position.y, 68, SURVIVOR_VARIANT[survivor.cardId], {
+          assetStore: this.assetStore,
           time: this.time,
           pose: this.entityAnimationPose(survivor),
           expressionSample: this.entityExpressionSample(survivor),
@@ -1775,7 +2151,16 @@ export class SlimeGame {
           phase: survivor.x * 0.7 + survivor.y,
         });
         if (!survivor.downed) this.drawHealthBar(ctx, position.x, position.y - 75, 48, survivor.hp / survivor.maxHp, survivor.shield > 0);
-        if (survivor.seed > 0) drawStatusIcon(ctx, position.x + 28, position.y - 64, 22, 'heal', { time: this.time, shadow: false });
+        let statusX = position.x + 28;
+        if (survivor.shield > 0) {
+          drawStatusIcon(ctx, statusX, position.y - 64, 22, 'shield', {
+            assetStore: this.assetStore, time: this.time, shadow: false,
+          });
+          statusX += 22;
+        }
+        if (survivor.seed > 0) drawStatusIcon(ctx, statusX, position.y - 64, 22, 'heal', {
+          assetStore: this.assetStore, time: this.time, shadow: false,
+        });
       } else {
         const enemy = unit.entity;
         const deathElapsed = enemy.deathElapsed || 0;
@@ -1785,6 +2170,7 @@ export class SlimeGame {
         const card = ENEMY_BY_ID[enemy.cardId];
         const alpha = enemy.dead ? clamp(1 - deathElapsed / deathDuration, 0, 1) : 1;
         drawMonster(ctx, position.x, position.y, card.elite ? 100 : 62, ENEMY_VARIANT[enemy.cardId], {
+          assetStore: this.assetStore,
           time: this.time,
           pose: this.entityAnimationPose(enemy),
           expressionSample: this.entityExpressionSample(enemy),
@@ -1792,24 +2178,83 @@ export class SlimeGame {
           facing: -1,
           alpha,
           hit: enemy.hitFlash,
-          selected: enemy.marked,
+          targeted: enemy.marked,
           phase: Number(enemy.uid.split('-').pop()) * 0.4,
         });
         if (!enemy.dead) this.drawHealthBar(ctx, position.x, position.y - (card.elite ? 112 : 68), card.elite ? 82 : 46, enemy.hp / enemy.maxHp, false, true);
         let iconX = position.x + 27;
-        if (enemy.marked) { drawStatusIcon(ctx, iconX, position.y - 60, 22, 'marked', { time: this.time, shadow: false }); iconX += 22; }
-        if (enemy.stagger > 0) drawStatusIcon(ctx, iconX, position.y - 60, 22, 'stun', { time: this.time, shadow: false });
+        if (enemy.marked) {
+          drawStatusIcon(ctx, iconX, position.y - 60, 22, 'marked', {
+            assetStore: this.assetStore, time: this.time, shadow: false,
+          });
+          iconX += 22;
+        }
+        if (enemy.stagger > 0) drawStatusIcon(ctx, iconX, position.y - 60, 22, 'stun', {
+          assetStore: this.assetStore, time: this.time, shadow: false,
+        });
+        if (enemy.stagger > 0) iconX += 22;
+        if (enemy.rooted > 0) {
+          drawStatusIcon(ctx, iconX, position.y - 60, 22, 'slow', {
+            assetStore: this.assetStore, time: this.time, shadow: false,
+          });
+          iconX += 22;
+        }
+        if (enemy.bubbleStatus > 0) drawStatusIcon(ctx, iconX, position.y - 60, 22, 'bubble', {
+          assetStore: this.assetStore, time: this.time, shadow: false,
+        });
         if (enemy.telegraph > 0) {
-          ctx.save();
-          ctx.strokeStyle = PALETTE.danger;
-          ctx.lineWidth = 4;
-          ctx.globalAlpha = 0.6 + Math.sin(this.time * 10) * 0.25;
-          ctx.beginPath();
-          ctx.arc(position.x, position.y - 48, 51, -Math.PI / 2, -Math.PI / 2 + TAU * (1 - enemy.telegraph / ENEMY_BY_ID[enemy.cardId].ability.telegraphSeconds));
-          ctx.stroke();
-          ctx.restore();
+          const telegraphProgress = 1 - enemy.telegraph
+            / ENEMY_BY_ID[enemy.cardId].ability.telegraphSeconds;
+          drawAssetOrFallback(ctx, this.assetStore, 'effect-boss-acid-telegraph', (asset) => {
+            ctx.globalAlpha *= 0.6 + Math.sin(this.time * 10) * 0.25;
+            ctx.translate(position.x, position.y - 48);
+            if (typeof ctx.clip === 'function') {
+              ctx.beginPath();
+              ctx.moveTo(0, 0);
+              ctx.arc(0, 0, 54, -Math.PI / 2, -Math.PI / 2 + TAU * telegraphProgress);
+              ctx.closePath();
+              ctx.clip();
+            }
+            ctx.drawImage(asset, -51, -51, 102, 102);
+          }, () => {
+            ctx.strokeStyle = PALETTE.danger;
+            ctx.lineWidth = 4;
+            ctx.globalAlpha = 0.6 + Math.sin(this.time * 10) * 0.25;
+            ctx.beginPath();
+            ctx.arc(
+              position.x,
+              position.y - 48,
+              51,
+              -Math.PI / 2,
+              -Math.PI / 2 + TAU * telegraphProgress,
+            );
+            ctx.stroke();
+          });
         }
       }
+    }
+  }
+
+  drawWorldEffects(ctx, layer) {
+    for (const effect of this.state.worldEffects) {
+      if (effect.layer !== layer) continue;
+      const progress = clamp(1 - effect.life / effect.maxLife, 0, 1);
+      const scale = lerp(effect.scaleFrom, effect.scaleTo, progress);
+      const fadeIn = clamp(progress * 6, 0, 1);
+      const fadeOut = clamp((1 - progress) * 2.4, 0, 1);
+      drawAssetOrFallback(ctx, this.assetStore, effect.assetKey, (asset) => {
+        ctx.globalAlpha *= fadeIn * fadeOut;
+        ctx.translate(effect.x, effect.y);
+        ctx.rotate(effect.rotation);
+        ctx.scale(scale, scale);
+        ctx.drawImage(
+          asset,
+          -effect.width / 2,
+          -effect.height / 2,
+          effect.width,
+          effect.height,
+        );
+      }, () => {});
     }
   }
 
@@ -1820,16 +2265,48 @@ export class SlimeGame {
       const x = lerp(projectile.from.x, projectile.to.x, progress);
       const y = lerp(projectile.from.y - 28, projectile.to.y - 24, progress) - Math.sin(progress * Math.PI) * 16;
       const angle = Math.atan2(projectile.to.y - projectile.from.y, projectile.to.x - projectile.from.x);
-      drawProjectile(ctx, x, y, projectile.type === 'crystal' ? 17 : 14, projectile.type === 'crystal' ? 'needle' : projectile.type, { progress, rotation: angle });
+      drawProjectile(
+        ctx,
+        x,
+        y,
+        projectile.type === 'crystal' ? 17 : 14,
+        projectile.type === 'crystal' ? 'needle' : projectile.type,
+        { assetStore: this.assetStore, progress, rotation: angle },
+      );
     }
     for (const particle of this.state.particles) {
-      ctx.save();
-      ctx.globalAlpha = clamp(particle.life / particle.maxLife, 0, 1);
-      ctx.fillStyle = particle.color;
-      ctx.beginPath();
-      ctx.arc(particle.x, particle.y, particle.size, 0, TAU);
-      ctx.fill();
-      ctx.restore();
+      const alpha = clamp(particle.life / particle.maxLife, 0, 1);
+      const assetKey = particle.assetKey || (particle.color === PALETTE.heal
+        ? 'effect-particle-healing-leaf'
+        : particle.color === PALETTE.bubble
+          ? 'effect-particle-bubble'
+          : particle.color === PALETTE.crystal
+            ? 'effect-particle-impact-spark'
+            : null);
+      const drawFallback = () => {
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = particle.color;
+        ctx.beginPath();
+        ctx.arc(particle.x, particle.y, particle.size, 0, TAU);
+        ctx.fill();
+      };
+      if (!assetKey) {
+        ctx.save();
+        drawFallback();
+        ctx.restore();
+        continue;
+      }
+      drawAssetOrFallback(ctx, this.assetStore, assetKey, (asset) => {
+        ctx.globalAlpha *= alpha;
+        const diameter = particle.size * 2.6;
+        ctx.drawImage(
+          asset,
+          particle.x - diameter / 2,
+          particle.y - diameter / 2,
+          diameter,
+          diameter,
+        );
+      }, drawFallback);
     }
     for (const floater of this.state.floaters) {
       ctx.save();
@@ -1845,21 +2322,132 @@ export class SlimeGame {
     }
   }
 
+  selectionCellIsValid(cell) {
+    const selection = this.selection;
+    if (!selection || !cell) return false;
+    if (selection.kind === 'place-building') {
+      const card = BUILDING_BY_ID[selection.cardId];
+      return Boolean(card)
+        && this.shapingUsed() + card.cost <= SHAPING_BUDGET
+        && canPlace(this.state.buildings, card, cell.x, cell.y, selection.rotation);
+    }
+    if (selection.kind === 'move-building') {
+      const building = this.state.buildings.find((item) => item.uid === selection.uid);
+      const card = building && BUILDING_BY_ID[building.cardId];
+      return Boolean(card)
+        && canPlace(this.state.buildings, card, cell.x, cell.y, building.rotation, building.uid);
+    }
+    if (selection.kind === 'place-survivor' || selection.kind === 'move-survivor') {
+      const survivor = selection.uid
+        ? this.state.survivors.find((item) => item.uid === selection.uid)
+        : this.state.survivors.find((item) => item.cardId === selection.cardId);
+      return Boolean(survivor)
+        && !this.state.survivors.some((item) => (
+          item.uid !== survivor.uid && !item.downed && item.x === cell.x && item.y === cell.y
+        ));
+    }
+    if (selection.kind !== 'target-card') return false;
+    const card = selection.cardType === 'skill'
+      ? SKILL_BY_ID[selection.cardId]
+      : ITEM_BY_ID[selection.cardId];
+    if (!card) return false;
+    if (card.id === 'skill-jelly-bounce') {
+      return this.state.enemies.some((enemy) => (
+        !enemy.dead && Math.abs(enemy.x - cell.x) + Math.abs(enemy.y - cell.y) <= 1.25
+      ));
+    }
+    if (card.id === 'skill-honey-line' || card.id === 'item-spring-pad') {
+      if (selection.step === 0) {
+        const obstacle = buildingAt(this.state.buildings, cell.x, cell.y);
+        return !obstacle || !BUILDING_BY_ID[obstacle.cardId].solid;
+      }
+      const dx = cell.x - selection.origin.x;
+      const dy = cell.y - selection.origin.y;
+      if (Math.abs(dx) + Math.abs(dy) !== 1) return false;
+      if (card.id === 'item-spring-pad') return true;
+      return [0, 1, 2].every((step) => inBoard(
+        selection.origin.x + dx * step,
+        selection.origin.y + dy * step,
+      ));
+    }
+    if (card.id === 'skill-soft-swap') {
+      const target = this.state.survivors.find((item) => (
+        !item.downed && item.x === cell.x && item.y === cell.y
+      ));
+      return Boolean(target) && target.uid !== selection.firstUid;
+    }
+    if (card.id === 'skill-sprout-renewal') {
+      const survivor = this.state.survivors.some((item) => (
+        !item.downed && item.x === cell.x && item.y === cell.y
+      ));
+      const building = buildingAt(this.state.buildings, cell.x, cell.y);
+      return survivor || Boolean(building && !building.destroyed);
+    }
+    if (card.id === 'item-lure-jelly') {
+      const obstacle = buildingAt(this.state.buildings, cell.x, cell.y);
+      return !obstacle || !BUILDING_BY_ID[obstacle.cardId].solid;
+    }
+    if (card.id === 'item-moving-bubble') {
+      if (selection.step === 0) {
+        const survivor = this.state.survivors.some((item) => (
+          !item.downed && item.x === cell.x && item.y === cell.y
+        ));
+        const building = buildingAt(this.state.buildings, cell.x, cell.y);
+        if (survivor) return true;
+        if (!building) return false;
+        const shape = rotatedFootprint(BUILDING_BY_ID[building.cardId], building.rotation);
+        return shape.width === 1 && shape.height === 1;
+      }
+      if (selection.sourceType === 'survivor') {
+        return !this.state.survivors.some((item) => (
+          item.uid !== selection.sourceUid && !item.downed && item.x === cell.x && item.y === cell.y
+        ));
+      }
+      const building = this.state.buildings.find((item) => item.uid === selection.sourceUid);
+      return Boolean(building)
+        && !this.state.enemies.some((enemy) => (
+          !enemy.dead && Math.abs(enemy.x - cell.x) < 0.6 && Math.abs(enemy.y - cell.y) < 0.6
+        ))
+        && canPlace(
+          this.state.buildings,
+          BUILDING_BY_ID[building.cardId],
+          cell.x,
+          cell.y,
+          building.rotation,
+          building.uid,
+        );
+    }
+    return true;
+  }
+
   drawSelectionOverlay(ctx) {
     const selection = this.selection;
     if (!selection) return;
-    const highlightCell = (cell, color = '#61D6A2', alpha = 0.28) => {
-      drawRoundedRect(ctx, BOARD.x + cell.x * BOARD.cell + 5, BOARD.y + cell.y * BOARD.cell + 5, BOARD.cell - 10, BOARD.cell - 10, {
-        radius: 13, fill: color.replace(')', `,${alpha})`).replace('rgb', 'rgba'), stroke: color, lineWidth: 3,
-      });
+    const drawCellOverlay = (cell, valid, alpha = 0.8) => {
+      if (!cell) return;
+      const x = BOARD.x + cell.x * BOARD.cell + 5;
+      const y = BOARD.y + cell.y * BOARD.cell + 5;
+      drawAssetOrFallback(
+        ctx,
+        this.assetStore,
+        valid ? 'tile-placement-valid' : 'tile-placement-invalid',
+        (asset) => {
+          ctx.globalAlpha *= alpha;
+          ctx.drawImage(asset, x, y, BOARD.cell - 10, BOARD.cell - 10);
+        },
+        () => drawRoundedRect(ctx, x, y, BOARD.cell - 10, BOARD.cell - 10, {
+          radius: 13,
+          fill: valid ? 'rgba(97,214,162,0.28)' : 'rgba(228,95,104,0.25)',
+          stroke: valid ? '#61D6A2' : '#E45F68',
+          lineWidth: 3,
+        }),
+      );
     };
     if (selection.origin) {
-      ctx.save();
-      ctx.globalAlpha = 0.33 + Math.sin(this.time * 5) * 0.08;
-      ctx.fillStyle = '#61D6A2';
-      roundedRectPath(ctx, BOARD.x + selection.origin.x * BOARD.cell + 5, BOARD.y + selection.origin.y * BOARD.cell + 5, BOARD.cell - 10, BOARD.cell - 10, 13);
-      ctx.fill();
-      ctx.restore();
+      drawCellOverlay(selection.origin, true, 0.56 + Math.sin(this.time * 5) * 0.08);
+    }
+    if (this.hoverCell) {
+      drawCellOverlay(this.hoverCell, this.selectionCellIsValid(this.hoverCell));
     }
     if (selection.kind === 'target-card') {
       ctx.save();
@@ -1915,7 +2503,10 @@ export class SlimeGame {
     ctx.textAlign = 'left';
     ctx.fillStyle = '#4E7E8A';
     ctx.font = '800 16px "PingFang SC", sans-serif';
-    ctx.fillText('◆ 软晶', 1004, 42);
+    drawAssetOrFallback(ctx, this.assetStore, 'ui-soft-crystal', (asset) => {
+      ctx.drawImage(asset, 1000, 25, 24, 24);
+      ctx.fillText('软晶', 1028, 42);
+    }, () => ctx.fillText('◆ 软晶', 1004, 42));
     ctx.fillStyle = PALETTE.ink;
     ctx.font = '900 20px "PingFang SC", sans-serif';
     ctx.fillText(`${this.state.softCrystals}`, 1078, 43);
@@ -1924,6 +2515,7 @@ export class SlimeGame {
     this.drawButton(ctx, 'audio-toggle', { x: 1184, y: 26, w: 54, h: 42 }, this.audio.enabled ? '声' : '静', {
       compact: true,
       secondary: true,
+      iconAssetKey: this.audio.enabled ? 'ui-audio-on' : 'ui-audio-off',
       title: this.audio.enabled ? '关闭音效' : '开启音效',
     }, () => { this.audio.enabled = !this.audio.enabled; });
   }
@@ -2135,13 +2727,17 @@ export class SlimeGame {
 
   drawCombatCards(ctx) {
     ctx.save();
-    ctx.fillStyle = '#61D6A2';
-    ctx.strokeStyle = PALETTE.inkSoft;
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.arc(74, BOTTOM.y + 55, 37, 0, TAU);
-    ctx.fill();
-    ctx.stroke();
+    drawAssetOrFallback(ctx, this.assetStore, 'ui-gel-energy', (asset) => {
+      ctx.drawImage(asset, 37, BOTTOM.y + 18, 74, 74);
+    }, () => {
+      ctx.fillStyle = '#61D6A2';
+      ctx.strokeStyle = PALETTE.inkSoft;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(74, BOTTOM.y + 55, 37, 0, TAU);
+      ctx.fill();
+      ctx.stroke();
+    });
     ctx.fillStyle = '#FFF8E9';
     ctx.font = '900 26px "PingFang SC", sans-serif';
     ctx.textAlign = 'center';
@@ -2192,25 +2788,64 @@ export class SlimeGame {
     return glyphs[card.id] || '胶';
   }
 
+  cardAssetKey(card) {
+    if (card.type === 'skill' || card.type === 'item') return `${card.id}-icon`;
+    if (card.type === 'survivor' || card.type === 'building') return card.id;
+    return null;
+  }
+
   drawMiniCard(ctx, id, rect, card, options, onTap, enabled = true) {
     const hovered = this.hoverId === id;
     const lift = options.selected ? -5 : hovered ? -2 : 0;
     const border = options.item ? '#B48768' : options.selected ? '#3F8B6A' : '#7DA58D';
     ctx.save();
     ctx.globalAlpha = options.disabled ? 0.48 : 1;
-    drawRoundedRect(ctx, rect.x, rect.y + lift, rect.w, rect.h, {
-      radius: 18,
-      fill: options.selected ? '#F0F8E8' : '#FFF8E9',
-      stroke: border,
-      lineWidth: options.selected ? 4 : 2.5,
-    });
-    drawRoundedRect(ctx, rect.x + 8, rect.y + 8 + lift, 46, rect.h - 16, {
-      radius: 14, fill: card.color, stroke: 'rgba(51,71,80,0.28)', lineWidth: 2,
-    });
-    ctx.fillStyle = '#FFF8E9';
-    ctx.font = '900 25px "PingFang SC", sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(this.cardGlyph(card), rect.x + 31, rect.y + 52 + lift);
+    const frameDrawn = drawAssetOrFallback(
+      ctx,
+      this.assetStore,
+      options.item ? 'ui-card-frame-item' : 'ui-card-frame-common',
+      (asset) => drawNineSlice(ctx, asset, rect.x, rect.y + lift, rect.w, rect.h),
+      () => {
+        drawRoundedRect(ctx, rect.x, rect.y + lift, rect.w, rect.h, {
+          radius: 18,
+          fill: options.selected ? '#F0F8E8' : '#FFF8E9',
+          stroke: border,
+          lineWidth: options.selected ? 4 : 2.5,
+        });
+        drawRoundedRect(ctx, rect.x + 8, rect.y + 8 + lift, 46, rect.h - 16, {
+          radius: 14, fill: card.color, stroke: 'rgba(51,71,80,0.28)', lineWidth: 2,
+        });
+      },
+    );
+    if (frameDrawn && (options.selected || hovered)) {
+      drawRoundedRect(ctx, rect.x, rect.y + lift, rect.w, rect.h, {
+        radius: 18,
+        stroke: options.selected ? '#3F8B6A' : border,
+        lineWidth: options.selected ? 4 : 2.5,
+      });
+    }
+    const drawGlyph = () => {
+      ctx.fillStyle = '#FFF8E9';
+      ctx.font = '900 25px "PingFang SC", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(this.cardGlyph(card), rect.x + 31, rect.y + 52 + lift);
+    };
+    const assetKey = this.cardAssetKey(card);
+    if (assetKey) {
+      drawAssetOrFallback(ctx, this.assetStore, assetKey, (asset) => {
+        drawImageContained(
+          ctx,
+          asset,
+          rect.x + 11,
+          rect.y + 12 + lift,
+          40,
+          rect.h - 24,
+          card.type === 'survivor' || card.type === 'building' ? 1 : 0.5,
+        );
+      }, drawGlyph);
+    } else {
+      drawGlyph();
+    }
     ctx.textAlign = 'left';
     ctx.fillStyle = PALETTE.ink;
     ctx.font = '800 15px "PingFang SC", sans-serif';
@@ -2265,13 +2900,30 @@ export class SlimeGame {
       ctx.fill();
       ctx.restore();
     }
-    ctx.save();
-    ctx.fillStyle = enabled ? color : '#8A928E';
-    ctx.font = `${options.compact ? 800 : 900} ${options.compact ? 16 : 18}px "PingFang SC", sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(label, rect.x + rect.w / 2, y + rect.h / 2 + 1);
-    ctx.restore();
+    const drawLabel = () => {
+      ctx.fillStyle = enabled ? color : '#8A928E';
+      ctx.font = `${options.compact ? 800 : 900} ${options.compact ? 16 : 18}px "PingFang SC", sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, rect.x + rect.w / 2, y + rect.h / 2 + 1);
+    };
+    if (options.iconAssetKey) {
+      drawAssetOrFallback(ctx, this.assetStore, options.iconAssetKey, (asset) => {
+        const iconSize = Math.min(28, rect.h - 12, rect.w - 12);
+        drawImageContained(
+          ctx,
+          asset,
+          rect.x + (rect.w - iconSize) / 2,
+          y + (rect.h - iconSize) / 2,
+          iconSize,
+          iconSize,
+        );
+      }, drawLabel);
+    } else {
+      ctx.save();
+      drawLabel();
+      ctx.restore();
+    }
     this.addHit(id, rect.x, rect.y - 3, rect.w, rect.h + 6, onTap, enabled);
   }
 
@@ -2433,10 +3085,14 @@ export class SlimeGame {
       Object.entries(counts).forEach(([enemyId, count]) => {
         const enemy = ENEMY_BY_ID[enemyId];
         const cy = y + 143 + line * 29;
-        ctx.fillStyle = enemy.color;
-        ctx.beginPath();
-        ctx.arc(x + 28, cy - 5, 8, 0, TAU);
-        ctx.fill();
+        drawAssetOrFallback(ctx, this.assetStore, enemyId, (asset) => {
+          drawImageContained(ctx, asset, x + 13, cy - 24, 30, 26, 1);
+        }, () => {
+          ctx.fillStyle = enemy.color;
+          ctx.beginPath();
+          ctx.arc(x + 28, cy - 5, 8, 0, TAU);
+          ctx.fill();
+        });
         ctx.fillStyle = PALETTE.inkSoft;
         ctx.font = '700 14px "PingFang SC", sans-serif';
         ctx.fillText(`${enemy.shortName} × ${count}`, x + 46, cy);
@@ -2557,6 +3213,29 @@ export class SlimeGame {
         cooldown: 0, shotCount: 0, shield: 0, seed: 0,
         fenceTrigger: 1, destroyed: false, placedAt: this.time,
       });
+      const shape = rotatedFootprint(card, selection.rotation);
+      const effectPosition = {
+        x: BOARD.x + (cell.x + shape.width / 2) * BOARD.cell,
+        y: BOARD.y + (cell.y + shape.height) * BOARD.cell - 8,
+      };
+      this.spawnWorldEffect(
+        'effect-particle-dust-puff',
+        effectPosition.x,
+        effectPosition.y,
+        Math.max(72, shape.width * BOARD.cell),
+        38,
+        0.46,
+        { scaleFrom: 0.66, scaleTo: 1.08 },
+      );
+      this.spawnWorldEffect(
+        'effect-particle-expanding-ring',
+        effectPosition.x,
+        effectPosition.y - 4,
+        Math.max(76, shape.width * BOARD.cell),
+        42,
+        0.42,
+        { scaleFrom: 0.52, scaleTo: 1.12 },
+      );
       this.audio.play('place');
       this.showToast(`${card.shortName}安顿好了`);
       this.save();
@@ -2574,6 +3253,20 @@ export class SlimeGame {
       building.x = cell.x;
       building.y = cell.y;
       building.placedAt = this.time;
+      const shape = rotatedFootprint(card, building.rotation);
+      const position = {
+        x: BOARD.x + (cell.x + shape.width / 2) * BOARD.cell,
+        y: BOARD.y + (cell.y + shape.height) * BOARD.cell - 8,
+      };
+      this.spawnWorldEffect(
+        'effect-particle-expanding-ring',
+        position.x,
+        position.y,
+        Math.max(76, shape.width * BOARD.cell),
+        42,
+        0.42,
+        { scaleFrom: 0.52, scaleTo: 1.12 },
+      );
       this.selection = { kind: 'inspect-building', uid: building.uid };
       this.audio.play('place');
       this.save();
@@ -2592,6 +3285,16 @@ export class SlimeGame {
       survivor.x = cell.x;
       survivor.y = cell.y;
       survivor.placedAt = this.time;
+      const position = this.cellCenter(cell.x, cell.y);
+      this.spawnWorldEffect(
+        'effect-particle-expanding-ring',
+        position.x,
+        position.y + 20,
+        74,
+        38,
+        0.4,
+        { scaleFrom: 0.5, scaleTo: 1.1 },
+      );
       this.selection = { kind: 'inspect-survivor', uid: survivor.uid };
       this.audio.play('place');
       this.save();
@@ -2710,6 +3413,7 @@ export class SlimeGame {
     this.state.spawned = new Set();
     this.state.enemies = [];
     this.state.projectiles = [];
+    this.state.worldEffects = [];
     this.state.terrain = this.state.terrain.filter((terrain) => terrain.persistent);
     this.state.deployables = [];
     this.pendingAttackHits.clear();
@@ -2835,6 +3539,7 @@ export class SlimeGame {
     this.state.result = null;
     this.state.enemies = [];
     this.state.projectiles = [];
+    this.state.worldEffects = [];
     this.state.terrain = [];
     this.state.deployables = [];
     this.state.kills = 0;

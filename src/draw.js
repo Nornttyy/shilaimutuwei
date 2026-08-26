@@ -89,6 +89,37 @@ const MONSTER_RIG_BY_TYPE = Object.freeze({
 const clamp = (value, min = 0, max = 1) => Math.max(min, Math.min(max, value));
 const safeNumber = (value, fallback = 0) => Number.isFinite(value) ? value : fallback;
 
+/**
+ * Draw one optional generated image atomically. Missing assets, unsupported
+ * stores, and drawImage exceptions all execute the complete vector fallback.
+ */
+export function drawAssetOrFallback(ctx, assetStore, key, drawAsset, drawFallback) {
+  const fallback = () => {
+    ctx.save();
+    try {
+      drawFallback?.();
+    } finally {
+      ctx.restore();
+    }
+  };
+  if (!assetStore || typeof assetStore.useOrFallback !== 'function') {
+    fallback();
+    return false;
+  }
+  return assetStore.useOrFallback(
+    key,
+    (asset) => {
+      ctx.save();
+      try {
+        drawAsset(asset);
+      } finally {
+        ctx.restore();
+      }
+    },
+    fallback,
+  );
+}
+
 function createRigSurface(ctx) {
   let canvas = null;
   try {
@@ -311,15 +342,28 @@ function drawSelectionRing(ctx, x, y, size, options) {
   if (!options.selected && !options.targeted) return;
   const time = safeNumber(options.time, 0);
   const pulse = 1 + Math.sin(time * 5) * 0.035;
-  ctx.save();
-  ctx.translate(x, y);
-  ctx.scale(pulse, pulse);
-  ctx.strokeStyle = options.targeted ? PALETTE.danger : (options.selectionColor || PALETTE.currency);
-  ctx.lineWidth = Math.max(2, size * 0.035);
-  ctx.globalAlpha *= 0.82;
-  ellipsePath(ctx, 0, 0, size * 0.47, size * 0.16);
-  ctx.stroke();
-  ctx.restore();
+  drawAssetOrFallback(
+    ctx,
+    options.assetStore,
+    options.targeted ? 'effect-target-ring-danger' : 'effect-selection-ring-friendly',
+    (asset) => {
+      ctx.translate(x, y);
+      ctx.scale(pulse, pulse);
+      ctx.globalAlpha *= 0.82;
+      ctx.drawImage(asset, -size * 0.5, -size * 0.25, size, size * 0.5);
+    },
+    () => {
+      ctx.translate(x, y);
+      ctx.scale(pulse, pulse);
+      ctx.strokeStyle = options.targeted
+        ? PALETTE.danger
+        : (options.selectionColor || PALETTE.currency);
+      ctx.lineWidth = Math.max(2, size * 0.035);
+      ctx.globalAlpha *= 0.82;
+      ellipsePath(ctx, 0, 0, size * 0.47, size * 0.16);
+      ctx.stroke();
+    },
+  );
 }
 
 function gooBodyPath(ctx, widen = 0) {
@@ -779,6 +823,19 @@ export function drawSlime(ctx, x, y, size, variantOrOptions = 'shell', maybeOpti
     alpha: 0.21 * (1 - clamp(options.hop || 0) * 0.45),
   });
 
+  if ((options.shield || 0) > 0) {
+    drawAssetOrFallback(ctx, options.assetStore, 'effect-shield-dome', (asset) => {
+      ctx.globalAlpha *= clamp(options.shield) * 0.58;
+      ctx.drawImage(asset, x - size * 0.55, y - size * 0.98, size * 1.1, size * 1.1);
+    }, () => {
+      ctx.globalAlpha *= clamp(options.shield) * 0.55;
+      ctx.strokeStyle = PALETTE.shield;
+      ctx.lineWidth = Math.max(2, size * 0.035);
+      ellipsePath(ctx, x, y - size * 0.39, size * 0.48, size * 0.44);
+      ctx.stroke();
+    });
+  }
+
   ctx.save();
   ctx.globalAlpha *= options.disabled ? 0.48 : clamp(options.alpha ?? 1);
   ctx.translate(x, y - hop);
@@ -819,15 +876,6 @@ export function drawSlime(ctx, x, y, size, variantOrOptions = 'shell', maybeOpti
   }
   ctx.restore();
 
-  if ((options.shield || 0) > 0) {
-    ctx.save();
-    ctx.globalAlpha *= clamp(options.shield) * 0.55;
-    ctx.strokeStyle = PALETTE.shield;
-    ctx.lineWidth = Math.max(2, size * 0.035);
-    ellipsePath(ctx, x, y - size * 0.39, size * 0.48, size * 0.44);
-    ctx.stroke();
-    ctx.restore();
-  }
 }
 
 export const drawShellSlime = (ctx, x, y, size, options = {}) => drawSlime(ctx, x, y, size, 'shell', options);
@@ -1698,6 +1746,34 @@ function drawDamageCracksLocal(ctx, damage = 0) {
   ctx.restore();
 }
 
+function drawDamageCracksAsset(ctx, asset, damage, x, y, width, height) {
+  if (damage <= 0.25) return;
+  const sourceWidth = Number(asset?.naturalWidth || asset?.width) || 512;
+  const sourceHeight = Number(asset?.naturalHeight || asset?.height) || 512;
+  const halfWidth = sourceWidth / 2;
+  const severe = damage > 0.65;
+  ctx.globalAlpha *= clamp((damage - 0.25) / 0.75) * 0.86;
+  ctx.drawImage(
+    asset,
+    severe ? halfWidth : 0,
+    0,
+    halfWidth,
+    sourceHeight,
+    x,
+    y,
+    width,
+    height,
+  );
+}
+
+const BUILDING_ASSET_BY_TYPE = Object.freeze({
+  hut: 'building-mushroom-home',
+  farm: 'building-honey-plot',
+  tower: 'building-bubble-tower',
+  fence: 'building-bouncy-fence',
+  weather: 'building-weather-scout',
+});
+
 /**
  * Draw one of five functional toy-like buildings.
  * `typeOrOptions`: 'hut' | 'farm' | 'tower' | 'fence' | 'weather', or an options object.
@@ -1721,12 +1797,26 @@ export function drawBuilding(ctx, x, y, size, typeOrOptions = 'hut', maybeOption
   ctx.translate(x, y + bob);
   const unit = size / 115;
   ctx.scale(unit, unit);
-  if (type === 'hut') drawHutLocal(ctx, options);
-  if (type === 'farm') drawFarmLocal(ctx, options);
-  if (type === 'tower') drawTowerLocal(ctx, options);
-  if (type === 'fence') drawFenceLocal(ctx, options);
-  if (type === 'weather') drawWeatherLocal(ctx, options);
-  drawDamageCracksLocal(ctx, clamp(options.damage || 0));
+  drawAssetOrFallback(ctx, options.assetStore, BUILDING_ASSET_BY_TYPE[type], (asset) => {
+    const sourceWidth = Number(asset?.naturalWidth || asset?.videoWidth || asset?.width) || 1;
+    const sourceHeight = Number(asset?.naturalHeight || asset?.videoHeight || asset?.height) || 1;
+    const imageScale = Math.min(115 / sourceWidth, 115 / sourceHeight);
+    const imageWidth = sourceWidth * imageScale;
+    const imageHeight = sourceHeight * imageScale;
+    ctx.drawImage(asset, -imageWidth / 2, 5 - imageHeight, imageWidth, imageHeight);
+  }, () => {
+    if (type === 'hut') drawHutLocal(ctx, options);
+    if (type === 'farm') drawFarmLocal(ctx, options);
+    if (type === 'tower') drawTowerLocal(ctx, options);
+    if (type === 'fence') drawFenceLocal(ctx, options);
+    if (type === 'weather') drawWeatherLocal(ctx, options);
+  });
+  const damage = clamp(options.damage || 0);
+  if (damage > 0.25) {
+    drawAssetOrFallback(ctx, options.assetStore, 'effect-damage-cracks-overlay', (asset) => {
+      drawDamageCracksAsset(ctx, asset, damage, -27.5, -104, 55, 104);
+    }, () => drawDamageCracksLocal(ctx, damage));
+  }
   ctx.restore();
 
   if (options.ghost) {
@@ -1746,6 +1836,26 @@ export const drawTower = (ctx, x, y, size, options = {}) => drawBuilding(ctx, x,
 export const drawFence = (ctx, x, y, size, options = {}) => drawBuilding(ctx, x, y, size, 'fence', options);
 export const drawWeatherStation = (ctx, x, y, size, options = {}) => drawBuilding(ctx, x, y, size, 'weather', options);
 
+function drawCoreDamageLocal(ctx, health) {
+  if (health >= 0.7) return;
+  ctx.save();
+  ctx.globalAlpha *= clamp((0.7 - health) / 0.7);
+  ctx.strokeStyle = PALETTE.dangerDeep;
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(5, -94);
+  ctx.lineTo(-4, -77);
+  ctx.lineTo(8, -68);
+  ctx.lineTo(1, -52);
+  if (health < 0.3) {
+    ctx.moveTo(-17, -77);
+    ctx.lineTo(-8, -66);
+    ctx.lineTo(-16, -52);
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
 /** Draw the town core. Health is represented by `options.health` in the 0..1 range. */
 export function drawCore(ctx, x, y, size, options = {}) {
   const health = clamp(options.health ?? 1);
@@ -1757,6 +1867,25 @@ export function drawCore(ctx, x, y, size, options = {}) {
     height: size * 0.19,
     alpha: 0.24,
   });
+
+  const renderedAsset = drawAssetOrFallback(ctx, options.assetStore, 'town-soft-core', (asset) => {
+    ctx.globalAlpha *= clamp(options.alpha ?? 1);
+    ctx.translate(x, y);
+    ctx.scale(pulse, pulse);
+    ctx.drawImage(asset, -size * 0.5, -size, size, size);
+  }, () => {});
+  if (renderedAsset) {
+    ctx.save();
+    ctx.globalAlpha *= clamp(options.alpha ?? 1);
+    ctx.translate(x, y);
+    ctx.scale(size / 120, size / 120);
+    const damage = 1 - health;
+    drawAssetOrFallback(ctx, options.assetStore, 'effect-damage-cracks-overlay', (asset) => {
+      drawDamageCracksAsset(ctx, asset, damage, -27.5, -113, 55, 110);
+    }, () => drawCoreDamageLocal(ctx, health));
+    ctx.restore();
+    return;
+  }
 
   ctx.save();
   ctx.globalAlpha *= clamp(options.alpha ?? 1);
@@ -1809,24 +1938,10 @@ export function drawCore(ctx, x, y, size, options = {}) {
   ctx.fill();
   ctx.restore();
 
-  if (health < 0.7) {
-    ctx.save();
-    ctx.globalAlpha *= clamp((0.7 - health) / 0.7);
-    ctx.strokeStyle = PALETTE.dangerDeep;
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(5, -94);
-    ctx.lineTo(-4, -77);
-    ctx.lineTo(8, -68);
-    ctx.lineTo(1, -52);
-    if (health < 0.3) {
-      ctx.moveTo(-17, -77);
-      ctx.lineTo(-8, -66);
-      ctx.lineTo(-16, -52);
-    }
-    ctx.stroke();
-    ctx.restore();
-  }
+  const damage = 1 - health;
+  drawAssetOrFallback(ctx, options.assetStore, 'effect-damage-cracks-overlay', (asset) => {
+    drawDamageCracksAsset(ctx, asset, damage, -27.5, -113, 55, 110);
+  }, () => drawCoreDamageLocal(ctx, health));
   ctx.restore();
 }
 
@@ -1840,6 +1955,14 @@ export function drawPortal(ctx, x, y, size, options = {}) {
     height: size * 0.18,
     alpha: 0.28 * open,
   });
+
+  const renderedAsset = drawAssetOrFallback(ctx, options.assetStore, 'rift-entry-portal', (asset) => {
+    ctx.globalAlpha *= clamp(options.alpha ?? 1) * (0.55 + open * 0.45);
+    ctx.translate(x, y);
+    ctx.scale(pulse, pulse);
+    ctx.drawImage(asset, -size * 0.5, -size, size, size);
+  }, () => {});
+  if (renderedAsset) return;
 
   ctx.save();
   ctx.globalAlpha *= clamp(options.alpha ?? 1);
@@ -2023,6 +2146,36 @@ export function drawStatusIcon(ctx, x, y, size, typeOrOptions = 'shield', maybeO
   const radius = size / 2;
   const time = safeNumber(options.time, 0);
   const pulse = options.pulse ? 1 + Math.sin(time * 5) * 0.06 : 1;
+  const renderedAsset = drawAssetOrFallback(ctx, options.assetStore, `status-${type}`, (asset) => {
+    ctx.globalAlpha *= clamp(options.alpha ?? 1);
+    ctx.translate(x, y);
+    ctx.scale(pulse, pulse);
+    if (options.shadow !== false) {
+      ctx.shadowColor = 'rgba(38,54,66,0.26)';
+      ctx.shadowBlur = size * 0.15;
+      ctx.shadowOffsetY = size * 0.08;
+    }
+    ctx.drawImage(asset, -radius, -radius, size, size);
+  }, () => {});
+  if (renderedAsset) {
+    const stacks = clamp(Math.round(options.stacks || 0), 0, 3);
+    if (stacks > 0) {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.fillStyle = PALETTE.panel;
+      ctx.strokeStyle = PALETTE.inkSoft;
+      ctx.lineWidth = Math.max(1, size * 0.035);
+      const dotRadius = size * 0.085;
+      for (let i = 0; i < stacks; i += 1) {
+        const dx = (i - (stacks - 1) / 2) * dotRadius * 2.2;
+        ellipsePath(ctx, dx, radius * 0.76, dotRadius, dotRadius);
+        ctx.fill();
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+    return;
+  }
   ctx.save();
   ctx.globalAlpha *= clamp(options.alpha ?? 1);
   ctx.translate(x, y);
@@ -2227,6 +2380,21 @@ export function drawProjectile(ctx, xOrProjectile, y, size, typeOrOptions = 'goo
   ctx.globalAlpha *= clamp(options.alpha ?? 1);
   ctx.translate(x, y);
   ctx.rotate(rotation);
+  const imageScale = knownType === 'needle' ? 1.55 : knownType === 'bubble' ? 1.65 : 1.4;
+  const renderedAsset = drawAssetOrFallback(
+    ctx,
+    options.assetStore,
+    `effect-projectile-${knownType}`,
+    (asset) => {
+      const imageSize = projectileSize * imageScale;
+      ctx.drawImage(asset, -imageSize / 2, -imageSize / 2, imageSize, imageSize);
+    },
+    () => {},
+  );
+  if (renderedAsset) {
+    ctx.restore();
+    return;
+  }
   if (knownType === 'needle') {
     ctx.shadowColor = PALETTE.crystal;
     ctx.shadowBlur = projectileSize * 0.35;
@@ -2283,6 +2451,24 @@ export function drawProjectile(ctx, xOrProjectile, y, size, typeOrOptions = 'goo
 export function drawParticle(ctx, x, y, size, typeOrOptions = 'goo', maybeOptions = {}) {
   const [typeRaw, options] = resolveVariant(typeOrOptions, maybeOptions, 'goo');
   const type = ['goo', 'spark', 'ring', 'leaf', 'bubble', 'dust'].includes(typeRaw) ? typeRaw : 'goo';
+  const assetKey = {
+    goo: 'effect-particle-goo-drop',
+    spark: 'effect-particle-impact-spark',
+    ring: 'effect-particle-expanding-ring',
+    leaf: 'effect-particle-healing-leaf',
+    bubble: 'effect-particle-bubble',
+    dust: 'effect-particle-dust-puff',
+  }[type];
+  const progress = clamp(options.progress ?? 0);
+  const renderedAsset = drawAssetOrFallback(ctx, options.assetStore, assetKey, (asset) => {
+    ctx.globalAlpha *= clamp(options.alpha ?? (1 - progress));
+    ctx.translate(x, y);
+    ctx.rotate(safeNumber(options.rotation, 0));
+    const width = size * (type === 'ring' || type === 'dust' ? 2 : 1.35);
+    const height = size * (type === 'ring' || type === 'dust' ? 1 : 1.35);
+    ctx.drawImage(asset, -width / 2, -height / 2, width, height);
+  }, () => {});
+  if (renderedAsset) return;
   if (type === 'goo') drawGooParticle(ctx, x, y, size, options);
   if (type === 'spark') drawSparkParticle(ctx, x, y, size, options);
   if (type === 'ring') drawRingParticle(ctx, x, y, size, options);

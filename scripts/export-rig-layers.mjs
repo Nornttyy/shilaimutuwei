@@ -28,6 +28,7 @@ export const PNG_SIGNATURE = Buffer.from([
 const SAFE_ATLAS_PATH = /^assets\/generated-v2\/rig\/[^/]+\/atlas\.png$/;
 const VERSIONED_ATLAS_PATHS = Object.freeze({
   'enemy-acid-shell-king': 'assets/generated-v2/rig/enemy-acid-shell-king/atlas-layered-v2.png',
+  'enemy-windcap': 'assets/generated-v2/rig/enemy-windcap/atlas-layered-v2.png',
 });
 const FORBIDDEN_IMAGE_PATH_SEGMENT = /(?:^|\/)(?:review|preview|candidates?)(?:\/|$)/i;
 const SAFE_ID = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/;

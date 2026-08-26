@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Generate small, deterministic facial-expression atlases for every rig.
+"""Generate deterministic, character-specific expression atlases for every rig.
 
 The normal eyes and mouth stay in each rig's main atlas.  This script reads only
-the current canonical atlases declared by ``assets/rig-parts.json``.  It uses the
-normal eye alpha mask to locate the two eyes, then draws deliberately simple,
-flat-colour variants into ``expressions-v2.png`` beside that atlas.
+the current canonical atlases declared by ``assets/rig-parts.json``.  Variants
+reuse each character's normal pixels, palette, eye spacing and mouth silhouette;
+only small, profile-specific lid and mouth changes are introduced.  This keeps
+the cast recognizable and avoids a shared generic angry/X-eye template.
 
 Run from anywhere with:
 
@@ -18,9 +19,9 @@ import json
 import re
 from collections import deque
 from pathlib import Path
-from typing import Callable, Iterable, Sequence
+from typing import Callable, Sequence
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageChops, ImageDraw, ImageOps
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -29,6 +30,7 @@ ALLOWED_ATLAS = re.compile(r"^assets/generated-v2/rig/[^/]+/atlas\.png$")
 ALLOWED_VERSIONED_ATLASES = frozenset(
     {
         "assets/generated-v2/rig/enemy-acid-shell-king/atlas-layered-v2.png",
+        "assets/generated-v2/rig/enemy-windcap/atlas-layered-v2.png",
     }
 )
 
@@ -37,14 +39,95 @@ MOUTH_VARIANTS = ("open", "hurt")
 ALPHA_THRESHOLD = 32
 SUPERSAMPLE = 4
 
-# One compact, high-saturation palette shared by the cast.  The generated art
-# intentionally has no gradients, texture, shadows, or decorative detail.
-INK = (8, 35, 92, 255)
-ACCENT = (24, 201, 255, 255)
-TONGUE = (255, 67, 145, 255)
+# Every owner has its own restrained expression direction.  Numeric lid depths
+# are fractions of that owner's original eye height, so the atlas stays fixed
+# when source art dimensions differ.  Mouth transforms always reuse normal art
+# unless a deliberately simple O mouth is requested.
+ROLE_PROFILES = {
+    "survivor-shell-shell": {
+        "blink_curve": 0.08,
+        "blink_offsets": (-0.01, 0.01),
+        "attack_depths": (0.10, 0.10),
+        "attack_focus": 0.045,
+        "hurt_depths": (0.17, 0.17),
+        "open_mouth": (0.82, 1.18, 0.0, 1.0, False),
+        "hurt_mouth": (0.84, 0.76, 0.0, 2.0, True),
+    },
+    "survivor-crystal-pin": {
+        "blink_curve": 0.03,
+        "blink_offsets": (0.00, -0.02),
+        "attack_depths": (0.055, 0.055),
+        "attack_focus": 0.0,
+        "hurt_depths": (0.13, 0.13),
+        "open_mouth": (0.96, 1.06, 0.0, 0.0, False),
+        "hurt_mouth": (0.90, 0.78, 0.0, 1.0, True),
+    },
+    "survivor-bubble-float": {
+        "blink_curve": 0.14,
+        "blink_offsets": (0.0, 0.0),
+        "attack_depths": (0.015, 0.015),
+        "attack_focus": 0.0,
+        "hurt_depths": (0.10, 0.10),
+        "open_mouth": "round-o",
+        "hurt_mouth": (0.88, 0.72, 0.0, 2.0, True),
+    },
+    "survivor-moss-sprout": {
+        "blink_curve": 0.17,
+        "blink_offsets": (-0.01, 0.01),
+        "attack_depths": (0.035, 0.035),
+        "attack_focus": 0.0,
+        "hurt_closed_curve": -0.12,
+        "open_mouth": "small-o",
+        "hurt_mouth": (0.86, 0.70, 0.0, 1.0, True),
+    },
+    "enemy-soft-biter": {
+        "blink_curve": 0.05,
+        "blink_offsets": (-0.02, 0.02),
+        "attack_depths": (0.075, 0.10),
+        "attack_focus": 0.025,
+        "hurt_depths": (0.15, 0.19),
+        "open_mouth": (0.98, 1.10, -1.0, 1.0, False),
+        "hurt_mouth": (0.96, 0.78, -1.0, 2.0, True),
+    },
+    "enemy-windcap": {
+        "blink_curve": 0.11,
+        "blink_offsets": (0.02, -0.02),
+        "attack_depths": (0.055, 0.085),
+        "attack_focus": 0.0,
+        "hurt_depths": (0.14, 0.10),
+        "open_mouth": (0.90, 1.16, 1.0, 1.0, False),
+        "hurt_mouth": (0.92, 0.75, 1.0, 2.0, True),
+    },
+    "enemy-stone-lump": {
+        "blink_curve": 0.02,
+        "blink_offsets": (0.0, 0.0),
+        "attack_depths": (0.045, 0.065),
+        "attack_focus": 0.015,
+        "hurt_depths": (0.10, 0.13),
+        "open_mouth": (1.0, 0.94, 0.0, 1.0, False),
+        "hurt_mouth": (0.90, 0.72, 0.0, 2.0, True),
+    },
+    "enemy-acid-shell-king": {
+        "eye_count": 3,
+        "blink_curve": 0.0,
+        "blink_stroke_ratio": 0.18,
+        "blink_offsets": (-0.01, 0.0, 0.01),
+        "attack_depths": (0.065, 0.045, 0.065),
+        "attack_focus": 0.02,
+        "hurt_depths": (0.12, 0.08, 0.09),
+        "open_mouth": "preserve-acid",
+        "hurt_mouth": (0.96, 0.90, 0.0, 1.0, False),
+    },
+}
 
 Box = tuple[int, int, int, int]
 Point = tuple[float, float]
+Colour = tuple[int, int, int, int]
+
+
+def _pixel_data(image: Image.Image):
+    getter = getattr(image, "get_flattened_data", None)
+    return getter() if getter is not None else image.getdata()
 
 
 def _part(rig: dict, part_id: str) -> dict:
@@ -124,22 +207,27 @@ def _connected_alpha_boxes(image: Image.Image) -> list[tuple[int, Box]]:
     return sorted(components, key=lambda component: component[0], reverse=True)
 
 
-def _infer_eye_boxes(normal_eyes: Image.Image) -> tuple[Box, Box]:
+def _infer_eye_boxes(
+    normal_eyes: Image.Image,
+    expected_count: int = 2,
+) -> tuple[Box, ...]:
     components = _connected_alpha_boxes(normal_eyes)
     minimum_area = max(24, normal_eyes.width * normal_eyes.height // 50)
     substantial = [component for component in components if component[0] >= minimum_area]
-    if len(substantial) < 2:
+    if len(substantial) != expected_count:
         raise ValueError(
-            f"expected two alpha-connected eyes, found {len(substantial)} "
+            f"expected {expected_count} alpha-connected eyes, found {len(substantial)} "
             f"in {normal_eyes.size} source"
         )
 
-    boxes = sorted((substantial[0][1], substantial[1][1]), key=lambda box: box[0])
+    boxes = sorted((component[1] for component in substantial), key=lambda box: box[0])
     left_center = (boxes[0][0] + boxes[0][2]) / 2
-    right_center = (boxes[1][0] + boxes[1][2]) / 2
+    right_center = (boxes[-1][0] + boxes[-1][2]) / 2
     if left_center >= normal_eyes.width / 2 or right_center <= normal_eyes.width / 2:
         raise ValueError(f"could not separate left and right eyes: {boxes}")
-    return boxes[0], boxes[1]
+    if any(left[2] >= right[0] for left, right in zip(boxes, boxes[1:])):
+        raise ValueError(f"facial eyes are not independently separated: {boxes}")
+    return tuple(boxes)
 
 
 def _scale_point(point: Point) -> tuple[int, int]:
@@ -150,7 +238,7 @@ def _round_line(
     draw: ImageDraw.ImageDraw,
     points: Sequence[Point],
     width: float,
-    fill: tuple[int, int, int, int] = INK,
+    fill: Colour,
 ) -> None:
     scaled_points = [_scale_point(point) for point in points]
     scaled_width = max(SUPERSAMPLE, round(width * SUPERSAMPLE))
@@ -173,89 +261,109 @@ def _render_cell(
     return large.resize(size, Image.Resampling.LANCZOS)
 
 
-def _inset_box(box: Box, x_ratio: float, y_ratio: float) -> tuple[float, ...]:
-    left, top, right, bottom = box
-    width = right - left
-    height = bottom - top
-    inset_x = max(2.5, width * x_ratio)
-    inset_y = max(2.5, height * y_ratio)
-    return left + inset_x, top + inset_y, right - inset_x, bottom - inset_y
+def _sample_ink(image: Image.Image) -> Colour:
+    """Sample the owner's own dark outline colour instead of a cast-wide ink."""
+
+    pixels = [
+        (red, green, blue)
+        for red, green, blue, alpha in _pixel_data(image)
+        if alpha >= 128 and max(red, green, blue) < 245
+    ]
+    if not pixels:
+        raise ValueError(f"could not sample facial ink from {image.size} source")
+    pixels.sort(key=lambda colour: colour[0] * 3 + colour[1] * 6 + colour[2])
+    darkest = pixels[: max(12, len(pixels) // 5)]
+    channels = [sorted(colour[index] for colour in darkest) for index in range(3)]
+    middle = len(darkest) // 2
+    return channels[0][middle], channels[1][middle], channels[2][middle], 255
 
 
-def _paint_blink(draw: ImageDraw.ImageDraw, eye_boxes: Iterable[Box]) -> None:
-    for box in eye_boxes:
-        left, top, right, bottom = _inset_box(box, 0.10, 0.18)
-        width = right - left
-        height = bottom - top
-        center_y = top + height * 0.54
-        points = (
-            (left, center_y - height * 0.07),
-            (left + width * 0.25, center_y + height * 0.06),
-            (left + width * 0.50, center_y + height * 0.11),
-            (left + width * 0.75, center_y + height * 0.06),
-            (right, center_y - height * 0.07),
-        )
-        _round_line(draw, points, max(2.2, min(width, height) * 0.14))
+def _paint_closed_eyes(
+    draw: ImageDraw.ImageDraw,
+    eye_boxes: Sequence[Box],
+    ink: Colour,
+    curve: float,
+    offsets: Sequence[float],
+    stroke_ratio: float = 0.12,
+) -> None:
+    """Draw one soft arc per original eye box, preserving horizontal centres."""
 
-
-def _paint_hurt_eyes(draw: ImageDraw.ImageDraw, eye_boxes: Iterable[Box]) -> None:
-    for box in eye_boxes:
-        left, top, right, bottom = _inset_box(box, 0.20, 0.20)
-        stroke = max(2.2, min(right - left, bottom - top) * 0.14)
-        _round_line(draw, ((left, top), (right, bottom)), stroke)
-        _round_line(draw, ((right, top), (left, bottom)), stroke)
-
-
-def _paint_attack_eyes(draw: ImageDraw.ImageDraw, eye_boxes: Sequence[Box]) -> None:
     for index, box in enumerate(eye_boxes):
-        left, top, right, bottom = _inset_box(box, 0.15, 0.10)
+        left, top, right, bottom = box
         width = right - left
         height = bottom - top
-        draw.ellipse(
-            (
-                round(left * SUPERSAMPLE),
-                round(top * SUPERSAMPLE),
-                round(right * SUPERSAMPLE),
-                round(bottom * SUPERSAMPLE),
-            ),
-            fill=INK,
+        inset = max(2.0, width * 0.08)
+        left += inset
+        right -= inset
+        width = right - left
+        center_y = (top + bottom) / 2 + height * offsets[index]
+        points = (
+            (left, center_y - curve * height * 0.25),
+            (left + width * 0.25, center_y + curve * height * 0.45),
+            (left + width * 0.50, center_y + curve * height),
+            (left + width * 0.75, center_y + curve * height * 0.45),
+            (right, center_y - curve * height * 0.25),
+        )
+        _round_line(
+            draw,
+            points,
+            max(2.0, min(width, height) * stroke_ratio),
+            ink,
         )
 
-        # Cut an angled upper lid from a rounded eye. This keeps the attack
-        # expression forceful without turning small faces into square blocks.
+
+def _clear_lids(
+    normal_eyes: Image.Image,
+    eye_boxes: Sequence[Box],
+    depths: Sequence[float],
+    focus: float = 0.0,
+) -> Image.Image:
+    """Open the top interior of each eye without moving or resizing the eye."""
+
+    if not any(depth > 0 for depth in depths):
+        return normal_eyes.copy()
+
+    mask = Image.new(
+        "L",
+        (normal_eyes.width * SUPERSAMPLE, normal_eyes.height * SUPERSAMPLE),
+        0,
+    )
+    draw = ImageDraw.Draw(mask)
+    for index, (box, depth) in enumerate(zip(eye_boxes, depths, strict=True)):
+        if depth <= 0:
+            continue
+        left, top, right, bottom = box
+        width = right - left
+        height = bottom - top
+        inset = max(2.0, width * 0.13)
+        x1 = left + inset
+        x2 = right - inset
+        y_top = top + max(1.0, height * 0.025)
+        base_depth = max(1.0, height * depth)
+        # A tiny mirrored inner slope gives Shell/Boss a focused look.  Profiles
+        # with focus=0 stay horizontal, so Bubble/Sprout never gain angry brows.
         if index == 0:
-            cutout = (
-                (left - 1, top - 1),
-                (right + 1, top - 1),
-                (right + 1, top + height * 0.30),
-                (left - 1, top + height * 0.08),
-            )
-            accent_x = left + width * 0.63
+            y1 = y_top + base_depth - height * focus
+            y2 = y_top + base_depth + height * focus
+        elif index == len(eye_boxes) - 1:
+            y1 = y_top + base_depth + height * focus
+            y2 = y_top + base_depth - height * focus
         else:
-            cutout = (
-                (left - 1, top - 1),
-                (right + 1, top - 1),
-                (right + 1, top + height * 0.08),
-                (left - 1, top + height * 0.30),
-            )
-            accent_x = left + width * 0.22
-
+            # A central Boss eye remains level while the two outside eyes aim
+            # inward. Two-eye characters only use the branches above.
+            y1 = y2 = y_top + base_depth
         draw.polygon(
-            [_scale_point(point) for point in cutout],
-            fill=(0, 0, 0, 0),
+            [
+                _scale_point(point)
+                for point in ((x1, y_top), (x2, y_top), (x2, y2), (x1, y1))
+            ],
+            fill=255,
         )
-        accent_width = max(2.0, width * 0.16)
-        accent_height = max(2.0, height * 0.13)
-        accent_y = top + height * 0.64
-        draw.ellipse(
-            (
-                round((accent_x - accent_width / 2) * SUPERSAMPLE),
-                round((accent_y - accent_height / 2) * SUPERSAMPLE),
-                round((accent_x + accent_width / 2) * SUPERSAMPLE),
-                round((accent_y + accent_height / 2) * SUPERSAMPLE),
-            ),
-            fill=ACCENT,
-        )
+
+    mask = mask.resize(normal_eyes.size, Image.Resampling.LANCZOS)
+    result = normal_eyes.copy()
+    result.putalpha(ImageChops.multiply(normal_eyes.getchannel("A"), ImageOps.invert(mask)))
+    return result
 
 
 def _mouth_content_box(normal_mouth: Image.Image) -> Box:
@@ -265,47 +373,55 @@ def _mouth_content_box(normal_mouth: Image.Image) -> Box:
     return alpha_box
 
 
-def _paint_open_mouth(draw: ImageDraw.ImageDraw, content_box: Box) -> None:
+def _transform_content(
+    normal: Image.Image,
+    transform: tuple[float, float, float, float, bool],
+) -> Image.Image:
+    """Reuse a normal mouth's pixels while making one restrained pose change."""
+
+    scale_x, scale_y, shift_x, shift_y, flip_y = transform
+    content_box = _mouth_content_box(normal)
+    crop = normal.crop(content_box)
+    target_size = (
+        max(1, round(crop.width * scale_x)),
+        max(1, round(crop.height * scale_y)),
+    )
+    crop = crop.resize(target_size, Image.Resampling.LANCZOS)
+    if flip_y:
+        crop = ImageOps.flip(crop)
+
+    center_x = (content_box[0] + content_box[2]) / 2 + shift_x
+    center_y = (content_box[1] + content_box[3]) / 2 + shift_y
+    x = round(center_x - crop.width / 2)
+    y = round(center_y - crop.height / 2)
+    if x <= 0 or y <= 0 or x + crop.width >= normal.width or y + crop.height >= normal.height:
+        raise ValueError(f"mouth transform exceeds transparent boundary: {normal.size}")
+    result = Image.new("RGBA", normal.size, (0, 0, 0, 0))
+    result.alpha_composite(crop, (x, y))
+    return result
+
+
+def _paint_o_mouth(
+    draw: ImageDraw.ImageDraw,
+    content_box: Box,
+    ink: Colour,
+    width_ratio: float,
+    height_ratio: float,
+) -> None:
     left, top, right, bottom = content_box
-    source_width = right - left
-    source_height = bottom - top
     center_x = (left + right) / 2
     center_y = (top + bottom) / 2
-    width = source_width * 0.66
-    height = source_height * 0.88
-    oval = (
-        round((center_x - width / 2) * SUPERSAMPLE),
-        round((center_y - height / 2) * SUPERSAMPLE),
-        round((center_x + width / 2) * SUPERSAMPLE),
-        round((center_y + height / 2) * SUPERSAMPLE),
-    )
-    draw.ellipse(oval, fill=INK)
-
-    tongue_width = width * 0.56
-    tongue_height = height * 0.25
-    tongue_y = center_y + height * 0.22
+    width = (right - left) * width_ratio
+    height = (bottom - top) * height_ratio
     draw.ellipse(
         (
-            round((center_x - tongue_width / 2) * SUPERSAMPLE),
-            round((tongue_y - tongue_height / 2) * SUPERSAMPLE),
-            round((center_x + tongue_width / 2) * SUPERSAMPLE),
-            round((tongue_y + tongue_height / 2) * SUPERSAMPLE),
+            round((center_x - width / 2) * SUPERSAMPLE),
+            round((center_y - height / 2) * SUPERSAMPLE),
+            round((center_x + width / 2) * SUPERSAMPLE),
+            round((center_y + height / 2) * SUPERSAMPLE),
         ),
-        fill=TONGUE,
+        fill=ink,
     )
-
-
-def _paint_hurt_mouth(draw: ImageDraw.ImageDraw, content_box: Box) -> None:
-    left, top, right, bottom = _inset_box(content_box, 0.08, 0.17)
-    width = right - left
-    height = bottom - top
-    center_y = top + height * 0.52
-    amplitude = height * 0.24
-    points = tuple(
-        (left + width * index / 4, center_y + (-amplitude if index % 2 == 0 else amplitude))
-        for index in range(5)
-    )
-    _round_line(draw, points, max(2.0, min(width, height) * 0.12))
 
 
 def _assert_transparent_boundary(image: Image.Image, label: str) -> None:
@@ -317,30 +433,96 @@ def _assert_transparent_boundary(image: Image.Image, label: str) -> None:
         raise ValueError(f"generated expression lacks transparent boundary: {label}")
 
 
-def _generate_rig(owner: str, rig: dict) -> Path:
-    normal_eyes = _source_crop(_part(rig, "eyes"))
-    normal_mouth = _source_crop(_part(rig, "mouth"))
-    eye_boxes = _infer_eye_boxes(normal_eyes)
-    mouth_box = _mouth_content_box(normal_mouth)
+def generate_expression_sheet(
+    owner: str,
+    normal_eyes: Image.Image,
+    normal_mouth: Image.Image,
+) -> Image.Image:
+    """Build one owner's atlas from its current normal face cells."""
 
+    profile = ROLE_PROFILES.get(owner)
+    if profile is None:
+        raise ValueError(f"missing character-specific expression profile: {owner}")
+
+    normal_eyes = normal_eyes.convert("RGBA")
+    normal_mouth = normal_mouth.convert("RGBA")
+    eye_boxes = _infer_eye_boxes(normal_eyes, profile.get("eye_count", 2))
+    mouth_box = _mouth_content_box(normal_mouth)
+    eye_ink = _sample_ink(normal_eyes)
+    mouth_ink = _sample_ink(normal_mouth)
+
+    blink = _render_cell(
+        normal_eyes.size,
+        lambda draw: _paint_closed_eyes(
+            draw,
+            eye_boxes,
+            eye_ink,
+            profile["blink_curve"],
+            profile["blink_offsets"],
+            stroke_ratio=profile.get("blink_stroke_ratio", 0.12),
+        ),
+    )
+    attack = _clear_lids(
+        normal_eyes,
+        eye_boxes,
+        profile["attack_depths"],
+        profile["attack_focus"],
+    )
+    if "hurt_closed_curve" in profile:
+        hurt = _render_cell(
+            normal_eyes.size,
+            lambda draw: _paint_closed_eyes(
+                draw,
+                eye_boxes,
+                eye_ink,
+                profile["hurt_closed_curve"],
+                (0.03, -0.02),
+                stroke_ratio=0.13,
+            ),
+        )
+    else:
+        hurt = _clear_lids(
+            normal_eyes,
+            eye_boxes,
+            profile["hurt_depths"],
+        )
     eyes = {
-        "blink": _render_cell(
-            normal_eyes.size, lambda draw: _paint_blink(draw, eye_boxes)
-        ),
-        "hurt": _render_cell(
-            normal_eyes.size, lambda draw: _paint_hurt_eyes(draw, eye_boxes)
-        ),
-        "attack": _render_cell(
-            normal_eyes.size, lambda draw: _paint_attack_eyes(draw, eye_boxes)
-        ),
+        "blink": blink,
+        "hurt": hurt,
+        "attack": attack,
     }
+
+    open_style = profile["open_mouth"]
+    if open_style == "round-o":
+        open_mouth = _render_cell(
+            normal_mouth.size,
+            lambda draw: _paint_o_mouth(
+                draw, mouth_box, mouth_ink, width_ratio=0.44, height_ratio=0.90
+            ),
+        )
+    elif open_style == "small-o":
+        open_mouth = _render_cell(
+            normal_mouth.size,
+            lambda draw: _paint_o_mouth(
+                draw, mouth_box, mouth_ink, width_ratio=0.34, height_ratio=0.72
+            ),
+        )
+    elif open_style == "preserve-acid":
+        # Boss's acid-spitting mouth stays intact in every expression
+        # replacement. Its three facial eyes are handled in the eyes slot;
+        # the energy core remains a separate non-facial layer.
+        # A 1% width change gives the open slot distinct pixels without
+        # replacing the spray silhouette or introducing a new palette.
+        open_mouth = _transform_content(
+            normal_mouth,
+            (0.99, 1.04, 0.0, 0.0, False),
+        )
+    else:
+        open_mouth = _transform_content(normal_mouth, open_style)
+
     mouths = {
-        "open": _render_cell(
-            normal_mouth.size, lambda draw: _paint_open_mouth(draw, mouth_box)
-        ),
-        "hurt": _render_cell(
-            normal_mouth.size, lambda draw: _paint_hurt_mouth(draw, mouth_box)
-        ),
+        "open": open_mouth,
+        "hurt": _transform_content(normal_mouth, profile["hurt_mouth"]),
     }
 
     for variant, image in (*eyes.items(), *mouths.items()):
@@ -350,14 +532,24 @@ def _generate_rig(owner: str, rig: dict) -> Path:
     mouth_width, mouth_height = normal_mouth.size
     atlas = Image.new(
         "RGBA",
-        (max(eye_width * len(EYE_VARIANTS), mouth_width * len(MOUTH_VARIANTS)),
-         eye_height + mouth_height),
+        (
+            max(eye_width * len(EYE_VARIANTS), mouth_width * len(MOUTH_VARIANTS)),
+            eye_height + mouth_height,
+        ),
         (0, 0, 0, 0),
     )
     for index, variant in enumerate(EYE_VARIANTS):
         atlas.alpha_composite(eyes[variant], (index * eye_width, 0))
     for index, variant in enumerate(MOUTH_VARIANTS):
         atlas.alpha_composite(mouths[variant], (index * mouth_width, eye_height))
+
+    return atlas
+
+
+def _generate_rig(owner: str, rig: dict) -> Path:
+    normal_eyes = _source_crop(_part(rig, "eyes"))
+    normal_mouth = _source_crop(_part(rig, "mouth"))
+    atlas = generate_expression_sheet(owner, normal_eyes, normal_mouth)
 
     output = ROOT / "assets" / "generated-v2" / "rig" / owner / "expressions-v2.png"
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -382,6 +574,10 @@ def main() -> int:
     rigs = manifest["rigs"]
     if len(rigs) != 8:
         raise ValueError(f"expected 8 current rigs, found {len(rigs)}")
+    if set(rigs) != set(ROLE_PROFILES):
+        missing = sorted(set(rigs) - set(ROLE_PROFILES))
+        stale = sorted(set(ROLE_PROFILES) - set(rigs))
+        raise ValueError(f"expression profile mismatch; missing={missing}, stale={stale}")
 
     for owner, rig in rigs.items():
         output = _generate_rig(owner, rig)

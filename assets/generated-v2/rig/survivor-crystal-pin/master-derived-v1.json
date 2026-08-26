@@ -1,0 +1,668 @@
+{
+  "schemaVersion": 1,
+  "builder": "scripts/build-master-derived-rigs.py",
+  "sourceMaster": "assets/original-masters/survivor-crystal-pin.png",
+  "sourceMasterSha256": "931ddcb5ab21d71f0c5e07ee611ad3c309fa6c5a16e2dca8d00d84c963614722",
+  "sourceMasterSize": [
+    1402,
+    1122
+  ],
+  "subjectBboxMaster": [
+    123,
+    13,
+    1302,
+    1071
+  ],
+  "rootMaster": [
+    828.0,
+    1071.0
+  ],
+  "rigUnitsPerMasterPixel": 0.107594937,
+  "darkGlowCleanup": {
+    "enabled": false,
+    "strongAlphaThreshold": null,
+    "retainedEdgeRadiusPixels": null
+  },
+  "independentCells": {
+    "needleBottom": {
+      "atlasRect": {
+        "x": 540,
+        "y": 391,
+        "width": 110,
+        "height": 66
+      },
+      "bindRect": {
+        "x": -71.335,
+        "y": -24.209,
+        "width": 27.5,
+        "height": 16.5
+      },
+      "bone": "needleBottom",
+      "pivotMaster": [
+        377,
+        951
+      ],
+      "sourceBboxMaster": [
+        165,
+        846,
+        420,
+        999
+      ],
+      "standalone": "assets/generated-v2/rig/survivor-crystal-pin/layers-v1/needleBottom.png"
+    },
+    "needleLower": {
+      "atlasRect": {
+        "x": 417,
+        "y": 297,
+        "width": 150,
+        "height": 86
+      },
+      "bindRect": {
+        "x": -77.038,
+        "y": -37.766,
+        "width": 37.5,
+        "height": 21.5
+      },
+      "bone": "needleLower",
+      "pivotMaster": [
+        400,
+        872
+      ],
+      "sourceBboxMaster": [
+        112,
+        720,
+        460,
+        919
+      ],
+      "standalone": "assets/generated-v2/rig/survivor-crystal-pin/layers-v1/needleLower.png"
+    },
+    "needleMid": {
+      "atlasRect": {
+        "x": 557,
+        "y": 4,
+        "width": 189,
+        "height": 123
+      },
+      "bindRect": {
+        "x": -76.608,
+        "y": -59.285,
+        "width": 47.25,
+        "height": 30.75
+      },
+      "bone": "needleMid",
+      "pivotMaster": [
+        489,
+        746
+      ],
+      "sourceBboxMaster": [
+        116,
+        520,
+        555,
+        806
+      ],
+      "standalone": "assets/generated-v2/rig/survivor-crystal-pin/layers-v1/needleMid.png"
+    },
+    "needleMidUpper": {
+      "atlasRect": {
+        "x": 213,
+        "y": 297,
+        "width": 196,
+        "height": 158
+      },
+      "bindRect": {
+        "x": -65.956,
+        "y": -83.171,
+        "width": 49.0,
+        "height": 39.5
+      },
+      "bone": "needleMidUpper",
+      "pivotMaster": [
+        602,
+        621
+      ],
+      "sourceBboxMaster": [
+        215,
+        298,
+        670,
+        666
+      ],
+      "standalone": "assets/generated-v2/rig/survivor-crystal-pin/layers-v1/needleMidUpper.png"
+    },
+    "needleUpper": {
+      "atlasRect": {
+        "x": 4,
+        "y": 297,
+        "width": 201,
+        "height": 182
+      },
+      "bindRect": {
+        "x": -47.127,
+        "y": -107.918,
+        "width": 50.25,
+        "height": 45.5
+      },
+      "bone": "needleUpper",
+      "pivotMaster": [
+        823,
+        473
+      ],
+      "sourceBboxMaster": [
+        390,
+        68,
+        856,
+        492
+      ],
+      "standalone": "assets/generated-v2/rig/survivor-crystal-pin/layers-v1/needleUpper.png"
+    },
+    "needleTall": {
+      "atlasRect": {
+        "x": 420,
+        "y": 4,
+        "width": 129,
+        "height": 217
+      },
+      "bindRect": {
+        "x": -7.316,
+        "y": -113.835,
+        "width": 32.25,
+        "height": 54.25
+      },
+      "bone": "needleTall",
+      "pivotMaster": [
+        979,
+        489
+      ],
+      "sourceBboxMaster": [
+        760,
+        13,
+        1060,
+        518
+      ],
+      "standalone": "assets/generated-v2/rig/survivor-crystal-pin/layers-v1/needleTall.png"
+    },
+    "needleRight": {
+      "atlasRect": {
+        "x": 575,
+        "y": 231,
+        "width": 87,
+        "height": 132
+      },
+      "bindRect": {
+        "x": 19.367,
+        "y": -86.399,
+        "width": 21.75,
+        "height": 33.0
+      },
+      "bone": "needleRight",
+      "pivotMaster": [
+        1095,
+        501
+      ],
+      "sourceBboxMaster": [
+        1008,
+        268,
+        1210,
+        574
+      ],
+      "standalone": "assets/generated-v2/rig/survivor-crystal-pin/layers-v1/needleRight.png"
+    },
+    "body": {
+      "atlasRect": {
+        "x": 4,
+        "y": 4,
+        "width": 408,
+        "height": 285
+      },
+      "bindRect": {
+        "x": -51.0,
+        "y": -71.228,
+        "width": 102.0,
+        "height": 71.25
+      },
+      "bone": "body",
+      "pivotMaster": [
+        828,
+        1071
+      ],
+      "sourceBboxMaster": [
+        354,
+        409,
+        1302,
+        1071
+      ],
+      "standalone": "assets/generated-v2/rig/survivor-crystal-pin/layers-v1/body.png"
+    },
+    "eyeLeft": {
+      "atlasRect": {
+        "x": 670,
+        "y": 231,
+        "width": 62,
+        "height": 86
+      },
+      "bindRect": {
+        "x": 2.367,
+        "y": -48.525,
+        "width": 15.5,
+        "height": 21.5
+      },
+      "bone": "eyes",
+      "pivotMaster": [
+        924,
+        720
+      ],
+      "sourceBboxMaster": [
+        850,
+        620,
+        995,
+        820
+      ],
+      "standalone": "assets/generated-v2/rig/survivor-crystal-pin/layers-v1/eyeLeft.png"
+    },
+    "eyeRight": {
+      "atlasRect": {
+        "x": 670,
+        "y": 325,
+        "width": 49,
+        "height": 82
+      },
+      "bindRect": {
+        "x": 27.652,
+        "y": -49.063,
+        "width": 12.25,
+        "height": 20.5
+      },
+      "bone": "eyes",
+      "pivotMaster": [
+        1141,
+        708
+      ],
+      "sourceBboxMaster": [
+        1085,
+        615,
+        1200,
+        805
+      ],
+      "standalone": "assets/generated-v2/rig/survivor-crystal-pin/layers-v1/eyeRight.png"
+    },
+    "mouth": {
+      "atlasRect": {
+        "x": 420,
+        "y": 231,
+        "width": 52,
+        "height": 49
+      },
+      "bindRect": {
+        "x": 16.354,
+        "y": -34.538,
+        "width": 13.0,
+        "height": 12.25
+      },
+      "bone": "mouth",
+      "pivotMaster": [
+        1041,
+        810
+      ],
+      "sourceBboxMaster": [
+        980,
+        750,
+        1100,
+        865
+      ],
+      "standalone": "assets/generated-v2/rig/survivor-crystal-pin/layers-v1/mouth.png"
+    },
+    "front": {
+      "atlasRect": {
+        "x": 417,
+        "y": 391,
+        "width": 115,
+        "height": 91
+      },
+      "bindRect": {
+        "x": -22.38,
+        "y": -32.709,
+        "width": 28.75,
+        "height": 22.75
+      },
+      "bone": "front",
+      "pivotMaster": [
+        646,
+        798
+      ],
+      "sourceBboxMaster": [
+        620,
+        767,
+        887,
+        979
+      ],
+      "standalone": "assets/generated-v2/rig/survivor-crystal-pin/layers-v1/front.png"
+    }
+  },
+  "runtimeCompatibility": {
+    "eyes": {
+      "kind": "derived-composite",
+      "compositeOf": [
+        "eyeLeft",
+        "eyeRight"
+      ],
+      "reason": "runtime schema v2 exposes one expression-enabled eyes slot",
+      "atlasRect": {
+        "x": 557,
+        "y": 135,
+        "width": 151,
+        "height": 88
+      },
+      "standalone": "assets/generated-v2/rig/survivor-crystal-pin/layers-v1/eyes.png"
+    }
+  },
+  "validation": {
+    "reference": "approved master",
+    "bindRecomposition": "assets/generated-v2/rig/survivor-crystal-pin/bind-recomposition-v1.png",
+    "metrics": {
+      "alphaIoU": 0.983968,
+      "meanAlphaError": 2.522646,
+      "visibleRgbPsnrDb": 25.5045,
+      "visiblePixelsChangedOver8": 20360,
+      "visiblePixels": 859888
+    }
+  },
+  "atlasSha256": "6069def908050283f2ccea1adc4df635ebe2568ce462be185771aa32ec8f5caf",
+  "expressionsSha256": "f0185ae47761b91169701d034309dc6f805aaf18749619d86ae9c3a2aaf40345",
+  "layerPngSha256": {
+    "body": "4644faf3c879113d12d0ae874e2a100fa4a67481f21a7698d01d1d1965ec244e",
+    "eyeLeft": "3fd9c1fbff9607e4eb5214f7042ebd2f29cd827594b168671aa66c84e59dd8ed",
+    "eyeRight": "98f7f774d05d6286fabf722099f823f5642aa2a778146891ac14dce2339fd163",
+    "eyes": "8407bc595e4ea74149a0bac652464f6e20c82d6501ffede6e0f5930bf2556ab3",
+    "front": "9e1dc0743ddc4765a17e3498d6ae7ffd20520de11907c5fac0153813609fcbf5",
+    "mouth": "e1832d7db4771762df552c090fba3632014fa209f8b70c2703bb830791adbdae",
+    "needleBottom": "9c6f8a5a8ef71fabdc58c6ce2757e726786cbbfe258ede6dc17825b4ddd22493",
+    "needleLower": "2b741008461f288ad0bca9a799d90bc9809c4f09846ae530151dac21fe972b5f",
+    "needleMid": "12af4a32a8545ccb84513769e70a3b95350be03122c4ea76811d0bb443656770",
+    "needleMidUpper": "1ea584fe2d58416ca44d2785afcfd7d249ea44bf6f02419d9ff5e1869b6033e7",
+    "needleRight": "4be0b43f1f0726b8b823baa772f9090f3ea6e2e363f4bd3d4fc6faa1d0decf16",
+    "needleTall": "e22a5d21e352941c1935dd8d01d297857f3646e8aad5ae36ec9f85bb1262eff1",
+    "needleUpper": "22443d151e40b06df96ce3bfaeb2dcf5454239d0feb0fa2733c67319d29b4af1"
+  },
+  "runtimeRig": {
+    "rigId": "crystal",
+    "rootBone": "root",
+    "faceBone": "face",
+    "canonicalFacing": 1,
+    "masterDerived": {
+      "schemaVersion": 1,
+      "sourceMaster": "assets/original-masters/survivor-crystal-pin.png",
+      "builder": "scripts/build-master-derived-rigs.py",
+      "metadataPath": "assets/generated-v2/rig/survivor-crystal-pin/master-derived-v1.json",
+      "independentEyeCells": [
+        "eyeLeft",
+        "eyeRight"
+      ],
+      "runtimeEyesCompatibility": {
+        "kind": "derived-composite",
+        "compositeOf": [
+          "eyeLeft",
+          "eyeRight"
+        ]
+      }
+    },
+    "parts": [
+      {
+        "id": "needleBottom",
+        "bone": "needleBottom",
+        "z": -70,
+        "path": "assets/generated-v2/rig/survivor-crystal-pin/atlas.png",
+        "sourceRect": {
+          "x": 540,
+          "y": 391,
+          "width": 110,
+          "height": 66
+        },
+        "required": true,
+        "bindRect": {
+          "x": -71.335,
+          "y": -24.209,
+          "width": 27.5,
+          "height": 16.5
+        }
+      },
+      {
+        "id": "needleLower",
+        "bone": "needleLower",
+        "z": -60,
+        "path": "assets/generated-v2/rig/survivor-crystal-pin/atlas.png",
+        "sourceRect": {
+          "x": 417,
+          "y": 297,
+          "width": 150,
+          "height": 86
+        },
+        "required": true,
+        "bindRect": {
+          "x": -77.038,
+          "y": -37.766,
+          "width": 37.5,
+          "height": 21.5
+        }
+      },
+      {
+        "id": "needleMid",
+        "bone": "needleMid",
+        "z": -50,
+        "path": "assets/generated-v2/rig/survivor-crystal-pin/atlas.png",
+        "sourceRect": {
+          "x": 557,
+          "y": 4,
+          "width": 189,
+          "height": 123
+        },
+        "required": true,
+        "bindRect": {
+          "x": -76.608,
+          "y": -59.285,
+          "width": 47.25,
+          "height": 30.75
+        }
+      },
+      {
+        "id": "needleMidUpper",
+        "bone": "needleMidUpper",
+        "z": -40,
+        "path": "assets/generated-v2/rig/survivor-crystal-pin/atlas.png",
+        "sourceRect": {
+          "x": 213,
+          "y": 297,
+          "width": 196,
+          "height": 158
+        },
+        "required": true,
+        "bindRect": {
+          "x": -65.956,
+          "y": -83.171,
+          "width": 49.0,
+          "height": 39.5
+        }
+      },
+      {
+        "id": "needleUpper",
+        "bone": "needleUpper",
+        "z": -30,
+        "path": "assets/generated-v2/rig/survivor-crystal-pin/atlas.png",
+        "sourceRect": {
+          "x": 4,
+          "y": 297,
+          "width": 201,
+          "height": 182
+        },
+        "required": true,
+        "bindRect": {
+          "x": -47.127,
+          "y": -107.918,
+          "width": 50.25,
+          "height": 45.5
+        }
+      },
+      {
+        "id": "needleTall",
+        "bone": "needleTall",
+        "z": -20,
+        "path": "assets/generated-v2/rig/survivor-crystal-pin/atlas.png",
+        "sourceRect": {
+          "x": 420,
+          "y": 4,
+          "width": 129,
+          "height": 217
+        },
+        "required": true,
+        "bindRect": {
+          "x": -7.316,
+          "y": -113.835,
+          "width": 32.25,
+          "height": 54.25
+        }
+      },
+      {
+        "id": "needleRight",
+        "bone": "needleRight",
+        "z": -10,
+        "path": "assets/generated-v2/rig/survivor-crystal-pin/atlas.png",
+        "sourceRect": {
+          "x": 575,
+          "y": 231,
+          "width": 87,
+          "height": 132
+        },
+        "required": true,
+        "bindRect": {
+          "x": 19.367,
+          "y": -86.399,
+          "width": 21.75,
+          "height": 33.0
+        }
+      },
+      {
+        "id": "body",
+        "bone": "body",
+        "z": 0,
+        "path": "assets/generated-v2/rig/survivor-crystal-pin/atlas.png",
+        "sourceRect": {
+          "x": 4,
+          "y": 4,
+          "width": 408,
+          "height": 285
+        },
+        "required": true,
+        "bindRect": {
+          "x": -51.0,
+          "y": -71.228,
+          "width": 102.0,
+          "height": 71.25
+        }
+      },
+      {
+        "id": "eyes",
+        "bone": "eyes",
+        "z": 10,
+        "path": "assets/generated-v2/rig/survivor-crystal-pin/atlas.png",
+        "sourceRect": {
+          "x": 557,
+          "y": 135,
+          "width": 151,
+          "height": 88
+        },
+        "required": true,
+        "bindRect": {
+          "x": 2.367,
+          "y": -49.063,
+          "width": 37.75,
+          "height": 22.0
+        },
+        "variants": {
+          "blink": {
+            "path": "assets/generated-v2/rig/survivor-crystal-pin/expressions-v2.png",
+            "sourceRect": {
+              "x": 0,
+              "y": 0,
+              "width": 151,
+              "height": 88
+            }
+          },
+          "hurt": {
+            "path": "assets/generated-v2/rig/survivor-crystal-pin/expressions-v2.png",
+            "sourceRect": {
+              "x": 151,
+              "y": 0,
+              "width": 151,
+              "height": 88
+            }
+          },
+          "attack": {
+            "path": "assets/generated-v2/rig/survivor-crystal-pin/expressions-v2.png",
+            "sourceRect": {
+              "x": 302,
+              "y": 0,
+              "width": 151,
+              "height": 88
+            }
+          }
+        }
+      },
+      {
+        "id": "mouth",
+        "bone": "mouth",
+        "z": 20,
+        "path": "assets/generated-v2/rig/survivor-crystal-pin/atlas.png",
+        "sourceRect": {
+          "x": 420,
+          "y": 231,
+          "width": 52,
+          "height": 49
+        },
+        "required": true,
+        "bindRect": {
+          "x": 16.354,
+          "y": -34.538,
+          "width": 13.0,
+          "height": 12.25
+        },
+        "variants": {
+          "open": {
+            "path": "assets/generated-v2/rig/survivor-crystal-pin/expressions-v2.png",
+            "sourceRect": {
+              "x": 0,
+              "y": 88,
+              "width": 52,
+              "height": 49
+            }
+          },
+          "hurt": {
+            "path": "assets/generated-v2/rig/survivor-crystal-pin/expressions-v2.png",
+            "sourceRect": {
+              "x": 52,
+              "y": 88,
+              "width": 52,
+              "height": 49
+            }
+          }
+        }
+      },
+      {
+        "id": "front",
+        "bone": "front",
+        "z": 30,
+        "path": "assets/generated-v2/rig/survivor-crystal-pin/atlas.png",
+        "sourceRect": {
+          "x": 417,
+          "y": 391,
+          "width": 115,
+          "height": 91
+        },
+        "required": true,
+        "bindRect": {
+          "x": -22.38,
+          "y": -32.709,
+          "width": 28.75,
+          "height": 22.75
+        }
+      }
+    ]
+  }
+}

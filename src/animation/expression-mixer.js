@@ -1,7 +1,8 @@
 import { EXPRESSION_SPEC } from './rigs.js';
 
-export const DEFAULT_EXPRESSION_TRANSITION_DURATION = 0.12;
-export const MIN_EXPRESSION_TRANSITION_DURATION = 0.10;
+export const DEFAULT_EXPRESSION_TRANSITION_DURATION = 0.075;
+export const DEFAULT_BLINK_TRANSITION_DURATION = 0.05;
+export const MIN_EXPRESSION_TRANSITION_DURATION = 0.03;
 export const MAX_EXPRESSION_TRANSITION_DURATION = 0.16;
 
 const DEFAULT_BLINK_INTERVAL = 3.2;
@@ -17,6 +18,19 @@ function assertFiniteNumber(value, label) {
 function assertNonNegative(value, label) {
   assertFiniteNumber(value, label);
   if (value < 0) throw new RangeError(`${label} must be zero or greater.`);
+}
+
+function assertTransitionDuration(value, label) {
+  assertFiniteNumber(value, label);
+  if (
+    value < MIN_EXPRESSION_TRANSITION_DURATION
+    || value > MAX_EXPRESSION_TRANSITION_DURATION
+  ) {
+    throw new RangeError(
+      `${label} must be between ${MIN_EXPRESSION_TRANSITION_DURATION}`
+      + ` and ${MAX_EXPRESSION_TRANSITION_DURATION} seconds.`,
+    );
+  }
 }
 
 function assertOwnerId(ownerId) {
@@ -164,22 +178,18 @@ export class ExpressionMixer {
     spec = EXPRESSION_SPEC,
     initialState = spec.defaultState,
     transitionDuration = DEFAULT_EXPRESSION_TRANSITION_DURATION,
+    blinkTransitionDuration = Math.min(
+      DEFAULT_BLINK_TRANSITION_DURATION,
+      transitionDuration,
+    ),
     autoBlink = true,
     blinkInterval = DEFAULT_BLINK_INTERVAL,
     blinkHold = DEFAULT_BLINK_HOLD,
   } = {}) {
     assertOwnerId(ownerId);
     assertExpressionSpec(spec);
-    assertFiniteNumber(transitionDuration, 'transitionDuration');
-    if (
-      transitionDuration < MIN_EXPRESSION_TRANSITION_DURATION
-      || transitionDuration > MAX_EXPRESSION_TRANSITION_DURATION
-    ) {
-      throw new RangeError(
-        `transitionDuration must be between ${MIN_EXPRESSION_TRANSITION_DURATION}`
-        + ` and ${MAX_EXPRESSION_TRANSITION_DURATION} seconds.`,
-      );
-    }
+    assertTransitionDuration(transitionDuration, 'transitionDuration');
+    assertTransitionDuration(blinkTransitionDuration, 'blinkTransitionDuration');
 
     // Validate blink timing eagerly even if context resolution happens later.
     resolveExpressionState({
@@ -194,6 +204,8 @@ export class ExpressionMixer {
     this.ownerId = ownerId;
     this.spec = spec;
     this.transitionDuration = transitionDuration;
+    this.blinkTransitionDuration = blinkTransitionDuration;
+    this.activeTransitionDuration = transitionDuration;
     this.autoBlink = autoBlink;
     this.blinkInterval = blinkInterval;
     this.blinkHold = blinkHold;
@@ -264,6 +276,7 @@ export class ExpressionMixer {
       this.from = this.to;
       this.to = target;
       this.mix = 0;
+      this.activeTransitionDuration = this._durationFor(this.from, this.to);
       this.pending = null;
       return true;
     }
@@ -271,6 +284,7 @@ export class ExpressionMixer {
     if (target === this.from) {
       [this.from, this.to] = [this.to, this.from];
       this.mix = 1 - this.mix;
+      this.activeTransitionDuration = this._durationFor(this.from, this.to);
       this.pending = null;
       return true;
     }
@@ -280,6 +294,12 @@ export class ExpressionMixer {
     return changed;
   }
 
+  _durationFor(from, to) {
+    return from === 'blink' || to === 'blink'
+      ? this.blinkTransitionDuration
+      : this.transitionDuration;
+  }
+
   /** Advance by seconds. Passing zero intentionally freezes all expression state. */
   tick(dt) {
     assertNonNegative(dt, 'dt');
@@ -287,9 +307,9 @@ export class ExpressionMixer {
 
     let remaining = dt;
     while (remaining > EPSILON && this.from !== this.to && this.mix < 1) {
-      const secondsToTarget = (1 - this.mix) * this.transitionDuration;
+      const secondsToTarget = (1 - this.mix) * this.activeTransitionDuration;
       const elapsed = Math.min(remaining, secondsToTarget);
-      this.mix = Math.min(1, this.mix + elapsed / this.transitionDuration);
+      this.mix = Math.min(1, this.mix + elapsed / this.activeTransitionDuration);
       remaining -= elapsed;
 
       if (this.mix + EPSILON < 1) break;
@@ -304,6 +324,7 @@ export class ExpressionMixer {
       this.to = this.pending;
       this.pending = null;
       this.mix = 0;
+      this.activeTransitionDuration = this._durationFor(this.from, this.to);
     }
     return this;
   }

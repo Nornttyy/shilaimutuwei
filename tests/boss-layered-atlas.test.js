@@ -26,9 +26,41 @@ const PRESERVED_PART_RECTS = Object.freeze({
   tentacles: { x: 36, y: 161, width: 206, height: 76 },
   body: { x: 255, y: 56, width: 259, height: 209 },
   core: { x: 62, y: 289, width: 152, height: 182 },
-  eyes: { x: 289, y: 339, width: 190, height: 99 },
   mouth: { x: 531, y: 332, width: 197, height: 126 },
 });
+
+function substantialAlphaComponents(image, threshold = 32) {
+  const seen = new Uint8Array(image.width * image.height);
+  const components = [];
+  for (let startY = 0; startY < image.height; startY += 1) {
+    for (let startX = 0; startX < image.width; startX += 1) {
+      const start = startY * image.width + startX;
+      if (seen[start] || image.pixels[start * 4 + 3] < threshold) continue;
+      const queue = [[startX, startY]];
+      seen[start] = 1;
+      let area = 0;
+      let left = startX;
+      let right = startX;
+      while (queue.length > 0) {
+        const [x, y] = queue.pop();
+        area += 1;
+        left = Math.min(left, x);
+        right = Math.max(right, x);
+        for (const [nextX, nextY] of [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]]) {
+          if (nextX < 0 || nextY < 0 || nextX >= image.width || nextY >= image.height) continue;
+          const next = nextY * image.width + nextX;
+          if (seen[next] || image.pixels[next * 4 + 3] < threshold) continue;
+          seen[next] = 1;
+          queue.push([nextX, nextY]);
+        }
+      }
+      if (area >= Math.max(12, Math.floor(image.width * image.height / 150))) {
+        components.push({ area, left, right: right + 1 });
+      }
+    }
+  }
+  return components.sort((left, right) => left.left - right.left);
+}
 
 test('Boss layered v2 atlas and metadata rebuild byte-for-byte', async () => {
   const composed = await composeBossLayeredAtlas();
@@ -50,7 +82,7 @@ test('Boss layered v2 atlas and metadata rebuild byte-for-byte', async () => {
   }
 });
 
-test('Boss v2 keeps every original atlas pixel and replaces only the old mixed-cell reference', async () => {
+test('Boss v2 preserves its base atlas and points the face slot at a real three-eye cell', async () => {
   const base = decodeRgbaPng(await readFile(BASE_ATLAS_URL), 'Boss base atlas');
   const layered = decodeRgbaPng(
     await readFile(BOSS_LAYERED_ATLAS_PATH),
@@ -78,6 +110,20 @@ test('Boss v2 keeps every original atlas pixel and replaces only the old mixed-c
       `${id} pixels must not change`,
     );
   }
+
+  const eyesRect = rig.parts.find(({ id }) => id === 'eyes').sourceRect;
+  assert.deepEqual(eyesRect, BOSS_LAYERED_ATLAS_LAYOUT.parts.eyes.sourceRect);
+  const threeEyes = cropRgba(layered, eyesRect, 'Boss three-eye crop');
+  assert.notDeepEqual(
+    threeEyes.pixels,
+    cropRgba(base, BOSS_LAYERED_ATLAS_LAYOUT.parts.eyes.baseSourceRect).pixels,
+  );
+  const eyeComponents = substantialAlphaComponents(threeEyes);
+  assert.equal(eyeComponents.length, 3);
+  assert.ok(eyeComponents[0].right < eyeComponents[1].left);
+  assert.ok(eyeComponents[1].right < eyeComponents[2].left);
+  assert.ok(eyeComponents[1].area < eyeComponents[0].area);
+  assert.ok(eyeComponents[1].area < eyeComponents[2].area);
 
   assert.deepEqual(
     rig.parts.find(({ id }) => id === 'acidShell').sourceRect,

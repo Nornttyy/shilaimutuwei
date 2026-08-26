@@ -2,7 +2,21 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { SlimeGame } from '../src/game.js';
-import { ENEMY_BY_ID, ITEMS, SKILLS, SURVIVORS, WAVES } from '../src/catalog.js';
+import {
+  BUILDINGS,
+  ENEMY_BY_ID,
+  ITEMS,
+  SKILLS,
+  SURVIVORS,
+  WAVES,
+} from '../src/catalog.js';
+import {
+  PALETTE,
+  drawAssetOrFallback,
+  drawBuilding,
+  drawParticle,
+  drawStatusIcon,
+} from '../src/draw.js';
 import {
   BOSS_CLIPS,
   BUBBLE_CLIPS,
@@ -13,6 +27,7 @@ import {
   STONE_CLIPS,
   WINDCAP_CLIPS,
 } from '../src/animation/clips.js';
+import { DEFAULT_EXPRESSION_TRANSITION_DURATION } from '../src/animation/expression-mixer.js';
 
 function createGradient() {
   return { addColorStop() {} };
@@ -23,7 +38,7 @@ function createContext() {
     'arc', 'beginPath', 'bezierCurveTo', 'clearRect', 'closePath', 'ellipse', 'fill',
     'fillRect', 'fillText', 'lineTo', 'moveTo', 'quadraticCurveTo', 'restore', 'rotate',
     'save', 'scale', 'setLineDash', 'setTransform', 'stroke', 'strokeRect', 'strokeText',
-    'translate',
+    'translate', 'drawImage',
   ]);
   return new Proxy({
     createLinearGradient: createGradient,
@@ -42,7 +57,7 @@ function createContext() {
   });
 }
 
-function createHarness() {
+function createHarness({ context = createContext(), assetStore = null } = {}) {
   const storage = new Map();
   globalThis.localStorage = {
     getItem: (key) => storage.get(key) ?? null,
@@ -55,7 +70,7 @@ function createHarness() {
     AudioContext: null,
     webkitAudioContext: null,
   };
-  const ctx = createContext();
+  const ctx = context;
   const canvas = {
     width: 1280,
     height: 720,
@@ -63,10 +78,54 @@ function createHarness() {
     getBoundingClientRect: () => ({ left: 0, top: 0, width: 1280, height: 720 }),
     addEventListener() {},
   };
-  const game = new SlimeGame(canvas);
+  const game = new SlimeGame(canvas, { assetStore });
   game.modal = null;
   game.state.tutorialSeen = true;
   return { game, storage };
+}
+
+function createRecordingContext({ throwOnDrawImage = false } = {}) {
+  const ctx = createContext();
+  const calls = [];
+  ctx.drawImage = (...args) => {
+    calls.push(['drawImage', ...args]);
+    if (throwOnDrawImage) throw new Error('drawImage failed');
+  };
+  ctx.fillRect = (...args) => calls.push(['fillRect', ...args]);
+  ctx.createLinearGradient = (...args) => {
+    calls.push(['createLinearGradient', ...args]);
+    return createGradient();
+  };
+  return { ctx, calls };
+}
+
+function createReadyAssetStore(keysOrAssets) {
+  const assets = keysOrAssets instanceof Map
+    ? new Map(keysOrAssets)
+    : Array.isArray(keysOrAssets)
+      ? new Map(keysOrAssets.map((key) => [key, { key }]))
+      : new Map(Object.entries(keysOrAssets));
+  const requests = [];
+  return {
+    requests,
+    get(key, fallback = null) {
+      return assets.get(key) ?? fallback;
+    },
+    useOrFallback(key, renderAsset, renderFallback) {
+      requests.push(key);
+      if (!assets.has(key)) {
+        renderFallback?.({ status: 'failed' }, null);
+        return false;
+      }
+      try {
+        renderAsset(assets.get(key));
+        return true;
+      } catch (error) {
+        renderFallback?.({ status: 'loaded' }, error);
+        return false;
+      }
+    },
+  };
 }
 
 test('renders all top-level screens with the zero-dependency canvas renderer', () => {
@@ -84,6 +143,341 @@ test('renders all top-level screens with the zero-dependency canvas renderer', (
   game.finishDefense(true);
   assert.equal(game.state.phase, 'result');
   assert.doesNotThrow(() => game.render());
+});
+
+test('generated image drawing is preferred and drawImage failures atomically use fallback', () => {
+  const store = createReadyAssetStore(['ready']);
+  const successful = createRecordingContext();
+  let fallbackCount = 0;
+  assert.equal(drawAssetOrFallback(
+    successful.ctx,
+    store,
+    'ready',
+    (asset) => successful.ctx.drawImage(asset, 1, 2, 3, 4),
+    () => { fallbackCount += 1; },
+  ), true);
+  assert.equal(successful.calls.filter(([name]) => name === 'drawImage').length, 1);
+  assert.equal(fallbackCount, 0);
+
+  const failing = createRecordingContext({ throwOnDrawImage: true });
+  assert.equal(drawAssetOrFallback(
+    failing.ctx,
+    store,
+    'ready',
+    (asset) => failing.ctx.drawImage(asset, 1, 2, 3, 4),
+    () => { fallbackCount += 1; },
+  ), false);
+  assert.equal(fallbackCount, 1);
+});
+
+test('main background PNG replaces the whole vector scene and safely falls back', () => {
+  const store = createReadyAssetStore(['background-garden-base']);
+  const generated = createRecordingContext();
+  const { game } = createHarness({ context: generated.ctx, assetStore: store });
+  game.drawBackground(generated.ctx);
+  assert.equal(generated.calls.filter(([name]) => name === 'drawImage').length, 1);
+  assert.equal(generated.calls.some(([name]) => name === 'createLinearGradient'), false);
+
+  const failing = createRecordingContext({ throwOnDrawImage: true });
+  const fallbackHarness = createHarness({ context: failing.ctx, assetStore: store });
+  fallbackHarness.game.drawBackground(failing.ctx);
+  assert.equal(failing.calls.some(([name]) => name === 'createLinearGradient'), true);
+  assert.equal(failing.calls.some(([name]) => name === 'fillRect'), true);
+});
+
+test('battlefield keeps the portal and moving-bubble shell behind depth-sorted actors', () => {
+  const events = [];
+  const store = createReadyAssetStore(['rift-entry-portal']);
+  const useOrFallback = store.useOrFallback.bind(store);
+  store.useOrFallback = (key, renderAsset, renderFallback) => {
+    events.push(`asset:${key}`);
+    return useOrFallback(key, renderAsset, renderFallback);
+  };
+  const { game } = createHarness({ assetStore: store });
+  game.drawRoutes = () => events.push('routes');
+  game.drawTerrain = () => events.push('terrain');
+  game.drawWorldEffects = (_ctx, layer) => events.push(`effects:${layer}`);
+  game.drawMovingBubblePreview = () => events.push('moving-bubble-preview');
+  game.drawWorldActors = () => events.push('actors');
+  game.drawProjectilesAndParticles = () => events.push('projectiles');
+  game.drawSelectionOverlay = () => events.push('selection');
+
+  game.drawBattlefield(game.ctx);
+
+  assert.ok(
+    events.indexOf('asset:rift-entry-portal') < events.indexOf('actors'),
+    'the portal must be painted before enemies emerging from it',
+  );
+  assert.deepEqual(events.filter((event) => [
+    'effects:back',
+    'moving-bubble-preview',
+    'actors',
+    'effects:front',
+    'projectiles',
+    'selection',
+  ].includes(event)), [
+    'effects:back',
+    'moving-bubble-preview',
+    'actors',
+    'effects:front',
+    'projectiles',
+    'selection',
+  ]);
+
+  const order = [];
+  const { game: depthGame } = createHarness();
+  depthGame.state.buildings = [{
+    uid: 'building-depth', cardId: 'building-mushroom-home', x: 0, y: 3, rotation: 0,
+  }];
+  depthGame.state.deployables = [{ uid: 'deployable-depth', type: 'pad', x: 0, y: 1 }];
+  depthGame.state.survivors = [{ uid: 'survivor-depth', x: 0, y: 0 }];
+  depthGame.state.enemies = [{ uid: 'enemy-depth', x: 0, y: 2 }];
+  depthGame.drawBuildings = (_ctx, [entity]) => order.push(entity.uid);
+  depthGame.drawDeployables = (_ctx, [entity]) => order.push(entity.uid);
+  depthGame.drawUnits = (_ctx, [{ entity }]) => order.push(entity.uid);
+
+  depthGame.drawWorldActors(depthGame.ctx);
+  assert.deepEqual(order, [
+    'survivor-depth',
+    'deployable-depth',
+    'enemy-depth',
+    'building-depth',
+  ]);
+
+  order.length = 0;
+  depthGame.state.buildings[0].y = 2;
+  depthGame.state.survivors[0].y = 2;
+  depthGame.state.deployables = [];
+  depthGame.state.enemies = [];
+  depthGame.drawWorldActors(depthGame.ctx);
+  assert.deepEqual(
+    order,
+    ['building-depth', 'survivor-depth'],
+    'a unit stationed in a one-cell home must remain visible in front of it',
+  );
+});
+
+test('generated card and wide-building art is contained without changing its aspect ratio', () => {
+  const building = BUILDINGS.find((card) => card.id === 'building-honey-plot');
+  const frame = { key: 'ui-card-frame-common', naturalWidth: 512, naturalHeight: 384 };
+  const art = { key: building.id, naturalWidth: 768, naturalHeight: 512 };
+  const store = createReadyAssetStore(new Map([
+    ['ui-card-frame-common', frame],
+    [building.id, art],
+  ]));
+  const recording = createRecordingContext();
+  const { game } = createHarness({ context: recording.ctx, assetStore: store });
+
+  game.drawMiniCard(
+    recording.ctx,
+    'ratio-card',
+    { x: 20, y: 30, w: 134, h: 84 },
+    building,
+    { selected: false, disabled: false, meta: '' },
+    () => {},
+  );
+  const cardArtCall = recording.calls.find((call) => call[0] === 'drawImage' && call[1] === art);
+  assert.ok(cardArtCall);
+  assert.ok(Math.abs(cardArtCall[4] / cardArtCall[5] - 1.5) < 1e-9);
+  assert.ok(cardArtCall[4] <= 40 && cardArtCall[5] <= 60);
+  assert.equal(
+    recording.calls.filter((call) => call[0] === 'drawImage' && call[1] === frame).length,
+    9,
+    'the frame should use nine-slice drawing instead of one stretched bitmap',
+  );
+
+  recording.calls.length = 0;
+  drawBuilding(recording.ctx, 0, 0, 104, 'farm', { assetStore: store });
+  const worldArtCall = recording.calls.find((call) => call[0] === 'drawImage' && call[1] === art);
+  assert.ok(worldArtCall);
+  assert.ok(Math.abs(worldArtCall[4] / worldArtCall[5] - 1.5) < 1e-9);
+  assert.ok(worldArtCall[4] <= 115 && worldArtCall[5] <= 115, 'world art stays inside its logical slot');
+});
+
+test('placement, danger rings, and combat statuses request their dedicated PNG layers', () => {
+  const keys = [
+    'tile-placement-valid', 'tile-placement-invalid',
+    'effect-target-ring-danger', 'effect-selection-ring-friendly', 'effect-shield-dome',
+    'effect-boss-acid-telegraph', 'effect-damage-cracks-overlay',
+    'status-shield', 'status-heal', 'status-poison', 'status-marked',
+    'status-stun', 'status-slow', 'status-bubble',
+  ];
+  const store = createReadyAssetStore(keys);
+  const { game } = createHarness({ assetStore: store });
+  game.state.phase = 'battle';
+
+  const building = game.state.buildings[0];
+  building.hp = building.maxHp / 2;
+  building.shield = 10;
+  building.poisoned = 1;
+  game.drawBuildings(game.ctx, [building]);
+
+  const survivor = game.state.survivors[0];
+  survivor.shield = 20;
+  survivor.seed = 1;
+  game.drawUnits(game.ctx, [{ kind: 'survivor', entity: survivor, depth: 0 }]);
+
+  game.spawnEnemy('enemy-acid-shell-king', 2);
+  const boss = game.state.enemies.at(-1);
+  boss.marked = true;
+  boss.stagger = 0.5;
+  boss.rooted = 0.5;
+  boss.bubbleStatus = 0.5;
+  boss.telegraph = 0.5;
+  game.drawUnits(game.ctx, [{ kind: 'enemy', entity: boss, depth: 0 }]);
+
+  game.state.phase = 'build';
+  game.state.buildings = [];
+  game.selection = {
+    kind: 'place-building',
+    cardId: 'building-bouncy-fence',
+    rotation: 0,
+  };
+  game.hoverCell = { x: 0, y: 0 };
+  game.drawSelectionOverlay(game.ctx);
+  game.state.buildings = [building];
+  building.x = 0;
+  building.y = 0;
+  game.drawSelectionOverlay(game.ctx);
+
+  for (const key of keys.filter((key) => key !== 'effect-selection-ring-friendly')) {
+    assert.ok(store.requests.includes(key), `expected generated layer request: ${key}`);
+  }
+  assert.equal(
+    store.requests.includes('effect-selection-ring-friendly'),
+    false,
+    'a marked hostile must never receive the friendly selection ring',
+  );
+});
+
+test('world effects render on their assigned layer and moving bubbles stay behind the moved unit', () => {
+  const effectKeys = [
+    'effect-spawn-rift-burst',
+    'effect-heal-burst',
+    'effect-building-destruction-puff',
+    'effect-jelly-bounce-wave',
+    'effect-soft-swap-arc',
+    'effect-honey-draw-trail',
+    'effect-particle-expanding-ring',
+    'effect-particle-dust-puff',
+  ];
+  const store = createReadyAssetStore([...effectKeys, 'item-moving-bubble-world']);
+  const { game } = createHarness({ assetStore: store });
+  effectKeys.forEach((key, index) => {
+    game.spawnWorldEffect(key, 100 + index, 200, 80, 50, 0.5, {
+      layer: index % 2 === 0 ? 'back' : 'front',
+    });
+  });
+
+  game.drawWorldEffects(game.ctx, 'back');
+  game.drawWorldEffects(game.ctx, 'front');
+  for (const key of effectKeys) {
+    assert.ok(store.requests.includes(key), `expected world effect request: ${key}`);
+  }
+
+  game.state.phase = 'battle';
+  const item = ITEMS.find((card) => card.id === 'item-moving-bubble');
+  const survivor = game.state.survivors[0];
+  game.selectCombatCard(item);
+  game.handleBattleTarget({ x: survivor.x, y: survivor.y });
+  game.drawMovingBubblePreview(game.ctx);
+  assert.ok(store.requests.includes('item-moving-bubble-world'));
+  game.handleBattleTarget({ x: 5, y: 5 });
+
+  const moveEffect = game.state.worldEffects.find((effect) => (
+    effect.assetKey === 'item-moving-bubble-world'
+  ));
+  assert.ok(moveEffect);
+  assert.equal(moveEffect.layer, 'back');
+  assert.deepEqual({ x: survivor.x, y: survivor.y }, { x: 5, y: 5 });
+});
+
+test('shell impacts use the generated goo-drop particle without recoloring unrelated particles', () => {
+  const store = createReadyAssetStore(['effect-particle-goo-drop']);
+  const { game } = createHarness({ assetStore: store });
+  game.spawnEnemy('enemy-soft-biter', 2);
+  const enemy = game.state.enemies.at(-1);
+  const shell = game.state.survivors.find((survivor) => (
+    survivor.cardId === 'survivor-shell-shell'
+  ));
+
+  game.damageEnemy(enemy, 1, shell);
+  assert.equal(game.state.particles.at(-1).assetKey, 'effect-particle-goo-drop');
+  game.drawProjectilesAndParticles(game.ctx);
+  assert.ok(store.requests.includes('effect-particle-goo-drop'));
+});
+
+test('game routes world, UI, projectile, status, and particle slots through the PNG store', () => {
+  const keys = [
+    'tile-build-light', 'tile-build-dark', 'tile-honey-puddle', 'tile-crystal-spikes',
+    'tile-building-rubble', 'building-mushroom-home', 'building-honey-plot',
+    'building-bubble-tower', 'building-bouncy-fence', 'building-weather-scout',
+    'town-soft-core', 'rift-entry-portal', 'item-spring-pad-world', 'item-lure-jelly-world',
+    'background-garden-base', 'background-cloud-overlay', 'background-foreground-grass',
+    'effect-projectile-goo', 'effect-projectile-needle', 'effect-projectile-bubble',
+    'effect-projectile-seed', 'effect-projectile-acid',
+    'effect-particle-goo-drop', 'effect-particle-healing-leaf',
+    'effect-particle-bubble', 'effect-particle-impact-spark',
+    'status-heal', 'status-marked', 'status-sticky', 'status-stun',
+    'ui-soft-crystal', 'ui-gel-energy', 'ui-card-frame-common', 'ui-card-frame-item',
+    'ui-audio-on', 'ui-audio-off',
+    ...SURVIVORS.map((card) => card.id),
+    ...Object.keys(ENEMY_BY_ID),
+    ...SKILLS.map((card) => `${card.id}-icon`),
+    ...ITEMS.map((card) => `${card.id}-icon`),
+  ];
+  const store = createReadyAssetStore(keys);
+  const recording = createRecordingContext();
+  const { game } = createHarness({ context: recording.ctx, assetStore: store });
+
+  game.drawBackground(recording.ctx);
+  game.drawForeground(recording.ctx);
+  game.drawBattlefield(recording.ctx);
+  game.state.phase = 'battle';
+  game.state.buildings[0].destroyed = true;
+  game.drawBuildings(recording.ctx);
+  game.state.terrain = [
+    { type: 'honey', x: 0, y: 0 },
+    { type: 'crystal', x: 1, y: 0 },
+  ];
+  game.drawTerrain(recording.ctx);
+  game.state.deployables = [
+    { type: 'pad', x: 0, y: 0, dx: 1, dy: 0 },
+    { type: 'lure', x: 1, y: 0 },
+  ];
+  game.drawDeployables(recording.ctx);
+  game.state.projectiles = [
+    { type: 'goo', progress: 0.5, from: { x: 0, y: 0 }, to: { x: 20, y: 20 } },
+    { type: 'crystal', progress: 0.5, from: { x: 0, y: 0 }, to: { x: 20, y: 20 } },
+    { type: 'bubble', progress: 0.5, from: { x: 0, y: 0 }, to: { x: 20, y: 20 } },
+    { type: 'seed', progress: 0.5, from: { x: 0, y: 0 }, to: { x: 20, y: 20 } },
+    { type: 'acid', progress: 0.5, from: { x: 0, y: 0 }, to: { x: 20, y: 20 } },
+  ];
+  game.state.particles = [
+    { x: 0, y: 0, size: 4, life: 1, maxLife: 1, color: '#unknown' },
+    { x: 0, y: 0, size: 4, life: 1, maxLife: 1, color: PALETTE.heal },
+    { x: 0, y: 0, size: 4, life: 1, maxLife: 1, color: PALETTE.bubble },
+    { x: 0, y: 0, size: 4, life: 1, maxLife: 1, color: PALETTE.crystal },
+  ];
+  game.drawProjectilesAndParticles(recording.ctx);
+  drawParticle(recording.ctx, 0, 0, 12, 'goo', { assetStore: store, progress: 0.5 });
+  game.drawTopHud(recording.ctx);
+  game.audio.enabled = false;
+  game.drawTopHud(recording.ctx);
+  game.drawCombatCards(recording.ctx);
+  game.state.phase = 'build';
+  game.buildTab = 'buildings';
+  game.drawBuildCards(recording.ctx);
+  game.buildTab = 'survivors';
+  game.drawBuildCards(recording.ctx);
+  game.drawIntelModal(recording.ctx);
+  for (const type of ['heal', 'marked', 'sticky', 'stun']) {
+    drawStatusIcon(recording.ctx, 0, 0, 22, type, { assetStore: store });
+  }
+
+  for (const key of keys) {
+    assert.ok(store.requests.includes(key), `expected generated asset request: ${key}`);
+  }
 });
 
 test('starts an active wave only after the explicit start action', () => {
@@ -461,7 +855,7 @@ test('entity expression mixers follow attacks and reactions with real slot cross
   assert.equal(game.entityExpressionSample(shell).to, 'normal');
 
   assert.equal(game.playEntityAnimation(shell, 'attack'), true);
-  game.updateEntityAnimations(0.06);
+  game.updateEntityAnimations(DEFAULT_EXPRESSION_TRANSITION_DURATION / 2);
   const attacking = game.entityExpressionSample(shell);
   assert.equal(attacking.from, 'normal');
   assert.equal(attacking.to, 'attack');
@@ -469,7 +863,7 @@ test('entity expression mixers follow attacks and reactions with real slot cross
   assert.deepEqual(attacking.slots.eyes.weights, { from: 0.5, to: 0.5 });
   assert.deepEqual(attacking.slots.mouth.weights, { from: 0.5, to: 0.5 });
 
-  game.updateEntityAnimations(0.06);
+  game.updateEntityAnimations(DEFAULT_EXPRESSION_TRANSITION_DURATION / 2);
   assert.equal(game.entityExpressionSample(shell).from, 'attack');
   assert.equal(game.entityExpressionSample(shell).to, 'attack');
 

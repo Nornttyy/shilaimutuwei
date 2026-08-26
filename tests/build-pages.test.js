@@ -12,18 +12,34 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import {
+  ASSET_SPEC_PATH,
   buildPages,
+  collectDeclaredAssetPaths,
   collectRigImagePaths,
   listImageFiles,
   RIG_MANIFEST_PATH,
+  verifyPagesOutput,
 } from '../scripts/build-pages.mjs';
 
-const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+const MINIMAL_RGBA_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR42mMAAQAABQABDQottAAAAABJRU5ErkJggg==',
+  'base64',
+);
+const PNG_WITH_IHDR_ONLY = MINIMAL_RGBA_PNG.subarray(0, 33);
+const MINIMAL_RGB_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC',
+  'base64',
+);
 const ATLAS_PATHS = Object.freeze([
   'assets/generated-v2/rig/survivor-test/atlas.png',
 ]);
 const EXPRESSION_PATH = 'assets/generated-v2/rig/survivor-test/expressions-v2.png';
+const DECLARED_ASSET_PATHS = Object.freeze([
+  'assets/generated/background/background-test.png',
+  'assets/generated/effect/effect-test.png',
+].sort());
 const RUNTIME_IMAGE_PATHS = Object.freeze([
+  ...DECLARED_ASSET_PATHS,
   ...ATLAS_PATHS,
   EXPRESSION_PATH,
 ].sort());
@@ -32,6 +48,19 @@ const PROJECT_MANIFEST = JSON.parse(await readFile(
   new URL('../assets/rig-parts.json', import.meta.url),
   'utf8',
 ));
+const PROJECT_ASSET_SPEC = JSON.parse(await readFile(
+  new URL('../assets/asset-spec.json', import.meta.url),
+  'utf8',
+));
+
+test('the project asset whitelist covers all 73 canonical nested PNG paths', () => {
+  const paths = collectDeclaredAssetPaths(PROJECT_ASSET_SPEC);
+  assert.equal(paths.length, 73);
+  assert.equal(new Set(paths).size, paths.length);
+  assert.equal(paths.every((assetPath) => (
+    /^assets\/generated\/[a-z][a-z0-9-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*\.png$/.test(assetPath)
+  )), true);
+});
 
 test('the project Pages whitelist contains every manifest-declared runtime PNG', () => {
   const paths = collectRigImagePaths(PROJECT_MANIFEST);
@@ -41,6 +70,8 @@ test('the project Pages whitelist contains every manifest-declared runtime PNG',
   const expectedBaseAtlases = Object.keys(PROJECT_MANIFEST.rigs).map((ownerId) => (
     ownerId === 'enemy-acid-shell-king'
       ? 'assets/generated-v2/rig/enemy-acid-shell-king/atlas-layered-v2.png'
+      : ownerId === 'enemy-windcap'
+        ? 'assets/generated-v2/rig/enemy-windcap/atlas-layered-v2.png'
       : `assets/generated-v2/rig/${ownerId}/atlas.png`
   )).sort();
   const declaredPaths = [...new Set(Object.values(PROJECT_MANIFEST.rigs).flatMap(
@@ -57,8 +88,11 @@ test('the project Pages whitelist contains every manifest-declared runtime PNG',
   assert.equal(paths.every((assetPath) => assetPath.endsWith('.png')), true);
 });
 
-test('Pages build copies exactly the manifest-listed rig PNG set', async () => {
+test('Pages build copies exactly the asset-spec and rig-manifest PNG sets', async () => {
   await withFixture(async (root) => {
+    await writePng(root, 'assets/generated/effect/effect-test-source.png');
+    await writePng(root, 'assets/generated/effect/effect-test-alpha.png');
+    await writePng(root, 'assets/generated/effect/preview.png');
     await writePng(root, 'assets/generated-v2/rig/unused/preview.png');
     await writePng(root, 'assets/generated-v2/rig/survivor-test/body.png');
     await writePng(root, 'assets/generated-v2/rig/survivor-test/candidates/blink.png');
@@ -84,6 +118,13 @@ test('Pages build copies exactly the manifest-listed rig PNG set', async () => {
       JSON.parse(await readFile(path.join(root, '_site', RIG_MANIFEST_PATH), 'utf8')),
       createManifest(),
     );
+    assert.deepEqual(
+      JSON.parse(await readFile(path.join(root, '_site', ASSET_SPEC_PATH), 'utf8')),
+      createAssetSpec(),
+    );
+    await assertMissing(path.join(root, '_site', 'assets/generated/effect/effect-test-source.png'));
+    await assertMissing(path.join(root, '_site', 'assets/generated/effect/effect-test-alpha.png'));
+    await assertMissing(path.join(root, '_site', 'assets/generated/effect/preview.png'));
     await assertMissing(path.join(root, '_site', 'assets/generated-v2/rig/unused/preview.png'));
     await assertMissing(path.join(root, '_site', 'assets/generated-v2/rig/survivor-test/body.png'));
     await assertMissing(
@@ -108,7 +149,13 @@ test('docs build is a trackable whitelist package with the same contents', async
       collectRigImagePaths(JSON.parse(
         await readFile(path.join(root, 'docs', RIG_MANIFEST_PATH), 'utf8'),
       )),
-      RUNTIME_IMAGE_PATHS,
+      [...ATLAS_PATHS, EXPRESSION_PATH].sort(),
+    );
+    assert.deepEqual(
+      collectDeclaredAssetPaths(JSON.parse(
+        await readFile(path.join(root, 'docs', ASSET_SPEC_PATH), 'utf8'),
+      )),
+      DECLARED_ASSET_PATHS,
     );
   });
 });
@@ -168,16 +215,124 @@ test('a missing expression variant PNG fails before replacing an existing build'
   });
 });
 
-test('a non-PNG file with a png suffix is rejected as invalid', async () => {
+test('a missing asset-spec PNG fails before replacing an existing build', async () => {
+  await withFixture(async (root) => {
+    const [missingPath] = DECLARED_ASSET_PATHS;
+    await rm(path.join(root, ...missingPath.split('/')));
+    await mkdir(path.join(root, '_site'), { recursive: true });
+    await writeFile(path.join(root, '_site', 'keep.txt'), 'previous good build');
+
+    await assert.rejects(
+      buildPages({ projectRoot: root, outputDirectory: path.join(root, '_site') }),
+      (error) => {
+        assert.match(error.message, /source asset-spec PNG validation failed/);
+        assert.match(error.message, /\[FILE_NOT_FOUND\]/);
+        assert.match(error.message, new RegExp(escapeRegExp(missingPath)));
+        return true;
+      },
+    );
+    assert.equal(
+      await readFile(path.join(root, '_site', 'keep.txt'), 'utf8'),
+      'previous good build',
+    );
+  });
+});
+
+test('a rig PNG with a valid signature and IHDR but no image chunks is rejected', async () => {
   await withFixture(async (root) => {
     const [invalidPath] = ATLAS_PATHS;
-    await writeFile(path.join(root, ...invalidPath.split('/')), 'not a real png');
+    await writeFile(path.join(root, ...invalidPath.split('/')), PNG_WITH_IHDR_ONLY);
 
     await assert.rejects(
       buildPages({ projectRoot: root, outputDirectory: path.join(root, '_site') }),
       (error) => {
         assert.match(error.message, new RegExp(`invalid: ${escapeRegExp(invalidPath)}`));
-        assert.match(error.message, /invalid PNG signature/);
+        assert.match(error.message, /missing IDAT image data/i);
+        return true;
+      },
+    );
+  });
+});
+
+test('source asset-spec verification enforces dimensions, RGBA, and maxBytes', async () => {
+  const cases = [
+    {
+      code: 'WIDTH_MISMATCH',
+      prepare: async (root) => {
+        const spec = createAssetSpec();
+        spec.assets[1].width = 2;
+        await writeJson(root, ASSET_SPEC_PATH, spec);
+      },
+    },
+    {
+      code: 'PNG_RGBA_REQUIRED',
+      prepare: async (root) => {
+        await writePng(root, DECLARED_ASSET_PATHS[1], MINIMAL_RGB_PNG);
+      },
+    },
+    {
+      code: 'FILE_TOO_LARGE',
+      prepare: async (root) => {
+        const spec = createAssetSpec();
+        spec.assets[1].maxBytes = 1;
+        await writeJson(root, ASSET_SPEC_PATH, spec);
+      },
+    },
+  ];
+
+  for (const { code, prepare } of cases) {
+    await withFixture(async (root) => {
+      await prepare(root);
+      await assert.rejects(
+        buildPages({ projectRoot: root, outputDirectory: path.join(root, '_site') }),
+        (error) => {
+          assert.match(error.message, /source asset-spec PNG validation failed/);
+          assert.match(error.message, new RegExp(`\\[${code}\\]`));
+          return true;
+        },
+      );
+    });
+  }
+});
+
+test('staging output reruns strict asset-spec PNG metadata verification', async () => {
+  await withFixture(async (root) => {
+    const result = await buildPages({
+      projectRoot: root,
+      outputDirectory: path.join(root, '_site'),
+    });
+    const copiedSpec = createAssetSpec();
+    copiedSpec.assets[1].height = 2;
+    await writeJson(result.outputDirectory, ASSET_SPEC_PATH, copiedSpec);
+
+    await assert.rejects(
+      verifyPagesOutput(result.outputDirectory, result),
+      (error) => {
+        assert.match(error.message, /staging asset-spec PNG validation failed/);
+        assert.match(error.message, /\[HEIGHT_MISMATCH\]/);
+        return true;
+      },
+    );
+  });
+});
+
+test('staging output rejects a rig PNG whose image chunks are missing', async () => {
+  await withFixture(async (root) => {
+    const result = await buildPages({
+      projectRoot: root,
+      outputDirectory: path.join(root, '_site'),
+    });
+    const [invalidPath] = ATLAS_PATHS;
+    await writeFile(
+      path.join(result.outputDirectory, ...invalidPath.split('/')),
+      PNG_WITH_IHDR_ONLY,
+    );
+
+    await assert.rejects(
+      verifyPagesOutput(result.outputDirectory, result),
+      (error) => {
+        assert.match(error.message, new RegExp(`invalid: ${escapeRegExp(invalidPath)}`));
+        assert.match(error.message, /missing IDAT image data/i);
         return true;
       },
     );
@@ -298,6 +453,27 @@ test('variant PNGs must stay directly inside their owning rig directory', () => 
   );
 });
 
+test('asset spec paths must be canonical finished PNGs in their category directory', () => {
+  const wrongCategory = createAssetSpec();
+  wrongCategory.assets[0].path = 'assets/generated/effect/background-test.png';
+  assert.throws(() => collectDeclaredAssetPaths(wrongCategory), /path category must match/i);
+
+  const wrongFilename = createAssetSpec();
+  wrongFilename.assets[0].filename = 'different.png';
+  assert.throws(() => collectDeclaredAssetPaths(wrongFilename), /path filename must match/i);
+
+  for (const fileName of ['effect-test-source.png', 'effect-test-alpha.png', 'preview.png']) {
+    const derivative = createAssetSpec();
+    derivative.assets[1].filename = fileName;
+    derivative.assets[1].path = `assets/generated/effect/${fileName}`;
+    assert.throws(() => collectDeclaredAssetPaths(derivative), /cannot publish derivative file/i);
+  }
+
+  const traversal = createAssetSpec();
+  traversal.assets[1].path = 'assets/generated/effect/../effect-test.png';
+  assert.throws(() => collectDeclaredAssetPaths(traversal), /must reference assets\/generated/i);
+});
+
 test('build refuses output paths other than project-local _site or docs', async () => {
   await withFixture(async (root) => {
     await assert.rejects(
@@ -310,6 +486,36 @@ test('build refuses output paths other than project-local _site or docs', async 
     );
   });
 });
+
+function createAssetSpec() {
+  return {
+    schemaVersion: 1,
+    assets: [
+      {
+        id: 'background-test',
+        category: 'background',
+        filename: 'background-test.png',
+        path: 'assets/generated/background/background-test.png',
+        width: 1,
+        height: 1,
+        maxBytes: 128,
+        colorType: 'RGBA',
+        alpha: true,
+      },
+      {
+        id: 'effect-test',
+        category: 'effect',
+        filename: 'effect-test.png',
+        path: 'assets/generated/effect/effect-test.png',
+        width: 1,
+        height: 1,
+        maxBytes: 128,
+        colorType: 'RGBA',
+        alpha: true,
+      },
+    ],
+  };
+}
 
 function createManifest() {
   return {
@@ -383,6 +589,7 @@ async function withFixture(callback) {
     await writeFile(path.join(root, 'index.html'), '<canvas></canvas>');
     await writeFile(path.join(root, 'styles.css'), 'canvas { display: block; }\n');
     await writeFile(path.join(root, 'src', 'main.js'), 'export const ready = true;\n');
+    await writeJson(root, ASSET_SPEC_PATH, createAssetSpec());
     await writeJson(root, RIG_MANIFEST_PATH, createManifest());
     await Promise.all(RUNTIME_IMAGE_PATHS.map((assetPath) => writePng(root, assetPath)));
     await callback(root);
@@ -397,10 +604,10 @@ async function writeJson(root, relativePath, value) {
   await writeFile(destination, `${JSON.stringify(value, null, 2)}\n`);
 }
 
-async function writePng(root, relativePath) {
+async function writePng(root, relativePath, contents = MINIMAL_RGBA_PNG) {
   const destination = path.join(root, ...relativePath.split('/'));
   await mkdir(path.dirname(destination), { recursive: true });
-  await writeFile(destination, PNG_SIGNATURE);
+  await writeFile(destination, contents);
 }
 
 async function assertMissing(filePath) {

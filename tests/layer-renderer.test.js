@@ -27,12 +27,111 @@ const EXPRESSION_RIG = Object.freeze({
   }),
 });
 
-function createContext({ alpha = 1, failOnImage = null } = {}) {
+function createRecordingExpressionSurface(id) {
   const calls = [];
   const stack = [];
+  const surfaceCtx = {
+    globalAlpha: 1,
+    globalCompositeOperation: 'source-over',
+    save() {
+      calls.push(['save']);
+      stack.push({
+        globalAlpha: this.globalAlpha,
+        globalCompositeOperation: this.globalCompositeOperation,
+      });
+    },
+    restore() {
+      calls.push(['restore']);
+      const state = stack.pop();
+      this.globalAlpha = state.globalAlpha;
+      this.globalCompositeOperation = state.globalCompositeOperation;
+    },
+    clearRect(...rect) {
+      calls.push(['clearRect', ...rect]);
+    },
+    drawImage(image, ...rect) {
+      calls.push([
+        'drawImage',
+        image.id,
+        ...rect,
+        this.globalAlpha,
+        this.globalCompositeOperation,
+      ]);
+    },
+  };
+  return {
+    id,
+    width: 0,
+    height: 0,
+    calls,
+    getContext: () => surfaceCtx,
+  };
+}
+
+function createOnePixelExpressionSurface(id) {
+  let premultiplied = [0, 0, 0];
+  let alpha = 0;
+  const stack = [];
+  const surfaceCtx = {
+    globalAlpha: 1,
+    globalCompositeOperation: 'source-over',
+    save() {
+      stack.push({
+        globalAlpha: this.globalAlpha,
+        globalCompositeOperation: this.globalCompositeOperation,
+      });
+    },
+    restore() {
+      const state = stack.pop();
+      this.globalAlpha = state.globalAlpha;
+      this.globalCompositeOperation = state.globalCompositeOperation;
+    },
+    clearRect() {
+      premultiplied = [0, 0, 0];
+      alpha = 0;
+    },
+    drawImage(image) {
+      const sourceAlpha = (image.pixel[3] / 255) * this.globalAlpha;
+      const source = image.pixel.slice(0, 3).map((value) => (value / 255) * sourceAlpha);
+      if (this.globalCompositeOperation === 'lighter') {
+        premultiplied = premultiplied.map((value, channel) => (
+          Math.min(1, value + source[channel])
+        ));
+        alpha = Math.min(1, alpha + sourceAlpha);
+      } else {
+        premultiplied = source.map((value, channel) => (
+          value + premultiplied[channel] * (1 - sourceAlpha)
+        ));
+        alpha = sourceAlpha + alpha * (1 - sourceAlpha);
+      }
+    },
+  };
+  return {
+    id,
+    width: 1,
+    height: 1,
+    get pixel() {
+      return [
+        ...premultiplied.map((value) => Math.round((value / Math.max(alpha, 1e-9)) * 255)),
+        Math.round(alpha * 255),
+      ];
+    },
+    getContext: () => surfaceCtx,
+  };
+}
+
+function createContext({
+  alpha = 1,
+  failOnImage = null,
+  expressionSurfaceFactory = null,
+} = {}) {
+  const calls = [];
+  const stack = [];
+  const surfaces = [];
   const ctx = {
     globalAlpha: alpha,
     calls,
+    surfaces,
     save() {
       calls.push(['save']);
       stack.push({ globalAlpha: this.globalAlpha });
@@ -57,6 +156,17 @@ function createContext({ alpha = 1, failOnImage = null } = {}) {
       if (image === failOnImage) throw new Error('draw failed');
     },
   };
+  if (expressionSurfaceFactory) {
+    ctx.canvas = {
+      ownerDocument: {
+        createElement() {
+          const surface = expressionSurfaceFactory(`expression-surface-${surfaces.length}`);
+          surfaces.push(surface);
+          return surface;
+        },
+      },
+    };
+  }
   return ctx;
 }
 
@@ -129,7 +239,7 @@ test('crops multiple layers from one shared atlas into independent bindRects', (
 });
 
 test('cross-fades real expression sourceRects instead of scaling one face image', () => {
-  const ctx = createContext();
+  const ctx = createContext({ expressionSurfaceFactory: createRecordingExpressionSurface });
   const atlas = { id: 'expression-sheet' };
   const bindRect = { x: -18, y: -51, width: 36, height: 15 };
   const atlasPath = 'assets/test/expressions-v2.png';
@@ -164,10 +274,56 @@ test('cross-fades real expression sourceRects instead of scaling one face image'
   assert.deepEqual(
     ctx.calls.filter(([name]) => name === 'drawImage'),
     [
-      ['drawImage', 'expression-sheet', 0, 0, 72, 30, -18, -51, 36, 15, 0.25],
-      ['drawImage', 'expression-sheet', 80, 0, 72, 30, -18, -51, 36, 15, 0.75],
+      [
+        'drawImage',
+        'expression-surface-0',
+        0,
+        0,
+        72,
+        30,
+        -18,
+        -51,
+        36,
+        15,
+        1,
+      ],
     ],
   );
+  assert.deepEqual(
+    ctx.surfaces[0].calls.filter(([name]) => name === 'drawImage'),
+    [
+      ['drawImage', 'expression-sheet', 0, 0, 72, 30, 0, 0, 72, 30, 0.25, 'source-over'],
+      ['drawImage', 'expression-sheet', 80, 0, 72, 30, 0, 0, 72, 30, 0.75, 'lighter'],
+    ],
+  );
+});
+
+test('expression cross-fade is a premultiplied pixel mix with full midpoint alpha', () => {
+  const ctx = createContext({ expressionSurfaceFactory: createOnePixelExpressionSurface });
+  const normal = { id: 'red-normal', width: 1, height: 1, pixel: [255, 0, 0, 255] };
+  const blink = { id: 'blue-blink', width: 1, height: 1, pixel: [0, 0, 255, 255] };
+  const bindRect = { x: 0, y: 0, width: 1, height: 1 };
+  const entry = manifest([
+    part('pixelEyes', 'face', 10, bindRect, {
+      image: normal,
+      variants: {
+        blink: { image: blink, bindRect },
+      },
+    }),
+  ]);
+
+  assert.equal(renderLayeredRig(ctx, EXPRESSION_RIG, {}, entry, null, {
+    pixelEyes: {
+      from: 'normal',
+      to: 'blink',
+      weights: { from: 0.5, to: 0.5 },
+    },
+  }), true);
+
+  // Linear premultiplied interpolation of two opaque pixels stays opaque and
+  // produces equal red/blue. Sequential source-over would be [85, 0, 170, 191].
+  assert.deepEqual(ctx.surfaces[0].pixel, [128, 0, 128, 255]);
+  assert.equal(ctx.calls.filter(([name]) => name === 'drawImage').length, 1);
 });
 
 test('draws a standalone expression asset and allows its own logical bindRect', () => {

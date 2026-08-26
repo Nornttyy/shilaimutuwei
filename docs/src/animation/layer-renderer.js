@@ -16,6 +16,9 @@ const CANVAS_METHODS = Object.freeze([
   'drawImage',
 ]);
 
+const EXPRESSION_SURFACE_CACHE = new Map();
+const MAX_EXPRESSION_SURFACE_EDGE = 2048;
+
 function finiteOr(value, fallback) {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }
@@ -270,7 +273,7 @@ function sameVisual(left, right) {
 
 function prepareParts(rig, entry, images, expression) {
   const slots = expressionSlotsFor(rig, expression);
-  const parts = partsFromEntry(entry).flatMap((part, index) => {
+  const parts = partsFromEntry(entry).map((part, index) => {
     if (!part || typeof part !== 'object') {
       throw new TypeError(`manifestEntry.parts[${index}] must be an object.`);
     }
@@ -288,17 +291,11 @@ function prepareParts(rig, entry, images, expression) {
         : imageForVariant(part, variantName, descriptor, images);
       const suffix = isBase ? '' : `.variants.${variantName}`;
       const candidate = {
-        index,
         sequence: prepared.length,
-        part,
         image,
         rect: bindRectFor(descriptor, index, suffix),
         sourceRect: sourceRectFor(descriptor, index, suffix),
-        chain,
-        z,
-        alpha: clampAlpha(part.alpha)
-          * (isBase ? 1 : clampAlpha(descriptor.alpha))
-          * weight,
+        alpha: (isBase ? 1 : clampAlpha(descriptor.alpha)) * weight,
         visualKey: visualKey(descriptor, image),
       };
       const duplicate = prepared.find((existing) => sameVisual(
@@ -308,21 +305,33 @@ function prepareParts(rig, entry, images, expression) {
       if (duplicate) duplicate.alpha += candidate.alpha;
       else prepared.push(candidate);
     }
-    return prepared;
+    return {
+      index,
+      part,
+      chain,
+      z,
+      alpha: clampAlpha(part.alpha),
+      variants: prepared,
+    };
   });
 
   // A required missing part must leave the canvas untouched so callers can
   // safely draw the existing vector fallback instead of a partial character.
-  if (parts.some(({ part, image }) => part.required !== false && image == null)) {
+  if (parts.some(({ part, variants }) => (
+    part.required !== false && variants.some(({ image }) => image == null)
+  ))) {
     return null;
   }
 
   return parts
-    .filter(({ image }) => image != null)
+    .map((prepared) => ({
+      ...prepared,
+      variants: prepared.variants.filter(({ image }) => image != null),
+    }))
+    .filter(({ variants }) => variants.length > 0)
     .sort((left, right) => (
       left.z - right.z
       || left.index - right.index
-      || left.sequence - right.sequence
     ));
 }
 
@@ -346,27 +355,168 @@ function applyBoneTransform(ctx, pose, { name, bone }) {
   ctx.globalAlpha *= clampAlpha(transform.alpha);
 }
 
+function drawVariant(ctx, prepared) {
+  const { x, y, width, height } = prepared.rect;
+  if (prepared.sourceRect) {
+    const source = prepared.sourceRect;
+    ctx.drawImage(
+      prepared.image,
+      source.x,
+      source.y,
+      source.width,
+      source.height,
+      x,
+      y,
+      width,
+      height,
+    );
+  } else {
+    ctx.drawImage(prepared.image, x, y, width, height);
+  }
+}
+
+function imagePixelWidth(image) {
+  return finiteOr(image?.naturalWidth, finiteOr(image?.videoWidth, finiteOr(image?.width, 0)));
+}
+
+function imagePixelHeight(image) {
+  return finiteOr(image?.naturalHeight, finiteOr(image?.videoHeight, finiteOr(image?.height, 0)));
+}
+
+function expressionBlendGeometry(variants) {
+  const left = Math.min(...variants.map(({ rect }) => rect.x));
+  const top = Math.min(...variants.map(({ rect }) => rect.y));
+  const right = Math.max(...variants.map(({ rect }) => rect.x + rect.width));
+  const bottom = Math.max(...variants.map(({ rect }) => rect.y + rect.height));
+  const width = right - left;
+  const height = bottom - top;
+  if (!(width > 0) || !(height > 0)) {
+    throw new RangeError('Expression variant bindRects must have positive dimensions.');
+  }
+
+  const densities = variants.flatMap(({ image, rect, sourceRect }) => {
+    const pixelWidth = sourceRect?.width ?? imagePixelWidth(image);
+    const pixelHeight = sourceRect?.height ?? imagePixelHeight(image);
+    return [pixelWidth / rect.width, pixelHeight / rect.height];
+  }).filter((value) => Number.isFinite(value) && value > 0);
+  const pixelsPerUnit = Math.max(1, ...densities);
+  const surfaceWidth = Math.ceil(width * pixelsPerUnit);
+  const surfaceHeight = Math.ceil(height * pixelsPerUnit);
+  if (
+    surfaceWidth > MAX_EXPRESSION_SURFACE_EDGE
+    || surfaceHeight > MAX_EXPRESSION_SURFACE_EDGE
+  ) {
+    throw new RangeError('Expression blend surface exceeds the supported size.');
+  }
+  return {
+    rect: { x: left, y: top, width, height },
+    pixelsPerUnit,
+    surfaceWidth,
+    surfaceHeight,
+  };
+}
+
+function createExpressionSurface(ctx, width, height) {
+  let canvas = null;
+  try {
+    if (typeof globalThis.OffscreenCanvas === 'function') {
+      canvas = new globalThis.OffscreenCanvas(width, height);
+    } else {
+      const documentRef = ctx?.canvas?.ownerDocument ?? globalThis.document;
+      if (typeof documentRef?.createElement === 'function') {
+        canvas = documentRef.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+      }
+    }
+  } catch {
+    return null;
+  }
+
+  let surfaceCtx = null;
+  try {
+    surfaceCtx = canvas?.getContext?.('2d');
+  } catch {
+    return null;
+  }
+  const methods = ['save', 'restore', 'clearRect', 'drawImage'];
+  if (!surfaceCtx || methods.some((method) => typeof surfaceCtx[method] !== 'function')) {
+    return null;
+  }
+  return { canvas, ctx: surfaceCtx, width, height };
+}
+
+function expressionSurfaceFor(ctx, cacheKey, width, height) {
+  const key = `${cacheKey}:${width}x${height}`;
+  let surface = EXPRESSION_SURFACE_CACHE.get(key);
+  if (!surface) {
+    surface = createExpressionSurface(ctx, width, height);
+    if (!surface) return null;
+    EXPRESSION_SURFACE_CACHE.set(key, surface);
+  }
+  return surface;
+}
+
+function prepareExpressionBlend(ctx, prepared) {
+  if (prepared.variants.length < 2) return null;
+  const geometry = expressionBlendGeometry(prepared.variants);
+  const surface = expressionSurfaceFor(
+    ctx,
+    prepared.part.id,
+    geometry.surfaceWidth,
+    geometry.surfaceHeight,
+  );
+  if (!surface) return null;
+
+  const surfaceCtx = surface.ctx;
+  surfaceCtx.save();
+  try {
+    surfaceCtx.globalAlpha = 1;
+    surfaceCtx.globalCompositeOperation = 'source-over';
+    surfaceCtx.clearRect(0, 0, surface.width, surface.height);
+    prepared.variants.forEach((variant, index) => {
+      // On a transparent isolated layer, `lighter` adds premultiplied colour
+      // and alpha. With expression weights summing to one, this is the exact
+      // linear interpolation; drawing the two images source-over is not (two
+      // opaque 50% layers would incorrectly leave only 75% alpha).
+      surfaceCtx.globalCompositeOperation = index === 0 ? 'source-over' : 'lighter';
+      surfaceCtx.globalAlpha = clampAlpha(variant.alpha);
+      const target = {
+        x: (variant.rect.x - geometry.rect.x) * geometry.pixelsPerUnit,
+        y: (variant.rect.y - geometry.rect.y) * geometry.pixelsPerUnit,
+        width: variant.rect.width * geometry.pixelsPerUnit,
+        height: variant.rect.height * geometry.pixelsPerUnit,
+      };
+      drawVariant(surfaceCtx, { ...variant, rect: target });
+    });
+  } finally {
+    surfaceCtx.restore();
+  }
+  return { surface, rect: geometry.rect };
+}
+
 function drawPreparedPart(ctx, pose, prepared) {
   ctx.save();
   try {
     for (const bone of prepared.chain) applyBoneTransform(ctx, pose, bone);
     ctx.globalAlpha *= clampAlpha(prepared.alpha);
-    const { x, y, width, height } = prepared.rect;
-    if (prepared.sourceRect) {
-      const source = prepared.sourceRect;
+    if (prepared.blend) {
+      const { x, y, width, height } = prepared.blend.rect;
       ctx.drawImage(
-        prepared.image,
-        source.x,
-        source.y,
-        source.width,
-        source.height,
+        prepared.blend.surface.canvas,
+        0,
+        0,
+        prepared.blend.surface.width,
+        prepared.blend.surface.height,
         x,
         y,
         width,
         height,
       );
     } else {
-      ctx.drawImage(prepared.image, x, y, width, height);
+      const [variant] = prepared.variants;
+      ctx.globalAlpha *= clampAlpha(variant.alpha);
+      drawVariant(ctx, variant);
     }
   } finally {
     ctx.restore();
@@ -381,8 +531,9 @@ function drawPreparedPart(ctx, pose, prepared) {
  * Parts with a sourceRect crop their pixels from a shared atlas; standalone
  * part images retain the five-argument drawImage path. `expression` accepts a
  * rig state name, a direct slot map, or `ExpressionMixer.sample()`. Declared
- * variants are cross-faded as distinct crops/images; an undeclared variant
- * resolves to the normal base part for backwards compatibility.
+ * variants are first mixed with premultiplied alpha on a cached isolated
+ * surface, then composited once; an undeclared variant resolves to the normal
+ * base part for backwards compatibility.
  * Returns false without drawing when a required image is unavailable, allowing
  * the caller to use the vector renderer as an atomic fallback.
  */
@@ -398,6 +549,15 @@ export function renderLayeredRig(
   assertRig(rig);
   const parts = prepareParts(rig, manifestEntry, decodedImages, expression);
   if (parts == null || parts.length === 0) return false;
+
+  // Allocate and fill every required expression surface before touching the
+  // caller's canvas, preserving the renderer's atomic fallback contract.
+  for (const part of parts) {
+    if (part.variants.length < 2) continue;
+    const blend = prepareExpressionBlend(ctx, part);
+    if (!blend) return false;
+    part.blend = blend;
+  }
 
   for (const part of parts) drawPreparedPart(ctx, pose, part);
   return true;

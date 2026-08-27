@@ -1084,6 +1084,50 @@ test('dense kill chains cap illustrated components at 64 and reserve room for wa
   );
 });
 
+test('priority-two effects cannot consume the wave-clear-only component reserve', () => {
+  const recording = createDynamicEffectRecordingContext();
+  const store = createDynamicAtlasStore();
+  const { game } = createHarness({ context: recording.ctx, assetStore: store });
+  const addAtProgress = (kind, count) => {
+    for (let index = 0; index < count; index += 1) {
+      const effect = game.spawnDynamicEffect(kind, 280 + index * 3, 250, {
+        seed: 500 + index,
+        color: '#65CBE4',
+        accent: '#FFF8E9',
+      });
+      effect.life = effect.maxLife * 0.8;
+    }
+  };
+
+  addAtProgress('impact', 24);
+  addAtProgress('heal', 2);
+  addAtProgress('wave-clear', 1);
+  game.resetDynamicComponentBudget();
+  game.drawDynamicEffects(recording.ctx, 'front');
+
+  const atlasDraws = recording.calls.filter(([name, asset]) => (
+    name === 'drawImage' && asset?.key === DYNAMIC_COMPONENT_ATLAS_KEY
+  ));
+  assert.ok(atlasDraws.length <= 64);
+  assert.ok(
+    atlasDraws.some(([, , , sourceY]) => sourceY >= 1254 * 0.75),
+    'wave-clear should retain ribbon/confetti cells after earlier heal effects use their reserve',
+  );
+});
+
+test('failed atlas drawImage calls do not consume the next component budget', () => {
+  const recording = createRecordingContext({ throwOnDrawImage: true });
+  const store = createDynamicAtlasStore();
+  const { game } = createHarness({ context: recording.ctx, assetStore: store });
+  const effect = game.spawnDynamicEffect('impact', 320, 240, { seed: 91 });
+  effect.life = effect.maxLife * 0.55;
+  game.resetDynamicComponentBudget();
+
+  assert.doesNotThrow(() => game.drawDynamicEffects(recording.ctx, 'front'));
+  assert.equal(game.dynamicComponentDrawCount, 0);
+  assert.equal(game.dynamicComponentGeneralRemaining, 48);
+});
+
 test('enemy hits and deaths emit distinct procedural impact and pop effects', () => {
   const { game } = createHarness();
   game.spawnEnemy('enemy-soft-biter', 2);

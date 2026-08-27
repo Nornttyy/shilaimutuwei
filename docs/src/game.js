@@ -70,7 +70,8 @@ const DYNAMIC_EFFECT_DURATION = Object.freeze({
 const DYNAMIC_EFFECT_ATLAS_KEY = 'effect-dynamic-components-v1';
 const DYNAMIC_EFFECT_ATLAS_GRID = 4;
 const DYNAMIC_EFFECT_COMPONENT_GENERAL_BUDGET = 48;
-const DYNAMIC_EFFECT_COMPONENT_RESERVED_BUDGET = 16;
+const DYNAMIC_EFFECT_COMPONENT_ABILITY_RESERVE = 4;
+const DYNAMIC_EFFECT_COMPONENT_WAVE_RESERVE = 12;
 const DYNAMIC_EFFECT_COMPONENT_PRIORITY = Object.freeze({
   impact: 0,
   spawn: 1,
@@ -2474,7 +2475,8 @@ export class SlimeGame {
 
   resetDynamicComponentBudget() {
     this.dynamicComponentGeneralRemaining = DYNAMIC_EFFECT_COMPONENT_GENERAL_BUDGET;
-    this.dynamicComponentReserveRemaining = DYNAMIC_EFFECT_COMPONENT_RESERVED_BUDGET;
+    this.dynamicComponentAbilityReserveRemaining = DYNAMIC_EFFECT_COMPONENT_ABILITY_RESERVE;
+    this.dynamicComponentWaveReserveRemaining = DYNAMIC_EFFECT_COMPONENT_WAVE_RESERVE;
     this.dynamicComponentDrawCount = 0;
     this.dynamicComponentPriority = 0;
   }
@@ -2486,10 +2488,14 @@ export class SlimeGame {
     const height = Math.max(1, Number(options.height) || width);
     const alpha = clamp(Number.isFinite(options.alpha) ? options.alpha : 1, 0, 1);
     if (alpha <= 0) return false;
-    const canUseGeneralBudget = this.dynamicComponentGeneralRemaining > 0;
-    const canUseReservedBudget = this.dynamicComponentPriority >= 2
-      && this.dynamicComponentReserveRemaining > 0;
-    if (!canUseGeneralBudget && !canUseReservedBudget) return false;
+    const budgetKind = this.dynamicComponentGeneralRemaining > 0
+      ? 'general'
+      : this.dynamicComponentPriority >= 3 && this.dynamicComponentWaveReserveRemaining > 0
+        ? 'wave'
+        : this.dynamicComponentPriority >= 2 && this.dynamicComponentAbilityReserveRemaining > 0
+          ? 'ability'
+          : null;
+    if (!budgetKind) return false;
     const x = Number(options.x) || 0;
     const y = Number(options.y) || 0;
     const rotation = Number(options.rotation) || 0;
@@ -2500,12 +2506,6 @@ export class SlimeGame {
       this.assetStore,
       DYNAMIC_EFFECT_ATLAS_KEY,
       (asset) => {
-        if (this.dynamicComponentGeneralRemaining > 0) {
-          this.dynamicComponentGeneralRemaining -= 1;
-        } else {
-          this.dynamicComponentReserveRemaining -= 1;
-        }
-        this.dynamicComponentDrawCount += 1;
         const dimensions = imageDimensions(asset, 1254, 1254);
         const sourceWidth = dimensions.width / DYNAMIC_EFFECT_ATLAS_GRID;
         const sourceHeight = dimensions.height / DYNAMIC_EFFECT_ATLAS_GRID;
@@ -2524,6 +2524,10 @@ export class SlimeGame {
           width,
           height,
         );
+        if (budgetKind === 'general') this.dynamicComponentGeneralRemaining -= 1;
+        else if (budgetKind === 'wave') this.dynamicComponentWaveReserveRemaining -= 1;
+        else this.dynamicComponentAbilityReserveRemaining -= 1;
+        this.dynamicComponentDrawCount += 1;
       },
       () => {},
     );

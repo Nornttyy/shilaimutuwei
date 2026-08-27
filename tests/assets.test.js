@@ -11,7 +11,13 @@ import {
   parsePng,
   verifyAssets,
 } from '../scripts/verify-assets.mjs';
-import { ASSET_PATHS, createAssetStore } from '../src/assets.js';
+import {
+  ASSET_LOAD_TIMEOUT_MS,
+  ASSET_PATHS,
+  ASSET_PRELOAD_CONCURRENCY,
+  ASSET_PRELOAD_RETRIES,
+  createAssetStore,
+} from '../src/assets.js';
 
 const PROJECT_ROOT = fileURLToPath(new URL('../', import.meta.url));
 const PROJECT_ASSET_SPEC = JSON.parse(await readFile(
@@ -197,10 +203,55 @@ test('browser startup attaches and preloads the ordinary asset store before star
   const source = await readFile(path.join(PROJECT_ROOT, 'src/main.js'), 'utf8');
   assert.match(source, /import \{ createAssetStore \} from '\.\/assets\.js';/);
   assert.match(source, /game\.setAssetStore\(assetStore\)|game\.assetStore = assetStore/);
+  assert.match(source, /hostname: window\.location\.hostname/);
+  assert.match(source, /const STARTUP_WAIT_MS = 20000/);
+  assert.match(source, /game\.setGeneratedCharacterArtEnabled\(useGeneratedCharacterArt\)/);
+  assert.match(source, /Promise\.race\(\[assetsReady, startupBudget\]\)/);
   const preloadIndex = source.indexOf('assetStore.preload()');
+  const attachRigIndex = source.indexOf('game.setRigAssetStore(store)');
+  const preloadRigIndex = source.indexOf('await store.preload()');
   const startIndex = source.indexOf('game.start()');
   assert.ok(preloadIndex >= 0 && preloadIndex < startIndex);
-  assert.match(source, /await Promise\.all\(\[ordinaryAssets, rigAssets\]\)/);
+  assert.ok(attachRigIndex >= 0 && attachRigIndex < preloadRigIndex);
+  assert.match(source, /const assetsReady = Promise\.all\(\[ordinaryAssets, rigAssets\]\)/);
+});
+
+test('ordinary preload uses patient defaults, bounded concurrency, and one transient retry', async () => {
+  assert.equal(ASSET_LOAD_TIMEOUT_MS, 15000);
+  assert.equal(ASSET_PRELOAD_CONCURRENCY, 8);
+  assert.equal(ASSET_PRELOAD_RETRIES, 1);
+
+  const paths = Object.fromEntries(
+    Array.from({ length: 6 }, (_, index) => [`asset-${index}`, `asset-${index}.png`]),
+  );
+  const attempts = new Map();
+  let active = 0;
+  let peakActive = 0;
+  const store = createAssetStore(paths, {
+    resolvePath: (value) => value,
+    imageFactory: (key) => {
+      const attempt = (attempts.get(key) ?? 0) + 1;
+      attempts.set(key, attempt);
+      return trackedImage({
+        fails: key === 'asset-2' && attempt === 1,
+        onStart: () => {
+          active += 1;
+          peakActive = Math.max(peakActive, active);
+        },
+        onFinish: () => { active -= 1; },
+      });
+    },
+  });
+
+  const summary = await store.preload({ timeoutMs: 100, concurrency: 2 });
+  assert.deepEqual(
+    selectSummary(summary),
+    { total: 6, loaded: 6, failed: 0, unsupported: 0 },
+  );
+  assert.equal(attempts.get('asset-2'), 2);
+  assert.equal([...attempts.values()].filter((attempt) => attempt === 2).length, 1);
+  assert.ok(peakActive > 1, 'the worker pool should load independent images in parallel');
+  assert.ok(peakActive <= 2, `expected at most two active images, observed ${peakActive}`);
 });
 
 test('isolated asset store loads in parallel and keeps failures recoverable', async () => {
@@ -332,6 +383,26 @@ function fakeImage({ fails = false } = {}) {
         if (fails) this.onerror?.(new Error(`missing ${value}`));
         else this.onload?.();
       });
+    },
+  };
+}
+
+function trackedImage({ fails = false, onStart = () => {}, onFinish = () => {} } = {}) {
+  let source = '';
+  return {
+    onload: null,
+    onerror: null,
+    get src() {
+      return source;
+    },
+    set src(value) {
+      source = value;
+      onStart();
+      setTimeout(() => {
+        onFinish();
+        if (fails) this.onerror?.(new Error(`missing ${value}`));
+        else this.onload?.();
+      }, 2);
     },
   };
 }

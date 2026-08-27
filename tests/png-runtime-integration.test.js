@@ -272,6 +272,96 @@ test('incompatible or incomplete bundles draw zero PNG pixels and use the whole 
   assert.ok(incompleteCtx.gradientCount > 0);
 });
 
+test('a missing rig prefers the generated standalone instead of exposing the old vector character', () => {
+  resetOffscreen();
+  const ownerId = 'survivor-shell-shell';
+  const standalone = {
+    kind: 'generated-standalone',
+    naturalWidth: 512,
+    naturalHeight: 512,
+  };
+  const assetStore = {
+    useOrFallback(key, renderAsset) {
+      assert.equal(key, ownerId);
+      renderAsset(standalone);
+      return true;
+    },
+  };
+  const ctx = createMainContext();
+
+  drawSlime(ctx, 30, 70, 100, 'shell', {
+    animate: false,
+    assetStore,
+    rigAsset: null,
+  });
+
+  const draw = ctx.calls.find((call) => call[0] === 'drawImage' && call[1] === standalone.kind);
+  assert.ok(draw, 'the already generated standalone should cover a delayed or failed rig');
+  assert.equal(draw[7] + draw[9], 0, 'the cropped standalone should remain grounded at the actor anchor');
+  assert.deepEqual(ctx.calls.filter(([name]) => name === 'scale').at(-1), ['scale', 1, 1]);
+  assert.equal(ctx.gradientCount, 0, 'the legacy vector body must not be drawn behind the standalone');
+
+  const explicitVectorCtx = createMainContext();
+  drawSlime(explicitVectorCtx, 0, 0, 100, 'shell', {
+    animate: false,
+    assetStore,
+    rigAsset: null,
+    allowGeneratedStandalone: false,
+  });
+  assert.equal(
+    explicitVectorCtx.calls.some((call) => call[0] === 'drawImage' && call[1] === standalone.kind),
+    false,
+    'the localhost vector diagnostic must still bypass generated character images',
+  );
+  assert.ok(explicitVectorCtx.gradientCount > 0);
+});
+
+test('standalone fallback keeps exported enemy facing and rejects invalid image dimensions atomically', () => {
+  resetOffscreen();
+  const enemyId = 'enemy-soft-biter';
+  const enemyCtx = createMainContext();
+  const enemyStore = {
+    useOrFallback(key, renderAsset) {
+      assert.equal(key, enemyId);
+      renderAsset({ kind: 'generated-enemy', naturalWidth: 512, naturalHeight: 512 });
+      return true;
+    },
+  };
+  drawMonster(enemyCtx, 0, 0, 100, 'bug', {
+    animate: false,
+    assetStore: enemyStore,
+    rigAsset: null,
+  });
+  assert.deepEqual(
+    enemyCtx.calls.filter(([name]) => name === 'scale').at(-1),
+    ['scale', 1, 1],
+    'the already gameplay-left export must not be mirrored a second time',
+  );
+
+  const invalidCtx = createMainContext();
+  const invalidStore = {
+    useOrFallback(key, renderAsset, renderFallback) {
+      try {
+        renderAsset({ kind: 'invalid-standalone', naturalWidth: 0, naturalHeight: 0 });
+        return true;
+      } catch (error) {
+        renderFallback?.({ status: 'loaded' }, error);
+        return false;
+      }
+    },
+  };
+  drawSlime(invalidCtx, 0, 0, 100, 'shell', {
+    animate: false,
+    assetStore: invalidStore,
+    rigAsset: null,
+  });
+  assert.equal(
+    invalidCtx.calls.some((call) => call[0] === 'drawImage' && call[1] === 'invalid-standalone'),
+    false,
+  );
+  assert.ok(invalidCtx.gradientCount > 0, 'an invalid standalone must fall back to one complete vector body');
+});
+
 test('a late layer drawImage failure cannot leave a partial PNG character on the main canvas', () => {
   resetOffscreen();
   const ownerId = 'survivor-shell-shell';

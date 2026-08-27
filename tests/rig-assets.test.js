@@ -3,7 +3,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 import {
+  RIG_IMAGE_LOAD_TIMEOUT_MS,
   RIG_PART_MANIFEST_URL,
+  RIG_PRELOAD_CONCURRENCY,
+  RIG_PRELOAD_RETRIES,
   createRigAssetStore,
   createRigAssetStoreFromUrl,
   loadRigPartManifest,
@@ -698,6 +701,68 @@ test('preload reports readiness per whole rig across all eight contracts', async
   );
 });
 
+test('rig preload bounds parallel rigs and retries one transient atomic failure', async () => {
+  assert.equal(RIG_IMAGE_LOAD_TIMEOUT_MS, 15000);
+  assert.equal(RIG_PRELOAD_CONCURRENCY, 3);
+  assert.equal(RIG_PRELOAD_RETRIES, 1);
+
+  const ownerIds = [
+    'survivor-shell-shell',
+    'survivor-bubble-float',
+    'enemy-windcap',
+    'enemy-stone-lump',
+  ];
+  const attempts = new Map();
+  let activeImages = 0;
+  let peakActiveImages = 0;
+  const store = createRigAssetStore(selectRigs(...ownerIds), {
+    resolvePath: (path) => path,
+    imageFactory: (part, path, definition) => {
+      const resourceKey = `${definition.ownerId}:${path}`;
+      const attempt = (attempts.get(resourceKey) ?? 0) + 1;
+      attempts.set(resourceKey, attempt);
+      const transientAtlasFailure = (
+        definition.ownerId === 'enemy-windcap'
+        && path === expectedAtlasPath('enemy-windcap')
+        && attempt === 1
+      );
+      return trackedImage({
+        fails: transientAtlasFailure,
+        onStart: () => {
+          activeImages += 1;
+          peakActiveImages = Math.max(peakActiveImages, activeImages);
+        },
+        onFinish: () => { activeImages -= 1; },
+      });
+    },
+  });
+
+  const summary = await store.preload({ timeoutMs: 100, concurrency: 2 });
+  assert.deepEqual(
+    {
+      total: summary.total,
+      ready: summary.ready,
+      fallback: summary.fallback,
+      unknown: summary.unknown,
+    },
+    { total: 4, ready: 4, fallback: 0, unknown: 0 },
+  );
+  assert.equal(
+    attempts.get(`enemy-windcap:${expectedAtlasPath('enemy-windcap')}`),
+    2,
+  );
+  assert.equal(
+    attempts.get(`enemy-windcap:${expectedExpressionPath('enemy-windcap')}`),
+    2,
+    'the whole rig must reload together after an atomic failure',
+  );
+  assert.ok(peakActiveImages > 2, 'two rigs should be able to load together');
+  assert.ok(
+    peakActiveImages <= 4,
+    `two parallel rigs should decode at most four sheets, observed ${peakActiveImages}`,
+  );
+});
+
 test('an unsupported image runtime safely selects vector fallback', async () => {
   const store = createRigAssetStore(selectRigs('enemy-stone-lump'), {
     resolvePath: (path) => path,
@@ -709,3 +774,23 @@ test('an unsupported image runtime safely selects vector fallback', async () => 
   assert.equal(store.get('enemy-stone-lump'), null);
   assert.match(result.error.errors[0].message, /does not provide an Image factory/i);
 });
+
+function trackedImage({ fails = false, onStart = () => {}, onFinish = () => {} } = {}) {
+  let assignedSrc = '';
+  return {
+    onload: null,
+    onerror: null,
+    get src() {
+      return assignedSrc;
+    },
+    set src(value) {
+      assignedSrc = value;
+      onStart();
+      setTimeout(() => {
+        onFinish();
+        if (fails) this.onerror?.(new Error(`missing ${value}`));
+        else this.onload?.();
+      }, 2);
+    },
+  };
+}

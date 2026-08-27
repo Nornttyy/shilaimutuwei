@@ -33,11 +33,19 @@ function approximately(actual, expected, epsilon = 1e-9) {
   );
 }
 
-test('generated layered rigs are the public default with an explicit vector escape hatch', () => {
-  assert.equal(shouldUseGeneratedRigs(''), true);
-  assert.equal(shouldUseGeneratedRigs('?rigDebug=1'), true);
-  assert.equal(shouldUseGeneratedRigs('?rig=generated'), true);
-  assert.equal(shouldUseGeneratedRigs('?rig=vector'), false);
+test('public hosts always use generated rigs while local development keeps the vector escape hatch', () => {
+  const production = { hostname: 'nornttyy.github.io' };
+  assert.equal(shouldUseGeneratedRigs('', production), true);
+  assert.equal(shouldUseGeneratedRigs('?rigDebug=1', production), true);
+  assert.equal(shouldUseGeneratedRigs('?rig=generated', production), true);
+  assert.equal(shouldUseGeneratedRigs('?rig=vector', production), true);
+  assert.equal(shouldUseGeneratedRigs('?rig=vector', { hostname: 'example.com' }), true);
+  assert.equal(shouldUseGeneratedRigs('?rig=vector', { hostname: '' }), true);
+
+  assert.equal(shouldUseGeneratedRigs('?rig=vector', { hostname: 'localhost' }), false);
+  assert.equal(shouldUseGeneratedRigs('?rig=vector', { hostname: '127.0.0.1' }), false);
+  assert.equal(shouldUseGeneratedRigs('?rig=vector', { hostname: '::1' }), false);
+  assert.equal(shouldUseGeneratedRigs('?rig=generated', { hostname: 'localhost' }), true);
 });
 
 function constantClip(x, { mode = 'loop', priority = 0, duration = 1 } = {}) {

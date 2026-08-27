@@ -10,6 +10,7 @@ import {
   WINDCAP_RIG,
 } from './animation/rigs.js';
 import {
+  characterPortraitCrop,
   characterRenderProfile,
   characterWorldScale,
 } from './character-render-profiles.js';
@@ -145,6 +146,31 @@ export function drawAssetOrFallback(ctx, assetStore, key, drawAsset, drawFallbac
     },
     fallback,
   );
+}
+
+function drawGeneratedCharacterStandalone(ctx, assetStore, ownerId, size, requestedFacing) {
+  return drawAssetOrFallback(ctx, assetStore, ownerId, (asset) => {
+    const imageWidth = Number(asset?.naturalWidth || asset?.width);
+    const imageHeight = Number(asset?.naturalHeight || asset?.height);
+    const crop = characterPortraitCrop(ownerId, imageWidth, imageHeight);
+    if (!crop) throw new TypeError(`Generated standalone ${ownerId} has invalid dimensions.`);
+    const fit = size / Math.max(crop.width, crop.height);
+    const width = crop.width * fit;
+    const height = crop.height * fit;
+    const exportedFacing = characterRenderProfile(ownerId)?.gameplayFacing ?? 1;
+    ctx.scale(requestedFacing * exportedFacing, 1);
+    ctx.drawImage(
+      asset,
+      crop.x,
+      crop.y,
+      crop.width,
+      crop.height,
+      -width / 2,
+      -height,
+      width,
+      height,
+    );
+  }, () => {});
 }
 
 function createRigSurface(ctx) {
@@ -886,7 +912,10 @@ export function drawSlime(ctx, x, y, size, variantOrOptions = 'shell', maybeOpti
       ?? (options.hit > 0.5 ? 'hurt' : null),
   );
   ctx.restore();
-  if (!renderedRig) {
+  const renderedStandalone = renderedRig || options.allowGeneratedStandalone === false
+    ? false
+    : drawGeneratedCharacterStandalone(ctx, options.assetStore, ownerId, size, facing);
+  if (!renderedRig && !renderedStandalone) {
     ctx.save();
     ctx.scale(unit * facing * (1 + squash * 0.55), unit * (1 - squash));
     if (options.pose) {
@@ -1475,7 +1504,10 @@ export function drawMonster(ctx, x, y, size, typeOrOptions = 'bug', maybeOptions
       ?? (options.hit > 0.5 ? 'hurt' : null),
   );
   ctx.restore();
-  if (!renderedRig) {
+  const renderedStandalone = renderedRig || options.allowGeneratedStandalone === false
+    ? false
+    : drawGeneratedCharacterStandalone(ctx, options.assetStore, ownerId, visualSize, facing);
+  if (!renderedRig && !renderedStandalone) {
     ctx.save();
     ctx.scale(fallbackUnit * facing * (1 + squash * 0.5), fallbackUnit * (1 - squash));
     if (type === 'bug') drawBugMonsterLocal(ctx, options);
@@ -1485,7 +1517,7 @@ export function drawMonster(ctx, x, y, size, typeOrOptions = 'bug', maybeOptions
     ctx.restore();
   }
 
-  if ((options.hit || 0) > 0) {
+  if ((options.hit || 0) > 0 && !renderedStandalone) {
     ctx.save();
     const hitUnit = renderedRig ? rigUnit * rigScale : fallbackUnit;
     ctx.scale(hitUnit * facing * (1 + squash * 0.5), hitUnit * (1 - squash));

@@ -100,6 +100,28 @@ function createRecordingContext({ throwOnDrawImage = false } = {}) {
   return { ctx, calls };
 }
 
+function createDynamicEffectRecordingContext() {
+  const ctx = createContext();
+  const calls = [];
+  const methods = [
+    'arc', 'beginPath', 'bezierCurveTo', 'closePath', 'ellipse', 'fill', 'lineTo',
+    'moveTo', 'quadraticCurveTo', 'restore', 'rotate', 'save', 'scale', 'setLineDash',
+    'stroke', 'translate', 'drawImage',
+  ];
+  for (const method of methods) {
+    ctx[method] = (...args) => calls.push([method, ...args]);
+  }
+  ctx.createLinearGradient = (...args) => {
+    calls.push(['createLinearGradient', ...args]);
+    return createGradient();
+  };
+  ctx.createRadialGradient = (...args) => {
+    calls.push(['createRadialGradient', ...args]);
+    return createGradient();
+  };
+  return { ctx, calls };
+}
+
 function createReadyAssetStore(keysOrAssets) {
   const assets = keysOrAssets instanceof Map
     ? new Map(keysOrAssets)
@@ -347,6 +369,7 @@ test('battlefield keeps the portal and moving-bubble shell behind depth-sorted a
   game.drawRoutes = () => events.push('routes');
   game.drawTerrain = () => events.push('terrain');
   game.drawWorldEffects = (_ctx, layer) => events.push(`effects:${layer}`);
+  game.drawDynamicEffects = (_ctx, layer) => events.push(`dynamic:${layer}`);
   game.drawMovingBubblePreview = () => events.push('moving-bubble-preview');
   game.drawWorldActors = () => events.push('actors');
   game.drawProjectilesAndParticles = () => events.push('projectiles');
@@ -373,6 +396,15 @@ test('battlefield keeps the portal and moving-bubble shell behind depth-sorted a
     'projectiles',
     'selection',
   ]);
+  assert.ok(
+    events.indexOf('dynamic:back') < events.indexOf('actors'),
+    'back-layer procedural effects must remain behind depth-sorted actors',
+  );
+  assert.ok(
+    events.indexOf('dynamic:front') > events.indexOf('actors')
+      && events.indexOf('dynamic:front') < events.indexOf('projectiles'),
+    'front-layer procedural effects must overlay actors without covering projectiles',
+  );
 
   const order = [];
   const { game: depthGame } = createHarness();
@@ -798,6 +830,202 @@ test('world effects render on their assigned layer and moving bubbles stay behin
   assert.ok(moveEffect);
   assert.equal(moveEffect.layer, 'back');
   assert.deepEqual({ x: survivor.x, y: survivor.y }, { x: 5, y: 5 });
+});
+
+test('dynamic effect state validates coordinates and keeps the newest 96 effects', () => {
+  const { game } = createHarness();
+  assert.deepEqual(game.state.dynamicEffects, []);
+  assert.equal(game.spawnDynamicEffect('impact', Number.NaN, 20), null);
+  assert.equal(game.spawnDynamicEffect('impact', 20, Number.POSITIVE_INFINITY), null);
+  assert.equal(game.state.dynamicEffects.length, 0);
+
+  let newest = null;
+  for (let index = 0; index < 110; index += 1) {
+    newest = game.spawnDynamicEffect('impact', 100 + index, 200, {
+      layer: index % 2 ? 'back' : 'front',
+      seed: index,
+      intensity: 0.8 + index / 100,
+    });
+  }
+
+  assert.equal(game.state.dynamicEffects.length, 96);
+  assert.equal(game.state.dynamicEffects.at(-1), newest);
+  assert.equal(newest.kind, 'impact');
+  assert.ok(newest.life > 0);
+  assert.equal(newest.life, newest.maxLife);
+});
+
+test('dynamic effects advance on the animation clock, freeze while paused, and expire', () => {
+  const { game } = createHarness();
+  const effect = game.spawnDynamicEffect('enemy-pop', 320, 240, {
+    duration: 0.18,
+    layer: 'front',
+    seed: 12,
+  });
+  const initialLife = effect.life;
+
+  game.update(0.04);
+  assert.ok(effect.life < initialLife, 'an active procedural effect should advance each frame');
+
+  game.state.phase = 'battle';
+  game.state.paused = true;
+  game.spawnParticles(100, 100, '#fff', 1, 20);
+  game.floatText(100, 100, '暂停', '#fff');
+  game.shake = 0.4;
+  game.state.survivors[0].hitFlash = 1;
+  const pausedLife = effect.life;
+  const pausedParticle = { ...game.state.particles.at(-1) };
+  const pausedFloater = { ...game.state.floaters.at(-1) };
+  game.update(0.08);
+  assert.equal(effect.life, pausedLife, 'combat pause must freeze the shared animation clock');
+  assert.deepEqual(game.state.particles.at(-1), pausedParticle, 'ballistic particles must freeze with the hit effect');
+  assert.deepEqual(game.state.floaters.at(-1), pausedFloater, 'damage text must freeze with the hit effect');
+  assert.equal(game.shake, 0.4, 'camera recoil must not finish while the game is paused');
+  assert.equal(game.state.survivors[0].hitFlash, 1, 'hit flash must remain synchronized while paused');
+
+  game.state.phase = 'build';
+  game.state.paused = false;
+  game.update(effect.life + 0.01);
+  assert.ok(!game.state.dynamicEffects.includes(effect));
+});
+
+test('procedural hit, push, and enemy-pop effects draw changing multi-part Canvas geometry', () => {
+  const recording = createDynamicEffectRecordingContext();
+  const { game } = createHarness({ context: recording.ctx });
+  game.spawnDynamicEffect('impact', 220, 230, {
+    layer: 'front', seed: 2, intensity: 1.1,
+  });
+  game.spawnDynamicEffect('push', 330, 250, {
+    layer: 'front', seed: 3, dx: 1, dy: -0.2,
+  });
+  game.spawnDynamicEffect('enemy-pop', 440, 240, {
+    layer: 'front', seed: 4, intensity: 1.2,
+  });
+
+  game.drawDynamicEffects(recording.ctx, 'front');
+  assert.equal(
+    recording.calls.some(([name]) => name === 'drawImage'),
+    false,
+    'procedural effects must not depend on a static bitmap frame',
+  );
+  const geometryNames = new Set([
+    'arc', 'ellipse', 'lineTo', 'quadraticCurveTo', 'bezierCurveTo', 'stroke', 'fill',
+  ]);
+  const firstGeometry = recording.calls.filter(([name]) => geometryNames.has(name));
+  assert.ok(firstGeometry.length >= 12, 'the three effects should be composed from multiple moving parts');
+
+  recording.calls.length = 0;
+  game.update(0.06);
+  game.drawDynamicEffects(recording.ctx, 'front');
+  const secondGeometry = recording.calls.filter(([name]) => geometryNames.has(name));
+  assert.notDeepEqual(
+    secondGeometry,
+    firstGeometry,
+    'effect geometry should transform over time instead of only fading a fixed frame',
+  );
+  assert.equal(recording.calls.some(([name]) => name === 'drawImage'), false);
+});
+
+test('every battle effect family is procedural and changes its own Canvas geometry over time', () => {
+  const recording = createDynamicEffectRecordingContext();
+  const { game } = createHarness({ context: recording.ctx });
+  const definitions = [
+    ['heal', {}],
+    ['spawn', { layer: 'back' }],
+    ['trail', { dx: 150, dy: 0 }],
+    ['swap', { dx: 130, dy: 55 }],
+    ['place', {}],
+    ['wave-clear', {}],
+  ];
+
+  definitions.forEach(([kind, options], index) => {
+    game.state.dynamicEffects = [];
+    recording.calls.length = 0;
+    const effect = game.spawnDynamicEffect(kind, 180 + index * 80, 260, {
+      ...options,
+      seed: 30 + index,
+      color: '#65CBE4',
+      accent: '#FFF8E9',
+    });
+    effect.life = effect.maxLife * 0.58;
+    game.drawDynamicEffects(recording.ctx, effect.layer);
+    const firstGeometry = recording.calls.filter(([name]) => (
+      ['arc', 'ellipse', 'lineTo', 'quadraticCurveTo', 'stroke', 'fill'].includes(name)
+    ));
+    assert.ok(firstGeometry.length >= 3, `${kind} should contain multiple geometry parts`);
+    assert.equal(recording.calls.some(([name]) => name === 'drawImage'), false);
+
+    recording.calls.length = 0;
+    game.update(0.08);
+    game.drawDynamicEffects(recording.ctx, effect.layer);
+    const secondGeometry = recording.calls.filter(([name]) => (
+      ['arc', 'ellipse', 'lineTo', 'quadraticCurveTo', 'stroke', 'fill'].includes(name)
+    ));
+    assert.notDeepEqual(secondGeometry, firstGeometry, `${kind} should move between frames`);
+    assert.equal(recording.calls.some(([name]) => name === 'drawImage'), false);
+  });
+});
+
+test('enemy-pop staggers droplets instead of revealing the whole burst on its first frame', () => {
+  const recording = createDynamicEffectRecordingContext();
+  const { game } = createHarness({ context: recording.ctx });
+  game.spawnDynamicEffect('enemy-pop', 320, 240, { seed: 19, intensity: 1 });
+
+  game.drawDynamicEffects(recording.ctx, 'front');
+  const initialFills = recording.calls.filter(([name]) => name === 'fill').length;
+  assert.equal(initialFills, 1, 'only the compression flash should be visible before the burst starts');
+
+  recording.calls.length = 0;
+  game.update(0.2);
+  game.drawDynamicEffects(recording.ctx, 'front');
+  const burstFills = recording.calls.filter(([name]) => name === 'fill').length;
+  assert.ok(burstFills > initialFills, 'droplets and sparks should enter on later frames');
+});
+
+test('enemy hits and deaths emit distinct procedural impact and pop effects', () => {
+  const { game } = createHarness();
+  game.spawnEnemy('enemy-soft-biter', 2);
+  const enemy = game.state.enemies.at(-1);
+  game.state.dynamicEffects = [];
+
+  const crystal = game.state.survivors.find(({ cardId }) => cardId === 'survivor-crystal-pin');
+  game.damageEnemy(enemy, 1, crystal);
+  const impact = game.state.dynamicEffects.find(({ kind }) => kind === 'impact');
+  assert.ok(impact);
+  assert.equal(impact.color, SURVIVORS.find(({ id }) => id === crystal.cardId).color);
+  assert.equal(game.state.dynamicEffects.some(({ kind }) => kind === 'enemy-pop'), false);
+
+  const beforeDeath = game.state.dynamicEffects.length;
+  game.damageEnemy(enemy, enemy.hp, null);
+  const deathEffects = game.state.dynamicEffects.slice(beforeDeath);
+  assert.ok(deathEffects.some(({ kind }) => kind === 'enemy-pop'));
+});
+
+test('enemy pushes emit a directional trail and collisions add a stronger impact', () => {
+  const { game } = createHarness();
+  game.spawnEnemy('enemy-soft-biter', 2);
+  game.spawnEnemy('enemy-soft-biter', 2);
+  const [pushed, blocker] = game.state.enemies.slice(-2);
+  pushed.x = 2;
+  pushed.y = 2;
+  blocker.x = 3;
+  blocker.y = 2;
+  game.state.dynamicEffects = [];
+
+  assert.equal(game.pushEnemy(pushed, 1, 0, {
+    maxPushWeight: 1,
+    collisionDamage: 4,
+  }), true);
+  const push = game.state.dynamicEffects.find(({ kind }) => kind === 'push');
+  assert.ok(push);
+  assert.ok(push.dx > 0);
+  assert.equal(push.dy, 0);
+  assert.ok(
+    game.state.dynamicEffects.some(({ kind, intensity }) => (
+      kind === 'impact' && intensity > 1
+    )),
+    'a body collision should add a visibly stronger impact than a routine hit',
+  );
 });
 
 test('shell impacts use the generated goo-drop particle without recoloring unrelated particles', () => {

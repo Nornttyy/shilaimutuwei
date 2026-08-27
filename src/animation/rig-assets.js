@@ -12,6 +12,10 @@ export const RIG_PART_MANIFEST_URL = new URL(
   import.meta.url,
 ).href;
 
+export const RIG_IMAGE_LOAD_TIMEOUT_MS = 15000;
+export const RIG_PRELOAD_CONCURRENCY = 3;
+export const RIG_PRELOAD_RETRIES = 1;
+
 const RIG_STATUS = Object.freeze({
   IDLE: 'idle',
   LOADING: 'loading',
@@ -557,7 +561,7 @@ export function createRigAssetStore(
     return record?.status === RIG_STATUS.READY ? record.value : fallback;
   }
 
-  function load(id, { timeoutMs = 5000, retryFailed = false } = {}) {
+  function load(id, { timeoutMs = RIG_IMAGE_LOAD_TIMEOUT_MS, retryFailed = false } = {}) {
     const record = records.get(id);
     if (!record) return Promise.resolve(status(id));
     if (record.status === RIG_STATUS.READY) return Promise.resolve(publicStatus(record));
@@ -601,13 +605,36 @@ export function createRigAssetStore(
 
   async function preload({
     ids = Object.keys(manifest.rigs),
-    timeoutMs = 5000,
-    retryFailed = false,
+    timeoutMs = RIG_IMAGE_LOAD_TIMEOUT_MS,
+    retryFailed = true,
+    retryAttempts = RIG_PRELOAD_RETRIES,
+    concurrency = RIG_PRELOAD_CONCURRENCY,
   } = {}) {
     const uniqueIds = [...new Set(ids)];
-    const results = await Promise.all(
-      uniqueIds.map((id) => load(id, { timeoutMs, retryFailed })),
+    const results = new Array(uniqueIds.length);
+    const workerCount = Math.min(
+      uniqueIds.length,
+      Number.isFinite(concurrency) ? Math.max(1, Math.floor(concurrency)) : 1,
     );
+    const retries = retryFailed && Number.isFinite(retryAttempts)
+      ? Math.max(0, Math.floor(retryAttempts))
+      : 0;
+    let nextIndex = 0;
+
+    const worker = async () => {
+      while (nextIndex < uniqueIds.length) {
+        const index = nextIndex;
+        nextIndex += 1;
+        const id = uniqueIds[index];
+        let result = await load(id, { timeoutMs, retryFailed });
+        for (let attempt = 0; result.status === RIG_STATUS.FALLBACK && attempt < retries; attempt += 1) {
+          result = await load(id, { timeoutMs, retryFailed: true });
+        }
+        results[index] = result;
+      }
+    };
+
+    await Promise.all(Array.from({ length: workerCount }, () => worker()));
     const count = (wanted) => results.filter((result) => result.status === wanted).length;
     return Object.freeze({
       total: results.length,

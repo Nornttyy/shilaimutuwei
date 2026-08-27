@@ -55,6 +55,18 @@ const ENEMY_DEATH_DURATION_BY_ID = Object.freeze({
   'enemy-acid-shell-king': 0.68,
 });
 
+const DYNAMIC_EFFECT_DURATION = Object.freeze({
+  impact: 0.3,
+  push: 0.46,
+  'enemy-pop': 0.58,
+  heal: 0.72,
+  spawn: 0.56,
+  trail: 0.68,
+  swap: 0.72,
+  place: 0.5,
+  'wave-clear': 0.95,
+});
+
 const ANIMATION_CLIPS_BY_CARD_ID = Object.freeze({
   'survivor-shell-shell': SHELL_CLIPS,
   'survivor-crystal-pin': CRYSTAL_CLIPS,
@@ -99,6 +111,12 @@ const easeOutBack = (t) => {
   const c1 = 1.70158;
   const c3 = c1 + 1;
   return 1 + c3 * ((t - 1) ** 3) + c1 * ((t - 1) ** 2);
+};
+const easeOutCubic = (t) => 1 - ((1 - clamp(t, 0, 1)) ** 3);
+const effectPhase = (progress, start, end) => clamp((progress - start) / Math.max(0.001, end - start), 0, 1);
+const effectNoise = (seed, index = 0) => {
+  const value = Math.sin((seed + index * 91.731) * 12.9898) * 43758.5453;
+  return value - Math.floor(value);
 };
 const cellKey = (x, y) => `${x},${y}`;
 const inBoard = (x, y) => x >= 0 && x < BOARD.cols && y >= 0 && y < BOARD.rows;
@@ -370,6 +388,7 @@ export class SlimeGame {
     this.ctx = canvas.getContext('2d', { alpha: false });
     this.assetStore = null;
     this.rigAssetStore = null;
+    this.generatedCharacterArtEnabled = options?.generatedCharacterArtEnabled !== false;
     this.setRigAssetStore(
       typeof options?.get === 'function' ? options : options?.rigAssetStore,
     );
@@ -415,6 +434,11 @@ export class SlimeGame {
     return this;
   }
 
+  setGeneratedCharacterArtEnabled(enabled = true) {
+    this.generatedCharacterArtEnabled = enabled !== false;
+    return this;
+  }
+
   rigAssetFor(cardId) {
     return this.rigAssetStore?.get(cardId, null) ?? null;
   }
@@ -442,6 +466,7 @@ export class SlimeGame {
       projectiles: [],
       particles: [],
       worldEffects: [],
+      dynamicEffects: [],
       floaters: [],
       kills: 0,
       rescuedBuildings: 0,
@@ -648,6 +673,7 @@ export class SlimeGame {
     this.state.enemies = [];
     this.state.projectiles = [];
     this.state.worldEffects = [];
+    this.state.dynamicEffects = [];
     this.state.terrain = [];
     this.state.deployables = [];
     this.pendingAttackHits.clear();
@@ -692,17 +718,17 @@ export class SlimeGame {
       && (this.state.paused || Boolean(this.selection));
     const animationDt = animationsPaused ? 0 : dt;
     if (this.toast && this.time >= this.toast.expires) this.toast = null;
-    this.shake = Math.max(0, this.shake - dt * 2.8);
+    this.shake = Math.max(0, this.shake - animationDt * 2.8);
     this.state.particles.forEach((particle) => {
-      particle.life -= dt;
-      particle.x += (particle.vx || 0) * dt;
-      particle.y += (particle.vy || 0) * dt;
-      particle.vy = (particle.vy || 0) + (particle.gravity || 0) * dt;
+      particle.life -= animationDt;
+      particle.x += (particle.vx || 0) * animationDt;
+      particle.y += (particle.vy || 0) * animationDt;
+      particle.vy = (particle.vy || 0) + (particle.gravity || 0) * animationDt;
     });
     this.state.particles = this.state.particles.filter((particle) => particle.life > 0).slice(-80);
     this.state.floaters.forEach((floater) => {
-      floater.life -= dt;
-      floater.y -= dt * 24;
+      floater.life -= animationDt;
+      floater.y -= animationDt * 24;
     });
     this.state.floaters = this.state.floaters.filter((floater) => floater.life > 0);
     this.state.projectiles.forEach((projectile) => {
@@ -711,8 +737,15 @@ export class SlimeGame {
     this.state.projectiles = this.state.projectiles.filter((projectile) => projectile.progress < 1);
     this.state.worldEffects.forEach((effect) => { effect.life -= animationDt; });
     this.state.worldEffects = this.state.worldEffects.filter((effect) => effect.life > 0).slice(-32);
-    this.state.survivors.forEach((survivor) => { survivor.hitFlash = Math.max(0, (survivor.hitFlash || 0) - dt * 4); });
-    this.state.enemies.forEach((enemy) => { enemy.hitFlash = Math.max(0, (enemy.hitFlash || 0) - dt * 5); });
+    this.state.dynamicEffects.forEach((effect) => {
+      effect.life -= animationDt;
+      effect.elapsed += animationDt;
+    });
+    this.state.dynamicEffects = this.state.dynamicEffects
+      .filter((effect) => effect.life > 0)
+      .slice(-96);
+    this.state.survivors.forEach((survivor) => { survivor.hitFlash = Math.max(0, (survivor.hitFlash || 0) - animationDt * 4); });
+    this.state.enemies.forEach((enemy) => { enemy.hitFlash = Math.max(0, (enemy.hitFlash || 0) - animationDt * 5); });
 
     if (this.state.phase === 'battle' && !this.state.paused && !this.selection) this.updateBattle(dt);
 
@@ -898,15 +931,12 @@ export class SlimeGame {
       x: BOARD.x + BOARD.cell * 6.65,
       y: this.cellCenter(0, row).y - 28,
     };
-    this.spawnWorldEffect(
-      'effect-spawn-rift-burst',
-      spawnPosition.x,
-      spawnPosition.y,
-      136,
-      136,
-      0.52,
-      { layer: 'back', scaleFrom: 0.62, scaleTo: 1.08 },
-    );
+    this.spawnDynamicEffect('spawn', spawnPosition.x, spawnPosition.y, {
+      color: card.color,
+      accent: card.elite ? '#FFE27A' : '#EFD9FF',
+      layer: 'back',
+      intensity: card.elite ? 1.55 : 1,
+    });
     this.spawnParticles(spawnPosition.x, spawnPosition.y + 28, '#9D7CA8', 8, 55);
   }
 
@@ -1002,15 +1032,11 @@ export class SlimeGame {
     if (choice.ratio >= 0.995) choice.target.seed = Math.max(choice.target.seed || 0, card.ability.fullHealthShield);
     else choice.target.hp = Math.min(choice.target.maxHp, choice.target.hp + card.ability.heal);
     const position = this.entityCanvasPosition(choice.target);
-    this.spawnWorldEffect(
-      'effect-heal-burst',
-      position.x,
-      position.y - 38,
-      104,
-      104,
-      0.62,
-      { scaleFrom: 0.68, scaleTo: 1.08 },
-    );
+    this.spawnDynamicEffect('heal', position.x, position.y - 28, {
+      color: PALETTE.heal,
+      accent: '#F4FFD2',
+      intensity: 1,
+    });
     this.spawnParticles(position.x, position.y - 25, PALETTE.heal, 10, 45);
     this.floatText(position.x, position.y - 40, choice.ratio >= 0.995 ? '萌芽' : `+${card.ability.heal}`, PALETTE.heal);
     this.audio.play('heal');
@@ -1285,14 +1311,26 @@ export class SlimeGame {
     if (enemy.dead) return;
     const multiplier = enemy.marked ? 1.15 : 1;
     const damage = Math.round(amount * multiplier);
+    const enemyCard = ENEMY_BY_ID[enemy.cardId];
+    const sourceColor = SURVIVOR_BY_ID[source?.cardId]?.color
+      || BUILDING_BY_ID[source?.cardId]?.color
+      || (source?.type === 'crystal' ? PALETTE.crystal : null)
+      || (source?.type === 'pad' ? PALETTE.bubble : null)
+      || source?.color
+      || enemyCard.color;
     enemy.hp -= damage;
     enemy.hitFlash = 1;
     const position = this.entityCanvasPosition(enemy);
     this.floatText(position.x, position.y - 40, `-${damage}`, enemy.marked ? '#F4C85E' : '#FFF8E9');
+    this.spawnDynamicEffect('impact', position.x, position.y - 24, {
+      color: sourceColor,
+      accent: enemy.marked ? '#FFE27A' : '#FFF8E9',
+      intensity: 0.72 + clamp(damage / Math.max(1, enemy.maxHp), 0, 0.35),
+    });
     this.spawnParticles(
       position.x,
       position.y - 10,
-      ENEMY_BY_ID[enemy.cardId].color,
+      enemyCard.color,
       4,
       32,
       source?.cardId === 'survivor-shell-shell' ? 'effect-particle-goo-drop' : null,
@@ -1304,10 +1342,18 @@ export class SlimeGame {
       enemy.deathElapsed = 0;
       this.playEntityAnimation(enemy, 'death');
       this.state.kills += 1;
-      this.state.energy = Math.min(10, this.state.energy + (ENEMY_BY_ID[enemy.cardId].elite ? 2 : 1));
-      this.spawnParticles(position.x, position.y - 8, '#8B7395', ENEMY_BY_ID[enemy.cardId].elite ? 18 : 9, 75);
+      this.state.energy = Math.min(10, this.state.energy + (enemyCard.elite ? 2 : 1));
+      this.spawnDynamicEffect('enemy-pop', position.x, position.y - (enemyCard.elite ? 38 : 20), {
+        color: enemyCard.color,
+        accent: enemyCard.elite ? '#FFE27A' : '#FFF8E9',
+        intensity: enemyCard.elite ? 1.8 : 1,
+        duration: enemyCard.elite ? 0.82 : undefined,
+      });
+      this.spawnParticles(position.x, position.y - 8, '#8B7395', enemyCard.elite ? 18 : 9, 75);
+      this.shake = Math.max(this.shake, enemyCard.elite ? 0.52 : 0.2);
     } else if (!this.pendingAttackHits.has(enemy.uid)) {
       this.playEntityAnimation(enemy, 'hurt');
+      this.shake = Math.max(this.shake, 0.08);
     }
   }
 
@@ -1349,15 +1395,11 @@ export class SlimeGame {
     if (kind === 'building') {
       target.destroyed = true;
       target.hp = 0;
-      this.spawnWorldEffect(
-        'effect-building-destruction-puff',
-        position.x,
-        position.y - 32,
-        132,
-        132,
-        0.64,
-        { scaleFrom: 0.58, scaleTo: 1.12 },
-      );
+      this.spawnDynamicEffect('enemy-pop', position.x, position.y - 26, {
+        color: BUILDING_BY_ID[target.cardId]?.color || '#B48768',
+        accent: '#FFF0C4',
+        intensity: 1.25,
+      });
     } else {
       target.downed = true;
       target.hp = 0;
@@ -1381,28 +1423,59 @@ export class SlimeGame {
     if (card.weight > (effect.maxPushWeight ?? 1)) {
       enemy.stagger = Math.max(enemy.stagger, effect.heavyStaggerSeconds || 0.8);
       enemy.routeTimer = 0;
-      this.floatText(this.entityCanvasPosition(enemy).x, this.entityCanvasPosition(enemy).y - 50, '失衡', PALETTE.shield);
+      const staggerPosition = this.entityCanvasPosition(enemy);
+      this.floatText(staggerPosition.x, staggerPosition.y - 50, '失衡', PALETTE.shield);
+      this.spawnDynamicEffect('impact', staggerPosition.x, staggerPosition.y - 25, {
+        color: PALETTE.bubble,
+        accent: PALETTE.shield,
+        intensity: 0.95,
+      });
       return false;
     }
     const old = { x: enemy.x, y: enemy.y };
+    const oldPosition = this.entityCanvasPosition(enemy);
     enemy.x = clamp(enemy.x + dx, 0, 6.25);
     enemy.y = clamp(enemy.y + dy, 0, 5);
     enemy.path = [];
     enemy.routeTimer = 0;
     enemy.justPushed = true;
     enemy.bubbleStatus = Math.max(enemy.bubbleStatus || 0, 0.55);
+    const position = this.entityCanvasPosition(enemy);
     const collision = this.state.enemies.find((other) => other.uid !== enemy.uid && !other.dead && distance(enemy, other) < 0.38);
     if (collision && effect.collisionDamage) {
       this.damageEnemy(enemy, effect.collisionDamage, effect);
       this.damageEnemy(collision, effect.collisionDamage, effect);
       enemy.stagger = Math.max(enemy.stagger, 0.45);
       collision.stagger = Math.max(collision.stagger, 0.45);
+      const collisionPosition = this.entityCanvasPosition(collision);
+      this.spawnDynamicEffect(
+        'impact',
+        (position.x + collisionPosition.x) / 2,
+        (position.y + collisionPosition.y) / 2 - 24,
+        {
+          color: PALETTE.bubble,
+          accent: '#FFF3A6',
+          intensity: 1.5,
+          duration: 0.38,
+        },
+      );
+      this.shake = Math.max(this.shake, 0.32);
     }
-    const position = this.entityCanvasPosition(enemy);
+    const moved = old.x !== enemy.x || old.y !== enemy.y;
+    if (moved) {
+      this.spawnDynamicEffect('push', oldPosition.x, oldPosition.y - 18, {
+        dx: (enemy.x - old.x) * BOARD.cell,
+        dy: (enemy.y - old.y) * BOARD.cell,
+        color: PALETTE.bubble,
+        accent: '#E8FFFF',
+        layer: 'back',
+        intensity: clamp(Math.hypot(enemy.x - old.x, enemy.y - old.y), 0.75, 1.65),
+      });
+    }
     this.spawnParticles(position.x, position.y - 15, PALETTE.bubble, 7, 55);
     const cell = this.nearestCell(enemy);
     if (inBoard(cell.x, cell.y)) this.triggerEnemyCell(enemy, cell);
-    return old.x !== enemy.x || old.y !== enemy.y;
+    return moved;
   }
 
   launchProjectile(source, target, type, delay = 0) {
@@ -1431,6 +1504,35 @@ export class SlimeGame {
       maxLife,
     };
     this.state.worldEffects.push(effect);
+    return effect;
+  }
+
+  spawnDynamicEffect(kind, x, y, options = {}) {
+    if (!DYNAMIC_EFFECT_DURATION[kind] || !Number.isFinite(x) || !Number.isFinite(y)) return null;
+    const effectUid = uid('dynamic-effect');
+    const defaultDuration = DYNAMIC_EFFECT_DURATION[kind];
+    const maxLife = Math.max(0.08, Number(options.duration) || defaultDuration);
+    const effect = {
+      uid: effectUid,
+      kind,
+      x,
+      y,
+      dx: Number(options.dx) || 0,
+      dy: Number(options.dy) || 0,
+      color: options.color || PALETTE.bubble,
+      accent: options.accent || '#FFF8E9',
+      layer: options.layer === 'back' ? 'back' : 'front',
+      intensity: clamp(Number(options.intensity) || 1, 0.45, 2.2),
+      seed: Number.isFinite(options.seed)
+        ? options.seed
+        : Number(effectUid.split('-').pop()),
+      life: maxLife,
+      maxLife,
+      elapsed: 0,
+    };
+    this.state.dynamicEffects ??= [];
+    this.state.dynamicEffects.push(effect);
+    this.state.dynamicEffects = this.state.dynamicEffects.slice(-96);
     return effect;
   }
 
@@ -1538,15 +1640,12 @@ export class SlimeGame {
       }
       affected.forEach((enemy) => this.pushEnemy(enemy, card.effect.knockbackTiles, 0, card.effect));
       const position = this.cellCenter(cell.x, cell.y);
-      this.spawnWorldEffect(
-        'effect-jelly-bounce-wave',
-        position.x + 42,
-        position.y - 18,
-        220,
-        128,
-        0.52,
-        { scaleFrom: 0.7, scaleTo: 1.08 },
-      );
+      this.spawnDynamicEffect('impact', position.x + 24, position.y - 18, {
+        color: PALETTE.bubble,
+        accent: '#E8FFFF',
+        intensity: 1.65,
+        duration: 0.42,
+      });
       this.spawnParticles(position.x, position.y, PALETTE.bubble, 14, 80);
       this.consumeCard(card);
       return;
@@ -1577,15 +1676,13 @@ export class SlimeGame {
         }
         cells.forEach((target) => this.state.terrain.push({ type: 'honey', ...target, life: card.effect.lifetimeSeconds }));
         const middle = this.cellCenter(selection.origin.x + dx, selection.origin.y + dy);
-        this.spawnWorldEffect(
-          'effect-honey-draw-trail',
-          middle.x,
-          middle.y,
-          BOARD.cell * 3,
-          78,
-          0.72,
-          { rotation: Math.atan2(dy, dx), scaleFrom: 0.78, scaleTo: 1 },
-        );
+        this.spawnDynamicEffect('trail', middle.x, middle.y, {
+          dx: dx * BOARD.cell * 2.45,
+          dy: dy * BOARD.cell * 2.45,
+          color: '#F6BE58',
+          accent: '#FFF1A8',
+          intensity: 1.1,
+        });
         this.spawnParticles(
           this.cellCenter(selection.origin.x, selection.origin.y).x,
           this.cellCenter(selection.origin.x, selection.origin.y).y,
@@ -1599,15 +1696,10 @@ export class SlimeGame {
           dx, dy, tiles: card.effect.knockbackTiles, life: Infinity, consumed: false,
         });
         const position = this.cellCenter(selection.origin.x, selection.origin.y);
-        this.spawnWorldEffect(
-          'effect-particle-expanding-ring',
-          position.x,
-          position.y + 9,
-          76,
-          38,
-          0.44,
-          { scaleFrom: 0.45, scaleTo: 1.12 },
-        );
+        this.spawnDynamicEffect('place', position.x, position.y + 9, {
+          color: PALETTE.bubble,
+          accent: '#E8FFFF',
+        });
       }
       this.consumeCard(card);
       return;
@@ -1634,14 +1726,17 @@ export class SlimeGame {
       const targetPosition = this.entityCanvasPosition(target);
       const effectDx = targetPosition.x - firstPosition.x;
       const effectDy = targetPosition.y - firstPosition.y;
-      this.spawnWorldEffect(
-        'effect-soft-swap-arc',
+      this.spawnDynamicEffect(
+        'swap',
         (firstPosition.x + targetPosition.x) / 2,
-        (firstPosition.y + targetPosition.y) / 2 - 30,
-        Math.max(112, Math.hypot(effectDx, effectDy) + 76),
-        112,
-        0.66,
-        { rotation: Math.atan2(effectDy, effectDx), scaleFrom: 0.72, scaleTo: 1.04 },
+        (firstPosition.y + targetPosition.y) / 2 - 24,
+        {
+          dx: effectDx,
+          dy: effectDy,
+          color: '#C995F2',
+          accent: '#8CEAF1',
+          intensity: 1.05,
+        },
       );
       [first.x, target.x] = [target.x, first.x];
       [first.y, target.y] = [target.y, first.y];
@@ -1667,15 +1762,11 @@ export class SlimeGame {
         this.floatText(this.entityCanvasPosition(target).x, this.entityCanvasPosition(target).y - 50, `+${card.effect.heal}`, PALETTE.heal);
       }
       const position = this.entityCanvasPosition(target);
-      this.spawnWorldEffect(
-        'effect-heal-burst',
-        position.x,
-        position.y - 38,
-        112,
-        112,
-        0.64,
-        { scaleFrom: 0.62, scaleTo: 1.1 },
-      );
+      this.spawnDynamicEffect('heal', position.x, position.y - 28, {
+        color: PALETTE.heal,
+        accent: '#F4FFD2',
+        intensity: 1.12,
+      });
       this.spawnParticles(position.x, position.y - 20, PALETTE.heal, 14, 58);
       this.audio.play('heal');
       this.consumeCard(card);
@@ -1696,15 +1787,11 @@ export class SlimeGame {
         consumed: false,
       });
       const position = this.cellCenter(cell.x, cell.y);
-      this.spawnWorldEffect(
-        'effect-particle-dust-puff',
-        position.x,
-        position.y + 18,
-        72,
-        36,
-        0.42,
-        { scaleFrom: 0.7, scaleTo: 1.08 },
-      );
+      this.spawnDynamicEffect('place', position.x, position.y + 18, {
+        color: '#E9AA67',
+        accent: '#FFF0C4',
+        intensity: 0.85,
+      });
       this.consumeCard(card);
       return;
     }
@@ -1723,12 +1810,14 @@ export class SlimeGame {
         this.showToast('选择搬家的目的地');
         return;
       }
+      let sourceStartPosition = null;
       if (selection.sourceType === 'survivor') {
         const source = this.state.survivors.find((target) => target.uid === selection.sourceUid);
         if (this.state.survivors.some((target) => target.uid !== source.uid && !target.downed && target.x === cell.x && target.y === cell.y)) {
           this.showToast('目的地已经有人驻守', 'danger');
           return;
         }
+        sourceStartPosition = this.entityCanvasPosition(source);
         source.x = cell.x;
         source.y = cell.y;
       } else {
@@ -1742,11 +1831,21 @@ export class SlimeGame {
           this.showToast('目的地放不下这座建筑', 'danger');
           return;
         }
+        sourceStartPosition = this.entityCanvasPosition(source);
         source.x = cell.x;
         source.y = cell.y;
       }
       this.state.enemies.forEach((enemy) => { enemy.routeTimer = 0; });
       const position = this.cellCenter(cell.x, cell.y);
+      this.spawnDynamicEffect('push', sourceStartPosition.x, sourceStartPosition.y - 20, {
+        dx: position.x - sourceStartPosition.x,
+        dy: position.y - sourceStartPosition.y,
+        color: PALETTE.bubble,
+        accent: '#E8FFFF',
+        layer: 'back',
+        intensity: 1.25,
+        duration: 0.62,
+      });
       this.spawnWorldEffect(
         'item-moving-bubble-world',
         position.x,
@@ -1786,7 +1885,10 @@ export class SlimeGame {
     ctx.save();
     ctx.translate(this.offsetX, this.offsetY);
     ctx.scale(this.scale, this.scale);
-    if (this.shake > 0) ctx.translate(Math.sin(this.time * 72) * this.shake * 5, Math.cos(this.time * 59) * this.shake * 3);
+    if (this.shake > 0) ctx.translate(
+      Math.sin(this.animationTime * 72) * this.shake * 5,
+      Math.cos(this.animationTime * 59) * this.shake * 3,
+    );
     this.hits = [];
     this.drawBackground(ctx);
     this.drawBattlefield(ctx);
@@ -1936,8 +2038,10 @@ export class SlimeGame {
       open: this.state.phase === 'battle' ? 1 : 0.62,
     });
     this.drawWorldEffects(ctx, 'back');
+    this.drawDynamicEffects(ctx, 'back');
     this.drawMovingBubblePreview(ctx);
     this.drawWorldActors(ctx);
+    this.drawDynamicEffects(ctx, 'front');
     this.drawWorldEffects(ctx, 'front');
     this.drawProjectilesAndParticles(ctx);
     this.drawSelectionOverlay(ctx);
@@ -2217,6 +2321,7 @@ export class SlimeGame {
           pose: this.entityAnimationPose(survivor),
           expressionSample: this.entityExpressionSample(survivor),
           rigAsset: this.rigAssetFor(survivor.cardId),
+          allowGeneratedStandalone: this.generatedCharacterArtEnabled,
           selected,
           disabled: survivor.downed,
           hit: survivor.hitFlash,
@@ -2248,6 +2353,7 @@ export class SlimeGame {
           pose: this.entityAnimationPose(enemy),
           expressionSample: this.entityExpressionSample(enemy),
           rigAsset: this.rigAssetFor(enemy.cardId),
+          allowGeneratedStandalone: this.generatedCharacterArtEnabled,
           alpha,
           hit: enemy.hitFlash,
           targeted: enemy.marked,
@@ -2327,6 +2433,423 @@ export class SlimeGame {
           effect.height,
         );
       }, () => {});
+    }
+  }
+
+  drawDynamicEffects(ctx, layer) {
+    for (const effect of this.state.dynamicEffects || []) {
+      if (effect.layer !== layer) continue;
+      const progress = clamp(1 - effect.life / effect.maxLife, 0, 1);
+      ctx.save();
+      ctx.translate(effect.x, effect.y);
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      if (effect.kind === 'impact') this.drawDynamicImpact(ctx, effect, progress);
+      else if (effect.kind === 'push') this.drawDynamicPush(ctx, effect, progress);
+      else if (effect.kind === 'enemy-pop') this.drawDynamicEnemyPop(ctx, effect, progress);
+      else if (effect.kind === 'heal') this.drawDynamicHeal(ctx, effect, progress);
+      else if (effect.kind === 'spawn') this.drawDynamicSpawn(ctx, effect, progress);
+      else if (effect.kind === 'trail') this.drawDynamicTrail(ctx, effect, progress);
+      else if (effect.kind === 'swap') this.drawDynamicSwap(ctx, effect, progress);
+      else if (effect.kind === 'wave-clear') this.drawDynamicWaveClear(ctx, effect, progress);
+      else this.drawDynamicPlace(ctx, effect, progress);
+      ctx.restore();
+    }
+  }
+
+  drawDynamicImpact(ctx, effect, progress) {
+    const intensity = effect.intensity;
+    const burst = easeOutCubic(effectPhase(progress, 0, 0.72));
+    const fade = 1 - effectPhase(progress, 0.46, 1);
+    const flash = 1 - effectPhase(progress, 0.02, 0.34);
+
+    ctx.save();
+    ctx.globalAlpha *= flash * 0.92;
+    ctx.fillStyle = effect.accent;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, (15 + burst * 9) * intensity, (9 + burst * 5) * intensity, 0, 0, TAU);
+    ctx.fill();
+    ctx.restore();
+
+    ctx.save();
+    ctx.globalAlpha *= fade * 0.9;
+    ctx.strokeStyle = effect.color;
+    ctx.lineWidth = Math.max(2, 5 * intensity * (1 - progress * 0.7));
+    ctx.beginPath();
+    ctx.ellipse(0, 0, (8 + burst * 45) * intensity, (5 + burst * 26) * intensity, 0, 0, TAU);
+    ctx.stroke();
+    ctx.restore();
+
+    const rayCount = 8;
+    for (let index = 0; index < rayCount; index += 1) {
+      const stagger = index * 0.014;
+      if (progress < stagger) continue;
+      const local = effectPhase(progress, stagger, 0.78 + stagger);
+      const rayFade = 1 - effectPhase(local, 0.42, 1);
+      const angle = (index / rayCount) * TAU + (effectNoise(effect.seed, index) - 0.5) * 0.25;
+      const reach = (18 + effectNoise(effect.seed, index + 20) * 15) * intensity * easeOutBack(local);
+      const retract = 7 + 14 * effectPhase(local, 0.3, 1);
+      ctx.save();
+      ctx.rotate(angle);
+      ctx.globalAlpha *= rayFade;
+      ctx.strokeStyle = index % 3 === 0 ? effect.accent : effect.color;
+      ctx.lineWidth = (index % 3 === 0 ? 4.2 : 2.6) * intensity;
+      ctx.beginPath();
+      ctx.moveTo(Math.max(6, reach - retract), 0);
+      ctx.lineTo(reach + 12 * intensity, 0);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  drawDynamicPush(ctx, effect, progress) {
+    const length = Math.max(1, Math.hypot(effect.dx, effect.dy));
+    const nx = effect.dx / length;
+    const ny = effect.dy / length;
+    const px = -ny;
+    const py = nx;
+    const travel = easeOutBack(effectPhase(progress, 0, 0.82));
+    const fade = 1 - effectPhase(progress, 0.62, 1);
+
+    for (let index = 0; index < 3; index += 1) {
+      const local = effectPhase(progress, index * 0.055, 0.82 + index * 0.035);
+      if (local <= 0) continue;
+      const wave = Math.sin(local * Math.PI) * (10 + index * 4) * (index % 2 ? -1 : 1);
+      const endX = effect.dx * easeOutCubic(local);
+      const endY = effect.dy * easeOutCubic(local);
+      ctx.save();
+      ctx.globalAlpha *= fade * (0.8 - index * 0.15);
+      ctx.strokeStyle = index === 1 ? effect.accent : effect.color;
+      ctx.lineWidth = (8 - index * 2) * effect.intensity * (1 - local * 0.42);
+      ctx.beginPath();
+      ctx.moveTo(-nx * (8 + index * 7), -ny * (8 + index * 7));
+      ctx.quadraticCurveTo(
+        endX * 0.48 + px * wave,
+        endY * 0.48 + py * wave,
+        endX,
+        endY,
+      );
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    for (let index = 0; index < 5; index += 1) {
+      const start = index * 0.035;
+      if (progress < start) continue;
+      const local = effectPhase(progress, start, 0.78 + index * 0.025);
+      const distanceAlong = length * easeOutCubic(local) * (0.32 + index * 0.14);
+      const side = (effectNoise(effect.seed, index) - 0.5) * 26;
+      const radius = (3 + effectNoise(effect.seed, index + 10) * 4) * effect.intensity;
+      ctx.save();
+      ctx.globalAlpha *= fade * (1 - local * 0.42);
+      ctx.strokeStyle = effect.accent;
+      ctx.fillStyle = effect.color;
+      ctx.lineWidth = 1.8;
+      ctx.beginPath();
+      ctx.arc(nx * distanceAlong + px * side, ny * distanceAlong + py * side, radius, 0, TAU);
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    const rebound = effectPhase(progress, 0.42, 1);
+    ctx.save();
+    ctx.translate(effect.dx * travel, effect.dy * travel);
+    ctx.globalAlpha *= (1 - rebound) * 0.85;
+    ctx.strokeStyle = effect.accent;
+    ctx.lineWidth = 4 * effect.intensity * (1 - rebound * 0.55);
+    ctx.beginPath();
+    ctx.ellipse(0, 0, (9 + rebound * 26) * effect.intensity, (14 + rebound * 12) * effect.intensity, Math.atan2(effect.dy, effect.dx), 0, TAU);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  drawDynamicEnemyPop(ctx, effect, progress) {
+    const charge = effectPhase(progress, 0, 0.2);
+    const explode = effectPhase(progress, 0.14, 0.92);
+    const fade = 1 - effectPhase(progress, 0.66, 1);
+
+    if (progress < 0.24) {
+      ctx.save();
+      ctx.globalAlpha *= 1 - effectPhase(progress, 0.16, 0.24);
+      ctx.fillStyle = effect.accent;
+      ctx.strokeStyle = effect.color;
+      ctx.lineWidth = 4 * effect.intensity;
+      ctx.beginPath();
+      ctx.ellipse(
+        0,
+        8 * charge,
+        (20 + charge * 14) * effect.intensity,
+        (20 - charge * 11) * effect.intensity,
+        0,
+        0,
+        TAU,
+      );
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    ctx.save();
+    ctx.globalAlpha *= fade * 0.9;
+    ctx.strokeStyle = effect.accent;
+    ctx.lineWidth = 5 * effect.intensity * (1 - explode * 0.72);
+    ctx.beginPath();
+    ctx.ellipse(0, 0, (8 + easeOutCubic(explode) * 54) * effect.intensity, (5 + easeOutCubic(explode) * 33) * effect.intensity, 0, 0, TAU);
+    ctx.stroke();
+    ctx.restore();
+
+    const dropletCount = effect.intensity > 1.4 ? 12 : 8;
+    for (let index = 0; index < dropletCount; index += 1) {
+      const start = 0.12 + index * 0.008;
+      if (progress < start) continue;
+      const local = effectPhase(progress, start, 0.94);
+      const angle = (index / dropletCount) * TAU + effectNoise(effect.seed, index) * 0.65;
+      const reach = (34 + effectNoise(effect.seed, index + 30) * 42) * effect.intensity;
+      const distanceOut = easeOutCubic(local) * reach;
+      const gravity = local * local * (18 + effectNoise(effect.seed, index + 50) * 22);
+      const size = (4 + effectNoise(effect.seed, index + 70) * 6) * effect.intensity * (1 - local * 0.32);
+      const x = Math.cos(angle) * distanceOut;
+      const y = Math.sin(angle) * distanceOut + gravity;
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(angle + local * (index % 2 ? 3 : -3));
+      ctx.globalAlpha *= fade;
+      ctx.fillStyle = index % 4 === 0 ? effect.accent : effect.color;
+      ctx.beginPath();
+      ctx.moveTo(-size, 0);
+      ctx.quadraticCurveTo(-size * 0.35, -size * 0.9, size * 0.8, -size * 0.25);
+      ctx.quadraticCurveTo(size * 1.25, size * 0.4, 0, size * 0.72);
+      ctx.quadraticCurveTo(-size * 0.9, size * 0.55, -size, 0);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    for (let index = 0; index < 5; index += 1) {
+      const angle = (index / 5) * TAU + 0.5;
+      const start = 0.2 + index * 0.02;
+      if (progress < start) continue;
+      const local = effectPhase(progress, start, 0.82);
+      const radius = (24 + index * 8) * easeOutCubic(local) * effect.intensity;
+      const size = 5 * (1 - local) * effect.intensity;
+      ctx.save();
+      ctx.translate(Math.cos(angle) * radius, Math.sin(angle) * radius);
+      ctx.rotate(angle + local * 2);
+      ctx.globalAlpha *= (1 - local) * fade;
+      ctx.fillStyle = effect.accent;
+      ctx.beginPath();
+      ctx.moveTo(0, -size * 1.5);
+      ctx.lineTo(size * 0.5, -size * 0.45);
+      ctx.lineTo(size * 1.5, 0);
+      ctx.lineTo(size * 0.5, size * 0.45);
+      ctx.lineTo(0, size * 1.5);
+      ctx.lineTo(-size * 0.5, size * 0.45);
+      ctx.lineTo(-size * 1.5, 0);
+      ctx.lineTo(-size * 0.5, -size * 0.45);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  drawDynamicHeal(ctx, effect, progress) {
+    const rise = easeOutCubic(progress);
+    const fade = 1 - effectPhase(progress, 0.68, 1);
+    ctx.save();
+    ctx.globalAlpha *= fade * 0.78;
+    ctx.strokeStyle = effect.color;
+    ctx.lineWidth = 4 * (1 - progress * 0.45);
+    for (let ring = 0; ring < 2; ring += 1) {
+      const ringProgress = effectPhase(progress, ring * 0.12, 0.84);
+      ctx.beginPath();
+      ctx.ellipse(0, 16 - ringProgress * 22, 13 + ringProgress * 36, 7 + ringProgress * 18, 0, 0, TAU);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    for (let index = 0; index < 8; index += 1) {
+      const start = index * 0.045;
+      if (progress < start) continue;
+      const local = effectPhase(progress, start, 0.9);
+      const angle = index * 2.399 + effect.seed * 0.01 + local * 1.8;
+      const radius = (12 + index * 3.2) * (0.55 + local * 0.45);
+      const x = Math.cos(angle) * radius;
+      const y = 18 - rise * (38 + index * 4) + Math.sin(angle) * 5;
+      const size = (4 + (index % 3)) * effect.intensity;
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(angle + Math.PI / 4);
+      ctx.globalAlpha *= fade * (0.55 + (1 - local) * 0.45);
+      ctx.fillStyle = index % 3 === 0 ? effect.accent : effect.color;
+      ctx.beginPath();
+      ctx.moveTo(0, -size);
+      ctx.quadraticCurveTo(size, -size * 0.25, 0, size);
+      ctx.quadraticCurveTo(-size, -size * 0.25, 0, -size);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  drawDynamicSpawn(ctx, effect, progress) {
+    const open = easeOutBack(effectPhase(progress, 0, 0.7));
+    const fade = 1 - effectPhase(progress, 0.58, 1);
+    for (let ring = 0; ring < 3; ring += 1) {
+      ctx.save();
+      ctx.rotate((ring % 2 ? -1 : 1) * progress * (1.8 + ring * 0.35));
+      ctx.globalAlpha *= fade * (0.82 - ring * 0.17);
+      ctx.strokeStyle = ring === 1 ? effect.accent : effect.color;
+      ctx.lineWidth = (7 - ring * 1.6) * effect.intensity;
+      ctx.beginPath();
+      const radius = (18 + ring * 8 + open * 18) * effect.intensity;
+      ctx.arc(0, 0, radius, ring * 0.7, ring * 0.7 + Math.PI * (0.9 + open * 0.35));
+      ctx.stroke();
+      ctx.restore();
+    }
+    for (let index = 0; index < 7; index += 1) {
+      const angle = (index / 7) * TAU + effectNoise(effect.seed, index) * 0.4;
+      const start = index * 0.025;
+      if (progress < start) continue;
+      const local = effectPhase(progress, start, 0.82);
+      const radius = lerp(62, 14, easeOutCubic(local)) * effect.intensity;
+      ctx.save();
+      ctx.translate(Math.cos(angle) * radius, Math.sin(angle) * radius * 0.72);
+      ctx.globalAlpha *= fade * (1 - local * 0.25);
+      ctx.fillStyle = index % 3 === 0 ? effect.accent : effect.color;
+      ctx.beginPath();
+      ctx.arc(0, 0, 2.5 + effectNoise(effect.seed, index + 20) * 3.5, 0, TAU);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  drawDynamicTrail(ctx, effect, progress) {
+    const grow = easeOutCubic(effectPhase(progress, 0, 0.68));
+    const fade = 1 - effectPhase(progress, 0.62, 1);
+    const length = Math.max(1, Math.hypot(effect.dx, effect.dy));
+    const nx = effect.dx / length;
+    const ny = effect.dy / length;
+    const px = -ny;
+    const py = nx;
+    ctx.save();
+    ctx.globalAlpha *= fade * 0.8;
+    ctx.strokeStyle = effect.color;
+    ctx.lineWidth = 13 * effect.intensity * (1 - progress * 0.25);
+    ctx.beginPath();
+    ctx.moveTo(-effect.dx * 0.5, -effect.dy * 0.5);
+    ctx.quadraticCurveTo(px * Math.sin(progress * TAU) * 8, py * Math.sin(progress * TAU) * 8, -effect.dx * 0.5 + effect.dx * grow, -effect.dy * 0.5 + effect.dy * grow);
+    ctx.stroke();
+    ctx.restore();
+    for (let index = 0; index < 7; index += 1) {
+      const along = clamp(grow * 1.18 - index * 0.13, 0, 1);
+      if (along <= 0) continue;
+      const side = (effectNoise(effect.seed, index) - 0.5) * 18;
+      ctx.save();
+      ctx.translate(-effect.dx * 0.5 + effect.dx * along + px * side, -effect.dy * 0.5 + effect.dy * along + py * side);
+      ctx.globalAlpha *= fade * (0.45 + along * 0.55);
+      ctx.fillStyle = index % 3 === 0 ? effect.accent : effect.color;
+      ctx.beginPath();
+      ctx.arc(0, 0, 3 + effectNoise(effect.seed, index + 20) * 4, 0, TAU);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  drawDynamicSwap(ctx, effect, progress) {
+    const move = easeOutBack(effectPhase(progress, 0, 0.82));
+    const fade = 1 - effectPhase(progress, 0.68, 1);
+    for (let side = -1; side <= 1; side += 2) {
+      const startX = -effect.dx * 0.5 * side;
+      const startY = -effect.dy * 0.5 * side;
+      const endX = effect.dx * 0.5 * side;
+      const endY = effect.dy * 0.5 * side;
+      const arc = side * Math.sin(move * Math.PI) * 34;
+      const x = lerp(startX, endX, move);
+      const y = lerp(startY, endY, move) + arc;
+      ctx.save();
+      ctx.globalAlpha *= fade;
+      ctx.fillStyle = side < 0 ? effect.color : effect.accent;
+      ctx.strokeStyle = side < 0 ? effect.accent : effect.color;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(x, y, (8 + Math.sin(move * Math.PI) * 5) * effect.intensity, 0, TAU);
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    }
+    ctx.save();
+    ctx.globalAlpha *= fade * 0.55;
+    ctx.strokeStyle = effect.color;
+    ctx.lineWidth = 3;
+    ctx.setLineDash([8, 10]);
+    ctx.lineDashOffset = -progress * 36;
+    ctx.beginPath();
+    ctx.moveTo(-effect.dx * 0.5, -effect.dy * 0.5);
+    ctx.quadraticCurveTo(0, -40, effect.dx * 0.5, effect.dy * 0.5);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  drawDynamicPlace(ctx, effect, progress) {
+    const bounce = easeOutBack(effectPhase(progress, 0, 0.72));
+    const fade = 1 - effectPhase(progress, 0.62, 1);
+    for (let ring = 0; ring < 2; ring += 1) {
+      const local = effectPhase(progress, ring * 0.12, 0.9);
+      ctx.save();
+      ctx.globalAlpha *= fade * (0.8 - ring * 0.24);
+      ctx.strokeStyle = ring ? effect.accent : effect.color;
+      ctx.lineWidth = (5 - ring) * effect.intensity * (1 - local * 0.55);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, (10 + bounce * (35 + ring * 13)) * effect.intensity, (5 + bounce * (13 + ring * 7)) * effect.intensity, 0, 0, TAU);
+      ctx.stroke();
+      ctx.restore();
+    }
+    for (let index = 0; index < 6; index += 1) {
+      const start = index * 0.035;
+      if (progress < start) continue;
+      const local = effectPhase(progress, start, 0.86);
+      const angle = Math.PI + (index / 5) * Math.PI;
+      const radius = easeOutCubic(local) * (25 + index * 4) * effect.intensity;
+      ctx.save();
+      ctx.translate(Math.cos(angle) * radius, Math.sin(angle) * radius * 0.48 - local * 12);
+      ctx.globalAlpha *= fade * (1 - local * 0.25);
+      ctx.fillStyle = index % 2 ? effect.color : effect.accent;
+      ctx.beginPath();
+      ctx.arc(0, 0, 3 + (index % 3), 0, TAU);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  drawDynamicWaveClear(ctx, effect, progress) {
+    const expand = easeOutCubic(progress);
+    const fade = 1 - effectPhase(progress, 0.56, 1);
+    for (let ring = 0; ring < 3; ring += 1) {
+      const local = effectPhase(progress, ring * 0.08, 0.9);
+      ctx.save();
+      ctx.globalAlpha *= fade * (0.72 - ring * 0.14);
+      ctx.strokeStyle = ring === 1 ? effect.accent : effect.color;
+      ctx.lineWidth = (8 - ring * 2) * (1 - local * 0.55);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 22 + easeOutCubic(local) * (145 + ring * 26), 10 + easeOutCubic(local) * (54 + ring * 12), 0, 0, TAU);
+      ctx.stroke();
+      ctx.restore();
+    }
+    for (let index = 0; index < 11; index += 1) {
+      const angle = -Math.PI + (index / 10) * Math.PI;
+      const distanceOut = expand * (70 + effectNoise(effect.seed, index) * 90);
+      ctx.save();
+      ctx.translate(Math.cos(angle) * distanceOut, Math.sin(angle) * distanceOut * 0.45 - expand * 34);
+      ctx.rotate(angle + Math.PI / 2 + progress * (index % 2 ? 2 : -2));
+      ctx.globalAlpha *= fade;
+      ctx.fillStyle = index % 3 === 0 ? effect.accent : effect.color;
+      ctx.beginPath();
+      ctx.moveTo(0, -10);
+      ctx.lineTo(5, 5);
+      ctx.lineTo(0, 8);
+      ctx.lineTo(-5, 5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
     }
   }
 
@@ -3410,24 +3933,11 @@ export class SlimeGame {
         x: BOARD.x + (cell.x + shape.width / 2) * BOARD.cell,
         y: BOARD.y + (cell.y + shape.height) * BOARD.cell - 8,
       };
-      this.spawnWorldEffect(
-        'effect-particle-dust-puff',
-        effectPosition.x,
-        effectPosition.y,
-        Math.max(72, shape.width * BOARD.cell),
-        38,
-        0.46,
-        { scaleFrom: 0.66, scaleTo: 1.08 },
-      );
-      this.spawnWorldEffect(
-        'effect-particle-expanding-ring',
-        effectPosition.x,
-        effectPosition.y - 4,
-        Math.max(76, shape.width * BOARD.cell),
-        42,
-        0.42,
-        { scaleFrom: 0.52, scaleTo: 1.12 },
-      );
+      this.spawnDynamicEffect('place', effectPosition.x, effectPosition.y - 2, {
+        color: card.color,
+        accent: '#FFF0C4',
+        intensity: clamp(shape.width * 0.82, 0.9, 1.55),
+      });
       this.audio.play('place');
       this.showToast(`${card.shortName}安顿好了`);
       this.save();
@@ -3452,15 +3962,11 @@ export class SlimeGame {
         x: BOARD.x + (cell.x + shape.width / 2) * BOARD.cell,
         y: BOARD.y + (cell.y + shape.height) * BOARD.cell - 8,
       };
-      this.spawnWorldEffect(
-        'effect-particle-expanding-ring',
-        position.x,
-        position.y,
-        Math.max(76, shape.width * BOARD.cell),
-        42,
-        0.42,
-        { scaleFrom: 0.52, scaleTo: 1.12 },
-      );
+      this.spawnDynamicEffect('place', position.x, position.y, {
+        color: card.color,
+        accent: '#FFF0C4',
+        intensity: clamp(shape.width * 0.82, 0.9, 1.55),
+      });
       this.selection = { kind: 'inspect-building', uid: building.uid };
       this.audio.play('place');
       this.save();
@@ -3480,15 +3986,11 @@ export class SlimeGame {
       survivor.y = cell.y;
       survivor.placedAt = this.time;
       const position = this.cellCenter(cell.x, cell.y);
-      this.spawnWorldEffect(
-        'effect-particle-expanding-ring',
-        position.x,
-        position.y + 20,
-        74,
-        38,
-        0.4,
-        { scaleFrom: 0.5, scaleTo: 1.1 },
-      );
+      this.spawnDynamicEffect('place', position.x, position.y + 20, {
+        color: SURVIVOR_BY_ID[survivor.cardId].color,
+        accent: '#F4FFD2',
+        intensity: 0.95,
+      });
       this.selection = { kind: 'inspect-survivor', uid: survivor.uid };
       this.audio.play('place');
       this.save();
@@ -3617,6 +4119,7 @@ export class SlimeGame {
     this.state.enemies = [];
     this.state.projectiles = [];
     this.state.worldEffects = [];
+    this.state.dynamicEffects = [];
     this.state.terrain = this.state.terrain.filter((terrain) => terrain.persistent);
     this.state.deployables = [];
     this.pendingAttackHits.clear();
@@ -3665,6 +4168,17 @@ export class SlimeGame {
   finishWave() {
     const wave = WAVES[this.state.waveIndex];
     this.state.rewardEarned += wave.clearReward;
+    this.spawnDynamicEffect(
+      'wave-clear',
+      BOARD.x + (BOARD.cols * BOARD.cell) / 2,
+      BOARD.y + (BOARD.rows * BOARD.cell) / 2,
+      {
+        color: '#76DBA0',
+        accent: '#FFF2A4',
+        intensity: 1.15,
+      },
+    );
+    this.shake = Math.max(this.shake, 0.28);
     if (this.state.waveIndex >= WAVES.length - 1) {
       this.finishDefense(true);
       return;
@@ -3743,6 +4257,7 @@ export class SlimeGame {
     this.state.enemies = [];
     this.state.projectiles = [];
     this.state.worldEffects = [];
+    this.state.dynamicEffects = [];
     this.state.terrain = [];
     this.state.deployables = [];
     this.state.kills = 0;

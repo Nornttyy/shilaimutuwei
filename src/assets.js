@@ -10,6 +10,10 @@ const generatedAssetUrl = (relativePath) => (
   new URL(`../assets/generated/${relativePath}`, import.meta.url).href
 );
 
+export const ASSET_LOAD_TIMEOUT_MS = 15000;
+export const ASSET_PRELOAD_CONCURRENCY = 8;
+export const ASSET_PRELOAD_RETRIES = 1;
+
 const DECLARED_ASSET_PATHS = {
   'survivor-shell-shell': generatedAssetUrl('survivor/survivor-shell-shell.png'),
   'survivor-crystal-pin': generatedAssetUrl('survivor/survivor-crystal-pin.png'),
@@ -165,7 +169,7 @@ export function createAssetStore(
     return record?.status === 'loaded' ? record.asset : fallback;
   }
 
-  function load(key, { timeoutMs = 5000, retryFailed = false } = {}) {
+  function load(key, { timeoutMs = ASSET_LOAD_TIMEOUT_MS, retryFailed = false } = {}) {
     const record = records.get(key);
     if (!record) return Promise.resolve(status(key));
     if (record.status === 'loaded') return Promise.resolve(publicRecord(record));
@@ -232,11 +236,38 @@ export function createAssetStore(
     return record.promise;
   }
 
-  async function preload({ keys = Object.keys(paths), timeoutMs = 5000, retryFailed = false } = {}) {
+  async function preload({
+    keys = Object.keys(paths),
+    timeoutMs = ASSET_LOAD_TIMEOUT_MS,
+    retryFailed = true,
+    retryAttempts = ASSET_PRELOAD_RETRIES,
+    concurrency = ASSET_PRELOAD_CONCURRENCY,
+  } = {}) {
     const uniqueKeys = [...new Set(keys)];
-    const results = await Promise.all(
-      uniqueKeys.map((key) => load(key, { timeoutMs, retryFailed })),
+    const results = new Array(uniqueKeys.length);
+    const workerCount = Math.min(
+      uniqueKeys.length,
+      Number.isFinite(concurrency) ? Math.max(1, Math.floor(concurrency)) : 1,
     );
+    const retries = retryFailed && Number.isFinite(retryAttempts)
+      ? Math.max(0, Math.floor(retryAttempts))
+      : 0;
+    let nextIndex = 0;
+
+    const worker = async () => {
+      while (nextIndex < uniqueKeys.length) {
+        const index = nextIndex;
+        nextIndex += 1;
+        const key = uniqueKeys[index];
+        let result = await load(key, { timeoutMs, retryFailed });
+        for (let attempt = 0; result.status === 'failed' && attempt < retries; attempt += 1) {
+          result = await load(key, { timeoutMs, retryFailed: true });
+        }
+        results[index] = result;
+      }
+    };
+
+    await Promise.all(Array.from({ length: workerCount }, () => worker()));
     const count = (wanted) => results.filter((result) => wanted.includes(result.status)).length;
     return Object.freeze({
       total: results.length,

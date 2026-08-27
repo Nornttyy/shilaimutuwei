@@ -312,10 +312,10 @@ test('face stays transform-only and unsafe contracts are rejected', async (t) =>
     assert.throws(() => validateRigPartManifest(source), /required mouth pixels/i);
   });
 
-  await t.test('rejects pre-mirrored canonical art and unsafe paths', () => {
+  await t.test('accepts either authored direction but rejects invalid facing and unsafe paths', () => {
     const facing = cloneManifest();
-    facing.rigs['enemy-soft-biter'].canonicalFacing = -1;
-    assert.throws(() => validateRigPartManifest(facing), /canonicalFacing must be \+1/);
+    facing.rigs['enemy-soft-biter'].canonicalFacing = 0;
+    assert.throws(() => validateRigPartManifest(facing), /canonicalFacing must be \+1 or -1/);
 
     const path = cloneManifest();
     path.rigs['survivor-shell-shell'].parts[0].path = '../shell.png';

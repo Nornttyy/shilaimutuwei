@@ -58,6 +58,7 @@ globalThis.OffscreenCanvas = FakeOffscreenCanvas;
 
 const { drawMonster, drawSlime } = await import('../src/draw.js');
 const { SlimeGame } = await import('../src/game.js');
+const { characterWorldScale } = await import('../src/character-render-profiles.js');
 
 function resetOffscreen() {
   offscreenState.clearCount = 0;
@@ -65,7 +66,7 @@ function resetOffscreen() {
   offscreenState.layerDraws.length = 0;
 }
 
-function readyBundle(ownerId, { missing = null, canonicalFacing = 1, rigId = null } = {}) {
+function readyBundle(ownerId, { missing = null, canonicalFacing = null, rigId = null } = {}) {
   const definition = MANIFEST.rigs[ownerId];
   return {
     id: ownerId,
@@ -73,7 +74,7 @@ function readyBundle(ownerId, { missing = null, canonicalFacing = 1, rigId = nul
     rigId: rigId ?? definition.rigId,
     rootBone: definition.rootBone,
     faceBone: definition.faceBone,
-    canonicalFacing,
+    canonicalFacing: canonicalFacing ?? definition.canonicalFacing,
     parts: definition.parts.map((part) => ({
       ...part,
       image: part.id === missing ? null : { id: `${ownerId}:${part.id}` },
@@ -167,7 +168,8 @@ test('slime composites one complete card bundle after the outer size and facing 
     offscreenState.layerDraws,
     MANIFEST.rigs[ownerId].parts.map(({ id }) => `${ownerId}:${id}`),
   );
-  assert.deepEqual(ctx.calls.find(([name]) => name === 'scale'), ['scale', -0.5, 0.5]);
+  const scale = 0.5 * characterWorldScale(ownerId);
+  assert.deepEqual(ctx.calls.find(([name]) => name === 'scale'), ['scale', -scale, scale]);
   assert.deepEqual(
     ctx.calls.find(([name]) => name === 'drawImage'),
     ['drawImage', 'rig-surface', -128, -192, 256, 256],
@@ -208,7 +210,7 @@ test('draw pipeline forwards expression selection to an independent facial layer
   assert.equal(ctx.compositeDraws, 1);
 });
 
-test('boss keeps its 1.08 visual scale and mirrors only at the outer transform', () => {
+test('boss canonical-right rig mirrors once to face left and fits its nominal world box', () => {
   resetOffscreen();
   const ctx = createMainContext();
   const ownerId = 'enemy-acid-shell-king';
@@ -219,7 +221,8 @@ test('boss keeps its 1.08 visual scale and mirrors only at the outer transform',
     rigAsset: readyBundle(ownerId),
   });
 
-  assert.deepEqual(ctx.calls.find(([name]) => name === 'scale'), ['scale', -1.08, 1.08]);
+  const scale = characterWorldScale(ownerId);
+  assert.deepEqual(ctx.calls.find(([name]) => name === 'scale'), ['scale', -scale, scale]);
   assert.deepEqual(
     offscreenState.layerDraws,
     MANIFEST.rigs[ownerId].parts.map(({ id }) => `${ownerId}:${id}`),
@@ -232,7 +235,7 @@ test('incompatible or incomplete bundles draw zero PNG pixels and use the whole 
   const incompatibleCtx = createMainContext();
   drawSlime(incompatibleCtx, 0, 0, 100, 'shell', {
     animate: false,
-    rigAsset: readyBundle('survivor-shell-shell', { canonicalFacing: -1 }),
+    rigAsset: readyBundle('survivor-shell-shell', { canonicalFacing: 0 }),
   });
   assert.equal(incompatibleCtx.compositeAttempts, 0);
   assert.equal(offscreenState.layerDraws.length, 0);

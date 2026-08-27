@@ -14,6 +14,7 @@ import {
   decodeRgbaPng,
   PNG_SIGNATURE,
 } from './export-rig-layers.mjs';
+import { characterRenderProfile } from '../src/character-render-profiles.js';
 
 const SCRIPT_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
 
@@ -499,7 +500,15 @@ export async function buildRigStandalones({
       throw new RangeError(`${ownerId}: asset-spec must require transparency and a positive byte cap.`);
     }
     const resolvedOutput = resolveOutput(resolvedRoot, spec.path, ownerId, spec.category);
-    const facing = spec.category === 'enemy' ? -1 : 1;
+    const authoredFacing = rig.canonicalFacing;
+    if (![-1, 1].includes(authoredFacing)) {
+      throw new RangeError(`${ownerId}: canonicalFacing must be +1 or -1.`);
+    }
+    const targetFacing = characterRenderProfile(ownerId)?.gameplayFacing;
+    if (![-1, 1].includes(targetFacing)) {
+      throw new RangeError(`${ownerId}: render profile must declare gameplayFacing +1 or -1.`);
+    }
+    const facing = targetFacing * authoredFacing;
     const layers = rig.parts
       .map((part, index) => descriptorForNormal(part, ownerId, index))
       .sort((left, right) => left.z - right.z || left.manifestIndex - right.manifestIndex);
@@ -550,6 +559,8 @@ export async function buildRigStandalones({
       expression: 'normal',
       logicalBounds,
       placement,
+      authoredFacing,
+      targetFacing,
       stats,
       sources: [...sources.values()].sort((left, right) => left.path.localeCompare(right.path)),
       normalExpressions: Object.fromEntries(layers

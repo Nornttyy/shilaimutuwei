@@ -345,7 +345,7 @@ export const BUILDINGS = Object.freeze([
     description: "改变敌人路线，每波第一次受撞击会把敌人弹回。",
     icon: "🧱",
     color: "#B48768",
-    footprint: { width: 2, height: 1 },
+    footprint: { width: 1, height: 1 },
     cost: 1,
     solid: true,
     passable: false,

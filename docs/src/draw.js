@@ -9,6 +9,10 @@ import {
   STONE_RIG,
   WINDCAP_RIG,
 } from './animation/rigs.js';
+import {
+  characterRenderProfile,
+  characterWorldScale,
+} from './character-render-profiles.js';
 
 /**
  * Zero-dependency Canvas 2D art kit for the Slime Town prototype.
@@ -79,6 +83,13 @@ const SLIME_RIG_BY_VARIANT = Object.freeze({
   sprout: SPROUT_RIG,
 });
 
+const SLIME_OWNER_BY_VARIANT = Object.freeze({
+  shell: 'survivor-shell-shell',
+  needle: 'survivor-crystal-pin',
+  bubble: 'survivor-bubble-float',
+  sprout: 'survivor-moss-sprout',
+});
+
 const MONSTER_RIG_BY_TYPE = Object.freeze({
   bug: BUG_RIG,
   mushroom: WINDCAP_RIG,
@@ -86,8 +97,24 @@ const MONSTER_RIG_BY_TYPE = Object.freeze({
   boss: BOSS_RIG,
 });
 
+const MONSTER_OWNER_BY_TYPE = Object.freeze({
+  bug: 'enemy-soft-biter',
+  mushroom: 'enemy-windcap',
+  stone: 'enemy-stone-lump',
+  boss: 'enemy-acid-shell-king',
+});
+
 const clamp = (value, min = 0, max = 1) => Math.max(min, Math.min(max, value));
 const safeNumber = (value, fallback = 0) => Number.isFinite(value) ? value : fallback;
+const facingSign = (value, fallback = 1) => (value === -1 ? -1 : value === 1 ? 1 : fallback);
+
+function requestedCharacterFacing(options, ownerId) {
+  return facingSign(options?.facing, characterRenderProfile(ownerId)?.gameplayFacing ?? 1);
+}
+
+function authoredRigFacing(rigAsset) {
+  return facingSign(rigAsset?.canonicalFacing, 1);
+}
 
 /**
  * Draw one optional generated image atomically. Missing assets, unsupported
@@ -179,7 +206,7 @@ function renderCompatibleRigAsset(ctx, rig, pose, rigAsset, expression = null) {
   if (
     !rigAsset
     || rigAsset.rigId !== rig.id
-    || rigAsset.canonicalFacing !== 1
+    || ![-1, 1].includes(rigAsset.canonicalFacing)
   ) return false;
 
   const surface = rigSurfaceFor(ctx);
@@ -840,10 +867,16 @@ export function drawSlime(ctx, x, y, size, variantOrOptions = 'shell', maybeOpti
   ctx.globalAlpha *= options.disabled ? 0.48 : clamp(options.alpha ?? 1);
   ctx.translate(x, y - hop);
   const unit = size / 100;
-  const facing = options.facing === -1 ? -1 : 1;
-  ctx.scale(unit * facing * (1 + squash * 0.55), unit * (1 - squash));
-
-  const renderedRig = renderCompatibleRigAsset(
+  const ownerId = SLIME_OWNER_BY_VARIANT[variant];
+  const facing = requestedCharacterFacing(options, ownerId);
+  const rigScale = characterWorldScale(ownerId);
+  let renderedRig = false;
+  ctx.save();
+  ctx.scale(
+    unit * rigScale * facing * authoredRigFacing(options.rigAsset) * (1 + squash * 0.55),
+    unit * rigScale * (1 - squash),
+  );
+  renderedRig = renderCompatibleRigAsset(
     ctx,
     SLIME_RIG_BY_VARIANT[variant],
     options.pose,
@@ -852,7 +885,10 @@ export function drawSlime(ctx, x, y, size, variantOrOptions = 'shell', maybeOpti
       ?? options.expression
       ?? (options.hit > 0.5 ? 'hurt' : null),
   );
+  ctx.restore();
   if (!renderedRig) {
+    ctx.save();
+    ctx.scale(unit * facing * (1 + squash * 0.55), unit * (1 - squash));
     if (options.pose) {
       if (variant === 'shell') drawShellSlimePosedLocal(ctx, options, colors[variant]);
       if (variant === 'needle') drawCrystalSlimePosedLocal(ctx, options, colors[variant]);
@@ -873,6 +909,7 @@ export function drawSlime(ctx, x, y, size, variantOrOptions = 'shell', maybeOpti
       if (variant === 'sprout') drawSproutTop(ctx, time);
       drawSlimeAccessoryFront(ctx, variant, options);
     }
+    ctx.restore();
   }
   ctx.restore();
 
@@ -1417,10 +1454,18 @@ export function drawMonster(ctx, x, y, size, typeOrOptions = 'bug', maybeOptions
   ctx.save();
   ctx.globalAlpha *= options.disabled ? 0.5 : clamp(options.alpha ?? 1);
   ctx.translate(x, y - hop);
-  const unit = visualSize / 100;
-  const facing = options.facing === -1 ? -1 : 1;
-  ctx.scale(unit * facing * (1 + squash * 0.5), unit * (1 - squash));
-  const renderedRig = renderCompatibleRigAsset(
+  const ownerId = MONSTER_OWNER_BY_TYPE[type];
+  const facing = requestedCharacterFacing(options, ownerId);
+  const rigUnit = size / 100;
+  const rigScale = characterWorldScale(ownerId);
+  const fallbackUnit = visualSize / 100;
+  let renderedRig = false;
+  ctx.save();
+  ctx.scale(
+    rigUnit * rigScale * facing * authoredRigFacing(options.rigAsset) * (1 + squash * 0.5),
+    rigUnit * rigScale * (1 - squash),
+  );
+  renderedRig = renderCompatibleRigAsset(
     ctx,
     MONSTER_RIG_BY_TYPE[type],
     options.pose,
@@ -1429,15 +1474,21 @@ export function drawMonster(ctx, x, y, size, typeOrOptions = 'bug', maybeOptions
       ?? options.expression
       ?? (options.hit > 0.5 ? 'hurt' : null),
   );
+  ctx.restore();
   if (!renderedRig) {
+    ctx.save();
+    ctx.scale(fallbackUnit * facing * (1 + squash * 0.5), fallbackUnit * (1 - squash));
     if (type === 'bug') drawBugMonsterLocal(ctx, options);
     if (type === 'mushroom') drawMushroomMonsterLocal(ctx, options);
     if (type === 'stone') drawStoneMonsterLocal(ctx, options);
     if (type === 'boss') drawBossMonsterLocal(ctx, options);
+    ctx.restore();
   }
 
   if ((options.hit || 0) > 0) {
     ctx.save();
+    const hitUnit = renderedRig ? rigUnit * rigScale : fallbackUnit;
+    ctx.scale(hitUnit * facing * (1 + squash * 0.5), hitUnit * (1 - squash));
     ctx.globalAlpha *= clamp(options.hit) * 0.5;
     ctx.fillStyle = PALETTE.white;
     if (options.pose) {
@@ -1783,7 +1834,7 @@ export function drawBuilding(ctx, x, y, size, typeOrOptions = 'hut', maybeOption
   const type = ['hut', 'farm', 'tower', 'fence', 'weather'].includes(typeRaw) ? typeRaw : 'hut';
   const time = safeNumber(options.time, 0);
   const bob = options.active ? Math.sin(time * 4.2 + (options.phase || 0)) * size * 0.008 : 0;
-  const footprintScale = type === 'farm' || type === 'fence' ? 1.12 : 1;
+  const footprintScale = type === 'farm' ? 1.12 : 1;
 
   drawSelectionRing(ctx, x, y + size * 0.01, size * footprintScale, options);
   drawSoftShadow(ctx, x, y + size * 0.025, size, {

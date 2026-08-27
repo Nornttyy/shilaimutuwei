@@ -28,6 +28,7 @@ import {
   WINDCAP_CLIPS,
 } from '../src/animation/clips.js';
 import { DEFAULT_EXPRESSION_TRANSITION_DURATION } from '../src/animation/expression-mixer.js';
+import { characterPortraitCrop } from '../src/character-render-profiles.js';
 
 function createGradient() {
   return { addColorStop() {} };
@@ -185,6 +186,155 @@ test('main background PNG replaces the whole vector scene and safely falls back'
   assert.equal(failing.calls.some(([name]) => name === 'fillRect'), true);
 });
 
+test('right-side card details use generated art with contained scaling and glyph fallback', () => {
+  const building = BUILDINGS.find((card) => card.id === 'building-honey-plot');
+  const skill = SKILLS.find((card) => card.id === 'skill-jelly-bounce');
+  const item = ITEMS.find((card) => card.id === 'item-moving-bubble');
+  const buildingArt = {
+    key: building.id,
+    naturalWidth: 768,
+    naturalHeight: 512,
+  };
+  const skillArt = {
+    key: `${skill.id}-icon`,
+    naturalWidth: 512,
+    naturalHeight: 512,
+  };
+  const itemArt = {
+    key: `${item.id}-icon`,
+    naturalWidth: 512,
+    naturalHeight: 512,
+  };
+  const store = createReadyAssetStore(new Map([
+    [building.id, buildingArt],
+    [`${skill.id}-icon`, skillArt],
+    [`${item.id}-icon`, itemArt],
+  ]));
+  const recording = createRecordingContext();
+  const { game } = createHarness({ context: recording.ctx, assetStore: store });
+  game.state.phase = 'build';
+  game.state.buildings = [{
+    uid: 'detail-building',
+    cardId: building.id,
+    x: 0,
+    y: 0,
+    rotation: 0,
+    hp: building.hp,
+    maxHp: building.hp,
+  }];
+  game.selection = { kind: 'inspect-building', uid: 'detail-building' };
+
+  game.drawBuildSide(recording.ctx);
+
+  const buildingCall = recording.calls.find((call) => (
+    call[0] === 'drawImage' && call[1] === buildingArt
+  ));
+  assert.ok(buildingCall, 'the selected building detail should request its generated PNG');
+  assert.ok(Math.abs(buildingCall[4] / buildingCall[5] - 1.5) < 1e-9);
+  assert.ok(buildingCall[4] <= 66 && buildingCall[5] <= 66);
+
+  recording.calls.length = 0;
+  game.state.phase = 'battle';
+  game.selection = {
+    kind: 'target-card',
+    cardType: 'skill',
+    cardId: skill.id,
+    step: 0,
+    wasPaused: false,
+  };
+  game.drawBattleSide(recording.ctx);
+  const skillCall = recording.calls.find((call) => call[0] === 'drawImage' && call[1] === skillArt);
+  assert.ok(skillCall, 'the targeting detail should request its generated icon');
+  assert.ok(skillCall[4] <= 54 && skillCall[5] <= 54);
+
+  recording.calls.length = 0;
+  game.selection = {
+    kind: 'target-card',
+    cardType: 'item',
+    cardId: item.id,
+    step: 0,
+    wasPaused: false,
+  };
+  game.drawBattleSide(recording.ctx);
+  assert.ok(
+    recording.calls.some((call) => call[0] === 'drawImage' && call[1] === itemArt),
+    'the targeting detail should request its generated item icon',
+  );
+
+  const fallbackRecording = createRecordingContext();
+  const fallbackTexts = [];
+  fallbackRecording.ctx.fillText = (value) => fallbackTexts.push(String(value));
+  const fallbackHarness = createHarness({
+    context: fallbackRecording.ctx,
+    assetStore: createReadyAssetStore([]),
+  });
+  fallbackHarness.game.drawCardArtwork(
+    fallbackRecording.ctx,
+    building,
+    { x: 0, y: 0, w: 78, h: 78 },
+    { fallbackFontSize: 34 },
+  );
+  assert.ok(fallbackTexts.includes(fallbackHarness.game.cardGlyph(building)));
+
+  const throwingRecording = createRecordingContext({ throwOnDrawImage: true });
+  const throwingTexts = [];
+  throwingRecording.ctx.fillText = (value) => throwingTexts.push(String(value));
+  const throwingHarness = createHarness({
+    context: throwingRecording.ctx,
+    assetStore: createReadyAssetStore(new Map([[building.id, buildingArt]])),
+  });
+  assert.equal(
+    throwingHarness.game.drawCardArtwork(
+      throwingRecording.ctx,
+      building,
+      { x: 0, y: 0, w: 78, h: 78 },
+    ),
+    false,
+  );
+  assert.ok(throwingTexts.includes(throwingHarness.game.cardGlyph(building)));
+});
+
+test('character detail and mini-card art crops transparent margins without distorting the PNG', () => {
+  const card = SURVIVORS.find(({ id }) => id === 'survivor-shell-shell');
+  const art = { key: card.id, naturalWidth: 512, naturalHeight: 512 };
+  const recording = createRecordingContext();
+  const { game } = createHarness({
+    context: recording.ctx,
+    assetStore: createReadyAssetStore(new Map([[card.id, art]])),
+  });
+  const expectedCrop = characterPortraitCrop(card.id, 512, 512);
+
+  game.drawCardArtwork(recording.ctx, card, { x: 0, y: 0, w: 78, h: 78 });
+  let call = recording.calls.find((entry) => entry[0] === 'drawImage' && entry[1] === art);
+  assert.deepEqual(call.slice(2, 6), [
+    expectedCrop.x,
+    expectedCrop.y,
+    expectedCrop.width,
+    expectedCrop.height,
+  ]);
+  assert.ok(call[8] <= 66 && call[9] <= 66);
+  assert.ok(Math.abs(call[8] / call[9] - expectedCrop.width / expectedCrop.height) < 1e-9);
+
+  recording.calls.length = 0;
+  game.drawMiniCard(
+    recording.ctx,
+    `profile-${card.id}`,
+    { x: 0, y: 0, w: 150, h: 84 },
+    card,
+    { selected: false, meta: '测试' },
+    () => {},
+  );
+  call = recording.calls.find((entry) => entry[0] === 'drawImage' && entry[1] === art);
+  assert.deepEqual(call.slice(2, 6), [
+    expectedCrop.x,
+    expectedCrop.y,
+    expectedCrop.width,
+    expectedCrop.height,
+  ]);
+  assert.ok(call[8] <= 40 && call[9] <= 60);
+  assert.ok(Math.abs(call[8] / call[9] - expectedCrop.width / expectedCrop.height) < 1e-9);
+});
+
 test('battlefield keeps the portal and moving-bubble shell behind depth-sorted actors', () => {
   const events = [];
   const store = createReadyAssetStore(['rift-entry-portal']);
@@ -295,7 +445,7 @@ test('generated card and wide-building art is contained without changing its asp
 });
 
 test('rotated wide buildings keep generated PNG art upright and center world effects on the footprint', () => {
-  const art = { key: 'building-bouncy-fence', naturalWidth: 768, naturalHeight: 512 };
+  const art = { key: 'building-honey-plot', naturalWidth: 768, naturalHeight: 512 };
   const store = createReadyAssetStore(new Map([[art.key, art]]));
   const recording = createRecordingContext();
   const rotations = [];
@@ -304,13 +454,13 @@ test('rotated wide buildings keep generated PNG art upright and center world eff
   recording.ctx.translate = (x, y) => translations.push([x, y]);
   const { game } = createHarness({ context: recording.ctx, assetStore: store });
   const building = {
-    uid: 'rotated-fence',
-    cardId: 'building-bouncy-fence',
+    uid: 'rotated-plot',
+    cardId: 'building-honey-plot',
     x: 2,
     y: 1,
     rotation: 90,
-    hp: 340,
-    maxHp: 340,
+    hp: 150,
+    maxHp: 150,
     placedAt: -10,
   };
 
@@ -328,7 +478,7 @@ test('rotated wide buildings keep generated PNG art upright and center world eff
 
 test('building placement preview paints every rotated footprint cell and keeps its ghost upright', () => {
   const validTile = { key: 'tile-placement-valid' };
-  const art = { key: 'building-bouncy-fence', naturalWidth: 768, naturalHeight: 512 };
+  const art = { key: 'building-honey-plot', naturalWidth: 768, naturalHeight: 512 };
   const store = createReadyAssetStore(new Map([
     [validTile.key, validTile],
     [art.key, art],
@@ -341,7 +491,7 @@ test('building placement preview paints every rotated footprint cell and keeps i
   game.state.buildings = [];
   game.selection = {
     kind: 'place-building',
-    cardId: 'building-bouncy-fence',
+    cardId: 'building-honey-plot',
     rotation: 90,
   };
   game.hoverCell = { x: 2, y: 1 };
@@ -359,19 +509,19 @@ test('building placement preview paints every rotated footprint cell and keeps i
   assert.deepEqual(rotations, []);
 });
 
-test('moving a wide building previews rotation without mutating it, then commits that direction', () => {
+test('moving a wide building previews rotation, cancels safely, rejects invalid cells, then commits', () => {
   const recording = createRecordingContext();
   const texts = [];
   recording.ctx.fillText = (value, ...args) => texts.push([String(value), ...args]);
   const { game } = createHarness({ context: recording.ctx });
   const building = {
-    uid: 'moving-fence',
-    cardId: 'building-bouncy-fence',
+    uid: 'moving-plot',
+    cardId: 'building-honey-plot',
     x: 0,
     y: 0,
     rotation: 0,
-    hp: 340,
-    maxHp: 340,
+    hp: 150,
+    maxHp: 150,
     placedAt: -10,
   };
   game.state.phase = 'build';
@@ -381,10 +531,30 @@ test('moving a wide building previews rotation without mutating it, then commits
   game.rotateSelection();
 
   assert.equal(game.selection.rotation, 90);
-  assert.equal(building.rotation, 0, 'canceling a move must leave the placed direction unchanged');
+  assert.equal(building.rotation, 0, 'previewing a move must leave the placed direction unchanged');
   assert.equal(game.selectionCellIsValid({ x: 5, y: 4 }), true);
   game.drawBuildSide(recording.ctx);
-  assert.ok(texts.some(([text]) => text === '1×2 · 定形值 1'));
+  assert.ok(texts.some(([text]) => text === '1×2 · 定形值 2'));
+
+  const cancel = game.hits.find(({ id }) => id === 'cancel-move');
+  assert.ok(cancel);
+  cancel.onTap();
+  assert.equal(game.selection, null);
+  assert.deepEqual(
+    { x: building.x, y: building.y, rotation: building.rotation },
+    { x: 0, y: 0, rotation: 0 },
+    'canceling must preserve the placed building exactly',
+  );
+
+  game.selection = { kind: 'move-building', uid: building.uid, rotation: building.rotation };
+  game.rotateSelection();
+  assert.equal(game.selectionCellIsValid({ x: 5, y: 5 }), false);
+  game.handleBuildCellTap({ x: 5, y: 5 });
+  assert.deepEqual(
+    { x: building.x, y: building.y, rotation: building.rotation },
+    { x: 0, y: 0, rotation: 0 },
+    'an invalid rotated footprint must not mutate the placed building',
+  );
 
   game.handleBuildCellTap({ x: 5, y: 4 });
 
@@ -393,6 +563,143 @@ test('moving a wide building previews rotation without mutating it, then commits
     { x: 5, y: 4, rotation: 90 },
   );
   assert.deepEqual(game.selection, { kind: 'inspect-building', uid: building.uid });
+});
+
+test('the complete fence occupies one cell, stays compact, and cannot rotate', () => {
+  const fence = BUILDINGS.find((card) => card.id === 'building-bouncy-fence');
+  assert.deepEqual(fence.footprint, { width: 1, height: 1 });
+
+  const validTile = { key: 'tile-placement-valid' };
+  const art = { key: fence.id, naturalWidth: 768, naturalHeight: 512 };
+  const store = createReadyAssetStore(new Map([
+    [validTile.key, validTile],
+    [art.key, art],
+  ]));
+  const recording = createRecordingContext();
+  const scales = [];
+  recording.ctx.scale = (x, y) => scales.push([x, y]);
+  const { game } = createHarness({ context: recording.ctx, assetStore: store });
+  game.state.phase = 'build';
+  game.state.buildings = [];
+  game.selection = { kind: 'place-building', cardId: fence.id, rotation: 90 };
+  game.hoverCell = { x: 2, y: 1 };
+
+  game.rotateSelection();
+  assert.equal(game.selection.rotation, 0, 'a square one-cell fence must ignore rotation');
+  game.drawSelectionOverlay(recording.ctx);
+
+  const footprintCalls = recording.calls.filter((call) => (
+    call[0] === 'drawImage' && call[1] === validTile
+  ));
+  assert.deepEqual(
+    footprintCalls.map((call) => ({ x: call[2], y: call[3] })),
+    [{ x: 359, y: 186 }],
+    'the complete fence must preview as exactly one cell',
+  );
+  assert.ok(
+    scales.some(([x, y]) => Math.abs(x - 88 / 115) < 1e-9 && Math.abs(y - 88 / 115) < 1e-9),
+    'the one-cell fence must use the compact 88px world slot, not the 104px wide-building slot',
+  );
+
+  const fenceRingMoves = [];
+  recording.ctx.moveTo = (...args) => fenceRingMoves.push(args);
+  drawBuilding(recording.ctx, 0, 0, 88, 'fence', {
+    assetStore: store,
+    ghost: true,
+    valid: true,
+  });
+  assert.ok(
+    fenceRingMoves.some(([moveX, moveY]) => (
+      Math.abs(moveX + 88 * 0.47) < 1e-9
+      && Math.abs(moveY) < 1e-9
+    )),
+    'the one-cell fence ghost ring must not retain the old wide-building multiplier',
+  );
+
+  game.hits = [];
+  game.drawBuildSide(recording.ctx);
+  assert.equal(game.hits.some(({ id }) => id === 'rotate-new'), false);
+
+  const placedFence = {
+    uid: 'one-cell-fence',
+    cardId: fence.id,
+    x: 2,
+    y: 1,
+    rotation: 0,
+    hp: fence.hp,
+    maxHp: fence.hp,
+    placedAt: -10,
+  };
+  game.state.buildings = [placedFence];
+  game.selection = { kind: 'inspect-building', uid: placedFence.uid };
+  game.hits = [];
+  game.drawBuildSide(recording.ctx);
+  assert.equal(game.hits.some(({ id }) => id === 'rotate-building'), false);
+  game.rotateSelection();
+  assert.deepEqual(game.selection, { kind: 'inspect-building', uid: placedFence.uid });
+  assert.equal(placedFence.rotation, 0);
+});
+
+test('inspecting rotation opens a pending preview without moving, saving, or committing', () => {
+  const { game, storage } = createHarness();
+  const building = {
+    uid: 'stable-plot',
+    cardId: 'building-honey-plot',
+    x: 2,
+    y: 3,
+    rotation: 0,
+    hp: 150,
+    maxHp: 150,
+    placedAt: -10,
+  };
+  game.state.phase = 'build';
+  game.state.buildings = [building];
+  game.selection = { kind: 'inspect-building', uid: building.uid };
+
+  game.rotateSelection();
+
+  assert.deepEqual(
+    { x: building.x, y: building.y, rotation: building.rotation },
+    { x: 2, y: 3, rotation: 0 },
+    'rotation must not move or mutate the placed building before confirmation',
+  );
+  assert.deepEqual(game.selection, {
+    kind: 'move-building',
+    uid: building.uid,
+    rotation: 90,
+  });
+  assert.equal(storage.size, 0, 'opening a rotation preview must not write a save');
+  game.selection = null;
+  assert.deepEqual(
+    { x: building.x, y: building.y, rotation: building.rotation },
+    { x: 2, y: 3, rotation: 0 },
+  );
+});
+
+test('old saves normalize the former rotated fence to one upright cell', () => {
+  const { game, storage } = createHarness();
+  storage.set('slime-haven-prototype-v1', JSON.stringify({
+    softCrystals: 160,
+    tutorialSeen: true,
+    buildings: [
+      { cardId: 'building-bouncy-fence', x: 4, y: 3, rotation: 90, hp: 340, maxHp: 340 },
+      { cardId: 'building-honey-plot', x: 1, y: 1, rotation: 90, hp: 150, maxHp: 150 },
+    ],
+  }));
+
+  game.load();
+
+  const fence = game.state.buildings.find(({ cardId }) => cardId === 'building-bouncy-fence');
+  const plot = game.state.buildings.find(({ cardId }) => cardId === 'building-honey-plot');
+  assert.deepEqual({ x: fence.x, y: fence.y, rotation: fence.rotation }, { x: 4, y: 3, rotation: 0 });
+  assert.equal(plot.rotation, 90, 'a genuinely wide building must retain its saved direction');
+
+  game.save();
+  const resaved = JSON.parse(storage.get('slime-haven-prototype-v1'));
+  assert.equal(
+    resaved.buildings.find(({ cardId }) => cardId === 'building-bouncy-fence').rotation,
+    0,
+  );
 });
 
 test('placement, danger rings, and combat statuses request their dedicated PNG layers', () => {

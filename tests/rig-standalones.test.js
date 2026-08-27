@@ -10,6 +10,11 @@ import {
   buildRigStandalones,
   RIG_IDS,
 } from '../scripts/render-rig-standalones.mjs';
+import {
+  CHARACTER_RENDER_PROFILES,
+  characterPortraitCrop,
+  characterWorldScale,
+} from '../src/character-render-profiles.js';
 
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const manifest = JSON.parse(await readFile(
@@ -67,7 +72,12 @@ test('standalones obey asset-spec dimensions, byte caps, transparency, and safe 
       const { safeMargin, targetBindBounds, anchorX, facing } = output.placement;
       const epsilon = 1e-6;
       assert.equal(anchorX, output.width / 2, 'the logical ground anchor must be centered');
-      assert.equal(facing, output.category === 'enemy' ? -1 : 1);
+      assert.equal(output.authoredFacing, manifest.rigs[output.ownerId].canonicalFacing);
+      assert.equal(
+        output.targetFacing,
+        CHARACTER_RENDER_PROFILES[output.ownerId].gameplayFacing,
+      );
+      assert.equal(facing, output.targetFacing * output.authoredFacing);
       assert.ok(targetBindBounds.minX >= safeMargin - epsilon);
       assert.ok(targetBindBounds.minY >= safeMargin - epsilon);
       assert.ok(targetBindBounds.maxX <= output.width - safeMargin + epsilon);
@@ -83,6 +93,43 @@ test('standalones obey asset-spec dimensions, byte caps, transparency, and safe 
       assert.ok(alpha.maxX <= output.width - safeMargin);
       assert.ok(alpha.maxY <= output.height - safeMargin);
     });
+  }
+});
+
+test('world sizing and portrait crops share one aspect-safe profile per character', async () => {
+  const report = await build();
+  assert.deepEqual(Object.keys(CHARACTER_RENDER_PROFILES), RIG_IDS);
+
+  for (const output of report.outputs) {
+    const profile = CHARACTER_RENDER_PROFILES[output.ownerId];
+    const rig = manifest.rigs[output.ownerId];
+    const worldBounds = rig.parts.reduce((bounds, part) => ({
+      minX: Math.min(bounds.minX, part.bindRect.x),
+      minY: Math.min(bounds.minY, part.bindRect.y),
+      maxX: Math.max(bounds.maxX, part.bindRect.x + part.bindRect.width),
+      maxY: Math.max(bounds.maxY, part.bindRect.y + part.bindRect.height),
+    }), { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity });
+    for (const key of ['minX', 'minY', 'maxX', 'maxY']) {
+      assert.ok(Math.abs(profile.worldBounds[key] - worldBounds[key]) < 1e-9);
+    }
+    assert.equal(rig.canonicalFacing, 1, 'all current production rigs are authored facing right');
+    assert.equal(profile.gameplayFacing, output.category === 'enemy' ? -1 : 1);
+
+    const maxSpan = Math.max(
+      worldBounds.maxX - worldBounds.minX,
+      worldBounds.maxY - worldBounds.minY,
+    );
+    assert.ok(Math.abs(maxSpan * characterWorldScale(output.ownerId) - 100) < 1e-9);
+
+    const crop = characterPortraitCrop(output.ownerId, output.width, output.height);
+    assert.deepEqual(crop, profile.portraitCrop);
+    assert.ok(crop.x >= 0 && crop.y >= 0);
+    assert.ok(crop.x + crop.width <= output.width);
+    assert.ok(crop.y + crop.height <= output.height);
+    const alpha = output.stats.alphaBounds;
+    assert.ok(crop.x <= alpha.minX && crop.y <= alpha.minY);
+    assert.ok(crop.x + crop.width > alpha.maxX);
+    assert.ok(crop.y + crop.height > alpha.maxY);
   }
 });
 

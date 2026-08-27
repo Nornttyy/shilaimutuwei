@@ -205,8 +205,8 @@ function normalizeRig(source, ownerId, atlasOwners) {
   if (source.faceBone === source.rootBone) {
     throw new RangeError(`${label}.faceBone must be distinct from rootBone.`);
   }
-  if (source.canonicalFacing !== 1) {
-    throw new RangeError(`${label}.canonicalFacing must be +1.`);
+  if (![-1, 1].includes(source.canonicalFacing)) {
+    throw new RangeError(`${label}.canonicalFacing must be +1 or -1.`);
   }
   if (!Array.isArray(source.parts) || source.parts.length === 0) {
     throw new TypeError(`${label}.parts must be a non-empty array.`);

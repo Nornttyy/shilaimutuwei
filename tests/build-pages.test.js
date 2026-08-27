@@ -346,14 +346,14 @@ test('staging output rejects a rig PNG whose image chunks are missing', async ()
 test('build validates the complete rig contract before touching output', async () => {
   await withFixture(async (root) => {
     const manifest = createManifest();
-    manifest.rigs['survivor-test'].canonicalFacing = -1;
+    manifest.rigs['survivor-test'].canonicalFacing = 0;
     await writeJson(root, RIG_MANIFEST_PATH, manifest);
     await mkdir(path.join(root, '_site'), { recursive: true });
     await writeFile(path.join(root, '_site', 'keep.txt'), 'previous good build');
 
     await assert.rejects(
       buildPages({ projectRoot: root, outputDirectory: path.join(root, '_site') }),
-      /Invalid rig contract.*canonicalFacing must be \+1/s,
+      /Invalid rig contract.*canonicalFacing must be \+1 or -1/s,
     );
     assert.equal(
       await readFile(path.join(root, '_site', 'keep.txt'), 'utf8'),

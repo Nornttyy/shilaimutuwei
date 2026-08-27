@@ -29,6 +29,7 @@ import {
 } from './core.js';
 import { AnimationController } from './animation/controller.js';
 import { ExpressionMixer } from './animation/expression-mixer.js';
+import { characterPortraitCrop } from './character-render-profiles.js';
 import {
   BOSS_CLIPS,
   BUBBLE_CLIPS,
@@ -138,14 +139,52 @@ function imageDimensions(image, fallbackWidth = 1, fallbackHeight = 1) {
   return { width, height };
 }
 
-function drawImageContained(ctx, image, x, y, width, height, anchorY = 0.5) {
-  const source = imageDimensions(image);
+function drawImageContained(
+  ctx,
+  image,
+  x,
+  y,
+  width,
+  height,
+  anchorY = 0.5,
+  sourceRect = null,
+) {
+  const dimensions = imageDimensions(image);
+  const source = sourceRect ?? { x: 0, y: 0, ...dimensions };
   const scale = Math.min(width / source.width, height / source.height);
   const drawWidth = source.width * scale;
   const drawHeight = source.height * scale;
   const drawX = x + (width - drawWidth) / 2;
   const drawY = y + (height - drawHeight) * clamp(anchorY, 0, 1);
-  ctx.drawImage(image, drawX, drawY, drawWidth, drawHeight);
+  if (sourceRect) {
+    ctx.drawImage(
+      image,
+      source.x,
+      source.y,
+      source.width,
+      source.height,
+      drawX,
+      drawY,
+      drawWidth,
+      drawHeight,
+    );
+  } else {
+    ctx.drawImage(image, drawX, drawY, drawWidth, drawHeight);
+  }
+}
+
+function drawCharacterImageContained(ctx, image, ownerId, x, y, width, height, anchorY = 1) {
+  const dimensions = imageDimensions(image);
+  drawImageContained(
+    ctx,
+    image,
+    x,
+    y,
+    width,
+    height,
+    anchorY,
+    characterPortraitCrop(ownerId, dimensions.width, dimensions.height),
+  );
 }
 
 function drawNineSlice(ctx, image, x, y, width, height) {
@@ -188,7 +227,12 @@ function roundedHit(point, rect) {
   return point.x >= rect.x && point.x <= rect.x + rect.w && point.y >= rect.y && point.y <= rect.y + rect.h;
 }
 
-function canonicalBuildingRotation(rotation = 0) {
+function buildingSupportsRotation(card) {
+  return Boolean(card?.footprint && card.footprint.width !== card.footprint.height);
+}
+
+function canonicalBuildingRotation(rotation = 0, card = null) {
+  if (card && !buildingSupportsRotation(card)) return 0;
   try {
     return (normalizeRotation(Number(rotation) || 0) % 2) * 90;
   } catch {
@@ -196,12 +240,13 @@ function canonicalBuildingRotation(rotation = 0) {
   }
 }
 
-function nextBuildingRotation(rotation = 0) {
-  return (canonicalBuildingRotation(rotation) + 90) % 180;
+function nextBuildingRotation(card, rotation = 0) {
+  if (!buildingSupportsRotation(card)) return 0;
+  return (canonicalBuildingRotation(rotation, card) + 90) % 180;
 }
 
 function rotatedFootprint(card, rotation = 0) {
-  const turns = canonicalBuildingRotation(rotation) / 90;
+  const turns = canonicalBuildingRotation(rotation, card) / 90;
   return turns % 2
     ? { width: card.footprint.height, height: card.footprint.width }
     : { width: card.footprint.width, height: card.footprint.height };
@@ -412,7 +457,7 @@ export class SlimeGame {
       ['building-mushroom-home', 1, 2, 0],
       ['building-bubble-tower', 3, 1, 0],
       ['building-honey-plot', 2, 4, 0],
-      ['building-bouncy-fence', 4, 3, 90],
+      ['building-bouncy-fence', 4, 3, 0],
     ];
     return specs.map(([cardId, x, y, rotation]) => {
       const card = BUILDING_BY_ID[cardId];
@@ -521,6 +566,10 @@ export class SlimeGame {
         tutorialSeen: this.state.tutorialSeen,
         buildings: layoutBuildings.filter((building) => !building.destroyed).map(({ uid: _uid, ...building }) => ({
           ...building,
+          rotation: canonicalBuildingRotation(
+            building.rotation,
+            BUILDING_BY_ID[building.cardId],
+          ),
           hp: BUILDING_BY_ID[building.cardId].hp,
           maxHp: BUILDING_BY_ID[building.cardId].hp,
           cooldown: 0,
@@ -554,7 +603,7 @@ export class SlimeGame {
           .map((item) => ({
             ...item,
             uid: uid('building'),
-            rotation: canonicalBuildingRotation(item.rotation),
+            rotation: canonicalBuildingRotation(item.rotation, BUILDING_BY_ID[item.cardId]),
             destroyed: false,
             placedAt: -10,
           }));
@@ -2199,7 +2248,6 @@ export class SlimeGame {
           pose: this.entityAnimationPose(enemy),
           expressionSample: this.entityExpressionSample(enemy),
           rigAsset: this.rigAssetFor(enemy.cardId),
-          facing: -1,
           alpha,
           hit: enemy.hitFlash,
           targeted: enemy.marked,
@@ -2634,14 +2682,15 @@ export class SlimeGame {
         || this.selection?.kind === 'move-building'
         ? this.selection.rotation ?? selectedBuilding?.rotation ?? 0
         : selectedBuilding?.rotation ?? 0;
-      const glyph = this.cardGlyph(card);
       drawRoundedRect(ctx, PANEL.x + 26, PANEL.y + 63, 78, 78, {
         radius: 22, fill: card.color, stroke: PALETTE.inkSoft, lineWidth: 3,
       });
-      ctx.fillStyle = '#FFF8E9';
-      ctx.font = '900 34px "PingFang SC", sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText(glyph, PANEL.x + 65, PANEL.y + 116);
+      this.drawCardArtwork(ctx, card, {
+        x: PANEL.x + 26,
+        y: PANEL.y + 63,
+        w: 78,
+        h: 78,
+      }, { padding: 6, fallbackFontSize: 34 });
       ctx.textAlign = 'left';
       ctx.fillStyle = PALETTE.textMuted;
       ctx.font = '700 15px "PingFang SC", sans-serif';
@@ -2754,10 +2803,12 @@ export class SlimeGame {
       drawRoundedRect(ctx, PANEL.x + 28, PANEL.y + 62, 64, 64, {
         radius: 18, fill: targetingCard.color, stroke: PALETTE.inkSoft, lineWidth: 3,
       });
-      ctx.fillStyle = '#FFF8E9';
-      ctx.textAlign = 'center';
-      ctx.font = '900 28px "PingFang SC", sans-serif';
-      ctx.fillText(this.cardGlyph(targetingCard), PANEL.x + 60, PANEL.y + 105);
+      this.drawCardArtwork(ctx, targetingCard, {
+        x: PANEL.x + 28,
+        y: PANEL.y + 62,
+        w: 64,
+        h: 64,
+      }, { padding: 5, fallbackFontSize: 28 });
       ctx.textAlign = 'left';
       ctx.fillStyle = PALETTE.inkSoft;
       ctx.font = '600 16px "PingFang SC", sans-serif';
@@ -2904,6 +2955,35 @@ export class SlimeGame {
     return null;
   }
 
+  drawCardArtwork(ctx, card, rect, { padding = 6, fallbackFontSize = 30 } = {}) {
+    const drawGlyph = () => {
+      ctx.fillStyle = '#FFF8E9';
+      ctx.font = `900 ${fallbackFontSize}px "PingFang SC", sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(this.cardGlyph(card), rect.x + rect.w / 2, rect.y + rect.h / 2 + 1);
+    };
+    const assetKey = this.cardAssetKey(card);
+    if (!assetKey) {
+      ctx.save();
+      drawGlyph();
+      ctx.restore();
+      return false;
+    }
+    return drawAssetOrFallback(ctx, this.assetStore, assetKey, (asset) => {
+      drawCharacterImageContained(
+        ctx,
+        asset,
+        card.id,
+        rect.x + padding,
+        rect.y + padding,
+        Math.max(1, rect.w - padding * 2),
+        Math.max(1, rect.h - padding * 2),
+        1,
+      );
+    }, drawGlyph);
+  }
+
   drawMiniCard(ctx, id, rect, card, options, onTap, enabled = true) {
     const hovered = this.hoverId === id;
     const lift = options.selected ? -5 : hovered ? -2 : 0;
@@ -2943,9 +3023,10 @@ export class SlimeGame {
     const assetKey = this.cardAssetKey(card);
     if (assetKey) {
       drawAssetOrFallback(ctx, this.assetStore, assetKey, (asset) => {
-        drawImageContained(
+        drawCharacterImageContained(
           ctx,
           asset,
+          card.id,
           rect.x + 11,
           rect.y + 12 + lift,
           40,
@@ -3196,7 +3277,7 @@ export class SlimeGame {
         const enemy = ENEMY_BY_ID[enemyId];
         const cy = y + 143 + line * 29;
         drawAssetOrFallback(ctx, this.assetStore, enemyId, (asset) => {
-          drawImageContained(ctx, asset, x + 13, cy - 24, 30, 26, 1);
+          drawCharacterImageContained(ctx, asset, enemyId, x + 13, cy - 24, 30, 26, 1);
         }, () => {
           ctx.fillStyle = enemy.color;
           ctx.beginPath();
@@ -3308,7 +3389,7 @@ export class SlimeGame {
     const selection = this.selection;
     if (selection?.kind === 'place-building') {
       const card = BUILDING_BY_ID[selection.cardId];
-      const rotation = canonicalBuildingRotation(selection.rotation);
+      const rotation = canonicalBuildingRotation(selection.rotation, card);
       if (this.shapingUsed() + card.cost > SHAPING_BUDGET) {
         this.showToast(`定形值不足，还需要 ${card.cost} 点`, 'danger');
         this.audio.play('warning');
@@ -3357,7 +3438,7 @@ export class SlimeGame {
       const building = this.state.buildings.find((item) => item.uid === selection.uid);
       if (!building) return;
       const card = BUILDING_BY_ID[building.cardId];
-      const rotation = canonicalBuildingRotation(selection.rotation ?? building.rotation);
+      const rotation = canonicalBuildingRotation(selection.rotation ?? building.rotation, card);
       if (!canPlace(this.state.buildings, card, cell.x, cell.y, rotation, building.uid)) {
         this.showToast('这个位置会和其他建筑重叠', 'danger');
         return;
@@ -3441,13 +3522,16 @@ export class SlimeGame {
 
   rotateSelection() {
     if (this.selection?.kind === 'place-building') {
-      this.selection.rotation = nextBuildingRotation(this.selection.rotation);
+      const card = BUILDING_BY_ID[this.selection.cardId];
+      this.selection.rotation = nextBuildingRotation(card, this.selection.rotation);
       return;
     }
     if (this.selection?.kind === 'move-building') {
       const building = this.state.buildings.find((item) => item.uid === this.selection.uid);
       if (!building) return;
+      const card = BUILDING_BY_ID[building.cardId];
       this.selection.rotation = nextBuildingRotation(
+        card,
         this.selection.rotation ?? building.rotation,
       );
       return;
@@ -3455,16 +3539,14 @@ export class SlimeGame {
     if (this.selection?.kind === 'inspect-building') {
       const building = this.state.buildings.find((item) => item.uid === this.selection.uid);
       if (!building) return;
-      const nextRotation = nextBuildingRotation(building.rotation);
       const card = BUILDING_BY_ID[building.cardId];
-      if (!canPlace(this.state.buildings, card, building.x, building.y, nextRotation, building.uid)) {
-        this.showToast('旋转后会和其他建筑重叠', 'danger');
-        return;
-      }
-      building.rotation = nextRotation;
-      building.placedAt = this.time;
-      this.audio.play('place');
-      this.save();
+      if (!buildingSupportsRotation(card)) return;
+      this.selection = {
+        kind: 'move-building',
+        uid: building.uid,
+        rotation: nextBuildingRotation(card, building.rotation),
+      };
+      this.showToast('选择旋转后的建筑位置');
     }
   }
 

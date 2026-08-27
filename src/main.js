@@ -1,11 +1,14 @@
 import { SlimeGame } from './game.js';
-import { createAssetStore } from './assets.js';
+import {
+  CRITICAL_STARTUP_ASSET_KEYS,
+  createAssetStore,
+} from './assets.js';
 import { createRigAssetStoreFromUrl } from './animation/rig-assets.js';
 import { shouldUseGeneratedRigs } from './animation/rig-mode.js';
 
 const canvas = document.querySelector('#game');
 const loading = document.querySelector('#loading');
-const STARTUP_WAIT_MS = 20000;
+const STARTUP_WAIT_MS = 8000;
 
 const game = new SlimeGame(canvas);
 const assetStore = createAssetStore();
@@ -19,7 +22,9 @@ else game.assetStore = assetStore;
 game.setGeneratedCharacterArtEnabled(useGeneratedCharacterArt);
 
 async function startGame() {
-  const ordinaryAssets = assetStore.preload().catch(() => null);
+  const criticalAssets = assetStore.preload({
+    keys: CRITICAL_STARTUP_ASSET_KEYS,
+  }).catch(() => null);
   const rigAssets = useGeneratedCharacterArt
     ? (async () => {
       const store = await createRigAssetStoreFromUrl();
@@ -28,25 +33,18 @@ async function startGame() {
       return store;
     })().catch(() => null)
     : Promise.resolve(null);
+  void rigAssets;
 
-  const assetsReady = Promise.all([ordinaryAssets, rigAssets]);
   let startupTimer = null;
   const startupBudget = new Promise((resolve) => {
     startupTimer = window.setTimeout(resolve, STARTUP_WAIT_MS);
   });
-  const result = await Promise.race([assetsReady, startupBudget]);
+  await Promise.race([criticalAssets, startupBudget]);
   if (startupTimer !== null) window.clearTimeout(startupTimer);
-  const rigStore = Array.isArray(result) ? result[1] : null;
-  if (rigStore) {
-    try {
-      game.setRigAssetStore(rigStore);
-    } catch {
-      // The generated standalone remains available if an atomic rig cannot attach.
-    }
-  }
 
   game.start();
   requestAnimationFrame(() => loading?.classList.add('hidden'));
+  void assetStore.preload().catch(() => null);
 }
 
 void startGame();

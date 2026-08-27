@@ -29,6 +29,7 @@ import {
 } from '../src/animation/clips.js';
 import { DEFAULT_EXPRESSION_TRANSITION_DURATION } from '../src/animation/expression-mixer.js';
 import { characterPortraitCrop } from '../src/character-render-profiles.js';
+import { WORLD as COLONY_WORLD } from '../src/colony-catalog.js';
 
 function createGradient() {
   return { addColorStop() {} };
@@ -540,8 +541,8 @@ test('rotated wide buildings keep generated PNG art upright and center world eff
   const building = {
     uid: 'rotated-plot',
     cardId: 'building-honey-plot',
-    x: 2,
-    y: 1,
+    x: 10,
+    y: 7,
     rotation: 90,
     hp: 150,
     maxHp: 150,
@@ -550,8 +551,8 @@ test('rotated wide buildings keep generated PNG art upright and center world eff
 
   game.drawBuildings(recording.ctx, [building]);
 
-  assert.deepEqual(game.entityCanvasPosition(building), { x: 393, y: 322 });
-  assert.deepEqual(translations[0], [393, 322]);
+  assert.deepEqual(game.entityCanvasPosition(building), { x: 306, y: 352 });
+  assert.deepEqual(translations[0], [306, 352]);
   assert.deepEqual(
     rotations,
     [],
@@ -578,7 +579,7 @@ test('building placement preview paints every rotated footprint cell and keeps i
     cardId: 'building-honey-plot',
     rotation: 90,
   };
-  game.hoverCell = { x: 2, y: 1 };
+  game.hoverCell = { x: 14, y: 4 };
 
   game.drawSelectionOverlay(recording.ctx);
 
@@ -587,7 +588,7 @@ test('building placement preview paints every rotated footprint cell and keeps i
   ));
   assert.deepEqual(
     footprintCalls.map((call) => ({ x: call[2], y: call[3] })),
-    [{ x: 359, y: 186 }, { x: 359, y: 264 }],
+    [{ x: 534, y: 51 }, { x: 534, y: 115 }],
   );
   assert.ok(recording.calls.some((call) => call[0] === 'drawImage' && call[1] === art));
   assert.deepEqual(rotations, []);
@@ -601,8 +602,8 @@ test('moving a wide building previews rotation, cancels safely, rejects invalid 
   const building = {
     uid: 'moving-plot',
     cardId: 'building-honey-plot',
-    x: 0,
-    y: 0,
+    x: 10,
+    y: 7,
     rotation: 0,
     hp: 150,
     maxHp: 150,
@@ -616,7 +617,7 @@ test('moving a wide building previews rotation, cancels safely, rejects invalid 
 
   assert.equal(game.selection.rotation, 90);
   assert.equal(building.rotation, 0, 'previewing a move must leave the placed direction unchanged');
-  assert.equal(game.selectionCellIsValid({ x: 5, y: 4 }), true);
+  assert.equal(game.selectionCellIsValid({ x: 14, y: 4 }), true);
   game.drawBuildSide(recording.ctx);
   assert.ok(texts.some(([text]) => text === '1×2 · 定形值 2'));
 
@@ -626,32 +627,32 @@ test('moving a wide building previews rotation, cancels safely, rejects invalid 
   assert.equal(game.selection, null);
   assert.deepEqual(
     { x: building.x, y: building.y, rotation: building.rotation },
-    { x: 0, y: 0, rotation: 0 },
+    { x: 10, y: 7, rotation: 0 },
     'canceling must preserve the placed building exactly',
   );
 
   game.selection = { kind: 'move-building', uid: building.uid, rotation: building.rotation };
   game.rotateSelection();
-  assert.equal(game.selectionCellIsValid({ x: 5, y: 5 }), false);
-  game.handleBuildCellTap({ x: 5, y: 5 });
+  assert.equal(game.selectionCellIsValid({ x: 23, y: 15 }), false);
+  game.handleBuildCellTap({ x: 23, y: 15 });
   assert.deepEqual(
     { x: building.x, y: building.y, rotation: building.rotation },
-    { x: 0, y: 0, rotation: 0 },
+    { x: 10, y: 7, rotation: 0 },
     'an invalid rotated footprint must not mutate the placed building',
   );
 
-  game.handleBuildCellTap({ x: 5, y: 4 });
+  game.handleBuildCellTap({ x: 14, y: 4 });
 
   assert.deepEqual(
     { x: building.x, y: building.y, rotation: building.rotation },
-    { x: 5, y: 4, rotation: 90 },
+    { x: 14, y: 4, rotation: 90 },
   );
   assert.deepEqual(game.selection, { kind: 'inspect-building', uid: building.uid });
 });
 
-test('the complete fence occupies one cell, stays compact, and cannot rotate', () => {
+test('one complete fence object occupies two cells and rotates without moving the placed object', () => {
   const fence = BUILDINGS.find((card) => card.id === 'building-bouncy-fence');
-  assert.deepEqual(fence.footprint, { width: 1, height: 1 });
+  assert.deepEqual(fence.footprint, { width: 2, height: 1 });
 
   const validTile = { key: 'tile-placement-valid' };
   const art = { key: fence.id, naturalWidth: 768, naturalHeight: 512 };
@@ -665,11 +666,11 @@ test('the complete fence occupies one cell, stays compact, and cannot rotate', (
   const { game } = createHarness({ context: recording.ctx, assetStore: store });
   game.state.phase = 'build';
   game.state.buildings = [];
-  game.selection = { kind: 'place-building', cardId: fence.id, rotation: 90 };
-  game.hoverCell = { x: 2, y: 1 };
+  game.selection = { kind: 'place-building', cardId: fence.id, rotation: 0 };
+  game.hoverCell = { x: 14, y: 4 };
 
   game.rotateSelection();
-  assert.equal(game.selection.rotation, 0, 'a square one-cell fence must ignore rotation');
+  assert.equal(game.selection.rotation, 90, 'the two-cell footprint rotates as one fence object');
   game.drawSelectionOverlay(recording.ctx);
 
   const footprintCalls = recording.calls.filter((call) => (
@@ -677,35 +678,35 @@ test('the complete fence occupies one cell, stays compact, and cannot rotate', (
   ));
   assert.deepEqual(
     footprintCalls.map((call) => ({ x: call[2], y: call[3] })),
-    [{ x: 359, y: 186 }],
-    'the complete fence must preview as exactly one cell',
+    [{ x: 534, y: 51 }, { x: 534, y: 115 }],
+    'one complete fence object must preview both occupied cells',
   );
   assert.ok(
-    scales.some(([x, y]) => Math.abs(x - 88 / 115) < 1e-9 && Math.abs(y - 88 / 115) < 1e-9),
-    'the one-cell fence must use the compact 88px world slot, not the 104px wide-building slot',
+    scales.some(([x, y]) => Math.abs(x - 104 / 115) < 1e-9 && Math.abs(y - 104 / 115) < 1e-9),
+    'the two-cell fence must use the wide-building world slot',
   );
 
   const fenceRingMoves = [];
   recording.ctx.moveTo = (...args) => fenceRingMoves.push(args);
-  drawBuilding(recording.ctx, 0, 0, 88, 'fence', {
+  drawBuilding(recording.ctx, 0, 0, 104, 'fence', {
     assetStore: store,
     ghost: true,
     valid: true,
   });
   assert.ok(
     fenceRingMoves.some(([moveX, moveY]) => (
-      Math.abs(moveX + 88 * 0.47) < 1e-9
+      Math.abs(moveX + 104 * 0.47) < 1e-9
       && Math.abs(moveY) < 1e-9
     )),
-    'the one-cell fence ghost ring must not retain the old wide-building multiplier',
+    'the ghost ring must remain centered on the single wide fence object',
   );
 
   game.hits = [];
   game.drawBuildSide(recording.ctx);
-  assert.equal(game.hits.some(({ id }) => id === 'rotate-new'), false);
+  assert.equal(game.hits.some(({ id }) => id === 'rotate-new'), true);
 
   const placedFence = {
-    uid: 'one-cell-fence',
+    uid: 'two-cell-fence',
     cardId: fence.id,
     x: 2,
     y: 1,
@@ -718,9 +719,18 @@ test('the complete fence occupies one cell, stays compact, and cannot rotate', (
   game.selection = { kind: 'inspect-building', uid: placedFence.uid };
   game.hits = [];
   game.drawBuildSide(recording.ctx);
-  assert.equal(game.hits.some(({ id }) => id === 'rotate-building'), false);
+  assert.equal(game.hits.some(({ id }) => id === 'rotate-building'), true);
   game.rotateSelection();
-  assert.deepEqual(game.selection, { kind: 'inspect-building', uid: placedFence.uid });
+  assert.deepEqual(game.selection, {
+    kind: 'move-building',
+    uid: placedFence.uid,
+    rotation: 90,
+  });
+  assert.deepEqual(
+    { x: placedFence.x, y: placedFence.y, rotation: placedFence.rotation },
+    { x: 2, y: 1, rotation: 0 },
+    'opening the rotated preview must not teleport or mutate the placed fence',
+  );
   assert.equal(placedFence.rotation, 0);
 });
 
@@ -760,9 +770,11 @@ test('inspecting rotation opens a pending preview without moving, saving, or com
   );
 });
 
-test('old saves normalize the former rotated fence to one upright cell', () => {
+test('saved fences remain one rotatable object with a two-cell footprint', () => {
   const { game, storage } = createHarness();
-  storage.set('slime-haven-prototype-v1', JSON.stringify({
+  game.save();
+  const storageKey = storage.keys().next().value;
+  storage.set(storageKey, JSON.stringify({
     softCrystals: 160,
     tutorialSeen: true,
     buildings: [
@@ -775,14 +787,23 @@ test('old saves normalize the former rotated fence to one upright cell', () => {
 
   const fence = game.state.buildings.find(({ cardId }) => cardId === 'building-bouncy-fence');
   const plot = game.state.buildings.find(({ cardId }) => cardId === 'building-honey-plot');
-  assert.deepEqual({ x: fence.x, y: fence.y, rotation: fence.rotation }, { x: 4, y: 3, rotation: 0 });
+  assert.deepEqual({ x: fence.x, y: fence.y, rotation: fence.rotation }, { x: 4, y: 3, rotation: 90 });
+  assert.equal(
+    game.state.buildings.filter(({ cardId }) => cardId === 'building-bouncy-fence').length,
+    1,
+    'the two occupied cells must not be serialized as two separate fence objects',
+  );
+  game.state.phase = 'build';
+  game.selection = null;
+  game.handleBuildCellTap({ x: 4, y: 4 });
+  assert.deepEqual(game.selection, { kind: 'inspect-building', uid: fence.uid });
   assert.equal(plot.rotation, 90, 'a genuinely wide building must retain its saved direction');
 
   game.save();
-  const resaved = JSON.parse(storage.get('slime-haven-prototype-v1'));
+  const resaved = JSON.parse(storage.get(storageKey));
   assert.equal(
     resaved.buildings.find(({ cardId }) => cardId === 'building-bouncy-fence').rotation,
-    0,
+    90,
   );
 });
 
@@ -811,6 +832,8 @@ test('placement, danger rings, and combat statuses request their dedicated PNG l
 
   game.spawnEnemy('enemy-acid-shell-king', 2);
   const boss = game.state.enemies.at(-1);
+  boss.x = 14;
+  boss.y = 8;
   boss.marked = true;
   boss.stagger = 0.5;
   boss.rooted = 0.5;
@@ -825,11 +848,11 @@ test('placement, danger rings, and combat statuses request their dedicated PNG l
     cardId: 'building-bouncy-fence',
     rotation: 0,
   };
-  game.hoverCell = { x: 0, y: 0 };
+  game.hoverCell = { x: 14, y: 4 };
   game.drawSelectionOverlay(game.ctx);
   game.state.buildings = [building];
-  building.x = 0;
-  building.y = 0;
+  building.x = 14;
+  building.y = 4;
   game.drawSelectionOverlay(game.ctx);
 
   for (const key of keys.filter((key) => key !== 'effect-selection-ring-friendly')) {
@@ -1191,7 +1214,11 @@ test('shell impacts use the generated goo-drop particle without recoloring unrel
 
 test('game routes world, UI, projectile, status, and particle slots through the PNG store', () => {
   const keys = [
-    'tile-build-light', 'tile-build-dark', 'tile-honey-puddle', 'tile-crystal-spikes',
+    'terrain-ground-detail-a', 'terrain-soft-gel-node-a', 'terrain-dew-honey-node-a',
+    'terrain-crystal-shard-node-a', 'terrain-brittle-boulder-a',
+    'terrain-waste-ground-detail-a', 'terrain-waste-soft-gel-cache-a',
+    'terrain-waste-crystal-scrap-a', 'terrain-waste-acid-sludge-a',
+    'tile-honey-puddle', 'tile-crystal-spikes',
     'tile-building-rubble', 'building-mushroom-home', 'building-honey-plot',
     'building-bubble-tower', 'building-bouncy-fence', 'building-weather-scout',
     'town-soft-core', 'rift-entry-portal', 'item-spring-pad-world', 'item-lure-jelly-world',
@@ -1215,17 +1242,21 @@ test('game routes world, UI, projectile, status, and particle slots through the 
   game.drawBackground(recording.ctx);
   game.drawForeground(recording.ctx);
   game.drawBattlefield(recording.ctx);
+  const baseCamera = { ...game.camera };
+  game.camera = { x: 0, y: 0, zoom: 1 };
+  game.drawBattlefield(recording.ctx);
+  game.camera = baseCamera;
   game.state.phase = 'battle';
   game.state.buildings[0].destroyed = true;
   game.drawBuildings(recording.ctx);
   game.state.terrain = [
-    { type: 'honey', x: 0, y: 0 },
-    { type: 'crystal', x: 1, y: 0 },
+    { type: 'honey', x: 10, y: 7 },
+    { type: 'crystal', x: 11, y: 7 },
   ];
   game.drawTerrain(recording.ctx);
   game.state.deployables = [
-    { type: 'pad', x: 0, y: 0, dx: 1, dy: 0 },
-    { type: 'lure', x: 1, y: 0 },
+    { type: 'pad', x: 10, y: 7, dx: 1, dy: 0 },
+    { type: 'lure', x: 11, y: 7 },
   ];
   game.drawDeployables(recording.ctx);
   game.state.projectiles = [
@@ -1390,6 +1421,8 @@ test('sprout healing dispatches its attack clip as a cast animation', () => {
   const actionsRequired = sproutCard.ability.actionsRequired;
   sprout.actionCount = actionsRequired - 1;
   ally.hp = Math.floor(ally.maxHp / 2);
+  ally.x = sprout.x + 1;
+  ally.y = sprout.y;
   const hpBefore = ally.hp;
 
   assert.equal(game.performSurvivorAction(sprout), true);
@@ -1411,9 +1444,12 @@ test('all enemy rigs resolve attack damage at their hit event, then still hurt a
     game.state.phase = 'battle';
     game.spawnEnemy(enemyId, 0);
     const enemy = game.state.enemies.at(-1);
-    enemy.x = 0;
-    enemy.y = 0;
-    enemy.path = [{ x: 0, y: 0 }, { x: -1, y: 0 }];
+    enemy.x = COLONY_WORLD.base.core.x;
+    enemy.y = COLONY_WORLD.base.core.y;
+    enemy.path = [
+      { ...COLONY_WORLD.base.core },
+      { x: COLONY_WORLD.base.core.x - 1, y: COLONY_WORLD.base.core.y },
+    ];
     enemy.routeTimer = 1;
     const coreBefore = game.state.coreHp;
     const hitTime = game.animationClipsFor(enemyId).attack.events.find((event) => event.name === 'hit').time;
@@ -1612,9 +1648,12 @@ test('death and downed states immediately cancel committed attack impacts', () =
   enemyGame.state.phase = 'battle';
   enemyGame.spawnEnemy('enemy-soft-biter', 0);
   const attacker = enemyGame.state.enemies.at(-1);
-  attacker.x = 0;
-  attacker.y = 0;
-  attacker.path = [{ x: 0, y: 0 }, { x: -1, y: 0 }];
+  attacker.x = COLONY_WORLD.base.core.x;
+  attacker.y = COLONY_WORLD.base.core.y;
+  attacker.path = [
+    { ...COLONY_WORLD.base.core },
+    { x: COLONY_WORLD.base.core.x - 1, y: COLONY_WORLD.base.core.y },
+  ];
   attacker.routeTimer = 1;
   const coreHp = enemyGame.state.coreHp;
 
@@ -1698,44 +1737,26 @@ test('battle pause freezes entity rig time', () => {
   assert.deepEqual(game.entityAnimationPose(shell), poseBeforePause);
 });
 
-test('a complete assisted defense reaches a result without stalled enemies or waves', () => {
+test('the autonomous colony defeats repeated weakened swarms without entering a manual wave flow', () => {
   const { game } = createHarness();
-  game.openIntel();
-  game.beginDefense();
-
+  game.state.colonyDirector.nextPackAt = 0;
   let steps = 0;
-  while (game.state.phase !== 'result' && steps < 30000) {
-    if (game.state.phase === 'between') {
-      game.startWave(game.state.waveIndex + 1);
-    } else if (game.state.phase === 'battle' && !game.selection) {
-      const heal = SKILLS.find((card) => card.id === 'skill-sprout-renewal');
-      const hurtSurvivor = game.state.survivors.find((target) => !target.downed && target.hp / target.maxHp < 0.45);
-      const hurtBuilding = game.state.buildings.find((target) => !target.destroyed && target.hp / target.maxHp < 0.4);
-      if ((hurtSurvivor || hurtBuilding)
-        && game.state.energy >= heal.energy
-        && game.state.friendlyActions >= game.state.skills[heal.id].readyAtAction) {
-        const target = hurtSurvivor || hurtBuilding;
-        game.selectCombatCard(heal);
-        game.handleBattleTarget({ x: target.x, y: target.y });
-      } else {
-        const bounce = SKILLS.find((card) => card.id === 'skill-jelly-bounce');
-        const threat = game.state.enemies.find((enemy) => !enemy.dead && enemy.x < 2.1);
-        if (threat
-          && game.state.energy >= bounce.energy
-          && game.state.friendlyActions >= game.state.skills[bounce.id].readyAtAction) {
-          game.selectCombatCard(bounce);
-          game.handleBattleTarget(game.nearestCell(threat));
-        }
-      }
-    }
+  let peakLivingEnemies = 0;
+  while ((game.state.colonyDirector.packIndex < 2 || game.state.kills < 6) && steps < 1400) {
     game.update(0.05);
+    peakLivingEnemies = Math.max(
+      peakLivingEnemies,
+      game.state.enemies.filter((enemy) => !enemy.dead).length,
+    );
     steps += 1;
   }
 
-  assert.ok(steps < 30000, 'the battle loop should reach a terminal result');
-  assert.ok(game.state.result);
-  assert.equal(game.state.result.victory, true, 'the starter layout plus basic skill use should be winnable');
-  assert.ok(game.state.kills > 0);
+  assert.ok(steps < 1400, 'automatic defenders must not stall against the weakened packs');
+  assert.ok(peakLivingEnemies >= 6, 'the director should create a visibly dense first pack');
+  assert.ok(game.state.kills >= 6, 'the starter slimes should clear at least the first pack');
+  assert.equal(game.state.phase, 'build', 'automatic defense stays inside the playable base loop');
+  assert.equal(game.state.result, null, 'base defense must not open the retired wave result screen');
+  assert.ok(game.state.coreHp > 0);
 });
 
 test('the final wave still asks the player to use active cards', () => {
@@ -1752,15 +1773,28 @@ test('the final wave still asks the player to use active cards', () => {
   assert.equal(game.state.result?.victory, false, 'a completely passive run should eventually be overrun');
 });
 
-test('the starter layout clears the teaching wave without demanding perfect card use', () => {
+test('after an automatic teaching swarm, the starter slimes return to colony work', () => {
   const { game } = createHarness();
-  game.openIntel();
-  game.beginDefense();
+  game.state.colonyDirector.nextPackAt = 0;
   let steps = 0;
-  while (game.state.phase === 'battle' && steps < 12000) {
+  while ((game.state.kills < 6 || game.state.enemies.some((enemy) => !enemy.dead)) && steps < 800) {
     game.update(0.05);
     steps += 1;
   }
-  assert.equal(game.state.phase, 'between');
+  const colonyWorkStates = new Set([
+    'idle', 'seek', 'move', 'harvest', 'carry', 'deposit', 'build', 'rally', 'rest',
+  ]);
+  for (let settleSteps = 0; settleSteps < 40
+    && !game.state.colony.slimes.some((slime) => colonyWorkStates.has(slime.aiState));
+    settleSteps += 1) game.update(0.05);
+
+  assert.ok(steps < 800, 'the automatic teaching swarm should resolve');
+  assert.equal(game.state.phase, 'build');
+  assert.equal(game.selection, null, 'automatic combat must not demand manual card targeting');
+  assert.ok(game.state.kills >= 6);
+  assert.ok(
+    game.state.colony.slimes.some((slime) => colonyWorkStates.has(slime.aiState)),
+    'slimes should resume autonomous base jobs after the threat is gone',
+  );
   assert.ok(game.state.coreHp > 0);
 });

@@ -42,6 +42,9 @@ const VERSIONED_ATLAS_PATHS = Object.freeze({
     'assets/generated-v2/rig/enemy-windcap/atlas-layered-v2.png',
 });
 const IMAGE_PATTERN = /\.(?:avif|gif|jpe?g|png|webp)$/i;
+const JAVASCRIPT_MODULE_PATTERN = /\.m?js$/i;
+const RELATIVE_MODULE_SPECIFIER_PATTERN =
+  /\b(?:import|export)\s+(?:[^'";]*?\s+from\s*)?['"](\.[^'"]+)['"]|\bimport\s*\(\s*['"](\.[^'"]+)['"]\s*\)/g;
 
 export function collectDeclaredAssetPaths(spec) {
   if (!spec || typeof spec !== 'object' || Array.isArray(spec)) {
@@ -308,10 +311,103 @@ export async function listImageFiles(directory) {
     .sort();
 }
 
+function pathIsInside(parentDirectory, candidatePath) {
+  const relative = path.relative(parentDirectory, candidatePath);
+  return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative));
+}
+
+function collectRelativeModuleSpecifiers(source) {
+  const specifiers = [];
+  for (const match of source.matchAll(RELATIVE_MODULE_SPECIFIER_PATTERN)) {
+    specifiers.push(match[1] ?? match[2]);
+  }
+  return specifiers;
+}
+
+async function assertPublishedFile(outputDirectory, sourceFile, specifier, problems) {
+  const cleanSpecifier = specifier.split(/[?#]/, 1)[0];
+  const resolvedPath = path.resolve(path.dirname(sourceFile), cleanSpecifier);
+  if (!pathIsInside(outputDirectory, resolvedPath)) {
+    problems.push(`${path.relative(outputDirectory, sourceFile)} imports outside output: ${specifier}`);
+    return;
+  }
+  try {
+    const information = await lstat(resolvedPath);
+    if (!information.isFile()) {
+      problems.push(`${path.relative(outputDirectory, sourceFile)} imports a non-file: ${specifier}`);
+    }
+  } catch (error) {
+    if (error?.code === 'ENOENT') {
+      problems.push(`${path.relative(outputDirectory, sourceFile)} cannot resolve: ${specifier}`);
+      return;
+    }
+    throw error;
+  }
+}
+
+/**
+ * GitHub Pages serves browser modules without a bundler. Validate the copied
+ * HTML entry and every relative ESM import exactly as the browser will resolve
+ * them, including modules that are currently platform-specific.
+ */
+export async function verifyPublishedModules(outputDirectory) {
+  const root = path.resolve(outputDirectory);
+  const indexPath = path.join(root, 'index.html');
+  const indexSource = await readFile(indexPath, 'utf8');
+  const moduleEntrypoints = [];
+  for (const [tag] of indexSource.matchAll(/<script\b[^>]*>/gi)) {
+    if (!/\btype\s*=\s*['"]module['"]/i.test(tag)) continue;
+    const sourceMatch = /\bsrc\s*=\s*['"]([^'"]+)['"]/i.exec(tag);
+    if (sourceMatch) moduleEntrypoints.push(sourceMatch[1]);
+  }
+  if (moduleEntrypoints.length === 0) {
+    throw new Error('Pages output index.html must declare a module script with a relative src.');
+  }
+
+  const problems = [];
+  for (const entrypoint of moduleEntrypoints) {
+    if (!entrypoint.startsWith('.')) {
+      problems.push(`index.html module entry must be relative: ${entrypoint}`);
+      continue;
+    }
+    await assertPublishedFile(root, indexPath, entrypoint, problems);
+  }
+
+  const sourceDirectory = path.join(root, 'src');
+  const sourceEntries = await readdir(sourceDirectory, { recursive: true });
+  const modulePaths = sourceEntries
+    .map((entry) => entry.split(path.sep).join('/'))
+    .filter((entry) => JAVASCRIPT_MODULE_PATTERN.test(entry))
+    .sort();
+  if (modulePaths.length === 0) {
+    problems.push('src does not contain any JavaScript modules.');
+  }
+
+  for (const modulePath of modulePaths) {
+    const sourceFile = path.join(sourceDirectory, ...modulePath.split('/'));
+    const source = await readFile(sourceFile, 'utf8');
+    for (const specifier of collectRelativeModuleSpecifiers(source)) {
+      await assertPublishedFile(root, sourceFile, specifier, problems);
+    }
+  }
+
+  if (problems.length > 0) {
+    throw new Error(
+      `Pages output contains ${problems.length} unresolved module path(s):\n`
+      + problems.map((problem) => `  - ${problem}`).join('\n'),
+    );
+  }
+  return Object.freeze({
+    entrypoints: Object.freeze([...moduleEntrypoints]),
+    modulePaths: Object.freeze(modulePaths.map((modulePath) => `src/${modulePath}`)),
+  });
+}
+
 export async function verifyPagesOutput(
   outputDirectory,
   { assetPaths: expectedAssetPaths, rigImagePaths: expectedRigImagePaths },
 ) {
+  await verifyPublishedModules(outputDirectory);
   const copiedSpec = await readAssetSpec(outputDirectory);
   const copiedAssetReferences = collectDeclaredAssetPaths(copiedSpec);
   assertSamePaths(

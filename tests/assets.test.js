@@ -16,6 +16,7 @@ import {
   ASSET_PATHS,
   ASSET_PRELOAD_CONCURRENCY,
   ASSET_PRELOAD_RETRIES,
+  CRITICAL_STARTUP_ASSET_KEYS,
   createAssetStore,
 } from '../src/assets.js';
 
@@ -25,12 +26,12 @@ const PROJECT_ASSET_SPEC = JSON.parse(await readFile(
   'utf8',
 ));
 
-test('the workspace asset manifest strictly validates all 74 finished PNGs', async () => {
+test('the workspace asset manifest strictly validates all 105 finished PNGs', async () => {
   const result = await verifyAssets({ cwd: PROJECT_ROOT, allowMissingSpec: false });
   assert.equal(result.ok, true, formatErrors(result));
   assert.equal(result.skipped, false);
-  assert.equal(result.summary.declaredAssets, 74);
-  assert.equal(result.summary.checkedAssets, 74);
+  assert.equal(result.summary.declaredAssets, 105);
+  assert.equal(result.summary.checkedAssets, 105);
   assert.deepEqual(result.errors, [], formatErrors(result));
   assert.deepEqual(result.warnings, [], formatErrors(result));
 });
@@ -184,8 +185,8 @@ test('missing asset-spec is skippable by default and an error in strict mode', a
   }, { writeAssetsDirectory: false });
 });
 
-test('runtime asset map covers all 74 canonical nested paths and three aliases', () => {
-  assert.equal(PROJECT_ASSET_SPEC.assets.length, 74);
+test('runtime asset map covers all 105 canonical nested paths and three aliases', () => {
+  assert.equal(PROJECT_ASSET_SPEC.assets.length, 105);
   for (const asset of PROJECT_ASSET_SPEC.assets) {
     assert.equal(typeof ASSET_PATHS[asset.id], 'string', `missing runtime asset: ${asset.id}`);
     assert.ok(
@@ -193,27 +194,177 @@ test('runtime asset map covers all 74 canonical nested paths and three aliases',
       `unexpected runtime path for ${asset.id}: ${ASSET_PATHS[asset.id]}`,
     );
   }
-  assert.equal(Object.keys(ASSET_PATHS).length, 77);
+  assert.equal(Object.keys(ASSET_PATHS).length, 108);
   assert.equal(ASSET_PATHS['scene-gel-garden'], ASSET_PATHS['background-garden-base']);
   assert.equal(ASSET_PATHS['town-core'], ASSET_PATHS['town-soft-core']);
   assert.equal(ASSET_PATHS['enemy-portal'], ASSET_PATHS['rift-entry-portal']);
 });
 
-test('browser startup attaches and preloads the ordinary asset store before starting', async () => {
+test('shared resource tokens cover HUD, cargo, and expedition reward ids', () => {
+  const resourceIds = [
+    'resource-soft-gel-token',
+    'resource-dew-honey-token',
+    'resource-crystal-shard-token',
+  ];
+  const assets = PROJECT_ASSET_SPEC.assets.filter(({ id }) => resourceIds.includes(id));
+  assert.deepEqual(assets.map(({ id }) => id), resourceIds);
+  for (const asset of assets) {
+    assert.equal(asset.category, 'resource');
+    assert.equal(asset.transparent, true);
+    assert.deepEqual(asset.recommendedCanvas, { width: 512, height: 512 });
+    assert.equal(Math.max(asset.width, asset.height), 512);
+    assert.equal(asset.path, `assets/generated/resource/${asset.filename}`);
+    assert.match(asset.runtimeDisplaySize, /HUD.*搬运物/);
+    assert.equal(typeof ASSET_PATHS[asset.id], 'string');
+  }
+});
+
+test('expedition routes, beacon, and all nine boon illustrations have stable contracts', () => {
+  const expeditionIds = [
+    'expedition-route-combat',
+    'expedition-route-resource',
+    'expedition-route-event',
+    'expedition-route-boss',
+    'expedition-beacon',
+    'upgrade-soft-body',
+    'upgrade-jelly-rush',
+    'upgrade-shared-sparkle',
+    'upgrade-shell-rebound',
+    'upgrade-crystal-fork',
+    'upgrade-bubble-chain',
+    'upgrade-sprout-canopy',
+    'upgrade-gel-burst',
+    'upgrade-last-bounce',
+  ];
+  const expeditionAssets = PROJECT_ASSET_SPEC.assets
+    .filter(({ id }) => expeditionIds.includes(id));
+
+  assert.deepEqual(expeditionAssets.map(({ id }) => id), expeditionIds);
+  assert.equal(new Set(expeditionAssets.map(({ path }) => path)).size, expeditionIds.length);
+  for (const asset of expeditionAssets) {
+    assert.equal(asset.category, 'expedition');
+    assert.equal(asset.transparent, true);
+    assert.deepEqual(asset.recommendedCanvas, { width: 512, height: 512 });
+    assert.equal(Math.max(asset.width, asset.height), 512);
+    assert.ok(asset.width >= 341 && asset.height >= 341);
+    assert.equal(asset.filename, `${asset.id}.png`);
+    assert.equal(asset.path, `assets/generated/expedition/${asset.filename}`);
+    assert.equal(typeof ASSET_PATHS[asset.id], 'string');
+    assert.ok(new URL(ASSET_PATHS[asset.id]).pathname.endsWith(`/${asset.path}`));
+    assert.match(asset.runtimeDisplaySize, /逻辑像素/);
+    assert.match(asset.brief, /文字/);
+  }
+  assert.ok(PROJECT_ASSET_SPEC.generatedFrom.includes('src/expedition-catalog.js'));
+  assert.match(
+    expeditionAssets.find(({ id }) => id === 'upgrade-bubble-chain').brief,
+    /不能.*双环|绝不能.*双环/,
+  );
+});
+
+test('bright soft-gel waste terrain variants preserve the seven terrain semantics', () => {
+  const sourceIdsByAssetId = {
+    'terrain-waste-ground-detail-a': 'ground:decoration:waste-a',
+    'terrain-waste-soft-gel-cache-a': 'soft-gel:waste-cache-a',
+    'terrain-waste-dew-pod-a': 'dew-honey:waste-pod-a',
+    'terrain-waste-crystal-scrap-a': 'crystal-shard:waste-scrap-a',
+    'terrain-waste-cable-thicket-a': 'thorn-thicket:waste-cable-thicket-a',
+    'terrain-waste-rusted-wreck-a': 'brittle-boulder:waste-rusted-wreck-a',
+    'terrain-waste-acid-sludge-a': 'deep-water:waste-acid-sludge-a',
+  };
+  const wasteAssets = PROJECT_ASSET_SPEC.assets.filter(
+    ({ id }) => id in sourceIdsByAssetId,
+  );
+
+  assert.deepEqual(wasteAssets.map(({ id }) => id), Object.keys(sourceIdsByAssetId));
+  assert.equal(new Set(wasteAssets.map(({ path }) => path)).size, 7);
+  for (const asset of wasteAssets) {
+    assert.equal(asset.category, 'terrain-waste');
+    assert.equal(asset.sourceId, sourceIdsByAssetId[asset.id]);
+    assert.equal(asset.transparent, true);
+    assert.deepEqual(asset.recommendedCanvas, { width: 512, height: 512 });
+    assert.equal(Math.max(asset.width, asset.height), 512);
+    assert.ok(asset.width >= 341 && asset.height >= 341);
+    assert.equal(asset.filename, `${asset.id}.png`);
+    assert.equal(asset.path, `assets/generated/terrain-waste/${asset.filename}`);
+    assert.equal(typeof ASSET_PATHS[asset.id], 'string');
+    assert.ok(new URL(ASSET_PATHS[asset.id]).pathname.endsWith(`/${asset.path}`));
+    assert.match(asset.runtimeDisplaySize, /逻辑像素/);
+    for (const direction of [
+      '固定白昼',
+      '高饱和',
+      '光泽',
+      '粗深蓝灰描边',
+      '三段明暗',
+      '低细节',
+      '透明底',
+      '无文字',
+    ]) {
+      assert.match(asset.brief, new RegExp(direction), `${asset.id} lacks ${direction}`);
+    }
+  }
+  assert.match(
+    wasteAssets.find(({ id }) => id === 'terrain-waste-acid-sludge-a').brief,
+    /绝不能画成方块/,
+  );
+  for (const asset of wasteAssets.filter(({ id }) => id !== 'terrain-waste-acid-sludge-a')) {
+    assert.match(asset.brief, /干燥|不漏液|不外溢|没有液体/, `${asset.id} must stay dry`);
+  }
+  assert.match(
+    wasteAssets.find(({ id }) => id === 'terrain-waste-soft-gel-cache-a').brief,
+    /一小块.*半固体.*不外溢/,
+  );
+});
+
+test('organic terrain PNG contracts stay transparent and match the colony sources', () => {
+  const terrainIds = [
+    'terrain-soft-gel-node-a',
+    'terrain-dew-honey-node-a',
+    'terrain-crystal-shard-node-a',
+    'terrain-thorn-thicket-a',
+    'terrain-brittle-boulder-a',
+    'terrain-deep-water-patch-a',
+    'terrain-ground-detail-a',
+  ];
+  const terrainAssets = PROJECT_ASSET_SPEC.assets.filter(({ id }) => terrainIds.includes(id));
+
+  assert.deepEqual(terrainAssets.map(({ id }) => id), terrainIds);
+  for (const asset of terrainAssets) {
+    assert.equal(asset.category, 'terrain');
+    assert.equal(asset.transparent, true);
+    assert.deepEqual(asset.recommendedCanvas, { width: 512, height: 512 });
+    assert.match(asset.runtimeDisplaySize, /逻辑像素/);
+    assert.match(asset.view, /对齐地面格中心/);
+    assert.match(asset.brief, /方块/);
+  }
+
+  assert.ok(PROJECT_ASSET_SPEC.generatedFrom.includes('src/colony-catalog.js'));
+  assert.ok(PROJECT_ASSET_SPEC.generatedFrom.includes('src/terrain-renderer.js'));
+  const fence = PROJECT_ASSET_SPEC.assets.find(({ id }) => id === 'building-bouncy-fence');
+  assert.match(fence.runtimeDisplaySize, /2×1地块/);
+  assert.match(fence.brief, /一个完整建筑对象/);
+});
+
+test('browser startup waits only for generated first-screen art and streams the rest', async () => {
   const source = await readFile(path.join(PROJECT_ROOT, 'src/main.js'), 'utf8');
-  assert.match(source, /import \{ createAssetStore \} from '\.\/assets\.js';/);
+  assert.match(source, /import \{[\s\S]*createAssetStore,[\s\S]*\} from '\.\/assets\.js';/);
   assert.match(source, /game\.setAssetStore\(assetStore\)|game\.assetStore = assetStore/);
   assert.match(source, /hostname: window\.location\.hostname/);
-  assert.match(source, /const STARTUP_WAIT_MS = 20000/);
+  assert.match(source, /const STARTUP_WAIT_MS = 8000/);
   assert.match(source, /game\.setGeneratedCharacterArtEnabled\(useGeneratedCharacterArt\)/);
-  assert.match(source, /Promise\.race\(\[assetsReady, startupBudget\]\)/);
-  const preloadIndex = source.indexOf('assetStore.preload()');
+  assert.match(source, /Promise\.race\(\[criticalAssets, startupBudget\]\)/);
+  assert.match(source, /keys: CRITICAL_STARTUP_ASSET_KEYS/);
+  const criticalPreloadIndex = source.indexOf('assetStore.preload({');
   const attachRigIndex = source.indexOf('game.setRigAssetStore(store)');
   const preloadRigIndex = source.indexOf('await store.preload()');
   const startIndex = source.indexOf('game.start()');
-  assert.ok(preloadIndex >= 0 && preloadIndex < startIndex);
+  const backgroundPreloadIndex = source.lastIndexOf('assetStore.preload()');
+  assert.ok(criticalPreloadIndex >= 0 && criticalPreloadIndex < startIndex);
+  assert.ok(backgroundPreloadIndex > startIndex);
   assert.ok(attachRigIndex >= 0 && attachRigIndex < preloadRigIndex);
-  assert.match(source, /const assetsReady = Promise\.all\(\[ordinaryAssets, rigAssets\]\)/);
+  assert.ok(CRITICAL_STARTUP_ASSET_KEYS.length >= 20);
+  CRITICAL_STARTUP_ASSET_KEYS.forEach((key) => {
+    assert.equal(typeof ASSET_PATHS[key], 'string', `critical asset ${key}`);
+  });
 });
 
 test('ordinary preload uses patient defaults, bounded concurrency, and one transient retry', async () => {

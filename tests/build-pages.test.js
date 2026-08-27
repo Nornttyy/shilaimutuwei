@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  cp,
   mkdir,
   mkdtemp,
   readFile,
@@ -10,6 +11,7 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import {
   ASSET_SPEC_PATH,
@@ -18,6 +20,7 @@ import {
   collectRigImagePaths,
   listImageFiles,
   RIG_MANIFEST_PATH,
+  verifyPublishedModules,
   verifyPagesOutput,
 } from '../scripts/build-pages.mjs';
 
@@ -52,14 +55,45 @@ const PROJECT_ASSET_SPEC = JSON.parse(await readFile(
   new URL('../assets/asset-spec.json', import.meta.url),
   'utf8',
 ));
+const PROJECT_ROOT = fileURLToPath(new URL('../', import.meta.url));
+const REQUIRED_GAMEPLAY_MODULES = Object.freeze([
+  'src/world.js',
+  'src/colony-catalog.js',
+  'src/colony.js',
+  'src/terrain-renderer.js',
+  'src/expedition-catalog.js',
+  'src/expedition.js',
+  'src/platform/runtime.js',
+  'src/platform/wechat.js',
+  'src/platform/wechat-canvas.js',
+  'src/platform/wechat-entry.js',
+]);
+const REQUIRED_GAMEPLAY_ASSET_CATEGORIES = Object.freeze({
+  terrain: 7,
+  'terrain-waste': 7,
+  expedition: 14,
+  resource: 3,
+});
 
-test('the project asset whitelist covers all 74 canonical nested PNG paths', () => {
+test('the project asset whitelist covers all 105 canonical nested PNG paths', () => {
   const paths = collectDeclaredAssetPaths(PROJECT_ASSET_SPEC);
-  assert.equal(paths.length, 74);
+  assert.equal(paths.length, 105);
   assert.equal(new Set(paths).size, paths.length);
   assert.equal(paths.every((assetPath) => (
     /^assets\/generated\/[a-z][a-z0-9-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*\.png$/.test(assetPath)
   )), true);
+});
+
+test('the project whitelist includes every terrain, expedition, and resource PNG contract', () => {
+  const declaredPaths = new Set(collectDeclaredAssetPaths(PROJECT_ASSET_SPEC));
+  for (const [category, expectedCount] of Object.entries(REQUIRED_GAMEPLAY_ASSET_CATEGORIES)) {
+    const assets = PROJECT_ASSET_SPEC.assets.filter((asset) => asset.category === category);
+    assert.equal(assets.length, expectedCount, category);
+    for (const asset of assets) {
+      assert.equal(declaredPaths.has(asset.path), true, asset.path);
+      assert.match(asset.path, new RegExp(`^assets/generated/${category}/`));
+    }
+  }
 });
 
 test('the project Pages whitelist contains every manifest-declared runtime PNG', () => {
@@ -112,7 +146,7 @@ test('Pages build copies exactly the asset-spec and rig-manifest PNG sets', asyn
     assert.deepEqual(await listImageFiles(path.join(root, '_site')), RUNTIME_IMAGE_PATHS);
     assert.equal(
       await readFile(path.join(root, '_site', 'index.html'), 'utf8'),
-      '<canvas></canvas>',
+      '<canvas></canvas><script type="module" src="./src/main.js"></script>',
     );
     assert.equal(
       await readFile(path.join(root, '_site', 'src', 'main.js'), 'utf8'),
@@ -160,6 +194,77 @@ test('docs build is a trackable whitelist package with the same contents', async
         await readFile(path.join(root, 'docs', ASSET_SPEC_PATH), 'utf8'),
       )),
       DECLARED_ASSET_PATHS,
+    );
+  });
+});
+
+test('Pages build copies every declared terrain, expedition, and resource gameplay PNG', async () => {
+  await withFixture(async (root) => {
+    const gameplayAssets = PROJECT_ASSET_SPEC.assets
+      .filter(({ category }) => category in REQUIRED_GAMEPLAY_ASSET_CATEGORIES)
+      .map(({ id, category, filename, path: assetPath }) => ({
+        id,
+        category,
+        filename,
+        path: assetPath,
+        width: 1,
+        height: 1,
+        maxBytes: 128,
+        transparent: true,
+      }));
+    const expectedPaths = gameplayAssets.map(({ path: assetPath }) => assetPath).sort();
+    assert.equal(
+      expectedPaths.length,
+      Object.values(REQUIRED_GAMEPLAY_ASSET_CATEGORIES).reduce((total, count) => total + count, 0),
+    );
+    await writeJson(root, ASSET_SPEC_PATH, { schemaVersion: 1, assets: gameplayAssets });
+    await Promise.all(expectedPaths.map((assetPath) => writePng(root, assetPath)));
+
+    const result = await buildPages({
+      projectRoot: root,
+      outputDirectory: path.join(root, 'docs'),
+    });
+    assert.deepEqual(result.assetPaths, expectedPaths);
+    for (const assetPath of expectedPaths) {
+      assert.deepEqual(
+        await readFile(path.join(root, 'docs', ...assetPath.split('/'))),
+        MINIMAL_RGBA_PNG,
+      );
+    }
+  });
+});
+
+test('Pages build copies the complete gameplay module tree with resolvable imports', async () => {
+  await withFixture(async (root) => {
+    await rm(path.join(root, 'src'), { recursive: true, force: true });
+    await cp(path.join(PROJECT_ROOT, 'src'), path.join(root, 'src'), { recursive: true });
+    await writeFile(
+      path.join(root, 'index.html'),
+      '<canvas></canvas><script type="module" src="./src/main.js"></script>',
+    );
+
+    const result = await buildPages({
+      projectRoot: root,
+      outputDirectory: path.join(root, 'docs'),
+    });
+    const moduleReport = await verifyPublishedModules(result.outputDirectory);
+    assert.deepEqual(moduleReport.entrypoints, ['./src/main.js']);
+    for (const modulePath of REQUIRED_GAMEPLAY_MODULES) {
+      assert.equal(moduleReport.modulePaths.includes(modulePath), true, modulePath);
+      assert.equal(
+        await readFile(path.join(root, 'docs', ...modulePath.split('/')), 'utf8'),
+        await readFile(path.join(PROJECT_ROOT, ...modulePath.split('/')), 'utf8'),
+      );
+    }
+  });
+});
+
+test('Pages module validation rejects a broken browser-relative import', async () => {
+  await withFixture(async (root) => {
+    await writeFile(path.join(root, 'src', 'main.js'), "import './missing-module.js';\n");
+    await assert.rejects(
+      buildPages({ projectRoot: root, outputDirectory: path.join(root, '_site') }),
+      /src\/main\.js cannot resolve: \.\/missing-module\.js/,
     );
   });
 });
@@ -590,7 +695,10 @@ async function withFixture(callback) {
   const root = await mkdtemp(path.join(tmpdir(), 'slime-pages-build-'));
   try {
     await mkdir(path.join(root, 'src'), { recursive: true });
-    await writeFile(path.join(root, 'index.html'), '<canvas></canvas>');
+    await writeFile(
+      path.join(root, 'index.html'),
+      '<canvas></canvas><script type="module" src="./src/main.js"></script>',
+    );
     await writeFile(path.join(root, 'styles.css'), 'canvas { display: block; }\n');
     await writeFile(path.join(root, 'src', 'main.js'), 'export const ready = true;\n');
     await writeJson(root, ASSET_SPEC_PATH, createAssetSpec());

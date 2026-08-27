@@ -40,13 +40,156 @@ import {
   STONE_CLIPS,
   WINDCAP_CLIPS,
 } from './animation/clips.js';
+import {
+  DEFAULT_WORLD_VIEWPORT,
+  createWorldCamera,
+  panWorldCamera,
+  pointInsideWorldViewport,
+  screenToWorldCell,
+  visibleWorldBounds,
+  worldToScreen,
+  zoomWorldCameraAt,
+} from './world.js';
+import {
+  INITIAL_WORLD_TERRAIN,
+  BUILDING_RECIPE_BY_ID,
+  SLIME_JOBS,
+  TERRAIN_TYPES,
+  THREAT_CURVE,
+  WORLD as COLONY_WORLD,
+  terrainAllowsPlacement,
+  terrainAt as catalogTerrainAt,
+} from './colony-catalog.js';
+import {
+  drawOrganicGround,
+  drawOrganicTerrainProps,
+  drawTerrainAsset,
+} from './terrain-renderer.js';
+import {
+  addBlueprint,
+  createColonyState,
+  downColonySlime,
+  setColonyThreatIntensity,
+  setColonyThreats,
+  updateColony,
+} from './colony.js';
+import {
+  EXPEDITION_CATALOG,
+  EXPEDITION_ENCOUNTER_BY_ID,
+  EXPEDITION_PARTY_RULES,
+  EXPEDITION_ROUTE_NODE_TYPE_BY_ID,
+  EXPEDITION_UPGRADE_BY_ID,
+  FIRST_EXPEDITION,
+} from './expedition-catalog.js';
+import {
+  abandonExpedition,
+  chooseExpeditionBoon,
+  chooseExpeditionRoute,
+  claimExpeditionRewards,
+  createExpeditionState,
+  resolveExpeditionBattle,
+  restoreExpeditionState,
+  selectExpeditionSquad,
+  startExpedition as startExpeditionRun,
+} from './expedition.js';
 
 const VIEW = Object.freeze({ width: 1280, height: 720 });
-const BOARD = Object.freeze({ x: 198, y: 103, cell: 78, cols: 6, rows: 6 });
+const WORLD = COLONY_WORLD;
+const BOARD = Object.freeze({
+  ...DEFAULT_WORLD_VIEWPORT,
+  cell: DEFAULT_WORLD_VIEWPORT.cellSize,
+  cols: WORLD.width,
+  rows: WORLD.height,
+});
+const CORE_CELL = WORLD.base.core;
+const DEFAULT_CAMERA_FOCUS = Object.freeze({ x: CORE_CELL.x + 0.5, y: CORE_CELL.y + 0.5 });
 const PANEL = Object.freeze({ x: 866, y: 92, width: 388, height: 486 });
 const BOTTOM = Object.freeze({ x: 22, y: 592, width: 1232, height: 110 });
-const STORAGE_KEY = 'slime-haven-prototype-v1';
+const STORAGE_KEY = 'slime-haven-colony-v2';
 const TAU = Math.PI * 2;
+const COLONY_RESOURCE_ID = Object.freeze({
+  'soft-gel': 'gel',
+  'dew-honey': 'nectar',
+  'crystal-shard': 'shard',
+});
+const COLONY_RESOURCE_LABEL = Object.freeze({
+  gel: '软胶',
+  nectar: '露蜜',
+  shard: '晶屑',
+});
+const RESOURCE_ASSET_BY_ID = Object.freeze({
+  gel: 'resource-soft-gel-token',
+  'soft-gel': 'resource-soft-gel-token',
+  nectar: 'resource-dew-honey-token',
+  'dew-honey': 'resource-dew-honey-token',
+  shard: 'resource-crystal-shard-token',
+  'crystal-shard': 'resource-crystal-shard-token',
+  softCrystals: 'ui-soft-crystal',
+});
+const RESOURCE_COLOR_BY_ID = Object.freeze({
+  gel: '#3C9E79',
+  'soft-gel': '#3C9E79',
+  nectar: '#C58B2E',
+  'dew-honey': '#C58B2E',
+  shard: '#597EC9',
+  'crystal-shard': '#597EC9',
+  softCrystals: '#75B6C3',
+});
+const COLONY_AI_LABEL = Object.freeze({
+  idle: '待命', seek: '找工作', move: '赶路', harvest: '采集', carry: '搬运',
+  deposit: '入库', build: '施工', rally: '集结', chase: '迎战', attack: '战斗',
+  rest: '休养', downed: '倒地',
+});
+const TERRAIN_HELP = Object.freeze({
+  'soft-gel': ['可采集', '史莱姆会自动采集软胶；采完后变成可建造草地。', '◉'],
+  'dew-honey': ['可采集', '露蜜花丛会产出露蜜；采完后变成可建造草地。', '✿'],
+  'crystal-shard': ['可采集', '晶屑脉产出晶屑，亮钉采集这种资源更快。', '◆'],
+  'thorn-thicket': ['纯障碍', '密刺丛不能采集、不能破坏，只用于长期改变路线。', '♣'],
+  'brittle-boulder': ['可破坏', '工作史莱姆会自动敲碎脆壳岩，清理后开放土地。', '⬟'],
+  'deep-water': ['永久地形', '深水不能建造也不能破坏，会永久分割寻路区域。', '≈'],
+});
+
+const EXPEDITION_REWARD_LABEL = Object.freeze({
+  'soft-gel': '软胶',
+  'dew-honey': '露蜜',
+  'crystal-shard': '晶屑',
+  softCrystals: '软晶',
+});
+
+const EXPEDITION_ROUTE_ASSET_BY_NODE_TYPE = Object.freeze({
+  'route-swarm-battle': 'expedition-route-combat',
+  'route-resource-forage': 'expedition-route-resource',
+  'route-slime-event': 'expedition-route-event',
+});
+
+const EXPEDITION_UPGRADE_DESCRIPTION = Object.freeze({
+  'upgrade-soft-body': '全队生命上限提高，并立即回复一部分生命。',
+  'upgrade-jelly-rush': '全队攻击间隔缩短，出手更加密集。',
+  'upgrade-shared-sparkle': '全队造成的攻击伤害提高。',
+  'upgrade-shell-rebound': '壳壳护盾更厚，破盾时反击附近敌人。',
+  'upgrade-crystal-fork': '亮钉每次射击额外分出一枚晶针。',
+  'upgrade-bubble-chain': '泡泡命中后继续弹向附近多个目标。',
+  'upgrade-sprout-canopy': '芽芽治疗增强，并把部分治疗扩散给队友。',
+  'upgrade-gel-burst': '敌人倒下时引爆软胶，伤害周围虫群。',
+  'upgrade-last-bounce': '全队各抵挡一次致命伤并回复生命。',
+});
+
+const EXPEDITION_KIND_LABEL = Object.freeze({
+  battle: '虫群遭遇',
+  elite: '精英遭遇',
+  boss: '首领巢穴',
+});
+
+function flattenExpeditionRewards(reward = {}) {
+  const flattened = {
+    ...(reward?.resources && typeof reward.resources === 'object' ? reward.resources : {}),
+  };
+  for (const [resourceId, amount] of Object.entries(reward || {})) {
+    if (resourceId === 'resources' || !Number.isFinite(Number(amount))) continue;
+    flattened[resourceId] = (flattened[resourceId] || 0) + Number(amount);
+  }
+  return flattened;
+}
 
 const ENEMY_DEATH_DURATION_BY_ID = Object.freeze({
   'enemy-soft-biter': 0.4,
@@ -314,6 +457,109 @@ function footprintCells(card, x, y, rotation = 0) {
   return cells;
 }
 
+function cloneWorldTerrain(source = INITIAL_WORLD_TERRAIN) {
+  return {
+    seed: source.seed,
+    width: source.width,
+    height: source.height,
+    cells: source.cells.map((cell) => ({
+      ...cell,
+      yield: cell.yield ? { ...cell.yield } : null,
+      placement: { ...cell.placement },
+      path: { ...cell.path },
+    })),
+  };
+}
+
+function worldTerrainFromIds(terrainIds) {
+  const terrain = cloneWorldTerrain();
+  if (!Array.isArray(terrainIds) || terrainIds.length !== terrain.cells.length) return terrain;
+  terrain.cells = terrain.cells.map((cell, index) => {
+    const terrainId = terrainIds[index];
+    const definition = TERRAIN_TYPES[terrainId];
+    if (!definition) return cell;
+    return {
+      ...cell,
+      terrainId,
+      passable: definition.passable,
+      buildable: definition.buildable,
+      harvestable: definition.harvestable,
+      destructible: definition.destructible,
+      yield: definition.yield ? { ...definition.yield } : null,
+      replacement: definition.replacement,
+      placement: { buildable: definition.buildable },
+      path: { passable: definition.passable },
+    };
+  });
+  return terrain;
+}
+
+function replaceWorldTerrainCell(terrain, x, y, terrainId = 'ground') {
+  const cell = catalogTerrainAt(terrain, x, y);
+  const definition = TERRAIN_TYPES[terrainId];
+  if (!cell || !definition) return false;
+  const index = y * terrain.width + x;
+  terrain.cells[index] = {
+    ...cell,
+    terrainId,
+    passable: definition.passable,
+    buildable: definition.buildable,
+    harvestable: definition.harvestable,
+    destructible: definition.destructible,
+    yield: definition.yield ? { ...definition.yield } : null,
+    replacement: definition.replacement,
+    placement: { buildable: definition.buildable },
+    path: { passable: definition.passable },
+  };
+  return true;
+}
+
+function colonyTerrainFromWorldCell(cell) {
+  if (!cell) return { kind: 'indestructible', passable: false, buildable: false };
+  const definition = TERRAIN_TYPES[cell.terrainId] || TERRAIN_TYPES.ground;
+  const kind = definition.kind === 'destructible-obstacle'
+    ? 'destructible'
+    : definition.kind === 'indestructible-terrain'
+      ? 'indestructible'
+      : definition.kind;
+  return {
+    kind,
+    terrainId: cell.terrainId,
+    passable: definition.passable,
+    buildable: definition.buildable,
+    harvestable: definition.harvestable,
+    destructible: definition.destructible,
+    durability: definition.destructible ? 3.2 : undefined,
+  };
+}
+
+function colonyRecipeResources(recipe = {}) {
+  return {
+    gel: Math.max(0, Number(recipe['soft-gel']) || 0),
+    nectar: Math.max(0, Number(recipe['dew-honey']) || 0),
+    shard: Math.max(0, Number(recipe['crystal-shard']) || 0),
+  };
+}
+
+function terrainNavigationEntries(terrain, dynamicCatalog) {
+  if (!terrain?.cells) return [];
+  return terrain.cells
+    .filter((cell) => !cell.passable)
+    .map((cell) => {
+      const id = `terrain-${cell.x}-${cell.y}`;
+      dynamicCatalog[id] = {
+        id,
+        footprint: { width: 1, height: 1 },
+        solid: true,
+        passable: false,
+        // Monsters route around wilderness. Destructible props are cleared by
+        // worker slimes, while water and permanent obstacles can never be breached.
+        breachCost: Infinity,
+      };
+      return { id, catalogId: id, x: cell.x, y: cell.y, rotation: 0 };
+    });
+}
+
 function buildingAt(buildings, x, y, exceptUid = null) {
   return buildings.find((building) => {
     if (building.uid === exceptUid || building.destroyed) return false;
@@ -322,7 +568,18 @@ function buildingAt(buildings, x, y, exceptUid = null) {
   }) || null;
 }
 
-function canPlace(buildings, card, x, y, rotation = 0, exceptUid = null) {
+function canPlace(
+  buildings,
+  card,
+  x,
+  y,
+  rotation = 0,
+  exceptUid = null,
+  terrain = INITIAL_WORLD_TERRAIN,
+) {
+  const cells = footprintCells(card, x, y, rotation);
+  if (!cells.every((cell) => terrainAllowsPlacement(terrain, cell.x, cell.y))) return false;
+  if (cells.some((cell) => cell.x === CORE_CELL.x && cell.y === CORE_CELL.y)) return false;
   const active = buildings
     .filter((building) => !building.destroyed && building.uid !== exceptUid)
     .map((building) => ({
@@ -332,7 +589,7 @@ function canPlace(buildings, card, x, y, rotation = 0, exceptUid = null) {
       y: building.y,
       rotation: building.rotation,
     }));
-  const grid = createGridState({ buildings: active });
+  const grid = createGridState({ width: WORLD.width, height: WORLD.height, buildings: active });
   return coreCanPlaceBuilding(grid, {
     id: exceptUid || '__placement-preview__',
     cardId: card.id,
@@ -342,7 +599,13 @@ function canPlace(buildings, card, x, y, rotation = 0, exceptUid = null) {
   }, BUILDING_BY_ID);
 }
 
-function routeFor(buildings, start, target = null) {
+function routeFor(
+  buildings,
+  start,
+  target = null,
+  terrain = INITIAL_WORLD_TERRAIN,
+  { allowBuildingBreaching = true } = {},
+) {
   const active = buildings.filter((building) => !building.destroyed);
   const dynamicCatalog = {};
   const gridBuildings = active.map((building) => {
@@ -360,17 +623,25 @@ function routeFor(buildings, start, target = null) {
       rotation: building.rotation,
     };
   });
-  const grid = createGridState({ buildings: gridBuildings });
+  gridBuildings.push(...terrainNavigationEntries(terrain, dynamicCatalog));
+  const grid = createGridState({
+    width: WORLD.width,
+    height: WORLD.height,
+    buildings: gridBuildings,
+  });
   let route;
-  if (target) {
-    const pathOptions = { starts: [start], goals: [target] };
+  const routeTarget = target || CORE_CELL;
+  if (routeTarget) {
+    const pathOptions = { starts: [start], goals: [routeTarget] };
     route = findGridPath(grid, dynamicCatalog, { ...pathOptions, allowBreaching: false })
-      || findGridPath(grid, dynamicCatalog, { ...pathOptions, allowBreaching: true });
+      || (allowBuildingBreaching
+        ? findGridPath(grid, dynamicCatalog, { ...pathOptions, allowBreaching: true })
+        : null);
   } else {
     route = findRightToLeftRoute(grid, dynamicCatalog, { start, allowBreach: true });
   }
   const cells = route?.cells || [start];
-  return target ? cells : [...cells, { x: -1, y: cells.at(-1)?.y ?? start.y }];
+  return cells;
 }
 
 class TinyAudio {
@@ -440,6 +711,15 @@ export class SlimeGame {
     this.hoverId = null;
     this.hoverCell = null;
     this.pointerDown = null;
+    this.pointerDrag = null;
+    this.pinchGesture = null;
+    this.activePointers = new Map();
+    this.camera = createWorldCamera({
+      world: WORLD,
+      viewport: BOARD,
+      focus: DEFAULT_CAMERA_FOCUS,
+      zoom: 1,
+    });
     this.buildTab = 'buildings';
     this.selection = null;
     this.modal = null;
@@ -452,6 +732,8 @@ export class SlimeGame {
     this.resetDynamicComponentBudget();
     this.state = this.createState();
     this.load();
+    this.initializeColonySimulation();
+    this.recoverInterruptedExpedition();
     this.bindEvents();
     this.resize();
   }
@@ -492,6 +774,13 @@ export class SlimeGame {
       enemies: [],
       buildings: this.defaultBuildings(),
       survivors: this.defaultSurvivors(),
+      worldTerrain: cloneWorldTerrain(),
+      colony: null,
+      colonyDirector: {
+        elapsed: 0,
+        nextPackAt: Math.min(22, THREAT_CURVE.gracePeriodSeconds),
+        packIndex: 0,
+      },
       skills: Object.fromEntries(SKILLS.map((card) => [card.id, { readyAtAction: 0 }])),
       items: Object.fromEntries(ITEMS.map((card) => [card.id, { charges: card.charges }])),
       energy: 4,
@@ -508,17 +797,22 @@ export class SlimeGame {
       rescuedBuildings: 0,
       rewardEarned: 0,
       result: null,
+      expeditionRun: null,
+      expeditionProgress: {
+        firstClear: false,
+        completions: 0,
+        attempts: 0,
+        claimedRunIds: [],
+      },
       tutorialSeen: false,
     };
   }
 
   defaultBuildings() {
     const specs = [
-      ['building-weather-scout', 0, 0, 0],
-      ['building-mushroom-home', 1, 2, 0],
-      ['building-bubble-tower', 3, 1, 0],
-      ['building-honey-plot', 2, 4, 0],
-      ['building-bouncy-fence', 4, 3, 0],
+      ['building-mushroom-home', 10, 8, 0],
+      ['building-honey-plot', 13, 9, 0],
+      ['building-bouncy-fence', 11, 6, 0],
     ];
     return specs.map(([cardId, x, y, rotation]) => {
       const card = BUILDING_BY_ID[cardId];
@@ -532,10 +826,10 @@ export class SlimeGame {
 
   defaultSurvivors() {
     const specs = [
-      ['survivor-shell-shell', 3, 3],
-      ['survivor-crystal-pin', 1, 1],
-      ['survivor-bubble-float', 2, 5],
-      ['survivor-moss-sprout', 1, 2],
+      ['survivor-shell-shell', 11, 8],
+      ['survivor-crystal-pin', 13, 6],
+      ['survivor-bubble-float', 12, 10],
+      ['survivor-moss-sprout', 11, 10],
     ];
     return specs.map(([cardId, x, y]) => {
       const card = SURVIVOR_BY_ID[cardId];
@@ -548,21 +842,181 @@ export class SlimeGame {
     });
   }
 
+  initializeColonySimulation() {
+    const startingStockpile = WORLD.base.startingStockpile;
+    const resources = this.loadedColonyResources || {
+      gel: startingStockpile['soft-gel'],
+      nectar: startingStockpile['dew-honey'],
+      shard: startingStockpile['crystal-shard'],
+    };
+    const resourceNodes = this.state.worldTerrain.cells.flatMap((cell) => {
+      const definition = TERRAIN_TYPES[cell.terrainId];
+      const resourceType = COLONY_RESOURCE_ID[definition?.yield?.resourceId];
+      if (!resourceType || !definition.harvestable) return [];
+      return [{
+        uid: `world-resource-${cell.x}-${cell.y}`,
+        x: cell.x,
+        y: cell.y,
+        resourceType,
+        amount: definition.yield.amount,
+        harvestSeconds: definition.yield.gatherSeconds,
+      }];
+    });
+    const slimes = this.state.survivors.map((survivor) => {
+      const card = SURVIVOR_BY_ID[survivor.cardId];
+      const job = SLIME_JOBS.find((profile) => profile.slimeId === survivor.cardId);
+      const multiplier = job?.jobBonus?.multiplier || 1;
+      return {
+        uid: survivor.uid,
+        cardId: survivor.cardId,
+        x: survivor.x,
+        y: survivor.y,
+        speed: job?.moveSpeedCellsPerSecond || 1,
+        carryCapacity: job?.carryCapacity || 6,
+        gatherMultiplier: job?.jobBonus?.task === 'resource-harvest' ? multiplier : 1,
+        buildMultiplier: job?.jobBonus?.task === 'construction' ? multiplier : 1,
+        hp: survivor.hp,
+        maxHp: survivor.maxHp,
+        attackDamage: card.attack.damage,
+        attackRange: card.attack.rangeTiles,
+        attackInterval: card.attack.intervalSeconds,
+        aggroRange: Math.max(3, card.attack.rangeTiles),
+      };
+    });
+    const colony = createColonyState({
+      bounds: { x: 0, y: 0, width: WORLD.width, height: WORLD.height },
+      basePosition: CORE_CELL,
+      rallyPoint: WORLD.base.rallyPoint,
+      resources,
+      resourceNodes,
+      blueprints: this.loadedColonyBlueprints || [],
+      slimes,
+      terrainQuery: (x, y) => colonyTerrainFromWorldCell(
+        catalogTerrainAt(this.state.worldTerrain, x, y),
+      ),
+      findPath: ({ from, to }) => {
+        const start = { x: Math.round(from.x), y: Math.round(from.y) };
+        const path = routeFor(
+          this.state.buildings.filter((building) => !building.underConstruction),
+          start,
+          { x: Math.round(to.x), y: Math.round(to.y) },
+          this.state.worldTerrain,
+          { allowBuildingBreaching: false },
+        );
+        return path[0]?.x === start.x && path[0]?.y === start.y ? path.slice(1) : path;
+      },
+      config: {
+        passiveThreatPerSecond: 0,
+        priorities: { defense: 5, build: 4, gather: 3, clear: 2 },
+        obstacleDamagePerSecond: 1.25,
+      },
+    });
+    colony.time = this.state.colonyDirector.elapsed;
+    colony.threat.elapsed = this.state.colonyDirector.elapsed;
+    colony.onTerrainChange = (x, y, tile) => {
+      if (tile.kind !== 'ground') return;
+      replaceWorldTerrainCell(this.state.worldTerrain, x, y, 'ground');
+      if (this.selection?.kind === 'inspect-terrain'
+        && this.selection.x === x && this.selection.y === y) this.selection = null;
+      this.state.enemies.forEach((enemy) => { enemy.routeTimer = 0; });
+    };
+    this.state.colony = colony;
+    this.loadedColonyResources = null;
+    this.loadedColonyBlueprints = null;
+    for (const building of this.state.buildings) {
+      if (building.underConstruction
+        && !colony.blueprints.some((blueprint) => blueprint.uid === building.blueprintUid)) {
+        building.underConstruction = false;
+        building.blueprintUid = null;
+      }
+    }
+    this.syncColonySlimesToSurvivors();
+  }
+
+  syncColonySlimesToSurvivors() {
+    if (!this.state.colony) return;
+    for (const slime of this.state.colony.slimes) {
+      const survivor = this.state.survivors.find((item) => item.uid === slime.uid);
+      if (!survivor) continue;
+      survivor.x = slime.x;
+      survivor.y = slime.y;
+      survivor.aiState = slime.aiState;
+      survivor.job = slime.job ? { ...slime.job } : null;
+      survivor.carrying = slime.carrying ? { ...slime.carrying } : null;
+      survivor.hp = clamp(slime.hp, 0, survivor.maxHp);
+      survivor.downed = slime.aiState === 'downed';
+    }
+  }
+
   bindEvents() {
     this.onPointerDown = (event) => {
       event.preventDefault();
       this.audio.unlock();
       const point = this.toGamePoint(event);
       this.pointerDown = point;
+      this.activePointers.set(event.pointerId ?? 0, point);
+      if (this.activePointers.size === 2) {
+        const [first, second] = [...this.activePointers.values()];
+        this.pinchGesture = {
+          distance: Math.max(1, Math.hypot(second.x - first.x, second.y - first.y)),
+          zoom: this.camera.zoom,
+          moved: true,
+        };
+        this.pointerDrag = null;
+        this.canvas.setPointerCapture?.(event.pointerId);
+        return;
+      }
+      if (!this.modal && pointInsideWorldViewport(point, BOARD)) {
+        this.pointerDrag = {
+          pointerId: event.pointerId ?? 0,
+          start: point,
+          last: point,
+          moved: false,
+        };
+      }
+      this.canvas.setPointerCapture?.(event.pointerId);
     };
     this.onPointerUp = (event) => {
       event.preventDefault();
       const point = this.toGamePoint(event);
-      this.handleTap(point);
+      const pointerId = event.pointerId ?? 0;
+      const wasMapDrag = this.pinchGesture?.moved
+        || (this.pointerDrag?.pointerId === pointerId && this.pointerDrag.moved);
+      if (!wasMapDrag) this.handleTap(point);
+      this.activePointers.delete(pointerId);
+      if (this.activePointers.size < 2) this.pinchGesture = null;
+      if (this.pointerDrag?.pointerId === pointerId) this.pointerDrag = null;
       this.pointerDown = null;
     };
     this.onPointerMove = (event) => {
       const point = this.toGamePoint(event);
+      const pointerId = event.pointerId ?? 0;
+      if (this.activePointers.has(pointerId)) this.activePointers.set(pointerId, point);
+      if (this.pinchGesture && this.activePointers.size >= 2 && !this.selection) {
+        const [first, second] = [...this.activePointers.values()];
+        const distanceNow = Math.max(1, Math.hypot(second.x - first.x, second.y - first.y));
+        const anchor = { x: (first.x + second.x) / 2, y: (first.y + second.y) / 2 };
+        this.camera = zoomWorldCameraAt(
+          this.camera,
+          this.pinchGesture.zoom * (distanceNow / this.pinchGesture.distance),
+          anchor,
+          WORLD,
+          BOARD,
+        );
+      } else if (this.pointerDrag?.pointerId === pointerId && !this.selection) {
+        const totalDistance = Math.hypot(
+          point.x - this.pointerDrag.start.x,
+          point.y - this.pointerDrag.start.y,
+        );
+        if (totalDistance > 7) this.pointerDrag.moved = true;
+        if (this.pointerDrag.moved) {
+          this.camera = panWorldCamera(this.camera, {
+            x: point.x - this.pointerDrag.last.x,
+            y: point.y - this.pointerDrag.last.y,
+          }, WORLD, BOARD);
+          this.pointerDrag.last = point;
+        }
+      }
       this.hoverCell = this.pointToCell(point);
       this.hoverId = this.hits.findLast?.((hit) => hit.enabled !== false && roundedHit(point, hit))?.id
         || [...this.hits].reverse().find((hit) => hit.enabled !== false && roundedHit(point, hit))?.id
@@ -570,13 +1024,30 @@ export class SlimeGame {
     };
     this.onPointerCancel = () => {
       this.pointerDown = null;
+      this.pointerDrag = null;
+      this.pinchGesture = null;
+      this.activePointers.clear();
       this.hoverId = null;
       this.hoverCell = null;
+    };
+    this.onWheel = (event) => {
+      const point = this.toGamePoint(event);
+      if (!pointInsideWorldViewport(point, BOARD)) return;
+      event.preventDefault();
+      const zoomFactor = Math.exp(-event.deltaY * 0.0012);
+      this.camera = zoomWorldCameraAt(
+        this.camera,
+        this.camera.zoom * zoomFactor,
+        point,
+        WORLD,
+        BOARD,
+      );
     };
     this.canvas.addEventListener('pointerdown', this.onPointerDown, { passive: false });
     this.canvas.addEventListener('pointerup', this.onPointerUp, { passive: false });
     this.canvas.addEventListener('pointermove', this.onPointerMove, { passive: true });
     this.canvas.addEventListener('pointercancel', this.onPointerCancel, { passive: true });
+    this.canvas.addEventListener('wheel', this.onWheel, { passive: false });
     this.canvas.addEventListener('contextmenu', (event) => event.preventDefault());
     window.addEventListener('resize', () => this.resize());
   }
@@ -625,6 +1096,15 @@ export class SlimeGame {
       const payload = {
         softCrystals: this.state.softCrystals,
         tutorialSeen: this.state.tutorialSeen,
+        terrainIds: this.state.worldTerrain.cells.map((cell) => cell.terrainId),
+        colonyResources: this.state.colony?.resources || null,
+        colonyBlueprints: (this.state.colony?.blueprints || [])
+          .filter((blueprint) => !blueprint.complete && !blueprint.cancelled)
+          .map(({ reservedBy: _reservedBy, ...blueprint }) => ({ ...blueprint })),
+        colonyDirector: this.state.colonyDirector,
+        expeditionProgress: this.state.expeditionProgress,
+        expeditionRun: this.isExpeditionActive() ? this.state.expeditionRun : null,
+        expeditionSnapshot: this.isExpeditionActive() ? this.preBattleSnapshot : null,
         buildings: layoutBuildings.filter((building) => !building.destroyed).map(({ uid: _uid, ...building }) => ({
           ...building,
           rotation: canonicalBuildingRotation(
@@ -658,6 +1138,37 @@ export class SlimeGame {
       const saved = JSON.parse(raw);
       if (Number.isFinite(saved.softCrystals)) this.state.softCrystals = saved.softCrystals;
       this.state.tutorialSeen = Boolean(saved.tutorialSeen);
+      this.state.worldTerrain = worldTerrainFromIds(saved.terrainIds);
+      this.loadedColonyResources = saved.colonyResources || null;
+      this.loadedColonyBlueprints = Array.isArray(saved.colonyBlueprints)
+        ? saved.colonyBlueprints
+        : [];
+      if (saved.colonyDirector && Number.isFinite(saved.colonyDirector.elapsed)) {
+        this.state.colonyDirector = {
+          ...this.state.colonyDirector,
+          elapsed: Math.max(0, saved.colonyDirector.elapsed),
+          nextPackAt: Math.max(0, Number(saved.colonyDirector.nextPackAt) || 0),
+          packIndex: Math.max(0, Math.floor(Number(saved.colonyDirector.packIndex) || 0)),
+        };
+      }
+      if (saved.expeditionProgress && typeof saved.expeditionProgress === 'object') {
+        this.state.expeditionProgress = {
+          firstClear: Boolean(saved.expeditionProgress.firstClear),
+          completions: Math.max(0, Math.floor(Number(saved.expeditionProgress.completions) || 0)),
+          attempts: Math.max(0, Math.floor(Number(saved.expeditionProgress.attempts) || 0)),
+          claimedRunIds: Array.isArray(saved.expeditionProgress.claimedRunIds)
+            ? saved.expeditionProgress.claimedRunIds.filter((id) => typeof id === 'string').slice(-24)
+            : [],
+        };
+      }
+      if (saved.expeditionRun && typeof saved.expeditionRun === 'object') {
+        this.pendingExpeditionRecovery = {
+          run: saved.expeditionRun,
+          snapshot: typeof saved.expeditionSnapshot === 'string'
+            ? saved.expeditionSnapshot
+            : null,
+        };
+      }
       if (Array.isArray(saved.buildings) && saved.buildings.length) {
         this.state.buildings = saved.buildings
           .filter((item) => BUILDING_BY_ID[item.cardId])
@@ -684,6 +1195,15 @@ export class SlimeGame {
   }
 
   onBackground() {
+    if (this.isExpeditionSession()) {
+      this.abandonCurrentExpedition({ silent: true, returnToBase: true });
+      this.save();
+      return;
+    }
+    if (this.modal?.type === 'expedition-squad') {
+      this.modal = null;
+      this.state.paused = false;
+    }
     if (this.state.phase === 'battle' && this.preBattleSnapshot) this.restoreBattleSnapshot();
     this.save();
   }
@@ -694,6 +1214,7 @@ export class SlimeGame {
       survivors: this.state.survivors,
       coreHp: this.state.coreHp,
       softCrystals: this.state.softCrystals,
+      camera: this.camera,
     });
   }
 
@@ -704,6 +1225,7 @@ export class SlimeGame {
     this.state.survivors = snapshot.survivors;
     this.state.coreHp = snapshot.coreHp;
     this.state.softCrystals = snapshot.softCrystals;
+    if (snapshot.camera) this.camera = snapshot.camera;
     this.state.phase = 'build';
     this.state.paused = false;
     this.state.enemies = [];
@@ -715,6 +1237,55 @@ export class SlimeGame {
     this.pendingAttackHits.clear();
     this.expressionMixers.clear();
     this.selection = null;
+    this.modal = null;
+    this.state.expeditionRun = null;
+  }
+
+  restoreExpeditionBaseSnapshot() {
+    if (!this.preBattleSnapshot) return false;
+    const snapshot = JSON.parse(this.preBattleSnapshot);
+    this.state.buildings = snapshot.buildings;
+    this.state.survivors = snapshot.survivors;
+    this.state.coreHp = snapshot.coreHp;
+    if (snapshot.camera) this.camera = snapshot.camera;
+    this.state.enemies = [];
+    this.state.spawnQueue = [];
+    this.state.spawned = new Set();
+    this.state.projectiles = [];
+    this.state.worldEffects = [];
+    this.state.dynamicEffects = [];
+    this.state.terrain = [];
+    this.state.deployables = [];
+    this.pendingAttackHits.clear();
+    this.expressionMixers.clear();
+    this.animators.clear();
+    this.selection = null;
+    return true;
+  }
+
+  recoverInterruptedExpedition() {
+    const pending = this.pendingExpeditionRecovery;
+    this.pendingExpeditionRecovery = null;
+    if (!pending?.run) return false;
+    try {
+      const run = restoreExpeditionState(pending.run, EXPEDITION_CATALOG);
+      // The normal save payload already restored a fresh base layout with new
+      // runtime uids. Snapshot that layout instead of reviving stale battle
+      // entity ids from the interrupted session.
+      this.snapshotForBattle();
+      this.state.expeditionRun = run;
+      if (run.status === 'active' || run.status === 'draft') {
+        abandonExpedition(run, EXPEDITION_CATALOG);
+      }
+      this.settleExpeditionRun({ silent: true, returnToBase: true });
+      return true;
+    } catch {
+      this.state.expeditionRun = null;
+      this.preBattleSnapshot = null;
+      this.state.phase = 'build';
+      this.state.paused = false;
+      return false;
+    }
   }
 
   handleTap(point) {
@@ -730,9 +1301,7 @@ export class SlimeGame {
   }
 
   pointToCell(point) {
-    const x = Math.floor((point.x - BOARD.x) / BOARD.cell);
-    const y = Math.floor((point.y - BOARD.y) / BOARD.cell);
-    return inBoard(x, y) ? { x, y } : null;
+    return screenToWorldCell(point, this.camera, WORLD, BOARD);
   }
 
   addHit(id, x, y, w, h, onTap, enabled = true) {
@@ -747,6 +1316,407 @@ export class SlimeGame {
     return this.state.buildings
       .filter((building) => !building.destroyed)
       .reduce((total, building) => total + BUILDING_BY_ID[building.cardId].cost, 0);
+  }
+
+  isExpeditionActive() {
+    return Boolean(this.state.expeditionRun?.status === 'active');
+  }
+
+  isExpeditionSession() {
+    return Boolean(this.state.expeditionRun);
+  }
+
+  availableExpeditionSlimeIds() {
+    const eligible = new Set(EXPEDITION_PARTY_RULES.availableSlimeIds);
+    return [...new Set(this.state.survivors
+      .map(({ cardId }) => cardId)
+      .filter((cardId) => eligible.has(cardId)))];
+  }
+
+  openExpedition() {
+    if (this.state.phase !== 'build' || this.isExpeditionSession()) return false;
+    if (this.state.enemies.some((enemy) => !enemy.dead)) {
+      this.showToast('先让史莱姆清理基地附近的怪物', 'danger');
+      return false;
+    }
+    const availableIds = this.availableExpeditionSlimeIds();
+    if (availableIds.length < EXPEDITION_PARTY_RULES.size) {
+      this.showToast('远征需要三只不同的史莱姆', 'danger');
+      return false;
+    }
+    const defaults = EXPEDITION_PARTY_RULES.defaultSlimeIds
+      .filter((cardId) => availableIds.includes(cardId));
+    const selectedIds = [...defaults, ...availableIds.filter((id) => !defaults.includes(id))]
+      .slice(0, EXPEDITION_PARTY_RULES.size);
+    this.selection = null;
+    this.state.paused = true;
+    this.modal = { type: 'expedition-squad', selectedIds };
+    return true;
+  }
+
+  toggleExpeditionSlime(cardId) {
+    if (this.modal?.type !== 'expedition-squad') return false;
+    const availableIds = this.availableExpeditionSlimeIds();
+    if (!availableIds.includes(cardId)) return false;
+    const selected = new Set(this.modal.selectedIds || []);
+    if (selected.has(cardId)) selected.delete(cardId);
+    else if (selected.size < EXPEDITION_PARTY_RULES.size) selected.add(cardId);
+    else {
+      this.showToast('远征小队最多三只，先取消一只', 'danger');
+      return false;
+    }
+    this.modal.selectedIds = [...selected];
+    return true;
+  }
+
+  startExpedition(squadIds = this.modal?.selectedIds || []) {
+    if (this.state.phase !== 'build' || this.isExpeditionSession()) return false;
+    if (this.state.enemies.some((enemy) => !enemy.dead)) {
+      this.showToast('基地仍在战斗，暂时不能远征', 'danger');
+      return false;
+    }
+    const ids = Array.isArray(squadIds) ? squadIds.map(String) : [];
+    const availableIds = this.availableExpeditionSlimeIds();
+    if (ids.length !== EXPEDITION_PARTY_RULES.size || new Set(ids).size !== ids.length) {
+      this.showToast('必须恰好选择三只不同的史莱姆', 'danger');
+      return false;
+    }
+    if (ids.some((cardId) => !availableIds.includes(cardId))) {
+      this.showToast('小队里有尚未入住基地的史莱姆', 'danger');
+      return false;
+    }
+
+    this.snapshotForBattle();
+    const baseSnapshot = JSON.parse(this.preBattleSnapshot);
+    const attempt = this.state.expeditionProgress.attempts + 1;
+    const run = createExpeditionState({
+      id: `${FIRST_EXPEDITION.id}-run-${attempt}`,
+      seed: `${FIRST_EXPEDITION.id}:${attempt}`,
+      expeditionId: FIRST_EXPEDITION.id,
+      roster: availableIds,
+    }, EXPEDITION_CATALOG);
+    selectExpeditionSquad(run, ids);
+    startExpeditionRun(run, EXPEDITION_CATALOG);
+
+    this.state.expeditionRun = run;
+    this.state.expeditionProgress.attempts = attempt;
+    this.state.buildings = [];
+    const rallyPoints = [
+      { x: CORE_CELL.x - 1.4, y: CORE_CELL.y - 1.15 },
+      { x: CORE_CELL.x - 1.75, y: CORE_CELL.y + 0.15 },
+      { x: CORE_CELL.x - 1.35, y: CORE_CELL.y + 1.35 },
+    ];
+    this.state.survivors = ids.map((cardId, index) => {
+      const original = baseSnapshot.survivors.find((survivor) => survivor.cardId === cardId);
+      const card = SURVIVOR_BY_ID[cardId];
+      return {
+        ...(original || {}),
+        uid: uid('expedition-survivor'),
+        cardId,
+        x: rallyPoints[index].x,
+        y: rallyPoints[index].y,
+        hp: card.hp,
+        maxHp: card.hp,
+        shield: 0,
+        seed: 0,
+        cooldown: 0,
+        actionCount: 0,
+        hitCount: 0,
+        attackCount: 0,
+        downed: false,
+        hitFlash: 0,
+        expeditionDamageMultiplier: 1,
+        expeditionAttackIntervalMultiplier: 1,
+        expeditionHealMultiplier: 1,
+      };
+    });
+    this.state.coreHp = this.state.coreMaxHp;
+    this.camera = createWorldCamera({
+      world: WORLD,
+      viewport: BOARD,
+      focus: DEFAULT_CAMERA_FOCUS,
+      zoom: 1,
+    });
+    this.state.phase = 'battle';
+    this.state.paused = true;
+    this.state.result = null;
+    this.state.kills = 0;
+    this.resetCombatCards();
+    this.showExpeditionRouteChoices();
+    this.save();
+    return true;
+  }
+
+  showExpeditionRouteChoices() {
+    const run = this.state.expeditionRun;
+    if (!run || run.status !== 'active' || run.phase !== 'route-selection') return false;
+    this.state.phase = 'battle';
+    this.state.paused = true;
+    this.selection = null;
+    this.modal = { type: 'expedition-route' };
+    return true;
+  }
+
+  chooseExpeditionRouteNode(nodeUid) {
+    const run = this.state.expeditionRun;
+    if (!run || run.phase !== 'route-selection') return false;
+    try {
+      const encounter = chooseExpeditionRoute(run, nodeUid, EXPEDITION_CATALOG);
+      this.startExpeditionEncounter(encounter);
+      this.save();
+      return true;
+    } catch {
+      this.showToast('这条路线已经失效，请重新选择', 'danger');
+      return false;
+    }
+  }
+
+  buildExpeditionSpawnQueue(encounter) {
+    const groups = Array.isArray(encounter?.groups) ? encounter.groups : [];
+    const routeStep = this.state.expeditionRun?.route?.regularWins || 0;
+    const queue = [];
+    groups.forEach((group, groupIndex) => {
+      const count = Math.max(0, Math.floor(Number(group.count) || 0));
+      for (let index = 0; index < count; index += 1) {
+        queue.push({
+          key: `${encounter.uid}-${groupIndex}-${index}`,
+          enemyId: group.enemyId,
+          row: (routeStep + groupIndex * 2 + index * 3) % 7,
+          at: Math.max(0, Number(group.startDelaySeconds) || 0)
+            + index * Math.max(0, Number(group.spawnIntervalSeconds) || 0),
+        });
+      }
+    });
+    return queue.sort((left, right) => left.at - right.at || left.key.localeCompare(right.key));
+  }
+
+  startExpeditionEncounter(encounter = this.state.expeditionRun?.currentEncounter) {
+    if (!encounter || this.state.expeditionRun?.phase !== 'encounter') return false;
+    this.state.phase = 'battle';
+    this.state.paused = false;
+    this.modal = null;
+    this.selection = null;
+    this.state.waveIndex = Math.min(
+      WAVES.length - 1,
+      this.state.expeditionRun.route.regularWins,
+    );
+    this.state.waveElapsed = 0;
+    this.state.spawnQueue = this.buildExpeditionSpawnQueue(encounter);
+    this.state.spawned = new Set();
+    this.state.enemies = [];
+    this.state.projectiles = [];
+    this.state.worldEffects = [];
+    this.state.dynamicEffects = [];
+    this.state.terrain = [];
+    this.state.deployables = [];
+    this.pendingAttackHits.clear();
+    this.expressionMixers.clear();
+    this.state.energy = Math.max(4, this.state.energy || 0);
+    this.state.survivors.forEach((survivor) => {
+      const card = SURVIVOR_BY_ID[survivor.cardId];
+      if (survivor.downed || survivor.hp <= 0) {
+        survivor.downed = false;
+        survivor.hp = Math.max(1, survivor.maxHp * 0.35);
+      }
+      survivor.hp = Math.min(survivor.maxHp, survivor.hp + survivor.maxHp * 0.12);
+      survivor.cooldown = 0;
+      survivor.expeditionPath = [];
+      survivor.expeditionRouteGoal = null;
+      if (card.id === 'survivor-shell-shell') {
+        survivor.shield = Math.max(survivor.shield || 0, card.ability.shield);
+      }
+    });
+    this.showToast(
+      encounter.isFinalBoss
+        ? '最终首领出现了！守住小队阵线'
+        : `远征第 ${this.state.expeditionRun.route.regularWins + 1} 段开始`,
+      encounter.isFinalBoss ? 'danger' : 'normal',
+      2.6,
+    );
+    return true;
+  }
+
+  finishExpeditionEncounter(victory) {
+    const run = this.state.expeditionRun;
+    if (!run || run.status !== 'active' || run.phase !== 'encounter') return false;
+    this.state.paused = true;
+    this.state.enemies = [];
+    this.state.spawnQueue = [];
+    this.state.spawned = new Set();
+    this.pendingAttackHits.clear();
+    const rewardMultiplier = run.boons.reduce((multiplier, boon) => {
+      const value = Number(boon.modifiers?.rewardMultiplier);
+      return multiplier * (Number.isFinite(value) && value > 0 ? value ** boon.stacks : 1);
+    }, 1);
+    const transition = resolveExpeditionBattle(run, {
+      won: Boolean(victory),
+      rewardMultiplier,
+      summary: { kills: this.state.kills },
+    }, EXPEDITION_CATALOG);
+    if (run.phase === 'settlement') {
+      this.settleExpeditionRun();
+      return true;
+    }
+    this.modal = { type: 'expedition-boon' };
+    this.selection = null;
+    this.showToast('遭遇胜利！选择一项变异再继续', 'good', 2.8);
+    this.save();
+    return transition;
+  }
+
+  applyExpeditionBoon(boonId) {
+    const upgrade = EXPEDITION_UPGRADE_BY_ID[boonId];
+    if (!upgrade) return false;
+    const modifiers = upgrade.modifiers || {};
+    const targets = this.state.survivors.filter((survivor) => (
+      upgrade.target === 'party' || upgrade.target === survivor.cardId
+    ));
+    for (const survivor of targets) {
+      if (Number.isFinite(modifiers.maxHpMultiplier)) {
+        const previousMax = survivor.maxHp;
+        survivor.maxHp *= modifiers.maxHpMultiplier;
+        survivor.hp += survivor.maxHp - previousMax;
+      }
+      if (Number.isFinite(modifiers.currentHpHealPercent)) {
+        survivor.hp = Math.min(
+          survivor.maxHp,
+          survivor.hp + survivor.maxHp * modifiers.currentHpHealPercent,
+        );
+      }
+      if (Number.isFinite(modifiers.attackIntervalMultiplier)) {
+        survivor.expeditionAttackIntervalMultiplier *= modifiers.attackIntervalMultiplier;
+      }
+      if (Number.isFinite(modifiers.attackDamageMultiplier)) {
+        survivor.expeditionDamageMultiplier *= modifiers.attackDamageMultiplier;
+      }
+      if (Number.isFinite(modifiers.shieldMultiplier)) {
+        survivor.shield = (survivor.shield || SURVIVOR_BY_ID[survivor.cardId].ability?.shield || 0)
+          * modifiers.shieldMultiplier;
+      }
+      survivor.expeditionShieldBreakDamage = (survivor.expeditionShieldBreakDamage || 0)
+        + (Number(modifiers.shieldBreakDamage) || 0);
+      survivor.expeditionExtraProjectile = (survivor.expeditionExtraProjectile || 0)
+        + (Number(modifiers.extraProjectile) || 0);
+      survivor.expeditionSecondaryDamageMultiplier = Number(modifiers.secondaryProjectileDamageMultiplier)
+        || survivor.expeditionSecondaryDamageMultiplier;
+      survivor.expeditionBubbleChainTargets = (survivor.expeditionBubbleChainTargets || 0)
+        + (Number(modifiers.bubbleChainTargets) || 0);
+      survivor.expeditionChainedDamageMultiplier = Number(modifiers.chainedDamageMultiplier)
+        || survivor.expeditionChainedDamageMultiplier;
+      if (Number.isFinite(modifiers.healMultiplier)) {
+        survivor.expeditionHealMultiplier *= modifiers.healMultiplier;
+      }
+      survivor.expeditionHealSplashPercent = Math.max(
+        survivor.expeditionHealSplashPercent || 0,
+        Number(modifiers.healSplashPercent) || 0,
+      );
+      survivor.expeditionDefeatedBurstDamage = (survivor.expeditionDefeatedBurstDamage || 0)
+        + (Number(modifiers.defeatedEnemyBurstDamage) || 0);
+      survivor.expeditionBurstRadiusTiles = Math.max(
+        survivor.expeditionBurstRadiusTiles || 0,
+        Number(modifiers.burstRadiusTiles) || 0,
+      );
+      survivor.expeditionLethalProtectionHits = (survivor.expeditionLethalProtectionHits || 0)
+        + (Number(modifiers.lethalProtectionHits) || 0);
+      survivor.expeditionProtectionHealPercent = Math.max(
+        survivor.expeditionProtectionHealPercent || 0,
+        Number(modifiers.protectionHealPercent) || 0,
+      );
+    }
+    return true;
+  }
+
+  chooseExpeditionUpgrade(boonId) {
+    const run = this.state.expeditionRun;
+    if (!run || run.phase !== 'boon-selection') return false;
+    try {
+      chooseExpeditionBoon(run, boonId, EXPEDITION_CATALOG);
+      this.applyExpeditionBoon(boonId);
+      this.showExpeditionRouteChoices();
+      this.showToast(`${EXPEDITION_UPGRADE_BY_ID[boonId]?.name || '变异'}已生效`, 'good');
+      this.save();
+      return true;
+    } catch {
+      this.showToast('这个变异选项已经失效', 'danger');
+      return false;
+    }
+  }
+
+  applyExpeditionRewards(rewards = {}) {
+    const applied = flattenExpeditionRewards(rewards);
+    for (const [resourceId, amount] of Object.entries(applied)) {
+      if (resourceId === 'softCrystals') {
+        this.state.softCrystals += amount;
+        continue;
+      }
+      const colonyResource = COLONY_RESOURCE_ID[resourceId];
+      if (colonyResource && this.state.colony?.resources) {
+        this.state.colony.resources[colonyResource] += amount;
+      }
+    }
+    return applied;
+  }
+
+  settleExpeditionRun({ silent = false, returnToBase = false } = {}) {
+    const run = this.state.expeditionRun;
+    if (!run || run.phase !== 'settlement' || !run.settlement) return false;
+    this.restoreExpeditionBaseSnapshot();
+    const claimedIds = this.state.expeditionProgress.claimedRunIds || [];
+    const alreadyClaimed = claimedIds.includes(run.id) || run.settlement.claimed;
+    let rewards = flattenExpeditionRewards(run.settlement.rewards);
+    let firstClearRewards = {};
+    if (!alreadyClaimed) {
+      rewards = claimExpeditionRewards(run);
+      this.applyExpeditionRewards(rewards);
+      if (run.status === 'completed' && !this.state.expeditionProgress.firstClear) {
+        firstClearRewards = flattenExpeditionRewards(FIRST_EXPEDITION.settlement.firstClearBonus);
+        this.applyExpeditionRewards(firstClearRewards);
+        this.state.expeditionProgress.firstClear = true;
+      }
+      if (run.status === 'completed') this.state.expeditionProgress.completions += 1;
+      claimedIds.push(run.id);
+      this.state.expeditionProgress.claimedRunIds = claimedIds.slice(-24);
+    }
+    const combinedRewards = { ...rewards };
+    for (const [resourceId, amount] of Object.entries(firstClearRewards)) {
+      combinedRewards[resourceId] = (combinedRewards[resourceId] || 0) + amount;
+    }
+    this.state.result = {
+      expedition: true,
+      victory: run.status === 'completed',
+      outcome: run.status,
+      rewards: combinedRewards,
+      firstClear: Object.keys(firstClearRewards).length > 0,
+      regularWins: run.route.regularWins,
+      eliteWins: run.stats.eliteWins,
+      kills: this.state.kills,
+    };
+    this.state.phase = returnToBase ? 'build' : 'result';
+    this.state.paused = !returnToBase;
+    this.modal = null;
+    this.selection = null;
+    this.audio.play(run.status === 'completed' ? 'win' : 'warning');
+    if (!silent) {
+      this.showToast(
+        run.status === 'completed' ? '远征完成，资源已送回基地！' : '小队已撤回，保留了部分战利品',
+        run.status === 'completed' ? 'good' : 'normal',
+        3,
+      );
+    }
+    if (returnToBase) {
+      this.state.expeditionRun = null;
+      this.state.result = null;
+      this.preBattleSnapshot = null;
+    }
+    this.save();
+    return !alreadyClaimed;
+  }
+
+  abandonCurrentExpedition({ silent = false, returnToBase = false } = {}) {
+    const run = this.state.expeditionRun;
+    if (!run) return false;
+    if (run.phase !== 'settlement') abandonExpedition(run, EXPEDITION_CATALOG);
+    return this.settleExpeditionRun({ silent, returnToBase });
   }
 
   update(dt) {
@@ -783,9 +1753,161 @@ export class SlimeGame {
     this.state.survivors.forEach((survivor) => { survivor.hitFlash = Math.max(0, (survivor.hitFlash || 0) - animationDt * 4); });
     this.state.enemies.forEach((enemy) => { enemy.hitFlash = Math.max(0, (enemy.hitFlash || 0) - animationDt * 5); });
 
+    if (this.state.phase === 'build' && !this.state.paused) this.updateAutonomousColony(dt);
     if (this.state.phase === 'battle' && !this.state.paused && !this.selection) this.updateBattle(dt);
 
     this.updateEntityAnimations(animationDt);
+  }
+
+  updateAutonomousColony(dt) {
+    if (!this.state.colony) return;
+    this.updateContinuousThreatDirector(dt);
+    const livingEnemies = this.state.enemies.filter((enemy) => !enemy.dead);
+
+    for (const slime of this.state.colony.slimes) {
+      const survivor = this.state.survivors.find((item) => item.uid === slime.uid);
+      if (!survivor) continue;
+      if (survivor.downed && slime.aiState !== 'downed') downColonySlime(slime);
+      else if (!survivor.downed && slime.aiState !== 'downed') slime.hp = survivor.hp;
+    }
+
+    setColonyThreats(this.state.colony, livingEnemies.map((enemy) => ({
+      uid: enemy.uid,
+      x: enemy.x,
+      y: enemy.y,
+      hp: enemy.hp,
+      dead: enemy.dead,
+    })));
+    setColonyThreatIntensity(this.state.colony, livingEnemies.length ? 0.68 : 0.12);
+    const events = updateColony(this.state.colony, dt);
+    for (const building of this.state.buildings) {
+      if (!building.underConstruction) continue;
+      const blueprint = this.state.colony.blueprints.find((item) => item.uid === building.blueprintUid);
+      if (blueprint) building.buildProgress = clamp(
+        blueprint.buildProgress / Math.max(0.01, blueprint.buildSeconds),
+        0,
+        1,
+      );
+    }
+    this.handleColonyEvents(events);
+    this.syncColonySlimesToSurvivors();
+
+    this.updateDeployables(dt);
+    this.updateTerrain(dt);
+    this.updateSurvivors(dt);
+    this.updateBuildings(dt);
+    this.updateEnemies(dt);
+
+    if (Math.floor(this.state.colony.time) > Math.floor(this.state.colony.time - dt)
+      && Math.floor(this.state.colony.time) % 12 === 0) this.save();
+  }
+
+  handleColonyEvents(events) {
+    for (const event of events) {
+      if (event.type === 'threat-hit') {
+        const enemy = this.state.enemies.find((item) => item.uid === event.threatUid && !item.dead);
+        const survivor = this.state.survivors.find((item) => item.uid === event.slimeUid);
+        if (enemy && survivor) {
+          this.playEntityAnimation(survivor, 'attack');
+          this.damageEnemy(enemy, event.damage, survivor);
+        }
+      } else if (event.type === 'resource-deposited') {
+        const position = this.cellCenter(CORE_CELL.x, CORE_CELL.y);
+        this.spawnDynamicEffect('place', position.x, position.y + 12 * this.camera.zoom, {
+          color: event.resourceType === 'shard' ? PALETTE.crystal : event.resourceType === 'nectar' ? '#F6BE58' : PALETTE.heal,
+          accent: '#FFF8E9',
+          intensity: 0.72,
+        });
+        this.floatText(
+          position.x,
+          position.y - 42 * this.camera.zoom,
+          `+${event.amount} ${COLONY_RESOURCE_LABEL[event.resourceType]}`,
+          '#FFF8E9',
+        );
+      } else if (event.type === 'material-delivered') {
+        const blueprint = this.state.colony.blueprints.find((item) => item.uid === event.blueprintUid);
+        if (blueprint) {
+          const position = this.cellCenter(blueprint.x, blueprint.y);
+          this.spawnDynamicEffect('place', position.x, position.y, {
+            color: event.resourceType === 'shard' ? PALETTE.crystal : '#61D6A2',
+            accent: '#FFF8E9',
+            intensity: 0.62,
+          });
+        }
+      } else if (event.type === 'blueprint-completed') {
+        const building = this.state.buildings.find((item) => item.blueprintUid === event.blueprintUid);
+        if (building) {
+          building.underConstruction = false;
+          building.blueprintUid = null;
+          building.buildProgress = 1;
+          building.placedAt = this.time;
+          building.hp = building.maxHp;
+          const position = this.entityCanvasPosition(building);
+          this.spawnDynamicEffect('place', position.x, position.y, {
+            color: BUILDING_BY_ID[building.cardId].color,
+            accent: '#FFF0C4',
+            intensity: 1.35,
+          });
+          this.showToast(`${BUILDING_BY_ID[building.cardId].shortName}施工完成`, 'good');
+          this.save();
+        }
+      } else if (event.type === 'resource-depleted' || event.type === 'terrain-cleared') {
+        const position = this.cellCenter(event.x, event.y);
+        this.spawnDynamicEffect('enemy-pop', position.x, position.y, {
+          color: event.type === 'terrain-cleared' ? '#9EB8AF' : '#61D6A2',
+          accent: '#FFF0C4',
+          intensity: 0.9,
+        });
+        this.showToast(
+          event.type === 'terrain-cleared' ? '脆壳岩已清理，土地可以建造了' : '资源采集完毕，露出了可用土地',
+          'good',
+        );
+        this.save();
+      } else if (event.type === 'slime-respawned') {
+        this.showToast('史莱姆在小屋休养后重新出发', 'good');
+      }
+    }
+  }
+
+  updateContinuousThreatDirector(dt) {
+    const director = this.state.colonyDirector;
+    director.elapsed += dt;
+    if (director.elapsed < director.nextPackAt) return;
+    const active = this.state.enemies.filter((enemy) => !enemy.dead).length;
+    if (active >= 30) {
+      director.nextPackAt = director.elapsed + 4;
+      return;
+    }
+
+    const tier = Math.floor(director.elapsed / 90);
+    const count = Math.min(18, 6 + tier * 2);
+    const entranceCount = Math.min(2, 1 + Math.floor(tier / 2));
+    for (let index = 0; index < count; index += 1) {
+      const entrance = WORLD.monsterEntrances[
+        (director.packIndex + index % entranceCount) % WORLD.monsterEntrances.length
+      ];
+      const enemyId = tier >= 7 && index === count - 1
+        ? 'enemy-acid-shell-king'
+        : tier >= 3 && index % 6 === 0
+          ? 'enemy-stone-lump'
+          : tier >= 1 && index % 4 === 0
+            ? 'enemy-windcap'
+            : 'enemy-soft-biter';
+      const offset = ((index % 5) - 2) * 0.12;
+      const spawn = {
+        x: entrance.x + (entrance.edge === 'north' || entrance.edge === 'south' ? offset : 0),
+        y: entrance.y + (entrance.edge === 'west' || entrance.edge === 'east' ? offset : 0),
+      };
+      this.spawnEnemyAtWorld(enemyId, spawn, {
+        hpMultiplier: enemyId === 'enemy-acid-shell-king' ? 0.62 : 0.42,
+        damageMultiplier: enemyId === 'enemy-acid-shell-king' ? 0.62 : 0.45,
+        continuous: true,
+      });
+    }
+    director.packIndex += 1;
+    director.nextPackAt = director.elapsed + Math.max(16, 27 - tier * 1.4);
+    this.showToast(`荒野出现 ${count} 只弱小怪物，史莱姆会自动迎战`, 'danger', 2.6);
+    this.audio.play('warning');
   }
 
   animationClipsFor(cardId) {
@@ -888,7 +2010,8 @@ export class SlimeGame {
       const controller = this.animatorFor(survivor);
       if (!controller) continue;
       this.animators.get(survivor.uid).wasDowned = survivor.downed;
-      controller.setBase('idle');
+      const survivorClips = this.animationClipsFor(survivor.cardId);
+      controller.setBase(survivor.visualMoving && survivorClips?.move ? 'move' : 'idle');
       if (survivor.downed) controller.play('downed', { restart: false });
       controller.update(dt);
       const events = controller.drainEvents();
@@ -901,9 +2024,10 @@ export class SlimeGame {
       const controller = this.animatorFor(enemy);
       if (!controller) continue;
       if (!enemy.dead) {
+        const enemyClips = this.animationClipsFor(enemy.cardId);
         const base = enemy.cardId === 'enemy-acid-shell-king' && enemy.telegraph > 0
           ? 'charge'
-          : (enemy.visualMoving ? 'move' : 'idle');
+          : (enemy.visualMoving && enemyClips?.move ? 'move' : 'idle');
         controller.setBase(base);
       }
       controller.update(dt);
@@ -928,27 +2052,124 @@ export class SlimeGame {
     for (const spawn of this.state.spawnQueue || []) {
       if (spawn.at <= this.state.waveElapsed && !this.state.spawned.has(spawn.key)) {
         this.state.spawned.add(spawn.key);
-        this.spawnEnemy(spawn.enemyId, spawn.row);
+        const tuning = this.isExpeditionActive()
+          ? this.state.expeditionRun.currentEncounter?.tuning || {}
+          : {};
+        this.spawnEnemy(spawn.enemyId, spawn.row, {
+          hpMultiplier: tuning.enemyHpMultiplier,
+          damageMultiplier: tuning.enemyDamageMultiplier,
+          expedition: this.isExpeditionActive(),
+        });
       }
     }
 
     this.updateDeployables(dt);
     this.updateTerrain(dt);
+    if (this.isExpeditionActive()) this.updateExpeditionSquad(dt);
     this.updateSurvivors(dt);
     this.updateBuildings(dt);
     this.updateEnemies(dt);
 
+    // A core breach or boss ability can settle an expedition from inside the
+    // enemy update. Do not let the rest of this frame fall through into the
+    // legacy wave-clear path after the phase has changed to result.
+    if (this.state.phase !== 'battle') return;
+
+    if (this.isExpeditionActive()
+      && this.state.survivors.length
+      && this.state.survivors.every((survivor) => survivor.downed)) {
+      this.finishExpeditionEncounter(false);
+      return;
+    }
+
     const allSpawned = this.state.spawned.size === (this.state.spawnQueue?.length || 0);
-    if (allSpawned && this.state.enemies.length === 0) this.finishWave();
+    if (allSpawned && this.state.enemies.length === 0) {
+      if (this.isExpeditionActive()) this.finishExpeditionEncounter(true);
+      else this.finishWave();
+    }
   }
 
-  spawnEnemy(enemyId, row) {
+  updateExpeditionSquad(dt) {
+    const livingEnemies = this.state.enemies.filter((enemy) => !enemy.dead);
+    const rallyPoints = [
+      { x: CORE_CELL.x - 1.4, y: CORE_CELL.y - 1.15 },
+      { x: CORE_CELL.x - 1.75, y: CORE_CELL.y + 0.15 },
+      { x: CORE_CELL.x - 1.35, y: CORE_CELL.y + 1.35 },
+    ];
+    for (let index = 0; index < this.state.survivors.length; index += 1) {
+      const survivor = this.state.survivors[index];
+      survivor.visualMoving = false;
+      if (survivor.downed) continue;
+      const controller = this.animators.get(survivor.uid)?.controller;
+      if (controller?.current === 'attack') continue;
+      const card = SURVIVOR_BY_ID[survivor.cardId];
+      const target = livingEnemies
+        .slice()
+        .sort((left, right) => distance(survivor, left) - distance(survivor, right))[0];
+      const destination = target || rallyPoints[index] || rallyPoints[0];
+      const desiredRange = target
+        ? clamp(card.attack.rangeTiles * 0.72, 0.78, 2.35)
+        : 0.16;
+      if (distance(survivor, destination) <= desiredRange) continue;
+
+      survivor.expeditionRouteTimer = (survivor.expeditionRouteTimer || 0) - dt;
+      const goalKey = target?.uid || `rally-${index}`;
+      if (survivor.expeditionRouteTimer <= 0
+        || survivor.expeditionRouteGoal !== goalKey
+        || !survivor.expeditionPath?.length) {
+        const from = this.nearestCell(survivor);
+        const to = {
+          x: clamp(Math.round(destination.x), 0, WORLD.width - 1),
+          y: clamp(Math.round(destination.y), 0, WORLD.height - 1),
+        };
+        survivor.expeditionPath = routeFor(
+          [],
+          from,
+          to,
+          this.state.worldTerrain,
+          { allowBuildingBreaching: false },
+        );
+        survivor.expeditionRouteTimer = 0.42;
+        survivor.expeditionRouteGoal = goalKey;
+      }
+
+      const nextCell = survivor.expeditionPath?.[1];
+      const moveTarget = nextCell || destination;
+      const dx = moveTarget.x - survivor.x;
+      const dy = moveTarget.y - survivor.y;
+      const length = Math.hypot(dx, dy);
+      if (length <= 0.035) {
+        if (nextCell) survivor.expeditionPath.shift();
+        continue;
+      }
+      const speed = survivor.expeditionMoveSpeed || 1.35;
+      const amount = Math.min(length, speed * dt);
+      survivor.x = clamp(survivor.x + (dx / length) * amount, 0, WORLD.width - 0.01);
+      survivor.y = clamp(survivor.y + (dy / length) * amount, 0, WORLD.height - 0.01);
+      survivor.visualMoving = amount > 0;
+      if (nextCell && amount >= length - 0.001) survivor.expeditionPath.shift();
+    }
+  }
+
+  spawnEnemy(enemyId, row, options = {}) {
+    const worldRow = clamp(CORE_CELL.y - 3 + row, 0, WORLD.height - 1);
+    return this.spawnEnemyAtWorld(enemyId, { x: WORLD.width - 0.35, y: worldRow }, options);
+  }
+
+  spawnEnemyAtWorld(enemyId, position, options = {}) {
     const card = ENEMY_BY_ID[enemyId];
+    if (!card) return null;
+    const hpMultiplier = clamp(Number(options.hpMultiplier) || 1, 0.1, 3);
+    const maxHp = Math.max(1, Math.round(card.hp * hpMultiplier));
     const enemy = {
       uid: uid('enemy'), cardId: enemyId,
-      x: 6.35, y: row,
-      hp: card.hp, maxHp: card.hp,
+      x: clamp(Number(position?.x) || 0, 0, WORLD.width - 0.01),
+      y: clamp(Number(position?.y) || 0, 0, WORLD.height - 0.01),
+      hp: maxHp, maxHp,
       speed: card.speed, dead: false,
+      damageMultiplier: clamp(Number(options.damageMultiplier) || 1, 0.1, 3),
+      continuous: Boolean(options.continuous),
+      expedition: Boolean(options.expedition),
       attackTimer: 0, routeTimer: 0, path: [],
       stagger: 0, rooted: 0, eating: 0,
       honeyEntries: {}, lastCell: null,
@@ -963,10 +2184,7 @@ export class SlimeGame {
       this.showToast('气象台已标记酸壳蜗王', 'good');
     }
     this.state.enemies.push(enemy);
-    const spawnPosition = {
-      x: BOARD.x + BOARD.cell * 6.65,
-      y: this.cellCenter(0, row).y - 28,
-    };
+    const spawnPosition = this.entityCanvasPosition(enemy);
     this.spawnDynamicEffect('spawn', spawnPosition.x, spawnPosition.y, {
       color: card.color,
       accent: card.elite ? '#FFE27A' : '#EFD9FF',
@@ -974,6 +2192,7 @@ export class SlimeGame {
       intensity: card.elite ? 1.55 : 1,
     });
     this.spawnParticles(spawnPosition.x, spawnPosition.y + 28, '#9D7CA8', 8, 55);
+    return enemy;
   }
 
   updateDeployables(dt) {
@@ -997,7 +2216,9 @@ export class SlimeGame {
       survivor.cooldown -= dt;
       if (survivor.cooldown > 0) continue;
       const acted = this.performSurvivorAction(survivor);
-      survivor.cooldown = acted ? card.attack.intervalSeconds : 0.18;
+      survivor.cooldown = acted
+        ? card.attack.intervalSeconds * (survivor.expeditionAttackIntervalMultiplier || 1)
+        : 0.18;
     }
   }
 
@@ -1015,7 +2236,11 @@ export class SlimeGame {
 
     const targets = this.findTargetsForAttack(survivor, card.attack);
     if (!targets.length) return false;
-    const maxTargets = card.attack.pierce || 1;
+    const maxTargets = Math.max(
+      card.attack.pierce || 1,
+      1 + (survivor.expeditionExtraProjectile || 0),
+      1 + (survivor.expeditionBubbleChainTargets || 0),
+    );
     const attackTargets = targets.slice(0, maxTargets);
     const nextAttackCount = survivor.attackCount + 1;
     const nextHitCount = survivor.hitCount + 1;
@@ -1026,7 +2251,14 @@ export class SlimeGame {
     const bubblePush = card.id === 'survivor-bubble-float'
       && nextHitCount % card.ability.hitsRequired === 0;
     const hitStarted = this.startEntityAttack(survivor, () => {
-      attackTargets.forEach((enemy) => this.damageEnemy(enemy, card.attack.damage, survivor));
+      attackTargets.forEach((enemy, index) => {
+        const secondaryMultiplier = index === 0
+          ? 1
+          : survivor.expeditionSecondaryDamageMultiplier
+            || survivor.expeditionChainedDamageMultiplier
+            || 0.55;
+        this.damageEnemy(enemy, card.attack.damage * secondaryMultiplier, survivor);
+      });
       if (crystalCell) {
         this.state.terrain.push({ type: 'crystal', x: crystalCell.x, y: crystalCell.y, life: card.ability.spikeLifetimeSeconds, damage: card.ability.spikeDamage });
         const position = this.cellCenter(crystalCell.x, crystalCell.y);
@@ -1065,8 +2297,19 @@ export class SlimeGame {
       .map((target) => ({ kind: 'building', target, ratio: target.hp / target.maxHp }));
     const choice = [...allies, ...structures].sort((a, b) => a.ratio - b.ratio)[0];
     if (!choice) return false;
+    const healAmount = card.ability.heal * (survivor.expeditionHealMultiplier || 1);
     if (choice.ratio >= 0.995) choice.target.seed = Math.max(choice.target.seed || 0, card.ability.fullHealthShield);
-    else choice.target.hp = Math.min(choice.target.maxHp, choice.target.hp + card.ability.heal);
+    else choice.target.hp = Math.min(choice.target.maxHp, choice.target.hp + healAmount);
+    if (survivor.expeditionHealSplashPercent > 0) {
+      this.state.survivors
+        .filter((ally) => ally.uid !== choice.target.uid && !ally.downed)
+        .forEach((ally) => {
+          ally.hp = Math.min(
+            ally.maxHp,
+            ally.hp + healAmount * survivor.expeditionHealSplashPercent,
+          );
+        });
+    }
     const position = this.entityCanvasPosition(choice.target);
     this.spawnDynamicEffect('heal', position.x, position.y - 28, {
       color: PALETTE.heal,
@@ -1074,7 +2317,7 @@ export class SlimeGame {
       intensity: 1,
     });
     this.spawnParticles(position.x, position.y - 25, PALETTE.heal, 10, 45);
-    this.floatText(position.x, position.y - 40, choice.ratio >= 0.995 ? '萌芽' : `+${card.ability.heal}`, PALETTE.heal);
+    this.floatText(position.x, position.y - 40, choice.ratio >= 0.995 ? '萌芽' : `+${Math.round(healAmount)}`, PALETTE.heal);
     this.audio.play('heal');
     return true;
   }
@@ -1082,7 +2325,7 @@ export class SlimeGame {
   updateBuildings(dt) {
     for (const building of this.state.buildings) {
       building.poisoned = Math.max(0, (building.poisoned || 0) - dt);
-      if (building.destroyed) continue;
+      if (building.destroyed || building.underConstruction) continue;
       const card = BUILDING_BY_ID[building.cardId];
       if (!card.attack) continue;
       building.cooldown -= dt;
@@ -1106,7 +2349,7 @@ export class SlimeGame {
 
   updateEnemies(dt) {
     for (const enemy of [...this.state.enemies]) {
-      if (this.state.phase !== 'battle') break;
+      if (this.state.phase !== 'battle' && this.state.phase !== 'build') break;
       if (enemy.dead) continue;
       enemy.visualMoving = false;
       const card = ENEMY_BY_ID[enemy.cardId];
@@ -1123,21 +2366,6 @@ export class SlimeGame {
         continue;
       }
 
-      if (enemy.x > 5) {
-        const entryBlocker = buildingAt(this.state.buildings, 5, Math.round(enemy.y));
-        if (entryBlocker && BUILDING_BY_ID[entryBlocker.cardId].solid && !entryBlocker.destroyed) {
-          if (enemy.attackTimer <= 0) {
-            const started = this.startEntityAttack(enemy, () => {
-              if (!entryBlocker.destroyed) this.damageBuilding(entryBlocker, card.damage);
-            });
-            if (started) enemy.attackTimer = card.attackIntervalSeconds;
-          }
-          continue;
-        }
-        this.moveEnemyToward(enemy, { x: 5, y: Math.round(enemy.y) }, dt, card.speed);
-        continue;
-      }
-
       const current = this.nearestCell(enemy);
       const lure = this.findLureForEnemy(enemy);
       if (lure && current.x === lure.x && current.y === lure.y) {
@@ -1147,20 +2375,30 @@ export class SlimeGame {
         continue;
       }
       if (enemy.routeTimer <= 0 || !enemy.path?.length || enemy.routeGoal !== lure?.uid) {
-        enemy.path = routeFor(this.state.buildings, current, lure ? { x: lure.x, y: lure.y } : null);
+        enemy.path = routeFor(
+          this.state.buildings,
+          current,
+          lure ? { x: lure.x, y: lure.y } : null,
+          this.state.worldTerrain,
+        );
         enemy.routeTimer = 0.55;
         enemy.routeGoal = lure?.uid || null;
       }
 
       const next = enemy.path?.[1];
-      if (!next) continue;
-      if (next.x < 0) {
+      const reachedCore = distance(enemy, CORE_CELL) < 0.68
+        || (!next && current.x === CORE_CELL.x && current.y === CORE_CELL.y);
+      if (reachedCore) {
         if (enemy.attackTimer <= 0) {
           const started = this.startEntityAttack(enemy, () => {
-            if (this.state.coreHp > 0) this.damageCore(card.damage);
+            if (this.state.coreHp > 0) this.damageCore(this.enemyDamage(enemy, card.damage));
           });
           if (started) enemy.attackTimer = card.attackIntervalSeconds;
         }
+        continue;
+      }
+      if (!next) {
+        enemy.routeTimer = 0;
         continue;
       }
 
@@ -1175,18 +2413,20 @@ export class SlimeGame {
         }
         if (enemy.attackTimer <= 0) {
           const started = this.startEntityAttack(enemy, () => {
-            if (!blocker.destroyed) this.damageBuilding(blocker, card.damage);
+            if (!blocker.destroyed) this.damageBuilding(blocker, this.enemyDamage(enemy, card.damage));
           });
           if (started) enemy.attackTimer = card.attackIntervalSeconds;
         }
         continue;
       }
 
-      const defender = this.state.survivors.find((survivor) => !survivor.downed && survivor.x === next.x && survivor.y === next.y);
+      const defender = this.state.survivors.find((survivor) => (
+        !survivor.downed && distance(survivor, next) < 0.58
+      ));
       if (defender && (SURVIVOR_BY_ID[defender.cardId].blockCount > 0 || Math.abs(enemy.x - next.x) < 0.7)) {
         if (enemy.attackTimer <= 0) {
           const started = this.startEntityAttack(enemy, () => {
-            if (!defender.downed) this.damageSurvivor(defender, card.damage);
+            if (!defender.downed) this.damageSurvivor(defender, this.enemyDamage(enemy, card.damage));
           });
           if (started) enemy.attackTimer = card.attackIntervalSeconds;
         }
@@ -1218,15 +2458,32 @@ export class SlimeGame {
     if (enemy.telegraph > 0) {
       enemy.telegraph -= dt;
       if (enemy.telegraph <= 0 && enemy.telegraphTarget) {
-        const target = this.state.buildings.find((building) => building.uid === enemy.telegraphTarget && !building.destroyed);
+        const target = this.isExpeditionActive()
+          ? this.state.survivors.find((survivor) => (
+            survivor.uid === enemy.telegraphTarget && !survivor.downed
+          ))
+          : this.state.buildings.find((building) => (
+            building.uid === enemy.telegraphTarget && !building.destroyed
+          ));
         if (target) {
           this.launchProjectile(enemy, target, 'acid');
           target.poisoned = Math.max(target.poisoned || 0, 1.2);
-          this.damageBuilding(target, card.ability.buildingDamage);
-          for (const other of this.state.buildings) {
-            if (other.uid !== target.uid && !other.destroyed && distance(other, target) <= card.ability.splashRadiusTiles) {
+          if (this.isExpeditionActive()) {
+            this.damageSurvivor(target, this.enemyDamage(enemy, card.ability.buildingDamage * 0.72));
+          } else {
+            this.damageBuilding(target, this.enemyDamage(enemy, card.ability.buildingDamage));
+          }
+          const splashTargets = this.isExpeditionActive()
+            ? this.state.survivors.filter((survivor) => !survivor.downed)
+            : this.state.buildings.filter((building) => !building.destroyed);
+          for (const other of splashTargets) {
+            if (other.uid !== target.uid && distance(other, target) <= card.ability.splashRadiusTiles) {
               other.poisoned = Math.max(other.poisoned || 0, 0.8);
-              this.damageBuilding(other, Math.round(card.ability.buildingDamage * 0.45));
+              if (this.isExpeditionActive()) {
+                this.damageSurvivor(other, this.enemyDamage(enemy, card.ability.buildingDamage * 0.32));
+              } else {
+                this.damageBuilding(other, this.enemyDamage(enemy, card.ability.buildingDamage * 0.45));
+              }
             }
           }
           const position = this.entityCanvasPosition(target);
@@ -1241,18 +2498,31 @@ export class SlimeGame {
     }
     enemy.abilityTimer -= dt;
     if (enemy.abilityTimer <= 0) {
-      const candidates = this.state.buildings.filter((building) => !building.destroyed);
+      const candidates = this.isExpeditionActive()
+        ? this.state.survivors.filter((survivor) => !survivor.downed)
+        : this.state.buildings.filter((building) => !building.destroyed);
       const target = candidates.sort((a, b) => distance(enemy, a) - distance(enemy, b))[0];
       if (target) {
         enemy.telegraph = card.ability.telegraphSeconds;
         enemy.telegraphTarget = target.uid;
-        this.showToast('蜗王正在蓄力！用击退制造失衡可打断', 'danger', 2.4);
+        this.showToast(
+          this.isExpeditionActive()
+            ? '蜗王锁定了远征队！泡泡击退可以打断蓄力'
+            : '蜗王正在蓄力！用击退制造失衡可打断',
+          'danger',
+          2.4,
+        );
         this.audio.play('warning');
       }
     }
   }
 
   findTargetsForAttack(attacker, attack) {
+    if (this.state.phase === 'build' || this.isExpeditionActive()) {
+      return this.state.enemies
+        .filter((enemy) => !enemy.dead && distance(attacker, enemy) <= attack.rangeTiles)
+        .sort((a, b) => distance(attacker, a) - distance(attacker, b));
+    }
     if (attack.targetRule === 'first-in-lane') return this.findLaneTargets(attacker, attack.rangeTiles);
     return this.state.enemies
       .filter((enemy) => !enemy.dead && distance(attacker, enemy) <= attack.rangeTiles && enemy.x >= attacker.x - 0.7)
@@ -1260,6 +2530,11 @@ export class SlimeGame {
   }
 
   findLaneTargets(attacker, rangeTiles) {
+    if (this.state.phase === 'build' || this.isExpeditionActive()) {
+      return this.state.enemies
+        .filter((enemy) => !enemy.dead && distance(attacker, enemy) <= rangeTiles)
+        .sort((a, b) => distance(attacker, a) - distance(attacker, b));
+    }
     return this.state.enemies
       .filter((enemy) => !enemy.dead && Math.abs(enemy.y - attacker.y) < 0.48 && enemy.x >= attacker.x - 0.55 && enemy.x - attacker.x <= rangeTiles)
       .sort((a, b) => a.x - b.x);
@@ -1338,7 +2613,10 @@ export class SlimeGame {
     }
     const contact = this.state.survivors.find((survivor) => !survivor.downed && survivor.x === cell.x && survivor.y === cell.y);
     if (contact && SURVIVOR_BY_ID[contact.cardId].blockCount === 0) {
-      this.damageSurvivor(contact, Math.max(1, Math.round(ENEMY_BY_ID[enemy.cardId].damage * 0.65)));
+      this.damageSurvivor(
+        contact,
+        this.enemyDamage(enemy, ENEMY_BY_ID[enemy.cardId].damage * 0.65),
+      );
     }
     enemy.justPushed = false;
   }
@@ -1346,7 +2624,9 @@ export class SlimeGame {
   damageEnemy(enemy, amount, source) {
     if (enemy.dead) return;
     const multiplier = enemy.marked ? 1.15 : 1;
-    const damage = Math.round(amount * multiplier);
+    const damage = Math.round(
+      amount * multiplier * (source?.expeditionDamageMultiplier || 1),
+    );
     const enemyCard = ENEMY_BY_ID[enemy.cardId];
     const sourceColor = SURVIVOR_BY_ID[source?.cardId]?.color
       || BUILDING_BY_ID[source?.cardId]?.color
@@ -1387,10 +2667,22 @@ export class SlimeGame {
       });
       this.spawnParticles(position.x, position.y - 8, '#8B7395', enemyCard.elite ? 18 : 9, 75);
       this.shake = Math.max(this.shake, enemyCard.elite ? 0.52 : 0.2);
+      const burstDamage = source?.expeditionDefeatedBurstDamage || 0;
+      const burstRadius = source?.expeditionBurstRadiusTiles || 0;
+      if (burstDamage > 0 && burstRadius > 0 && !enemy.expeditionBurstResolved) {
+        enemy.expeditionBurstResolved = true;
+        this.state.enemies
+          .filter((other) => !other.dead && distance(enemy, other) <= burstRadius)
+          .forEach((other) => this.damageEnemy(other, burstDamage, source));
+      }
     } else if (!this.pendingAttackHits.has(enemy.uid)) {
       this.playEntityAnimation(enemy, 'hurt');
       this.shake = Math.max(this.shake, 0.08);
     }
+  }
+
+  enemyDamage(enemy, amount) {
+    return Math.max(1, Math.round(amount * (enemy?.damageMultiplier ?? 1)));
   }
 
   damageBuilding(building, amount) {
@@ -1408,6 +2700,12 @@ export class SlimeGame {
       const absorbed = Math.min(target.shield, damage);
       target.shield -= absorbed;
       damage -= absorbed;
+      if (target.shield <= 0 && kind === 'survivor' && target.expeditionShieldBreakDamage > 0) {
+        const nearby = this.state.enemies
+          .filter((enemy) => !enemy.dead)
+          .sort((left, right) => distance(target, left) - distance(target, right))[0];
+        if (nearby) this.damageEnemy(nearby, target.expeditionShieldBreakDamage, target);
+      }
       if (target.shield <= 0 && kind === 'survivor' && target.cardId === 'survivor-shell-shell') {
         const nearby = this.state.enemies.find((enemy) => !enemy.dead && distance(enemy, target) <= 1.2);
         if (nearby) this.pushEnemy(nearby, 1, 0, SURVIVOR_BY_ID[target.cardId].ability);
@@ -1421,6 +2719,13 @@ export class SlimeGame {
     const position = this.entityCanvasPosition(target);
     this.floatText(position.x, position.y - 44, `-${Math.round(damage)}`, PALETTE.danger);
     if (target.hp > 0) return;
+    if (kind === 'survivor' && target.expeditionLethalProtectionHits > 0) {
+      target.expeditionLethalProtectionHits -= 1;
+      target.hp = Math.max(1, target.maxHp * (target.expeditionProtectionHealPercent || 0.25));
+      this.floatText(position.x, position.y - 66, '最后一弹', PALETTE.heal);
+      this.audio.play('heal');
+      return;
+    }
     if ((target.seed || 0) > 0) {
       target.seed = 0;
       target.hp = 1;
@@ -1449,9 +2754,21 @@ export class SlimeGame {
   damageCore(amount) {
     this.state.coreHp = Math.max(0, this.state.coreHp - amount);
     this.shake = Math.max(this.shake, 0.55);
-    this.floatText(118, 340, `-${amount}`, PALETTE.danger);
+    const corePosition = this.cellCenter(CORE_CELL.x, CORE_CELL.y);
+    this.floatText(corePosition.x, corePosition.y - 54 * this.camera.zoom, `-${amount}`, PALETTE.danger);
     this.audio.play('hit');
-    if (this.state.coreHp <= 0) this.finishDefense(false);
+    if (this.state.coreHp <= 0 && this.isExpeditionActive()) {
+      this.finishExpeditionEncounter(false);
+    } else if (this.state.coreHp <= 0 && this.state.phase === 'build') {
+      this.state.enemies.forEach((enemy) => {
+        enemy.dead = true;
+        enemy.deathElapsed = 0;
+      });
+      this.state.coreHp = Math.round(this.state.coreMaxHp * 0.35);
+      this.showToast('基地核心被冲破，救援泡泡已将怪物弹开', 'danger', 3);
+    } else if (this.state.coreHp <= 0) {
+      this.finishDefense(false);
+    }
   }
 
   pushEnemy(enemy, dx, dy, effect = {}) {
@@ -1470,8 +2787,8 @@ export class SlimeGame {
     }
     const old = { x: enemy.x, y: enemy.y };
     const oldPosition = this.entityCanvasPosition(enemy);
-    enemy.x = clamp(enemy.x + dx, 0, 6.25);
-    enemy.y = clamp(enemy.y + dy, 0, 5);
+    enemy.x = clamp(enemy.x + dx, 0, WORLD.width - 0.01);
+    enemy.y = clamp(enemy.y + dy, 0, WORLD.height - 0.01);
     enemy.path = [];
     enemy.routeTimer = 0;
     enemy.justPushed = true;
@@ -1500,8 +2817,8 @@ export class SlimeGame {
     const moved = old.x !== enemy.x || old.y !== enemy.y;
     if (moved) {
       this.spawnDynamicEffect('push', oldPosition.x, oldPosition.y - 18, {
-        dx: (enemy.x - old.x) * BOARD.cell,
-        dy: (enemy.y - old.y) * BOARD.cell,
+        dx: (enemy.x - old.x) * this.worldPixelsPerCell(),
+        dy: (enemy.y - old.y) * this.worldPixelsPerCell(),
         color: PALETTE.bubble,
         accent: '#E8FFFF',
         layer: 'back',
@@ -1599,26 +2916,49 @@ export class SlimeGame {
     };
   }
 
-  cellCenter(x, y) {
+  worldPixelsPerCell() {
+    return BOARD.cell * this.camera.zoom;
+  }
+
+  isWorldScreenPositionVisible(position, padding = 120) {
+    return position.x >= BOARD.x - padding
+      && position.x <= BOARD.x + BOARD.width + padding
+      && position.y >= BOARD.y - padding
+      && position.y <= BOARD.y + BOARD.height + padding;
+  }
+
+  terrainRenderCell(x, y) {
+    const cell = catalogTerrainAt(this.state.worldTerrain, x, y);
+    if (!cell) return null;
+    const definition = TERRAIN_TYPES[cell.terrainId] || TERRAIN_TYPES.ground;
+    const renderKind = definition.kind === 'destructible-obstacle'
+      ? 'destructible'
+      : definition.kind === 'indestructible-terrain'
+        ? 'indestructible'
+        : definition.kind;
     return {
-      x: BOARD.x + (x + 0.5) * BOARD.cell,
-      y: BOARD.y + (y + 0.5) * BOARD.cell,
+      ...cell,
+      kind: renderKind,
+      variant: cell.terrainId,
+      resourceType: definition.yield?.resourceId,
     };
+  }
+
+  cellCenter(x, y) {
+    return worldToScreen({ x: x + 0.5, y: y + 0.5 }, this.camera, BOARD);
   }
 
   entityCanvasPosition(entity) {
     const buildingCard = BUILDING_BY_ID[entity?.cardId];
     if (buildingCard) {
       const shape = rotatedFootprint(buildingCard, entity.rotation);
-      return {
-        x: BOARD.x + (entity.x + shape.width / 2) * BOARD.cell,
-        y: BOARD.y + (entity.y + shape.height) * BOARD.cell - 15,
-      };
+      const ground = worldToScreen({
+        x: entity.x + shape.width / 2,
+        y: entity.y + shape.height,
+      }, this.camera, BOARD);
+      return { x: ground.x, y: ground.y - 15 * this.camera.zoom };
     }
-    return {
-      x: BOARD.x + (entity.x + 0.5) * BOARD.cell,
-      y: BOARD.y + (entity.y + 0.78) * BOARD.cell,
-    };
+    return worldToScreen({ x: entity.x + 0.5, y: entity.y + 0.78 }, this.camera, BOARD);
   }
 
   selectCombatCard(card) {
@@ -1713,8 +3053,8 @@ export class SlimeGame {
         cells.forEach((target) => this.state.terrain.push({ type: 'honey', ...target, life: card.effect.lifetimeSeconds }));
         const middle = this.cellCenter(selection.origin.x + dx, selection.origin.y + dy);
         this.spawnDynamicEffect('trail', middle.x, middle.y, {
-          dx: dx * BOARD.cell * 2.45,
-          dy: dy * BOARD.cell * 2.45,
+          dx: dx * this.worldPixelsPerCell() * 2.45,
+          dy: dy * this.worldPixelsPerCell() * 2.45,
           color: '#F6BE58',
           accent: '#FFF1A8',
           intensity: 1.1,
@@ -1863,7 +3203,15 @@ export class SlimeGame {
           this.showToast('不能把建筑搬到敌人脚下', 'danger');
           return;
         }
-        if (!canPlace(this.state.buildings, sourceCard, cell.x, cell.y, source.rotation, source.uid)) {
+        if (!canPlace(
+          this.state.buildings,
+          sourceCard,
+          cell.x,
+          cell.y,
+          source.rotation,
+          source.uid,
+          this.state.worldTerrain,
+        )) {
           this.showToast('目的地放不下这座建筑', 'danger');
           return;
         }
@@ -1933,6 +3281,9 @@ export class SlimeGame {
     this.drawSidePanel(ctx);
     this.drawBottomBar(ctx);
     this.drawTransientUi(ctx);
+    if (this.modal?.type === 'expedition-squad') this.drawExpeditionSquadModal(ctx);
+    if (this.modal?.type === 'expedition-route') this.drawExpeditionRouteModal(ctx);
+    if (this.modal?.type === 'expedition-boon') this.drawExpeditionBoonModal(ctx);
     if (this.modal?.type === 'welcome') this.drawWelcome(ctx);
     if (this.state.phase === 'intel') this.drawIntelModal(ctx);
     if (this.state.phase === 'result') this.drawResultModal(ctx);
@@ -2024,56 +3375,89 @@ export class SlimeGame {
 
   drawBattlefield(ctx) {
     this.resetDynamicComponentBudget();
-    drawRoundedRect(ctx, BOARD.x - 20, BOARD.y - 18, BOARD.cell * 6 + 40, BOARD.cell * 6 + 36, {
-      radius: 28,
-      fill: 'rgba(255,248,233,0.78)',
+    drawRoundedRect(ctx, BOARD.x - 4, BOARD.y - 4, BOARD.width + 8, BOARD.height + 8, {
+      radius: 24,
+      fill: 'rgba(255,248,233,0.82)',
       stroke: 'rgba(51,71,80,0.18)',
       lineWidth: 3,
     });
 
-    for (let row = 0; row < BOARD.rows; row += 1) {
-      for (let col = 0; col < BOARD.cols; col += 1) {
-        const x = BOARD.x + col * BOARD.cell;
-        const y = BOARD.y + row * BOARD.cell;
-        const alpha = this.state.phase === 'battle' ? 0.7 : 1;
-        drawAssetOrFallback(
-          ctx,
-          this.assetStore,
-          (row + col) % 2 ? 'tile-build-dark' : 'tile-build-light',
-          (asset) => {
-            ctx.globalAlpha *= alpha;
-            ctx.drawImage(asset, x + 3, y + 3, BOARD.cell - 6, BOARD.cell - 6);
-          },
-          () => drawRoundedRect(ctx, x + 3, y + 3, BOARD.cell - 6, BOARD.cell - 6, {
-            radius: 14,
-            fill: (row + col) % 2
-              ? `rgba(223,204,162,${alpha})`
-              : `rgba(235,221,187,${alpha})`,
-            stroke: this.state.phase === 'battle'
-              ? 'rgba(51,71,80,0.06)'
-              : 'rgba(51,71,80,0.13)',
-            lineWidth: 2,
-          }),
-        );
-      }
-    }
+    ctx.save();
+    roundedRectPath(ctx, BOARD.x, BOARD.y, BOARD.width, BOARD.height, 20);
+    ctx.clip?.();
+    ctx.fillStyle = '#A7CF83';
+    ctx.fillRect(BOARD.x, BOARD.y, BOARD.width, BOARD.height);
 
-    const corePosition = { x: 116, y: BOARD.y + BOARD.cell * 3.55 };
-    const portalPosition = { x: BOARD.x + BOARD.cell * 6 + 91, y: BOARD.y + BOARD.cell * 3.62 };
+    const bounds = visibleWorldBounds(this.camera, WORLD, BOARD, 1);
+    const tileSize = this.worldPixelsPerCell();
+    const terrainOptions = {
+      visibleBounds: bounds,
+      world: WORLD,
+      terrainAt: (x, y) => this.terrainRenderCell(x, y),
+      worldToScreen: (point) => worldToScreen(point, this.camera, BOARD),
+      pixelsPerCell: tileSize,
+      time: this.time,
+      assetStore: this.assetStore,
+    };
+    drawOrganicGround(ctx, terrainOptions);
+
+    const corePosition = this.cellCenter(CORE_CELL.x, CORE_CELL.y);
+    const portalPositions = WORLD.monsterEntrances.map((entrance) => ({
+      entrance,
+      position: this.cellCenter(entrance.x, entrance.y),
+    }));
 
     this.drawRoutes(ctx);
+    drawOrganicTerrainProps(ctx, terrainOptions);
     this.drawTerrain(ctx);
-    drawCore(ctx, corePosition.x, corePosition.y, 118, {
-      assetStore: this.assetStore,
-      time: this.time,
-      health: this.state.coreHp / this.state.coreMaxHp,
-      danger: this.state.coreHp / this.state.coreMaxHp < 0.35,
-    });
-    drawPortal(ctx, portalPosition.x, portalPosition.y, 138, {
-      assetStore: this.assetStore,
-      time: this.time,
-      open: this.state.phase === 'battle' ? 1 : 0.62,
-    });
+    const expeditionBattle = this.state.phase === 'battle' && this.isExpeditionSession();
+    const beaconDrawn = expeditionBattle && drawAssetOrFallback(
+      ctx,
+      this.assetStore,
+      'expedition-beacon',
+      (asset) => {
+        const size = 116 * this.camera.zoom;
+        drawImageContained(
+          ctx,
+          asset,
+          corePosition.x - size / 2,
+          corePosition.y - size + 30 * this.camera.zoom,
+          size,
+          size,
+          1,
+        );
+      },
+      () => drawCore(ctx, corePosition.x, corePosition.y + 16 * this.camera.zoom, 104 * this.camera.zoom, {
+        assetStore: this.assetStore,
+        time: this.time,
+        health: this.state.coreHp / this.state.coreMaxHp,
+        danger: this.state.coreHp / this.state.coreMaxHp < 0.35,
+      }),
+    );
+    if (!expeditionBattle) {
+      drawCore(ctx, corePosition.x, corePosition.y + 16 * this.camera.zoom, 104 * this.camera.zoom, {
+        assetStore: this.assetStore,
+        time: this.time,
+        health: this.state.coreHp / this.state.coreMaxHp,
+        danger: this.state.coreHp / this.state.coreMaxHp < 0.35,
+      });
+    } else if (beaconDrawn) {
+      this.drawHealthBar(
+        ctx,
+        corePosition.x,
+        corePosition.y - 74 * this.camera.zoom,
+        72 * this.camera.zoom,
+        this.state.coreHp / this.state.coreMaxHp,
+      );
+    }
+    for (const { position } of portalPositions) {
+      if (!this.isWorldScreenPositionVisible(position, 100 * this.camera.zoom)) continue;
+      drawPortal(ctx, position.x, position.y + 16 * this.camera.zoom, 82 * this.camera.zoom, {
+        assetStore: this.assetStore,
+        time: this.time,
+        open: this.state.enemies.some((enemy) => !enemy.dead) ? 1 : 0.52,
+      });
+    }
     this.drawWorldEffects(ctx, 'back');
     this.drawDynamicEffects(ctx, 'back');
     this.drawMovingBubblePreview(ctx);
@@ -2084,29 +3468,55 @@ export class SlimeGame {
     this.drawSelectionOverlay(ctx);
 
     ctx.save();
-    ctx.font = '700 15px "PingFang SC", sans-serif';
+    ctx.font = `700 ${Math.max(11, 14 * this.camera.zoom)}px "PingFang SC", sans-serif`;
     ctx.textAlign = 'center';
     ctx.fillStyle = PALETTE.inkSoft;
-    ctx.fillText('软核', corePosition.x, BOARD.y + BOARD.cell * 5.93);
-    ctx.fillText('裂隙入口', portalPosition.x, BOARD.y + BOARD.cell * 5.93);
+    ctx.fillText(expeditionBattle ? '远征信标' : '基地核心', corePosition.x, corePosition.y + 70 * this.camera.zoom);
+    for (const { position } of portalPositions) {
+      if (this.isWorldScreenPositionVisible(position, 40 * this.camera.zoom)) {
+        ctx.fillText(expeditionBattle ? '远征裂隙' : '荒野入口', position.x, position.y + 58 * this.camera.zoom);
+      }
+    }
+    ctx.restore();
+    ctx.restore();
+
+    ctx.save();
+    drawRoundedRect(ctx, BOARD.x + 14, BOARD.y + 12, 184, 34, {
+      radius: 14,
+      fill: 'rgba(35,69,58,0.7)',
+    });
+    ctx.fillStyle = '#FFF8E9';
+    ctx.font = '700 13px "PingFang SC", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(`大地图 24×16 · 缩放 ${Math.round(this.camera.zoom * 100)}%`, BOARD.x + 106, BOARD.y + 34);
     ctx.restore();
   }
 
   drawRoutes(ctx) {
+    // Expedition enemies converge on the temporary beacon from their own
+    // encounter queue. The old authored tower-defense lanes are misleading
+    // when the player pauses an expedition, so keep them out of this mode.
+    if (this.isExpeditionSession()) return;
     if (this.state.phase === 'battle' && !this.state.paused) return;
-    const routeWaveIndex = this.state.phase === 'between' ? this.state.waveIndex + 1 : this.state.waveIndex;
-    const wave = WAVES[Math.min(routeWaveIndex, WAVES.length - 1)];
-    const rows = [...new Set(wave.groups.flatMap((group) => group.rowIndices))].slice(0, 4);
-    rows.forEach((row, routeIndex) => {
-      const path = routeFor(this.state.buildings, { x: 5, y: row });
-      const crossesBuilding = path.some((cell) => cell.x >= 0 && BUILDING_BY_ID[buildingAt(this.state.buildings, cell.x, cell.y)?.cardId]?.solid);
-      const alpha = (crossesBuilding ? 0.48 : 0.45) - routeIndex * 0.05;
-      const points = [
-        { x: BOARD.x + BOARD.cell * 6 + 48, y: this.cellCenter(0, row).y },
-        ...path.map((cell) => (cell.x < 0
-          ? { x: BOARD.x - 48, y: this.cellCenter(0, cell.y).y }
-          : this.cellCenter(cell.x, cell.y))),
-      ];
+    const routeStarts = this.state.phase === 'build'
+      ? WORLD.monsterEntrances.map(({ x, y }) => ({ x, y }))
+      : [...new Set(WAVES[Math.min(this.state.waveIndex, WAVES.length - 1)].groups
+        .flatMap((group) => group.rowIndices))]
+        .slice(0, 4)
+        .map((row) => ({
+          x: WORLD.width - 1,
+          y: clamp(CORE_CELL.y - 3 + row, 0, WORLD.height - 1),
+        }));
+    routeStarts.forEach((start, routeIndex) => {
+      const path = routeFor(
+        this.state.buildings,
+        start,
+        null,
+        this.state.worldTerrain,
+      );
+      const crossesBuilding = path.some((cell) => BUILDING_BY_ID[buildingAt(this.state.buildings, cell.x, cell.y)?.cardId]?.solid);
+      const alpha = (crossesBuilding ? 0.46 : 0.38) - routeIndex * 0.025;
+      const points = path.map((cell) => this.cellCenter(cell.x, cell.y));
       for (let index = 1; index < points.length; index += 1) {
         const from = points[index - 1];
         const to = points[index];
@@ -2122,12 +3532,12 @@ export class SlimeGame {
             ctx.globalAlpha *= alpha;
             ctx.translate((from.x + to.x) / 2, (from.y + to.y) / 2);
             ctx.rotate(Math.atan2(dy, dx));
-            ctx.drawImage(asset, -length / 2 - 1, -9, length + 2, 18);
+            ctx.drawImage(asset, -length / 2 - 1, -7 * this.camera.zoom, length + 2, 14 * this.camera.zoom);
           },
           () => {
             ctx.globalAlpha *= alpha;
             ctx.strokeStyle = crossesBuilding ? '#E45F68' : '#43A073';
-            ctx.lineWidth = 5;
+            ctx.lineWidth = Math.max(2, 4 * this.camera.zoom);
             ctx.lineCap = 'round';
             ctx.setLineDash([10, 10]);
             ctx.beginPath();
@@ -2141,33 +3551,36 @@ export class SlimeGame {
   }
 
   drawTerrain(ctx) {
+    const zoom = this.camera.zoom;
     for (const terrain of this.state.terrain) {
       const position = this.cellCenter(terrain.x, terrain.y);
+      if (!this.isWorldScreenPositionVisible(position, 70 * zoom)) continue;
       if (terrain.type === 'honey') {
         drawAssetOrFallback(ctx, this.assetStore, 'tile-honey-puddle', (asset) => {
           ctx.globalAlpha *= 0.82;
-          ctx.drawImage(asset, position.x - 34, position.y - 24, 68, 68);
+          ctx.drawImage(asset, position.x - 34 * zoom, position.y - 24 * zoom, 68 * zoom, 68 * zoom);
         }, () => {
           ctx.globalAlpha = 0.72;
           ctx.fillStyle = '#E9B84F';
           ctx.strokeStyle = '#AF7C28';
-          ctx.lineWidth = 2;
+          ctx.lineWidth = 2 * zoom;
           ctx.beginPath();
-          ctx.ellipse(position.x, position.y + 17, 29, 18, -0.1, 0, TAU);
-          ctx.ellipse(position.x - 18, position.y + 9, 12, 9, 0.3, 0, TAU);
+          ctx.ellipse(position.x, position.y + 17 * zoom, 29 * zoom, 18 * zoom, -0.1, 0, TAU);
+          ctx.ellipse(position.x - 18 * zoom, position.y + 9 * zoom, 12 * zoom, 9 * zoom, 0.3, 0, TAU);
           ctx.fill();
           ctx.stroke();
         });
-        drawStatusIcon(ctx, position.x + 25, position.y - 23, 22, 'sticky', {
+        drawStatusIcon(ctx, position.x + 25 * zoom, position.y - 23 * zoom, 22 * zoom, 'sticky', {
           assetStore: this.assetStore,
           time: this.time,
           shadow: false,
         });
       } else if (terrain.type === 'crystal') {
         drawAssetOrFallback(ctx, this.assetStore, 'tile-crystal-spikes', (asset) => {
-          ctx.drawImage(asset, position.x - 30, position.y - 30, 60, 60);
+          ctx.drawImage(asset, position.x - 30 * zoom, position.y - 30 * zoom, 60 * zoom, 60 * zoom);
         }, () => {
-          ctx.translate(position.x, position.y + 22);
+          ctx.translate(position.x, position.y + 22 * zoom);
+          ctx.scale(zoom, zoom);
           ctx.fillStyle = PALETTE.crystal;
           ctx.strokeStyle = PALETTE.inkSoft;
           ctx.lineWidth = 2;
@@ -2195,9 +3608,11 @@ export class SlimeGame {
       : this.state.buildings.find((item) => item.uid === selection.sourceUid);
     if (!source) return;
     const position = this.entityCanvasPosition(source);
+    if (!this.isWorldScreenPositionVisible(position)) return;
+    const zoom = this.camera.zoom;
     drawAssetOrFallback(ctx, this.assetStore, 'item-moving-bubble-world', (asset) => {
       ctx.globalAlpha *= 0.9;
-      ctx.drawImage(asset, position.x - 56, position.y - 106, 112, 112);
+      ctx.drawImage(asset, position.x - 56 * zoom, position.y - 106 * zoom, 112 * zoom, 112 * zoom);
     }, () => {});
   }
 
@@ -2239,49 +3654,77 @@ export class SlimeGame {
 
   drawBuildings(ctx, buildings = this.state.buildings) {
     const sorted = [...buildings].sort((a, b) => a.y - b.y || a.x - b.x);
+    const zoom = this.camera.zoom;
+    const underAttack = this.state.phase === 'battle'
+      || this.state.enemies.some((enemy) => !enemy.dead);
     for (const building of sorted) {
-      if (building.destroyed && this.state.phase === 'battle') {
-        const position = this.entityCanvasPosition(building);
+      const position = this.entityCanvasPosition(building);
+      if (!this.isWorldScreenPositionVisible(position, 150 * zoom)) continue;
+      if (building.destroyed && underAttack) {
         drawAssetOrFallback(ctx, this.assetStore, 'tile-building-rubble', (asset) => {
           ctx.globalAlpha *= 0.72;
-          ctx.drawImage(asset, position.x - 34, position.y - 39, 68, 68);
+          ctx.drawImage(asset, position.x - 34 * zoom, position.y - 39 * zoom, 68 * zoom, 68 * zoom);
         }, () => {
           ctx.globalAlpha = 0.38;
           ctx.fillStyle = '#756B67';
           ctx.beginPath();
-          ctx.ellipse(position.x, position.y - 5, 30, 13, 0, 0, TAU);
+          ctx.ellipse(position.x, position.y - 5 * zoom, 30 * zoom, 13 * zoom, 0, 0, TAU);
           ctx.fill();
         });
         continue;
       }
       const card = BUILDING_BY_ID[building.cardId];
-      const { x: centerX, y: centerY } = this.entityCanvasPosition(building);
+      const { x: centerX, y: centerY } = position;
       const selected = this.selection?.uid === building.uid;
       const placeProgress = clamp((this.time - building.placedAt) / 0.24, 0, 1);
       const scale = building.placedAt > 0 ? easeOutBack(placeProgress) : 1;
       ctx.save();
+      if (building.underConstruction) ctx.globalAlpha *= 0.58;
       ctx.translate(centerX, centerY);
-      ctx.scale(scale, scale);
+      ctx.scale(scale * zoom, scale * zoom);
       drawBuilding(ctx, 0, 0, card.footprint.width > 1 ? 104 : 88, BUILDING_VARIANT[card.id], {
         assetStore: this.assetStore,
         time: this.time,
         selected,
-        active: this.state.phase === 'battle',
+        active: underAttack && !building.underConstruction,
+        ghost: building.underConstruction,
         damage: 1 - building.hp / building.maxHp,
         disabled: building.destroyed,
       });
       ctx.restore();
-      if (this.state.phase === 'battle' && !building.destroyed) {
-        this.drawHealthBar(ctx, centerX, centerY - 96, 54, building.hp / building.maxHp, building.shield > 0);
-        let statusX = centerX + 34;
+      if (building.underConstruction) {
+        const barWidth = 68 * zoom;
+        drawRoundedRect(ctx, centerX - barWidth / 2, centerY - 84 * zoom, barWidth, 9 * zoom, {
+          radius: 5 * zoom,
+          fill: 'rgba(38,54,66,0.58)',
+        });
+        drawRoundedRect(
+          ctx,
+          centerX - barWidth / 2 + zoom,
+          centerY - 83 * zoom,
+          (barWidth - 2 * zoom) * clamp(building.buildProgress || 0, 0, 1),
+          7 * zoom,
+          { radius: 4 * zoom, fill: '#F6BE58' },
+        );
+        ctx.save();
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#FFF8E9';
+        ctx.font = `800 ${Math.max(10, 12 * zoom)}px "PingFang SC", sans-serif`;
+        ctx.fillText('施工中', centerX, centerY - 91 * zoom);
+        ctx.restore();
+        continue;
+      }
+      if (underAttack && !building.destroyed) {
+        this.drawHealthBar(ctx, centerX, centerY - 96 * zoom, 54 * zoom, building.hp / building.maxHp, building.shield > 0);
+        let statusX = centerX + 34 * zoom;
         if (building.shield > 0) {
-          drawStatusIcon(ctx, statusX, centerY - 84, 22, 'shield', {
+          drawStatusIcon(ctx, statusX, centerY - 84 * zoom, 22 * zoom, 'shield', {
             assetStore: this.assetStore, time: this.time, shadow: false,
           });
-          statusX += 22;
+          statusX += 22 * zoom;
         }
         if (building.poisoned > 0) {
-          drawStatusIcon(ctx, statusX, centerY - 84, 22, 'poison', {
+          drawStatusIcon(ctx, statusX, centerY - 84 * zoom, 22 * zoom, 'poison', {
             assetStore: this.assetStore, time: this.time, shadow: false,
           });
         }
@@ -2290,15 +3733,18 @@ export class SlimeGame {
   }
 
   drawDeployables(ctx, deployables = this.state.deployables) {
+    const zoom = this.camera.zoom;
     for (const item of deployables) {
       const position = this.cellCenter(item.x, item.y);
+      if (!this.isWorldScreenPositionVisible(position, 80 * zoom)) continue;
       if (item.type === 'pad') {
         drawAssetOrFallback(ctx, this.assetStore, 'item-spring-pad-world', (asset) => {
-          ctx.translate(position.x, position.y + 14);
+          ctx.translate(position.x, position.y + 14 * zoom);
           ctx.rotate(Math.atan2(item.dy, item.dx));
-          ctx.drawImage(asset, -28, -28, 56, 56);
+          ctx.drawImage(asset, -28 * zoom, -28 * zoom, 56 * zoom, 56 * zoom);
         }, () => {
-          ctx.translate(position.x, position.y + 14);
+          ctx.translate(position.x, position.y + 14 * zoom);
+          ctx.scale(zoom, zoom);
           ctx.fillStyle = '#79D886';
           ctx.strokeStyle = PALETTE.inkSoft;
           ctx.lineWidth = 3;
@@ -2316,11 +3762,12 @@ export class SlimeGame {
       } else if (item.type === 'lure') {
         const wobble = Math.sin(this.time * 5) * 3;
         drawAssetOrFallback(ctx, this.assetStore, 'item-lure-jelly-world', (asset) => {
-          ctx.translate(position.x, position.y + 10);
+          ctx.translate(position.x, position.y + 10 * zoom);
           ctx.scale(1 - wobble * 0.006, 1 + wobble * 0.006);
-          ctx.drawImage(asset, -25, -40, 50, 50);
+          ctx.drawImage(asset, -25 * zoom, -40 * zoom, 50 * zoom, 50 * zoom);
         }, () => {
-          ctx.translate(position.x, position.y + 10);
+          ctx.translate(position.x, position.y + 10 * zoom);
+          ctx.scale(zoom, zoom);
           ctx.fillStyle = '#F3A85F';
           ctx.strokeStyle = PALETTE.inkSoft;
           ctx.lineWidth = 3;
@@ -2338,6 +3785,7 @@ export class SlimeGame {
   }
 
   drawUnits(ctx, providedUnits = null) {
+    const zoom = this.camera.zoom;
     const units = providedUnits ? [...providedUnits] : [];
     if (!providedUnits) {
       this.state.survivors.forEach((survivor) => units.push({ kind: 'survivor', entity: survivor, depth: survivor.y + 0.15 }));
@@ -2348,11 +3796,12 @@ export class SlimeGame {
       if (unit.kind === 'survivor') {
         const survivor = unit.entity;
         const position = this.entityCanvasPosition(survivor);
+        if (!this.isWorldScreenPositionVisible(position, 120 * zoom)) continue;
         // The sprout's tall leaves share the row above; a small grounded offset
         // keeps them visually separate from a crystal defender in that row.
-        if (survivor.cardId === 'survivor-moss-sprout') position.y += 7;
+        if (survivor.cardId === 'survivor-moss-sprout') position.y += 7 * zoom;
         const selected = this.selection?.uid === survivor.uid || this.selection?.firstUid === survivor.uid || this.selection?.sourceUid === survivor.uid;
-        drawSlime(ctx, position.x, position.y, 68, SURVIVOR_VARIANT[survivor.cardId], {
+        drawSlime(ctx, position.x, position.y, 68 * zoom, SURVIVOR_VARIANT[survivor.cardId], {
           assetStore: this.assetStore,
           time: this.time,
           pose: this.entityAnimationPose(survivor),
@@ -2365,15 +3814,35 @@ export class SlimeGame {
           shield: clamp((survivor.shield || 0) / 90, 0, 1),
           phase: survivor.x * 0.7 + survivor.y,
         });
-        if (!survivor.downed) this.drawHealthBar(ctx, position.x, position.y - 75, 48, survivor.hp / survivor.maxHp, survivor.shield > 0);
-        let statusX = position.x + 28;
+        if (survivor.carrying?.resourceType && Number(survivor.carrying.amount) > 0) {
+          const cargoSize = 31 * zoom;
+          const cargoX = position.x + 29 * zoom;
+          const cargoY = position.y - 43 * zoom;
+          this.drawResourceToken(ctx, survivor.carrying.resourceType, cargoX, cargoY, cargoSize);
+          ctx.save();
+          ctx.fillStyle = '#FFF8E9';
+          ctx.strokeStyle = PALETTE.inkSoft;
+          ctx.lineWidth = Math.max(1.2, 1.7 * zoom);
+          ctx.beginPath();
+          ctx.arc(cargoX + cargoSize * 0.32, cargoY + cargoSize * 0.3, cargoSize * 0.23, 0, TAU);
+          ctx.fill();
+          ctx.stroke();
+          ctx.fillStyle = PALETTE.ink;
+          ctx.font = `900 ${Math.max(8, 10 * zoom)}px "PingFang SC", sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(`${Math.floor(survivor.carrying.amount)}`, cargoX + cargoSize * 0.32, cargoY + cargoSize * 0.31);
+          ctx.restore();
+        }
+        if (!survivor.downed) this.drawHealthBar(ctx, position.x, position.y - 75 * zoom, 48 * zoom, survivor.hp / survivor.maxHp, survivor.shield > 0);
+        let statusX = position.x + 28 * zoom;
         if (survivor.shield > 0) {
-          drawStatusIcon(ctx, statusX, position.y - 64, 22, 'shield', {
+          drawStatusIcon(ctx, statusX, position.y - 64 * zoom, 22 * zoom, 'shield', {
             assetStore: this.assetStore, time: this.time, shadow: false,
           });
-          statusX += 22;
+          statusX += 22 * zoom;
         }
-        if (survivor.seed > 0) drawStatusIcon(ctx, statusX, position.y - 64, 22, 'heal', {
+        if (survivor.seed > 0) drawStatusIcon(ctx, statusX, position.y - 64 * zoom, 22 * zoom, 'heal', {
           assetStore: this.assetStore, time: this.time, shadow: false,
         });
       } else {
@@ -2382,9 +3851,10 @@ export class SlimeGame {
         const deathDuration = this.enemyDeathDuration(enemy);
         if (enemy.dead && deathElapsed >= deathDuration) continue;
         const position = this.entityCanvasPosition(enemy);
+        if (!this.isWorldScreenPositionVisible(position, 160 * zoom)) continue;
         const card = ENEMY_BY_ID[enemy.cardId];
         const alpha = enemy.dead ? clamp(1 - deathElapsed / deathDuration, 0, 1) : 1;
-        drawMonster(ctx, position.x, position.y, card.elite ? 100 : 62, ENEMY_VARIANT[enemy.cardId], {
+        drawMonster(ctx, position.x, position.y, (card.elite ? 100 : 62) * zoom, ENEMY_VARIANT[enemy.cardId], {
           assetStore: this.assetStore,
           time: this.time,
           pose: this.entityAnimationPose(enemy),
@@ -2396,25 +3866,25 @@ export class SlimeGame {
           targeted: enemy.marked,
           phase: Number(enemy.uid.split('-').pop()) * 0.4,
         });
-        if (!enemy.dead) this.drawHealthBar(ctx, position.x, position.y - (card.elite ? 112 : 68), card.elite ? 82 : 46, enemy.hp / enemy.maxHp, false, true);
-        let iconX = position.x + 27;
+        if (!enemy.dead) this.drawHealthBar(ctx, position.x, position.y - (card.elite ? 112 : 68) * zoom, (card.elite ? 82 : 46) * zoom, enemy.hp / enemy.maxHp, false, true);
+        let iconX = position.x + 27 * zoom;
         if (enemy.marked) {
-          drawStatusIcon(ctx, iconX, position.y - 60, 22, 'marked', {
+          drawStatusIcon(ctx, iconX, position.y - 60 * zoom, 22 * zoom, 'marked', {
             assetStore: this.assetStore, time: this.time, shadow: false,
           });
-          iconX += 22;
+          iconX += 22 * zoom;
         }
-        if (enemy.stagger > 0) drawStatusIcon(ctx, iconX, position.y - 60, 22, 'stun', {
+        if (enemy.stagger > 0) drawStatusIcon(ctx, iconX, position.y - 60 * zoom, 22 * zoom, 'stun', {
           assetStore: this.assetStore, time: this.time, shadow: false,
         });
-        if (enemy.stagger > 0) iconX += 22;
+        if (enemy.stagger > 0) iconX += 22 * zoom;
         if (enemy.rooted > 0) {
-          drawStatusIcon(ctx, iconX, position.y - 60, 22, 'slow', {
+          drawStatusIcon(ctx, iconX, position.y - 60 * zoom, 22 * zoom, 'slow', {
             assetStore: this.assetStore, time: this.time, shadow: false,
           });
-          iconX += 22;
+          iconX += 22 * zoom;
         }
-        if (enemy.bubbleStatus > 0) drawStatusIcon(ctx, iconX, position.y - 60, 22, 'bubble', {
+        if (enemy.bubbleStatus > 0) drawStatusIcon(ctx, iconX, position.y - 60 * zoom, 22 * zoom, 'bubble', {
           assetStore: this.assetStore, time: this.time, shadow: false,
         });
         if (enemy.telegraph > 0) {
@@ -2422,15 +3892,15 @@ export class SlimeGame {
             / ENEMY_BY_ID[enemy.cardId].ability.telegraphSeconds;
           drawAssetOrFallback(ctx, this.assetStore, 'effect-boss-acid-telegraph', (asset) => {
             ctx.globalAlpha *= 0.6 + Math.sin(this.time * 10) * 0.25;
-            ctx.translate(position.x, position.y - 48);
+            ctx.translate(position.x, position.y - 48 * zoom);
             if (typeof ctx.clip === 'function') {
               ctx.beginPath();
               ctx.moveTo(0, 0);
-              ctx.arc(0, 0, 54, -Math.PI / 2, -Math.PI / 2 + TAU * telegraphProgress);
+              ctx.arc(0, 0, 54 * zoom, -Math.PI / 2, -Math.PI / 2 + TAU * telegraphProgress);
               ctx.closePath();
               ctx.clip();
             }
-            ctx.drawImage(asset, -51, -51, 102, 102);
+            ctx.drawImage(asset, -51 * zoom, -51 * zoom, 102 * zoom, 102 * zoom);
           }, () => {
             ctx.strokeStyle = PALETTE.danger;
             ctx.lineWidth = 4;
@@ -2438,8 +3908,8 @@ export class SlimeGame {
             ctx.beginPath();
             ctx.arc(
               position.x,
-              position.y - 48,
-              51,
+              position.y - 48 * zoom,
+              51 * zoom,
               -Math.PI / 2,
               -Math.PI / 2 + TAU * telegraphProgress,
             );
@@ -3246,7 +4716,15 @@ export class SlimeGame {
       const card = BUILDING_BY_ID[selection.cardId];
       return Boolean(card)
         && this.shapingUsed() + card.cost <= SHAPING_BUDGET
-        && canPlace(this.state.buildings, card, cell.x, cell.y, selection.rotation);
+        && canPlace(
+          this.state.buildings,
+          card,
+          cell.x,
+          cell.y,
+          selection.rotation,
+          null,
+          this.state.worldTerrain,
+        );
     }
     if (selection.kind === 'move-building') {
       const building = this.state.buildings.find((item) => item.uid === selection.uid);
@@ -3259,6 +4737,7 @@ export class SlimeGame {
           cell.y,
           selection.rotation ?? building.rotation,
           building.uid,
+          this.state.worldTerrain,
         );
     }
     if (selection.kind === 'place-survivor' || selection.kind === 'move-survivor') {
@@ -3339,6 +4818,7 @@ export class SlimeGame {
           cell.y,
           building.rotation,
           building.uid,
+          this.state.worldTerrain,
         );
     }
     return true;
@@ -3349,18 +4829,21 @@ export class SlimeGame {
     if (!selection) return;
     const drawCellOverlay = (cell, valid, alpha = 0.8) => {
       if (!cell) return;
-      const x = BOARD.x + cell.x * BOARD.cell + 5;
-      const y = BOARD.y + cell.y * BOARD.cell + 5;
+      const corner = worldToScreen({ x: cell.x, y: cell.y }, this.camera, BOARD);
+      const inset = Math.max(2, 4 * this.camera.zoom);
+      const size = this.worldPixelsPerCell();
+      const x = corner.x + inset;
+      const y = corner.y + inset;
       drawAssetOrFallback(
         ctx,
         this.assetStore,
         valid ? 'tile-placement-valid' : 'tile-placement-invalid',
         (asset) => {
           ctx.globalAlpha *= alpha;
-          ctx.drawImage(asset, x, y, BOARD.cell - 10, BOARD.cell - 10);
+          ctx.drawImage(asset, x, y, size - inset * 2, size - inset * 2);
         },
-        () => drawRoundedRect(ctx, x, y, BOARD.cell - 10, BOARD.cell - 10, {
-          radius: 13,
+        () => drawRoundedRect(ctx, x, y, size - inset * 2, size - inset * 2, {
+          radius: Math.max(8, 12 * this.camera.zoom),
           fill: valid ? 'rgba(97,214,162,0.28)' : 'rgba(228,95,104,0.25)',
           stroke: valid ? '#61D6A2' : '#E45F68',
           lineWidth: 3,
@@ -3393,13 +4876,17 @@ export class SlimeGame {
         if (inBoard(cell.x, cell.y)) drawCellOverlay(cell, valid);
       }
       const shape = rotatedFootprint(card, rotation);
-      const centerX = BOARD.x + (this.hoverCell.x + shape.width / 2) * BOARD.cell;
-      const centerY = BOARD.y + (this.hoverCell.y + shape.height) * BOARD.cell - 15;
+      const previewGround = worldToScreen({
+        x: this.hoverCell.x + shape.width / 2,
+        y: this.hoverCell.y + shape.height,
+      }, this.camera, BOARD);
+      const centerX = previewGround.x;
+      const centerY = previewGround.y - 15 * this.camera.zoom;
       drawBuilding(
         ctx,
         centerX,
         centerY,
-        card.footprint.width > 1 ? 104 : 88,
+        (card.footprint.width > 1 ? 104 : 88) * this.camera.zoom,
         BUILDING_VARIANT[card.id],
         {
           assetStore: this.assetStore,
@@ -3410,6 +4897,10 @@ export class SlimeGame {
       );
       return true;
     };
+    if (selection.kind === 'inspect-terrain') {
+      drawCellOverlay({ x: selection.x, y: selection.y }, true, 0.48 + Math.sin(this.time * 4) * 0.08);
+      return;
+    }
     if (selection.origin) {
       drawCellOverlay(selection.origin, true, 0.56 + Math.sin(this.time * 5) * 0.08);
     }
@@ -3422,7 +4913,7 @@ export class SlimeGame {
       ctx.strokeStyle = '#FFF8E9';
       ctx.lineWidth = 3;
       ctx.setLineDash([7, 6]);
-      ctx.strokeRect(BOARD.x + 3, BOARD.y + 3, BOARD.cell * 6 - 6, BOARD.cell * 6 - 6);
+      ctx.strokeRect(BOARD.x + 3, BOARD.y + 3, BOARD.width - 6, BOARD.height - 6);
       ctx.restore();
     }
   }
@@ -3433,6 +4924,24 @@ export class SlimeGame {
     drawRoundedRect(ctx, x - width / 2 + 1, y + 1, (width - 2) * clamp(ratio, 0, 1), height - 2, {
       radius: 3,
       fill: hostile ? (ratio < 0.35 ? PALETTE.danger : '#D59AE8') : (shield ? PALETTE.shield : PALETTE.heal),
+    });
+  }
+
+  drawResourceToken(ctx, resourceId, centerX, centerY, size) {
+    const assetKey = RESOURCE_ASSET_BY_ID[resourceId];
+    const color = RESOURCE_COLOR_BY_ID[resourceId] || PALETTE.textMuted;
+    return drawAssetOrFallback(ctx, this.assetStore, assetKey, (asset) => {
+      drawImageContained(ctx, asset, centerX - size / 2, centerY - size / 2, size, size, 0.5);
+    }, () => {
+      ctx.save();
+      ctx.fillStyle = color;
+      ctx.strokeStyle = PALETTE.inkSoft;
+      ctx.lineWidth = Math.max(1.5, size * 0.08);
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, size * 0.34, 0, TAU);
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
     });
   }
 
@@ -3447,37 +4956,59 @@ export class SlimeGame {
     ctx.save();
     ctx.fillStyle = PALETTE.ink;
     ctx.font = '800 17px "PingFang SC", sans-serif';
-    ctx.fillText('软核耐久', 42, 42);
+    ctx.fillText(
+      this.state.phase === 'battle' && this.isExpeditionSession() ? '信标耐久' : '软核耐久',
+      42,
+      42,
+    );
     ctx.font = '800 14px "PingFang SC", sans-serif';
     ctx.fillStyle = this.state.coreHp / this.state.coreMaxHp < 0.35 ? PALETTE.danger : PALETTE.textMuted;
     ctx.fillText(`${Math.ceil(this.state.coreHp)} / ${this.state.coreMaxHp}`, 42, 64);
     this.drawHealthBar(ctx, 243, 41, 142, this.state.coreHp / this.state.coreMaxHp, false, false);
 
     const phaseText = {
-      build: '自由建造', intel: '敌情预览', battle: this.state.paused ? '战斗暂停' : '防守进行中',
+      build: '基地运转中', intel: '敌情预览', battle: this.state.paused ? '战斗暂停' : '防守进行中',
       between: '波次间整备', result: '防守结算',
     }[this.state.phase];
     ctx.textAlign = 'center';
     ctx.fillStyle = PALETTE.ink;
     ctx.font = '900 22px "PingFang SC", sans-serif';
-    ctx.fillText(phaseText, 625, 45);
+    ctx.fillText(this.isExpeditionSession()
+      ? (this.state.phase === 'result' ? '远征结算' : '小队远征')
+      : phaseText, 625, 45);
     ctx.font = '600 14px "PingFang SC", sans-serif';
     ctx.fillStyle = PALETTE.textMuted;
-    const subtitle = this.state.phase === 'battle' || this.state.phase === 'between'
-      ? `第 ${this.state.waveIndex + 1} / ${WAVES.length} 波 · ${WAVES[this.state.waveIndex].name}`
-      : '果冻庭院 · 没有倒计时';
+    const expeditionRun = this.state.expeditionRun;
+    const subtitle = expeditionRun
+      ? expeditionRun.currentEncounter?.isFinalBoss || expeditionRun.route.isBossStage
+        ? '最终节点 · 酸壳蜗王'
+        : `路线 ${Math.min(expeditionRun.route.regularWins + 1, expeditionRun.route.regularSteps)} / ${expeditionRun.route.regularSteps} · 自动战斗`
+      : this.state.phase === 'battle' || this.state.phase === 'between'
+        ? `第 ${this.state.waveIndex + 1} / ${WAVES.length} 波 · ${WAVES[this.state.waveIndex].name}`
+        : '持续白昼 · 自动采集与自动防守';
     ctx.fillText(subtitle, 625, 66);
 
+    const colonyResources = this.state.colony?.resources || { gel: 0, nectar: 0, shard: 0 };
+    const resourceHud = [
+      ['gel', '#3C9E79'],
+      ['nectar', '#C58B2E'],
+      ['shard', '#597EC9'],
+    ];
     ctx.textAlign = 'left';
+    resourceHud.forEach(([resourceType, color], index) => {
+      const x = 852 + index * 92;
+      this.drawResourceToken(ctx, resourceType, x - 17, 47, 27);
+      ctx.fillStyle = color;
+      ctx.font = '800 12px "PingFang SC", sans-serif';
+      ctx.fillText(COLONY_RESOURCE_LABEL[resourceType], x, 38);
+      ctx.fillStyle = PALETTE.ink;
+      ctx.font = '900 16px "PingFang SC", sans-serif';
+      ctx.fillText(`${Math.floor(colonyResources[resourceType] || 0)}`, x, 58);
+    });
+    this.drawResourceToken(ctx, 'softCrystals', 1108, 46, 38);
     ctx.fillStyle = '#4E7E8A';
-    ctx.font = '800 16px "PingFang SC", sans-serif';
-    drawAssetOrFallback(ctx, this.assetStore, 'ui-soft-crystal', (asset) => {
-      ctx.drawImage(asset, 1000, 25, 24, 24);
-      ctx.fillText('软晶', 1028, 42);
-    }, () => ctx.fillText('◆ 软晶', 1004, 42));
-    ctx.fillStyle = PALETTE.ink;
-    ctx.font = '900 20px "PingFang SC", sans-serif';
-    ctx.fillText(`${this.state.softCrystals}`, 1078, 43);
+    ctx.font = '800 13px "PingFang SC", sans-serif';
+    ctx.fillText(`${this.state.softCrystals}`, 1130, 49);
     ctx.restore();
 
     this.drawButton(ctx, 'audio-toggle', { x: 1184, y: 26, w: 54, h: 42 }, this.audio.enabled ? '声' : '静', {
@@ -3495,7 +5026,8 @@ export class SlimeGame {
       stroke: 'rgba(51,71,80,0.22)',
       lineWidth: 3,
     });
-    if (this.state.phase === 'battle') this.drawBattleSide(ctx);
+    if (this.state.phase === 'battle' && this.isExpeditionSession()) this.drawExpeditionBattleSide(ctx);
+    else if (this.state.phase === 'battle') this.drawBattleSide(ctx);
     else this.drawBuildSide(ctx);
   }
 
@@ -3514,10 +5046,21 @@ export class SlimeGame {
 
   drawBuildSide(ctx) {
     const card = this.selectedCard();
+    const terrainCell = this.selection?.kind === 'inspect-terrain'
+      ? catalogTerrainAt(this.state.worldTerrain, this.selection.x, this.selection.y)
+      : null;
+    const terrainDefinition = terrainCell ? TERRAIN_TYPES[terrainCell.terrainId] : null;
+    const terrainHelp = terrainDefinition ? TERRAIN_HELP[terrainDefinition.id] : null;
     ctx.save();
     ctx.fillStyle = PALETTE.ink;
     ctx.font = '900 24px "PingFang SC", sans-serif';
-    ctx.fillText(this.state.phase === 'between' ? '慢慢整备' : (card ? card.name : '你的果冻庭院'), PANEL.x + 28, PANEL.y + 42);
+    ctx.fillText(
+      this.state.phase === 'between'
+        ? '慢慢整备'
+        : card?.name || terrainDefinition?.name || '你的果冻庭院',
+      PANEL.x + 28,
+      PANEL.y + 42,
+    );
 
     if (card) {
       const selectedBuilding = card.type === 'building' && this.selection?.uid
@@ -3541,7 +5084,7 @@ export class SlimeGame {
       ctx.font = '700 15px "PingFang SC", sans-serif';
       const meta = card.type === 'building'
         ? `${rotatedFootprint(card, displayedRotation).width}×${rotatedFootprint(card, displayedRotation).height} · 定形值 ${card.cost}`
-        : `驻守单位 · 生命 ${card.hp}`;
+        : `${COLONY_AI_LABEL[this.state.survivors.find((item) => item.uid === this.selection?.uid)?.aiState] || '自动工作'} · 生命 ${card.hp}`;
       ctx.fillText(meta, PANEL.x + 122, PANEL.y + 84);
       ctx.fillStyle = PALETTE.ink;
       ctx.font = '600 17px "PingFang SC", sans-serif';
@@ -3549,33 +5092,52 @@ export class SlimeGame {
 
       const actionY = PANEL.y + 248;
       if (this.selection.kind === 'inspect-building') {
-        const rotatable = card.footprint.width !== card.footprint.height;
-        this.drawButton(ctx, 'move-building', {
-          x: PANEL.x + 26,
-          y: actionY,
-          w: rotatable ? 102 : 158,
-          h: 48,
-        }, '移动', { secondary: true }, () => {
-          this.selection = {
-            kind: 'move-building',
-            uid: this.selection.uid,
-            rotation: selectedBuilding?.rotation ?? 0,
-          };
-          this.showToast('选择新的建筑位置');
-        });
-        if (rotatable) {
-          this.drawButton(ctx, 'rotate-building', { x: PANEL.x + 140, y: actionY, w: 102, h: 48 }, '旋转', { secondary: true }, () => this.rotateSelection());
+        if (selectedBuilding?.underConstruction) {
+          const progress = Math.round((selectedBuilding.buildProgress || 0) * 100);
+          ctx.fillStyle = '#A97528';
+          ctx.font = '800 15px "PingFang SC", sans-serif';
+          ctx.fillText(`施工进度 ${progress}% · 材料由史莱姆自动搬运`, PANEL.x + 26, actionY - 18);
+          this.drawButton(ctx, 'cancel-blueprint', {
+            x: PANEL.x + 26,
+            y: actionY,
+            w: 330,
+            h: 48,
+          }, '取消蓝图并退回已送材料', { danger: true }, () => this.cancelSelectedBlueprint());
+        } else {
+          const rotatable = card.footprint.width !== card.footprint.height;
+          this.drawButton(ctx, 'move-building', {
+            x: PANEL.x + 26,
+            y: actionY,
+            w: rotatable ? 102 : 158,
+            h: 48,
+          }, '移动', { secondary: true }, () => {
+            this.selection = {
+              kind: 'move-building',
+              uid: this.selection.uid,
+              rotation: selectedBuilding?.rotation ?? 0,
+            };
+            this.showToast('选择新的建筑位置');
+          });
+          if (rotatable) {
+            this.drawButton(ctx, 'rotate-building', { x: PANEL.x + 140, y: actionY, w: 102, h: 48 }, '旋转', { secondary: true }, () => this.rotateSelection());
+          }
+          this.drawButton(ctx, 'remove-building', {
+            x: PANEL.x + (rotatable ? 254 : 198),
+            y: actionY,
+            w: rotatable ? 102 : 158,
+            h: 48,
+          }, '收回', { danger: true }, () => this.removeSelectedBuilding());
         }
-        this.drawButton(ctx, 'remove-building', {
-          x: PANEL.x + (rotatable ? 254 : 198),
-          y: actionY,
-          w: rotatable ? 102 : 158,
-          h: 48,
-        }, '收回', { danger: true }, () => this.removeSelectedBuilding());
       } else if (this.selection.kind === 'inspect-survivor') {
-        this.drawButton(ctx, 'move-survivor', { x: PANEL.x + 26, y: actionY, w: 158, h: 48 }, '更换驻守位', { secondary: true }, () => {
-          this.selection = { kind: 'move-survivor', uid: this.selection.uid };
-          this.showToast('选择新的驻守位置');
+        this.drawButton(ctx, 'follow-survivor', { x: PANEL.x + 26, y: actionY, w: 330, h: 48 }, '镜头追踪这只史莱姆', { secondary: true }, () => {
+          const survivor = this.state.survivors.find((item) => item.uid === this.selection.uid);
+          if (!survivor) return;
+          this.camera = createWorldCamera({
+            world: WORLD,
+            viewport: BOARD,
+            focus: { x: survivor.x + 0.5, y: survivor.y + 0.5 },
+            zoom: this.camera.zoom,
+          });
         });
       } else if (this.selection.kind === 'place-building') {
         const shape = rotatedFootprint(card, this.selection.rotation);
@@ -3597,21 +5159,66 @@ export class SlimeGame {
       } else if (this.selection.kind === 'place-survivor' || this.selection.kind === 'move-survivor') {
         this.drawButton(ctx, 'cancel-move', { x: PANEL.x + 26, y: actionY, w: 330, h: 48 }, '取消', { secondary: true }, () => { this.selection = null; });
       }
+    } else if (terrainDefinition && terrainHelp) {
+      const terrainColor = terrainDefinition.kind === 'resource'
+        ? '#61D6A2'
+        : terrainDefinition.destructible
+          ? '#9EB8AF'
+          : terrainDefinition.id === 'deep-water'
+            ? '#38BDE8'
+            : '#48BD51';
+      drawRoundedRect(ctx, PANEL.x + 26, PANEL.y + 63, 78, 78, {
+        radius: 24,
+        fill: terrainColor,
+        stroke: PALETTE.inkSoft,
+        lineWidth: 3,
+      });
+      drawTerrainAsset(ctx, this.assetStore, terrainCell, {
+        x: PANEL.x + 65,
+        y: PANEL.y + 136,
+        width: 68,
+        height: 68,
+        visualVariant: terrainCell.visualVariant,
+        fallback: () => {
+          ctx.fillStyle = '#FFF8E9';
+          ctx.font = '900 38px "PingFang SC", sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText(terrainHelp[2], PANEL.x + 65, PANEL.y + 116);
+        },
+      });
+      ctx.textAlign = 'left';
+      ctx.fillStyle = terrainColor;
+      ctx.font = '800 15px "PingFang SC", sans-serif';
+      ctx.fillText(terrainHelp[0], PANEL.x + 122, PANEL.y + 84);
+      ctx.fillStyle = PALETTE.ink;
+      ctx.font = '600 17px "PingFang SC", sans-serif';
+      wrapText(ctx, terrainHelp[1], PANEL.x + 122, PANEL.y + 111, 228, 24, 4);
+      drawRoundedRect(ctx, PANEL.x + 26, PANEL.y + 222, 336, 96, {
+        radius: 20,
+        fill: terrainDefinition.buildable ? '#EDF7E9' : '#F4EFE7',
+        stroke: terrainColor,
+        lineWidth: 2,
+      });
+      ctx.fillStyle = PALETTE.inkSoft;
+      ctx.font = '700 15px "PingFang SC", sans-serif';
+      ctx.fillText(`坐标 ${terrainCell.x + 1}, ${terrainCell.y + 1}`, PANEL.x + 44, PANEL.y + 253);
+      ctx.fillText(`可通行：${terrainDefinition.passable ? '是' : '否'}　可建造：${terrainDefinition.buildable ? '是' : '否'}`, PANEL.x + 44, PANEL.y + 279);
+      ctx.fillText(`可采集：${terrainDefinition.harvestable ? '是' : '否'}　可破坏：${terrainDefinition.destructible ? '是' : '否'}`, PANEL.x + 44, PANEL.y + 303);
     } else {
       ctx.fillStyle = PALETTE.textMuted;
       ctx.font = '600 17px "PingFang SC", sans-serif';
-      wrapText(ctx, '自由移动、旋转和收回建筑，不花软晶，也没有等待时间。绿色虚线是开放路线，红色虚线表示怪物会破坏建筑开路。', PANEL.x + 28, PANEL.y + 82, 330, 27, 5);
+      wrapText(ctx, '史莱姆会自动采集、建造与守卫基地。准备好后，点右下角“三人远征”进入路线与变异玩法。', PANEL.x + 28, PANEL.y + 82, 330, 27, 5);
 
       drawRoundedRect(ctx, PANEL.x + 26, PANEL.y + 222, 336, 96, {
         radius: 20, fill: '#EDF7E9', stroke: '#8DBA8A', lineWidth: 2,
       });
       ctx.fillStyle = '#3C745E';
       ctx.font = '800 17px "PingFang SC", sans-serif';
-      ctx.fillText('本版推荐组合', PANEL.x + 44, PANEL.y + 250);
+      ctx.fillText('荒野地形规则', PANEL.x + 44, PANEL.y + 250);
       ctx.fillStyle = PALETTE.inkSoft;
-      ctx.font = '600 15px "PingFang SC", sans-serif';
-      ctx.fillText('围栏改道 → 水塔击退 → 菜圃减速', PANEL.x + 44, PANEL.y + 278);
-      ctx.fillText('亮钉晶刺 → 浮浮把敌人撞回晶刺', PANEL.x + 44, PANEL.y + 302);
+      ctx.font = '600 14px "PingFang SC", sans-serif';
+      ctx.fillText('胶洼 / 花丛 / 晶脉：采完变空地', PANEL.x + 44, PANEL.y + 276);
+      ctx.fillText('密刺丛：只改道　脆壳岩：可清理　深水：永久', PANEL.x + 44, PANEL.y + 300);
     }
     ctx.restore();
 
@@ -3629,8 +5236,65 @@ export class SlimeGame {
     if (this.state.phase === 'between') {
       this.drawButton(ctx, 'next-wave', { x: PANEL.x + 26, y: PANEL.y + 414, w: 336, h: 54 }, `主动开启第 ${this.state.waveIndex + 2} 波`, {}, () => this.startWave(this.state.waveIndex + 1));
     } else {
-      this.drawButton(ctx, 'open-intel', { x: PANEL.x + 26, y: PANEL.y + 414, w: 336, h: 54 }, '查看敌情', {}, () => this.openIntel());
+      this.drawButton(ctx, 'focus-base', { x: PANEL.x + 26, y: PANEL.y + 414, w: 156, h: 54 }, '回到基地', { secondary: true }, () => {
+        this.camera = createWorldCamera({
+          world: WORLD,
+          viewport: BOARD,
+          focus: DEFAULT_CAMERA_FOCUS,
+          zoom: this.camera.zoom,
+        });
+      });
+      this.drawButton(ctx, 'open-expedition', { x: PANEL.x + 194, y: PANEL.y + 414, w: 168, h: 54 }, '三人远征', {}, () => this.openExpedition());
     }
+  }
+
+  drawExpeditionBattleSide(ctx) {
+    const run = this.state.expeditionRun;
+    const encounter = run?.currentEncounter;
+    const remaining = this.state.enemies.filter((enemy) => !enemy.dead).length;
+    const total = this.state.spawnQueue?.length || 0;
+    const spawned = this.state.spawned.size;
+    const title = encounter?.isFinalBoss
+      ? '酸壳蜗王'
+      : EXPEDITION_KIND_LABEL[encounter?.kind] || '远征整备';
+    ctx.save();
+    ctx.fillStyle = PALETTE.ink;
+    ctx.font = '900 24px "PingFang SC", sans-serif';
+    ctx.fillText(title, PANEL.x + 28, PANEL.y + 42);
+    ctx.fillStyle = PALETTE.textMuted;
+    ctx.font = '600 16px "PingFang SC", sans-serif';
+    wrapText(
+      ctx,
+      encounter?.isFinalBoss
+        ? '最后的首领会带着弱小虫群登场。三只史莱姆会自动走位与攻击。'
+        : '小队会自动追击怪物；技能和道具仍由你决定何时使用。',
+      PANEL.x + 28,
+      PANEL.y + 76,
+      330,
+      24,
+      3,
+    );
+    drawRoundedRect(ctx, PANEL.x + 26, PANEL.y + 148, 336, 116, {
+      radius: 20, fill: '#EAF3F8', stroke: '#83AEC2', lineWidth: 2,
+    });
+    ctx.fillStyle = PALETTE.ink;
+    ctx.font = '800 16px "PingFang SC", sans-serif';
+    ctx.fillText(`已入场 ${spawned} / ${total}`, PANEL.x + 44, PANEL.y + 182);
+    ctx.fillText(`场上敌人 ${remaining}`, PANEL.x + 44, PANEL.y + 214);
+    ctx.fillText(`已选强化 ${run?.boons.length || 0}`, PANEL.x + 204, PANEL.y + 182);
+    ctx.fillText(`凝胶能量 ${this.state.energy} / 10`, PANEL.x + 204, PANEL.y + 214);
+    drawRoundedRect(ctx, PANEL.x + 44, PANEL.y + 238, 300, 9, { radius: 5, fill: '#CBDDE4' });
+    drawRoundedRect(ctx, PANEL.x + 44, PANEL.y + 238, 300 * clamp(spawned / Math.max(1, total), 0, 1), 9, { radius: 5, fill: '#4E9BB1' });
+    ctx.fillStyle = this.state.paused ? '#3C745E' : PALETTE.textMuted;
+    ctx.font = '700 15px "PingFang SC", sans-serif';
+    ctx.fillText(this.state.paused ? '选择界面中，战场已完全冻结。' : '三只史莱姆正在自动战斗。', PANEL.x + 28, PANEL.y + 300);
+    this.drawButton(ctx, 'expedition-pause', { x: PANEL.x + 26, y: PANEL.y + 326, w: 336, h: 58 }, this.state.paused ? '继续远征' : '暂停思考', {
+      secondary: this.state.paused,
+    }, () => this.togglePause());
+    this.drawButton(ctx, 'expedition-retreat', { x: PANEL.x + 26, y: PANEL.y + 401, w: 336, h: 48 }, '带着部分战利品撤回', { quiet: true, danger: true }, () => {
+      this.modal = { type: 'retreat' };
+    });
+    ctx.restore();
   }
 
   drawBattleSide(ctx) {
@@ -3710,7 +5374,13 @@ export class SlimeGame {
       ctx.fillStyle = PALETTE.textMuted;
       ctx.font = '700 17px "PingFang SC", sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('准备好后由你亲自开启防守，没有倒计时。', VIEW.width / 2, BOTTOM.y + 63);
+      ctx.fillText(
+        this.state.result?.expedition
+          ? '远征战利品已经送回基地。'
+          : '准备好后由你亲自开启防守，没有倒计时。',
+        VIEW.width / 2,
+        BOTTOM.y + 63,
+      );
       ctx.restore();
     }
   }
@@ -3724,9 +5394,14 @@ export class SlimeGame {
     cards.forEach((card, index) => {
       const x = startX + index * (cardWidth + 12);
       const selected = this.selectedCard()?.id === card.id;
+      const survivor = card.type === 'survivor'
+        ? this.state.survivors.find((item) => item.cardId === card.id)
+        : null;
       this.drawMiniCard(ctx, `build-card-${card.id}`, { x, y: BOTTOM.y + 13, w: cardWidth, h: 84 }, card, {
         selected,
-        meta: card.type === 'building' ? `${card.cost} 定形` : `${card.hp} 生命`,
+        meta: card.type === 'building'
+          ? `${card.cost} 定形`
+          : COLONY_AI_LABEL[survivor?.aiState] || '自动工作',
       }, () => this.selectBuildCard(card));
     });
   }
@@ -4014,44 +5689,52 @@ export class SlimeGame {
     ctx.textAlign = 'center';
     ctx.fillStyle = PALETTE.ink;
     ctx.font = '900 34px "PingFang SC", sans-serif';
-    ctx.fillText(page === 0 ? '欢迎来到果冻庭院' : '这里没有时间压力', VIEW.width / 2, rect.y + 66);
+    ctx.fillText(page === 0 ? '欢迎来到史莱姆基地' : '经营基地，组队远征', VIEW.width / 2, rect.y + 66);
     ctx.fillStyle = PALETTE.textMuted;
     ctx.font = '600 18px "PingFang SC", sans-serif';
-    ctx.fillText(page === 0 ? '一座可以自由搭建、只在你准备好时才开战的小镇' : '暂停、思考、改布局，然后亲手开启下一波', VIEW.width / 2, rect.y + 101);
+    ctx.fillText(page === 0 ? '史莱姆会自己工作，你来决定基地发展和远征路线' : '三只史莱姆自动战斗，路线与战后变异由你选择', VIEW.width / 2, rect.y + 101);
     ctx.restore();
 
     if (page === 0) {
       drawSlime(ctx, VIEW.width / 2 - 145, rect.y + 270, 112, 'shell', {
+        assetStore: this.assetStore,
         time: this.time,
         phase: 0,
         rigAsset: this.rigAssetFor('survivor-shell-shell'),
+        allowGeneratedStandalone: this.generatedCharacterArtEnabled,
       });
       drawSlime(ctx, VIEW.width / 2 - 48, rect.y + 274, 92, 'needle', {
+        assetStore: this.assetStore,
         time: this.time,
         phase: 1,
         rigAsset: this.rigAssetFor('survivor-crystal-pin'),
+        allowGeneratedStandalone: this.generatedCharacterArtEnabled,
       });
       drawSlime(ctx, VIEW.width / 2 + 50, rect.y + 274, 92, 'bubble', {
+        assetStore: this.assetStore,
         time: this.time,
         phase: 2,
         rigAsset: this.rigAssetFor('survivor-bubble-float'),
+        allowGeneratedStandalone: this.generatedCharacterArtEnabled,
       });
       drawSlime(ctx, VIEW.width / 2 + 145, rect.y + 272, 98, 'sprout', {
+        assetStore: this.assetStore,
         time: this.time,
         phase: 3,
         rigAsset: this.rigAssetFor('survivor-moss-sprout'),
+        allowGeneratedStandalone: this.generatedCharacterArtEnabled,
       });
       ctx.save();
       ctx.fillStyle = PALETTE.inkSoft;
       ctx.font = '700 17px "PingFang SC", sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('一套能立即开玩的阵型已经替你摆好，也可以随意调整。', VIEW.width / 2, rect.y + 356);
+      ctx.fillText('基地和四只史莱姆已经准备好，进入后可以立刻派队远征。', VIEW.width / 2, rect.y + 356);
       ctx.restore();
     } else {
       const tips = [
-        ['建造', '移动、旋转、拆除都免费'],
-        ['开战', '防守永远由你主动开启'],
-        ['出牌', '点技能或道具会自动暂停'],
+        ['经营', '史莱姆自动采集、搬运和建造'],
+        ['组队', '从四只史莱姆中恰好选择三只'],
+        ['远征', '选路线、拿变异，最后挑战首领'],
       ];
       tips.forEach((tip, index) => {
         const x = rect.x + 44 + index * 196;
@@ -4073,14 +5756,209 @@ export class SlimeGame {
       });
     }
 
-    this.drawButton(ctx, 'welcome-next', { x: rect.x + 187, y: rect.y + 392, w: 286, h: 58 }, page === 0 ? '继续' : '开始布置', {}, () => {
+    this.drawButton(ctx, 'welcome-next', { x: rect.x + 187, y: rect.y + 392, w: 286, h: 58 }, page === 0 ? '继续' : '开始经营', {}, () => {
       if (page === 0) this.modal.page = 1;
       else {
         this.state.tutorialSeen = true;
         this.modal = null;
         this.save();
-        this.showToast('先看看现成阵型，准备好就查看敌情', 'good', 3);
+        this.showToast('右侧点“三人远征”，马上开始第一次冒险', 'good', 3.4);
       }
+    });
+  }
+
+  drawExpeditionSquadModal(ctx) {
+    this.drawModalShade(ctx);
+    const rect = { x: 230, y: 94, w: 820, h: 532 };
+    const selected = new Set(this.modal?.selectedIds || []);
+    drawRoundedRect(ctx, rect.x, rect.y, rect.w, rect.h, {
+      radius: 34, fill: '#FFF8E9', stroke: '#4E9BB1', lineWidth: 4,
+    });
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.fillStyle = PALETTE.ink;
+    ctx.font = '900 30px "PingFang SC", sans-serif';
+    ctx.fillText('选择三只远征史莱姆', VIEW.width / 2, rect.y + 58);
+    ctx.fillStyle = PALETTE.textMuted;
+    ctx.font = '600 16px "PingFang SC", sans-serif';
+    ctx.fillText(`必须恰好三只 · 已选 ${selected.size} / ${EXPEDITION_PARTY_RULES.size}`, VIEW.width / 2, rect.y + 88);
+    ctx.restore();
+
+    this.availableExpeditionSlimeIds().forEach((cardId, index) => {
+      const card = SURVIVOR_BY_ID[cardId];
+      const x = rect.x + 32 + index * 191;
+      const y = rect.y + 122;
+      const active = selected.has(cardId);
+      drawRoundedRect(ctx, x, y, 174, 250, {
+        radius: 24,
+        fill: active ? '#E5F7F0' : '#F3F0E9',
+        stroke: active ? '#3C9E79' : 'rgba(51,71,80,0.22)',
+        lineWidth: active ? 4 : 2,
+      });
+      this.drawCardArtwork(ctx, card, { x: x + 24, y: y + 20, w: 126, h: 112 }, {
+        padding: 5,
+        fallbackFontSize: 42,
+      });
+      ctx.save();
+      ctx.textAlign = 'center';
+      ctx.fillStyle = PALETTE.ink;
+      ctx.font = '900 19px "PingFang SC", sans-serif';
+      ctx.fillText(card.name, x + 87, y + 163);
+      ctx.fillStyle = PALETTE.textMuted;
+      ctx.font = '600 13px "PingFang SC", sans-serif';
+      wrapText(ctx, card.description, x + 87, y + 188, 142, 19, 3);
+      ctx.fillStyle = active ? '#2F8060' : PALETTE.textMuted;
+      ctx.font = '800 14px "PingFang SC", sans-serif';
+      ctx.fillText(active ? '✓ 已加入' : '点击加入', x + 87, y + 232);
+      ctx.restore();
+      this.addHit(`expedition-squad-${cardId}`, x, y, 174, 250, () => this.toggleExpeditionSlime(cardId));
+    });
+
+    this.drawButton(ctx, 'expedition-squad-close', { x: rect.x + 38, y: rect.y + 430, w: 222, h: 58 }, '先留在基地', { secondary: true }, () => {
+      this.modal = null;
+      this.state.paused = false;
+    });
+    this.drawButton(ctx, 'expedition-squad-start', { x: rect.x + rect.w - 320, y: rect.y + 430, w: 282, h: 58 }, '出发远征', {
+      enabled: selected.size === EXPEDITION_PARTY_RULES.size,
+    }, () => this.startExpedition(this.modal?.selectedIds));
+  }
+
+  drawExpeditionRouteModal(ctx) {
+    this.drawModalShade(ctx);
+    const run = this.state.expeditionRun;
+    const choices = run?.route?.choices || [];
+    const bossStage = Boolean(run?.route?.isBossStage);
+    const rect = { x: 190, y: 88, w: 900, h: 548 };
+    drawRoundedRect(ctx, rect.x, rect.y, rect.w, rect.h, {
+      radius: 34,
+      fill: '#FFF8E9',
+      stroke: bossStage ? '#A94D56' : '#4E9BB1',
+      lineWidth: 4,
+    });
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.fillStyle = bossStage ? '#A94D56' : PALETTE.ink;
+    ctx.font = '900 30px "PingFang SC", sans-serif';
+    ctx.fillText(bossStage ? '最终首领就在前方' : '选择下一条远征路线', VIEW.width / 2, rect.y + 58);
+    ctx.fillStyle = PALETTE.textMuted;
+    ctx.font = '600 16px "PingFang SC", sans-serif';
+    ctx.fillText(bossStage ? '击败酸壳蜗王即可带回全部战利品' : '战斗自动进行，路线与强化由你决定', VIEW.width / 2, rect.y + 88);
+    ctx.restore();
+
+    const cardWidth = bossStage ? 360 : 258;
+    const gap = 24;
+    const totalWidth = choices.length * cardWidth + Math.max(0, choices.length - 1) * gap;
+    choices.forEach((node, index) => {
+      const x = VIEW.width / 2 - totalWidth / 2 + index * (cardWidth + gap);
+      const y = rect.y + 126;
+      const nodeType = EXPEDITION_ROUTE_NODE_TYPE_BY_ID[node.nodeTypeId];
+      const encounter = EXPEDITION_ENCOUNTER_BY_ID[node.templateId];
+      const accent = node.isFinalBoss ? '#A94D56' : index === 0 ? '#8975DD' : index === 1 ? '#3C9E79' : '#C58B2E';
+      drawRoundedRect(ctx, x, y, cardWidth, 310, {
+        radius: 26, fill: '#F5F2EA', stroke: accent, lineWidth: 3,
+      });
+      ctx.save();
+      ctx.textAlign = 'center';
+      ctx.fillStyle = accent;
+      ctx.font = '900 17px "PingFang SC", sans-serif';
+      ctx.fillText(node.isFinalBoss ? '最终 BOSS' : nodeType?.shortName || EXPEDITION_KIND_LABEL[node.kind] || '遭遇', x + cardWidth / 2, y + 30);
+      const assetKey = node.isFinalBoss
+        ? 'expedition-route-boss'
+        : EXPEDITION_ROUTE_ASSET_BY_NODE_TYPE[node.nodeTypeId] || 'expedition-route-combat';
+      const iconSize = node.isFinalBoss ? 100 : 92;
+      drawAssetOrFallback(ctx, this.assetStore, assetKey, (asset) => {
+        drawImageContained(
+          ctx,
+          asset,
+          x + (cardWidth - iconSize) / 2,
+          y + 38,
+          iconSize,
+          iconSize,
+          0.5,
+        );
+      }, () => {
+        ctx.fillStyle = accent;
+        ctx.font = '900 45px "PingFang SC", sans-serif';
+        ctx.fillText(node.isFinalBoss ? '王' : nodeType?.shortName?.slice(0, 1) || '路', x + cardWidth / 2, y + 102);
+      });
+      ctx.fillStyle = PALETTE.ink;
+      ctx.font = '900 21px "PingFang SC", sans-serif';
+      ctx.fillText(node.isFinalBoss ? '酸壳蜗王' : nodeType?.name || encounter?.id || '未知路线', x + cardWidth / 2, y + 151);
+      ctx.fillStyle = PALETTE.textMuted;
+      ctx.font = '600 14px "PingFang SC", sans-serif';
+      wrapText(ctx, nodeType?.description || '迎战大群但较弱的怪物，夺回沿途资源。', x + cardWidth / 2, y + 177, cardWidth - 40, 19, 2);
+      const rewards = Object.entries(flattenExpeditionRewards(node.reward));
+      ctx.fillStyle = '#3C745E';
+      ctx.font = '800 14px "PingFang SC", sans-serif';
+      ctx.fillText(rewards.map(([id, amount]) => `${EXPEDITION_REWARD_LABEL[id] || id} +${amount}`).join(' · ') || '强化机会', x + cardWidth / 2, y + 221);
+      ctx.fillStyle = PALETTE.inkSoft;
+      ctx.font = '700 13px "PingFang SC", sans-serif';
+      ctx.fillText(`敌群强度 ${node.power}`, x + cardWidth / 2, y + 244);
+      ctx.restore();
+      this.drawButton(ctx, `expedition-route-${node.uid}`, { x: x + 24, y: y + 252, w: cardWidth - 48, h: 48 }, node.isFinalBoss ? '挑战首领' : '走这条路', {}, () => this.chooseExpeditionRouteNode(node.uid));
+    });
+    this.drawButton(ctx, 'expedition-route-abandon', { x: rect.x + 34, y: rect.y + 470, w: 190, h: 44 }, '现在撤回', { quiet: true, danger: true }, () => this.abandonCurrentExpedition());
+  }
+
+  drawExpeditionBoonModal(ctx) {
+    this.drawModalShade(ctx);
+    const choices = this.state.expeditionRun?.boonChoices || [];
+    const rect = { x: 190, y: 92, w: 900, h: 536 };
+    drawRoundedRect(ctx, rect.x, rect.y, rect.w, rect.h, {
+      radius: 34, fill: '#FFF8E9', stroke: '#8975DD', lineWidth: 4,
+    });
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.fillStyle = PALETTE.ink;
+    ctx.font = '900 30px "PingFang SC", sans-serif';
+    ctx.fillText('战后变异 · 三选一', VIEW.width / 2, rect.y + 58);
+    ctx.fillStyle = PALETTE.textMuted;
+    ctx.font = '600 16px "PingFang SC", sans-serif';
+    ctx.fillText('强化只在本次远征生效，选择后继续前进', VIEW.width / 2, rect.y + 88);
+    ctx.restore();
+    choices.forEach((choice, index) => {
+      const upgrade = EXPEDITION_UPGRADE_BY_ID[choice.id];
+      const x = rect.x + 42 + index * 276;
+      const y = rect.y + 126;
+      drawRoundedRect(ctx, x, y, 258, 292, {
+        radius: 26,
+        fill: upgrade?.rarity === 'advanced' ? '#F2EAF4' : '#EDF7E9',
+        stroke: upgrade?.rarity === 'advanced' ? '#8975DD' : '#61A986',
+        lineWidth: 3,
+      });
+      ctx.save();
+      ctx.textAlign = 'center';
+      ctx.fillStyle = upgrade?.rarity === 'advanced' ? '#745EC0' : '#3C745E';
+      ctx.font = '900 14px "PingFang SC", sans-serif';
+      ctx.fillText(upgrade?.rarity === 'advanced' ? '高级变异' : '基础变异', x + 129, y + 26);
+      drawAssetOrFallback(ctx, this.assetStore, choice.id, (asset) => {
+        drawImageContained(ctx, asset, x + 80, y + 34, 98, 92, 0.5);
+      }, () => {
+        ctx.fillStyle = upgrade?.rarity === 'advanced' ? '#745EC0' : '#3C745E';
+        ctx.font = '900 42px "PingFang SC", sans-serif';
+        ctx.fillText('变', x + 129, y + 99);
+      });
+      ctx.fillStyle = PALETTE.ink;
+      ctx.font = '900 20px "PingFang SC", sans-serif';
+      ctx.fillText(upgrade?.name || choice.id, x + 129, y + 147);
+      ctx.fillStyle = PALETTE.textMuted;
+      ctx.font = '700 13px "PingFang SC", sans-serif';
+      const targetName = upgrade?.target === 'party'
+        ? '全队生效'
+        : `${SURVIVOR_BY_ID[upgrade?.target]?.shortName || '指定史莱姆'}专属`;
+      ctx.fillText(targetName, x + 129, y + 172);
+      ctx.font = '600 13px "PingFang SC", sans-serif';
+      wrapText(
+        ctx,
+        EXPEDITION_UPGRADE_DESCRIPTION[choice.id] || '让小队在本次远征中获得新的能力。',
+        x + 129,
+        y + 198,
+        216,
+        18,
+        2,
+      );
+      ctx.restore();
+      this.drawButton(ctx, `expedition-boon-${choice.id}`, { x: x + 26, y: y + 230, w: 206, h: 50 }, '选择这项变异', {}, () => this.chooseExpeditionUpgrade(choice.id));
     });
   }
 
@@ -4143,6 +6021,7 @@ export class SlimeGame {
 
   drawRetreatConfirm(ctx) {
     this.drawModalShade(ctx);
+    const expedition = this.isExpeditionSession();
     const rect = { x: 382, y: 208, w: 516, h: 304 };
     drawRoundedRect(ctx, rect.x, rect.y, rect.w, rect.h, {
       radius: 32, fill: '#FFF8E9', stroke: PALETTE.inkSoft, lineWidth: 4,
@@ -4151,19 +6030,27 @@ export class SlimeGame {
     ctx.textAlign = 'center';
     ctx.fillStyle = PALETTE.ink;
     ctx.font = '900 28px "PingFang SC", sans-serif';
-    ctx.fillText('要安全撤回吗？', VIEW.width / 2, rect.y + 64);
+    ctx.fillText(expedition ? '要结束这次远征吗？' : '要安全撤回吗？', VIEW.width / 2, rect.y + 64);
     ctx.fillStyle = PALETTE.textMuted;
     ctx.font = '600 17px "PingFang SC", sans-serif';
-    ctx.fillText('会回到开战前的庭院，不会永久损坏建筑。', VIEW.width / 2, rect.y + 104);
-    ctx.fillText('本次尚未结算的软晶不会获得。', VIEW.width / 2, rect.y + 132);
+    ctx.fillText(expedition ? '小队会安全回到基地，临时变异不会保留。' : '会回到开战前的庭院，不会永久损坏建筑。', VIEW.width / 2, rect.y + 104);
+    ctx.fillText(expedition ? '已获得战利品会按撤回比例结算一次。' : '本次尚未结算的软晶不会获得。', VIEW.width / 2, rect.y + 132);
     ctx.restore();
-    this.drawButton(ctx, 'retreat-cancel', { x: rect.x + 34, y: rect.y + 206, w: 208, h: 58 }, '继续防守', { secondary: true }, () => { this.modal = null; });
-    this.drawButton(ctx, 'retreat-confirm', { x: rect.x + 274, y: rect.y + 206, w: 208, h: 58 }, '确认撤回', { danger: true }, () => { this.modal = null; this.retreatToBuild(); });
+    this.drawButton(ctx, 'retreat-cancel', { x: rect.x + 34, y: rect.y + 206, w: 208, h: 58 }, expedition ? '继续远征' : '继续防守', { secondary: true }, () => { this.modal = null; });
+    this.drawButton(ctx, 'retreat-confirm', { x: rect.x + 274, y: rect.y + 206, w: 208, h: 58 }, '确认撤回', { danger: true }, () => {
+      this.modal = null;
+      if (expedition) this.abandonCurrentExpedition();
+      else this.retreatToBuild();
+    });
   }
 
   drawResultModal(ctx) {
-    this.drawModalShade(ctx);
     const result = this.state.result;
+    if (result?.expedition) {
+      this.drawExpeditionResultModal(ctx, result);
+      return;
+    }
+    this.drawModalShade(ctx);
     const rect = { x: 314, y: 111, w: 652, h: 500 };
     drawRoundedRect(ctx, rect.x, rect.y, rect.w, rect.h, {
       radius: 36,
@@ -4205,10 +6092,11 @@ export class SlimeGame {
     drawRoundedRect(ctx, rect.x + 38, rect.y + 278, rect.w - 76, 72, {
       radius: 22, fill: '#E7F5F7', stroke: '#75B6C3', lineWidth: 2,
     });
+    this.drawResourceToken(ctx, 'softCrystals', rect.x + 80, rect.y + 314, 38);
     ctx.save();
     ctx.fillStyle = '#4E7E8A';
     ctx.font = '800 18px "PingFang SC", sans-serif';
-    ctx.fillText('◆ 本局获得', rect.x + 62, rect.y + 322);
+    ctx.fillText('本局获得', rect.x + 106, rect.y + 322);
     ctx.fillStyle = PALETTE.ink;
     ctx.font = '900 27px "PingFang SC", sans-serif';
     ctx.textAlign = 'right';
@@ -4216,6 +6104,66 @@ export class SlimeGame {
     ctx.restore();
 
     this.drawButton(ctx, 'result-return', { x: rect.x + 170, y: rect.y + 400, w: 312, h: 60 }, '回到庭院重新布置', {}, () => this.returnToTown());
+  }
+
+  drawExpeditionResultModal(ctx, result) {
+    this.drawModalShade(ctx);
+    const victory = result.outcome === 'completed';
+    const rect = { x: 294, y: 104, w: 692, h: 512 };
+    drawRoundedRect(ctx, rect.x, rect.y, rect.w, rect.h, {
+      radius: 36,
+      fill: '#FFF8E9',
+      stroke: victory ? '#3F8B6A' : '#C58B2E',
+      lineWidth: 5,
+    });
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.fillStyle = victory ? '#2F8060' : '#A97528';
+    ctx.font = '900 34px "PingFang SC", sans-serif';
+    ctx.fillText(victory ? '远征完成！' : result.outcome === 'failed' ? '小队已撤离' : '安全返回基地', VIEW.width / 2, rect.y + 66);
+    ctx.fillStyle = PALETTE.textMuted;
+    ctx.font = '600 16px "PingFang SC", sans-serif';
+    ctx.fillText(victory ? '酸壳蜗王已经退去，全部战利品已入库。' : '保留的战利品已经结算，基地没有受到损伤。', VIEW.width / 2, rect.y + 100);
+    if (result.firstClear) {
+      ctx.fillStyle = '#8975DD';
+      ctx.font = '900 15px "PingFang SC", sans-serif';
+      ctx.fillText('首次通关奖励已包含在下方', VIEW.width / 2, rect.y + 130);
+    }
+    ctx.restore();
+
+    const entries = Object.entries(result.rewards || {});
+    entries.slice(0, 4).forEach(([resourceId, amount], index) => {
+      const width = 136;
+      const gap = 16;
+      const x = VIEW.width / 2 - (Math.min(entries.length, 4) * width + (Math.min(entries.length, 4) - 1) * gap) / 2
+        + index * (width + gap);
+      drawRoundedRect(ctx, x, rect.y + 164, width, 112, {
+        radius: 22,
+        fill: resourceId === 'softCrystals' ? '#E7F5F7' : '#EDF7E9',
+        stroke: resourceId === 'softCrystals' ? '#75B6C3' : '#8DBA8A',
+        lineWidth: 2,
+      });
+      ctx.save();
+      ctx.textAlign = 'center';
+      ctx.fillStyle = PALETTE.textMuted;
+      ctx.font = '700 14px "PingFang SC", sans-serif';
+      ctx.fillText(EXPEDITION_REWARD_LABEL[resourceId] || resourceId, x + width / 2, rect.y + 189);
+      this.drawResourceToken(ctx, resourceId, x + width / 2, rect.y + 221, 34);
+      ctx.fillStyle = PALETTE.ink;
+      ctx.font = '900 27px "PingFang SC", sans-serif';
+      ctx.fillText(`+${Math.floor(amount)}`, x + width / 2, rect.y + 266);
+      ctx.restore();
+    });
+    drawRoundedRect(ctx, rect.x + 48, rect.y + 312, rect.w - 96, 74, {
+      radius: 22, fill: '#F2EAF4', stroke: '#B49AC0', lineWidth: 2,
+    });
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.fillStyle = PALETTE.inkSoft;
+    ctx.font = '800 16px "PingFang SC", sans-serif';
+    ctx.fillText(`完成路线 ${result.regularWins} 段 · 精英胜利 ${result.eliteWins} 次 · 击退 ${result.kills} 只`, VIEW.width / 2, rect.y + 357);
+    ctx.restore();
+    this.drawButton(ctx, 'expedition-result-return', { x: rect.x + 190, y: rect.y + 424, w: 312, h: 60 }, '返回基地继续经营', {}, () => this.returnToTown());
   }
 
   isBuildPhase() {
@@ -4240,28 +6188,58 @@ export class SlimeGame {
         this.audio.play('warning');
         return;
       }
-      if (!canPlace(this.state.buildings, card, cell.x, cell.y, rotation)) {
+      if (!canPlace(
+        this.state.buildings,
+        card,
+        cell.x,
+        cell.y,
+        rotation,
+        null,
+        this.state.worldTerrain,
+      )) {
         this.showToast('这里放不下，换个位置试试', 'danger');
         return;
+      }
+      const shape = rotatedFootprint(card, rotation);
+      const recipe = BUILDING_RECIPE_BY_ID[card.id];
+      let blueprint = null;
+      if (recipe && this.state.colony) {
+        try {
+          blueprint = addBlueprint(this.state.colony, {
+            cardId: card.id,
+            x: cell.x,
+            y: cell.y,
+            footprint: shape,
+            required: colonyRecipeResources(recipe.recipe),
+            buildSeconds: recipe.constructionSeconds,
+          });
+        } catch {
+          this.showToast('这块土地暂时不能放蓝图', 'danger');
+          return;
+        }
       }
       this.state.buildings.push({
         uid: uid('building'), cardId: card.id, x: cell.x, y: cell.y,
         rotation, hp: card.hp, maxHp: card.hp,
         cooldown: 0, shotCount: 0, shield: 0, seed: 0,
         fenceTrigger: 1, destroyed: false, placedAt: this.time,
+        underConstruction: Boolean(blueprint),
+        blueprintUid: blueprint?.uid || null,
+        buildProgress: blueprint ? 0 : 1,
       });
-      const shape = rotatedFootprint(card, rotation);
-      const effectPosition = {
-        x: BOARD.x + (cell.x + shape.width / 2) * BOARD.cell,
-        y: BOARD.y + (cell.y + shape.height) * BOARD.cell - 8,
-      };
+      const effectPosition = worldToScreen({
+        x: cell.x + shape.width / 2,
+        y: cell.y + shape.height,
+      }, this.camera, BOARD);
       this.spawnDynamicEffect('place', effectPosition.x, effectPosition.y - 2, {
         color: card.color,
         accent: '#FFF0C4',
         intensity: clamp(shape.width * 0.82, 0.9, 1.55),
       });
       this.audio.play('place');
-      this.showToast(`${card.shortName}安顿好了`);
+      this.showToast(blueprint
+        ? `${card.shortName}蓝图已放下，史莱姆会搬材料施工`
+        : `${card.shortName}安顿好了`);
       this.save();
       return;
     }
@@ -4271,7 +6249,15 @@ export class SlimeGame {
       if (!building) return;
       const card = BUILDING_BY_ID[building.cardId];
       const rotation = canonicalBuildingRotation(selection.rotation ?? building.rotation, card);
-      if (!canPlace(this.state.buildings, card, cell.x, cell.y, rotation, building.uid)) {
+      if (!canPlace(
+        this.state.buildings,
+        card,
+        cell.x,
+        cell.y,
+        rotation,
+        building.uid,
+        this.state.worldTerrain,
+      )) {
         this.showToast('这个位置会和其他建筑重叠', 'danger');
         return;
       }
@@ -4280,10 +6266,10 @@ export class SlimeGame {
       building.rotation = rotation;
       building.placedAt = this.time;
       const shape = rotatedFootprint(card, rotation);
-      const position = {
-        x: BOARD.x + (cell.x + shape.width / 2) * BOARD.cell,
-        y: BOARD.y + (cell.y + shape.height) * BOARD.cell - 8,
-      };
+      const position = worldToScreen({
+        x: cell.x + shape.width / 2,
+        y: cell.y + shape.height,
+      }, this.camera, BOARD);
       this.spawnDynamicEffect('place', position.x, position.y, {
         color: card.color,
         accent: '#FFF0C4',
@@ -4329,6 +6315,19 @@ export class SlimeGame {
       this.selection = { kind: 'inspect-building', uid: building.uid };
       return;
     }
+    const terrainCell = catalogTerrainAt(this.state.worldTerrain, cell.x, cell.y);
+    if (terrainCell?.terrainId !== 'ground') {
+      this.selection = {
+        kind: 'inspect-terrain',
+        x: cell.x,
+        y: cell.y,
+        terrainId: terrainCell.terrainId,
+      };
+      const definition = TERRAIN_TYPES[terrainCell.terrainId];
+      const help = TERRAIN_HELP[terrainCell.terrainId];
+      this.showToast(`${definition.name} · ${help?.[0] || '荒野地形'}`);
+      return;
+    }
     this.selection = null;
   }
 
@@ -4339,8 +6338,15 @@ export class SlimeGame {
       this.showToast(`选择格子放置${card.shortName}`);
     } else {
       const survivor = this.state.survivors.find((item) => item.cardId === card.id);
-      this.selection = { kind: 'place-survivor', cardId: card.id, uid: survivor?.uid };
-      this.showToast(`选择${card.shortName}的新驻守位置`);
+      if (!survivor) return;
+      this.selection = { kind: 'inspect-survivor', uid: survivor.uid };
+      this.camera = createWorldCamera({
+        world: WORLD,
+        viewport: BOARD,
+        focus: { x: survivor.x + 0.5, y: survivor.y + 0.5 },
+        zoom: this.camera.zoom,
+      });
+      this.showToast(`${card.shortName}正在${COLONY_AI_LABEL[survivor.aiState] || '自动工作'}`);
     }
   }
 
@@ -4381,6 +6387,37 @@ export class SlimeGame {
     const [removed] = this.state.buildings.splice(index, 1);
     this.showToast(`${BUILDING_BY_ID[removed.cardId].shortName}已收回，定形值全部返还`);
     this.selection = null;
+    this.save();
+  }
+
+  cancelSelectedBlueprint() {
+    if (this.selection?.kind !== 'inspect-building' || !this.state.colony) return;
+    const index = this.state.buildings.findIndex((item) => (
+      item.uid === this.selection.uid && item.underConstruction
+    ));
+    if (index < 0) return;
+    const building = this.state.buildings[index];
+    const blueprint = this.state.colony.blueprints.find((item) => item.uid === building.blueprintUid);
+    if (blueprint) {
+      for (const resourceType of Object.keys(this.state.colony.resources)) {
+        this.state.colony.resources[resourceType] += blueprint.delivered[resourceType] || 0;
+      }
+      blueprint.cancelled = true;
+      blueprint.reservedBy = null;
+      for (const slime of this.state.colony.slimes) {
+        if (slime.job?.targetUid !== blueprint.uid) continue;
+        if (slime.carrying?.destination === 'blueprint') {
+          this.state.colony.resources[slime.carrying.resourceType] += slime.carrying.amount;
+        }
+        slime.carrying = null;
+        slime.job = null;
+        slime.path = [];
+        slime.aiState = 'idle';
+      }
+    }
+    this.state.buildings.splice(index, 1);
+    this.selection = null;
+    this.showToast('蓝图已取消，已送达和搬运中的材料已退回');
     this.save();
   }
 
@@ -4492,8 +6529,8 @@ export class SlimeGame {
     this.state.rewardEarned += wave.clearReward;
     this.spawnDynamicEffect(
       'wave-clear',
-      BOARD.x + (BOARD.cols * BOARD.cell) / 2,
-      BOARD.y + (BOARD.rows * BOARD.cell) / 2,
+      BOARD.x + BOARD.width / 2,
+      BOARD.y + BOARD.height / 2,
       {
         color: '#76DBA0',
         accent: '#FFF2A4',
@@ -4543,6 +6580,26 @@ export class SlimeGame {
   }
 
   returnToTown() {
+    if (this.state.result?.expedition || this.state.expeditionRun?.phase === 'settlement') {
+      this.state.phase = 'build';
+      this.state.paused = false;
+      this.state.result = null;
+      this.state.expeditionRun = null;
+      this.state.enemies = [];
+      this.state.spawnQueue = [];
+      this.state.spawned = new Set();
+      this.state.projectiles = [];
+      this.state.worldEffects = [];
+      this.state.dynamicEffects = [];
+      this.state.terrain = [];
+      this.state.deployables = [];
+      this.state.coreHp = this.state.coreMaxHp;
+      this.preBattleSnapshot = null;
+      this.modal = null;
+      this.selection = null;
+      this.save();
+      return;
+    }
     const crystals = this.state.softCrystals;
     if (this.preBattleSnapshot && !this.state.result?.victory) {
       const snapshot = JSON.parse(this.preBattleSnapshot);

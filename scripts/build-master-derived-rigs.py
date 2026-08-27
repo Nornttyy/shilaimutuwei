@@ -60,6 +60,7 @@ class CharacterSpec:
     owner: str
     rig_id: str
     master_path: str
+    canonical_facing: int
     root: tuple[float, float]
     body_width: int
     subject_bbox: tuple[int, int, int, int]
@@ -73,6 +74,7 @@ CRYSTAL = CharacterSpec(
     owner="survivor-crystal-pin",
     rig_id="crystal",
     master_path="assets/original-masters/survivor-crystal-pin.png",
+    canonical_facing=1,
     root=(828.0, 1071.0),
     body_width=948,
     subject_bbox=(123, 13, 1302, 1071),
@@ -146,6 +148,7 @@ SPROUT = CharacterSpec(
     owner="survivor-moss-sprout",
     rig_id="sprout",
     master_path="assets/original-masters/survivor-moss-sprout.png",
+    canonical_facing=-1,
     root=(704.5, 1019.0),
     body_width=831,
     subject_bbox=(289, 10, 1248, 1019),
@@ -655,6 +658,8 @@ def _bind_rect(layer: LayerSpec, spec: CharacterSpec, cell: Image.Image) -> dict
 
 
 def _build_character(spec: CharacterSpec) -> tuple[dict[str, bytes], dict, dict]:
+    if spec.canonical_facing not in (-1, 1):
+        raise ValueError(f"{spec.owner}: canonical_facing must be +1 or -1")
     master, layers, masks = _native_layers(spec)
     layer_specs = {layer.name: layer for layer in spec.layers}
     rig_scale = 102 / spec.body_width
@@ -783,7 +788,7 @@ def _build_character(spec: CharacterSpec) -> tuple[dict[str, bytes], dict, dict]
         "rigId": spec.rig_id,
         "rootBone": "root",
         "faceBone": "face",
-        "canonicalFacing": 1,
+        "canonicalFacing": spec.canonical_facing,
         "masterDerived": manifest_metadata,
         "parts": runtime_parts,
     }

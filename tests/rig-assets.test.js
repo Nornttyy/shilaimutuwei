@@ -62,6 +62,13 @@ const EXPECTED_PART_ORDER = Object.freeze({
   ],
 });
 
+const EXPECTED_CANONICAL_FACING = Object.freeze(Object.fromEntries(
+  Object.keys(EXPECTED_PART_ORDER).map((ownerId) => [
+    ownerId,
+    ownerId === 'survivor-moss-sprout' ? -1 : 1,
+  ]),
+));
+
 const EXPECTED_GENERATED_BIND_RECTS = Object.freeze({
   'survivor-shell-shell.shellFront': { x: -44, y: -92, width: 80, height: 64 },
   'survivor-crystal-pin.front': {
@@ -184,7 +191,7 @@ test('rig-parts contract covers all eight characters in canonical draw order', (
     assert.equal(rig.ownerId, ownerId);
     assert.equal(rig.rootBone, 'root');
     assert.equal(rig.faceBone, 'face');
-    assert.equal(rig.canonicalFacing, 1);
+    assert.equal(rig.canonicalFacing, EXPECTED_CANONICAL_FACING[ownerId]);
     assert.equal(rig.atlasPath, expectedAtlasPath(ownerId));
     assert.deepEqual(rig.parts.map(({ id }) => id), expectedParts);
     assert.equal(rig.parts.some(({ bone }) => bone === 'root'), false);

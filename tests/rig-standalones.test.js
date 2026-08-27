@@ -112,7 +112,11 @@ test('world sizing and portrait crops share one aspect-safe profile per characte
     for (const key of ['minX', 'minY', 'maxX', 'maxY']) {
       assert.ok(Math.abs(profile.worldBounds[key] - worldBounds[key]) < 1e-9);
     }
-    assert.equal(rig.canonicalFacing, 1, 'all current production rigs are authored facing right');
+    assert.equal(
+      rig.canonicalFacing,
+      output.ownerId === 'survivor-moss-sprout' ? -1 : 1,
+      'only Sprout is authored facing left; every exported character targets gameplay direction',
+    );
     assert.equal(profile.gameplayFacing, output.category === 'enemy' ? -1 : 1);
 
     const maxSpan = Math.max(

@@ -36,7 +36,7 @@ export const CHARACTER_RENDER_PROFILES = deepFreeze({
     gameplayFacing: 1,
     worldBounds: { minX: -51, minY: -123.848, maxX: 66.812, maxY: -0.079 },
     portraitCanvas: { width: 512, height: 512 },
-    portraitCrop: { x: 83, y: 64, width: 397, height: 416 },
+    portraitCrop: { x: 32, y: 64, width: 397, height: 416 },
   },
   'enemy-soft-biter': {
     gameplayFacing: -1,

@@ -278,7 +278,7 @@
     "rigId": "sprout",
     "rootBone": "root",
     "faceBone": "face",
-    "canonicalFacing": 1,
+    "canonicalFacing": -1,
     "masterDerived": {
       "schemaVersion": 1,
       "sourceMaster": "assets/original-masters/survivor-moss-sprout.png",

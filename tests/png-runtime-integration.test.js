@@ -178,6 +178,26 @@ test('slime composites one complete card bundle after the outer size and facing 
   assert.equal(ctx.globalAlpha, 1);
 });
 
+test('Sprout authored facing left mirrors exactly once to face right in gameplay', () => {
+  resetOffscreen();
+  const ctx = createMainContext();
+  const ownerId = 'survivor-moss-sprout';
+
+  drawSlime(ctx, 30, 70, 100, 'sprout', {
+    animate: false,
+    rigAsset: readyBundle(ownerId),
+  });
+
+  const scale = characterWorldScale(ownerId);
+  assert.equal(MANIFEST.rigs[ownerId].canonicalFacing, -1);
+  assert.deepEqual(ctx.calls.find(([name]) => name === 'scale'), ['scale', -scale, scale]);
+  assert.deepEqual(
+    offscreenState.layerDraws,
+    MANIFEST.rigs[ownerId].parts.map(({ id }) => `${ownerId}:${id}`),
+  );
+  assert.equal(ctx.compositeDraws, 1);
+});
+
 test('draw pipeline forwards expression selection to an independent facial layer', () => {
   resetOffscreen();
   const ctx = createMainContext();

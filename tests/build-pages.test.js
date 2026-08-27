@@ -53,9 +53,9 @@ const PROJECT_ASSET_SPEC = JSON.parse(await readFile(
   'utf8',
 ));
 
-test('the project asset whitelist covers all 73 canonical nested PNG paths', () => {
+test('the project asset whitelist covers all 74 canonical nested PNG paths', () => {
   const paths = collectDeclaredAssetPaths(PROJECT_ASSET_SPEC);
-  assert.equal(paths.length, 73);
+  assert.equal(paths.length, 74);
   assert.equal(new Set(paths).size, paths.length);
   assert.equal(paths.every((assetPath) => (
     /^assets\/generated\/[a-z][a-z0-9-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*\.png$/.test(assetPath)

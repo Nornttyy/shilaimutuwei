@@ -122,6 +122,58 @@ function createDynamicEffectRecordingContext() {
   return { ctx, calls };
 }
 
+const DYNAMIC_COMPONENT_ATLAS_KEY = 'effect-dynamic-components-v1';
+const LEGACY_DYNAMIC_COMPOSITE_KEYS = Object.freeze([
+  'effect-spawn-rift-burst',
+  'effect-heal-burst',
+  'effect-building-destruction-puff',
+  'effect-jelly-bounce-wave',
+  'effect-soft-swap-arc',
+  'effect-honey-draw-trail',
+]);
+const DYNAMIC_EFFECT_CASES = Object.freeze([
+  ['impact', {}],
+  ['push', { dx: 78, dy: -16 }],
+  ['enemy-pop', {}],
+  ['heal', {}],
+  ['spawn', { layer: 'back' }],
+  ['trail', { dx: 150, dy: 0 }],
+  ['swap', { dx: 130, dy: 55 }],
+  ['place', {}],
+  ['wave-clear', {}],
+]);
+const DYNAMIC_GEOMETRY_METHODS = new Set([
+  'arc', 'ellipse', 'lineTo', 'quadraticCurveTo', 'bezierCurveTo', 'stroke', 'fill',
+]);
+const DYNAMIC_MOTION_METHODS = new Set([
+  'translate', 'rotate', 'scale', 'drawImage',
+]);
+
+function normalizedCallTrace(calls, methodNames) {
+  return calls
+    .filter(([name]) => methodNames.has(name))
+    .map(([name, ...args]) => [
+      name,
+      ...args.map((value) => (
+        value && typeof value === 'object'
+          ? value.key || value.id || '[canvas-image]'
+          : value
+      )),
+    ]);
+}
+
+function createDynamicAtlasStore() {
+  return createReadyAssetStore({
+    [DYNAMIC_COMPONENT_ATLAS_KEY]: {
+      key: DYNAMIC_COMPONENT_ATLAS_KEY,
+      width: 1254,
+      height: 1254,
+      naturalWidth: 1254,
+      naturalHeight: 1254,
+    },
+  });
+}
+
 function createReadyAssetStore(keysOrAssets) {
   const assets = keysOrAssets instanceof Map
     ? new Map(keysOrAssets)
@@ -889,97 +941,147 @@ test('dynamic effects advance on the animation clock, freeze while paused, and e
   assert.ok(!game.state.dynamicEffects.includes(effect));
 });
 
-test('procedural hit, push, and enemy-pop effects draw changing multi-part Canvas geometry', () => {
-  const recording = createDynamicEffectRecordingContext();
-  const { game } = createHarness({ context: recording.ctx });
-  game.spawnDynamicEffect('impact', 220, 230, {
-    layer: 'front', seed: 2, intensity: 1.1,
-  });
-  game.spawnDynamicEffect('push', 330, 250, {
-    layer: 'front', seed: 3, dx: 1, dy: -0.2,
-  });
-  game.spawnDynamicEffect('enemy-pop', 440, 240, {
-    layer: 'front', seed: 4, intensity: 1.2,
-  });
-
-  game.drawDynamicEffects(recording.ctx, 'front');
-  assert.equal(
-    recording.calls.some(([name]) => name === 'drawImage'),
-    false,
-    'procedural effects must not depend on a static bitmap frame',
-  );
-  const geometryNames = new Set([
-    'arc', 'ellipse', 'lineTo', 'quadraticCurveTo', 'bezierCurveTo', 'stroke', 'fill',
-  ]);
-  const firstGeometry = recording.calls.filter(([name]) => geometryNames.has(name));
-  assert.ok(firstGeometry.length >= 12, 'the three effects should be composed from multiple moving parts');
-
-  recording.calls.length = 0;
-  game.update(0.06);
-  game.drawDynamicEffects(recording.ctx, 'front');
-  const secondGeometry = recording.calls.filter(([name]) => geometryNames.has(name));
-  assert.notDeepEqual(
-    secondGeometry,
-    firstGeometry,
-    'effect geometry should transform over time instead of only fading a fixed frame',
-  );
-  assert.equal(recording.calls.some(([name]) => name === 'drawImage'), false);
-});
-
-test('every battle effect family is procedural and changes its own Canvas geometry over time', () => {
-  const recording = createDynamicEffectRecordingContext();
-  const { game } = createHarness({ context: recording.ctx });
-  const definitions = [
-    ['heal', {}],
-    ['spawn', { layer: 'back' }],
-    ['trail', { dx: 150, dy: 0 }],
-    ['swap', { dx: 130, dy: 55 }],
-    ['place', {}],
-    ['wave-clear', {}],
-  ];
-
-  definitions.forEach(([kind, options], index) => {
-    game.state.dynamicEffects = [];
-    recording.calls.length = 0;
+test('all nine dynamic effect families animate multiple independent atlas components', () => {
+  DYNAMIC_EFFECT_CASES.forEach(([kind, options], index) => {
+    const recording = createDynamicEffectRecordingContext();
+    const store = createDynamicAtlasStore();
+    const { game } = createHarness({ context: recording.ctx, assetStore: store });
     const effect = game.spawnDynamicEffect(kind, 180 + index * 80, 260, {
       ...options,
       seed: 30 + index,
       color: '#65CBE4',
       accent: '#FFF8E9',
     });
-    effect.life = effect.maxLife * 0.58;
+    effect.life = effect.maxLife * 0.55;
+
     game.drawDynamicEffects(recording.ctx, effect.layer);
-    const firstGeometry = recording.calls.filter(([name]) => (
-      ['arc', 'ellipse', 'lineTo', 'quadraticCurveTo', 'stroke', 'fill'].includes(name)
-    ));
-    assert.ok(firstGeometry.length >= 3, `${kind} should contain multiple geometry parts`);
-    assert.equal(recording.calls.some(([name]) => name === 'drawImage'), false);
+    const firstImages = recording.calls.filter(([name]) => name === 'drawImage');
+    const firstMotion = normalizedCallTrace(recording.calls, DYNAMIC_MOTION_METHODS);
+    assert.ok(firstImages.length >= 2, `${kind} should draw multiple independent atlas cells`);
+    assert.ok(
+      store.requests.includes(DYNAMIC_COMPONENT_ATLAS_KEY),
+      `${kind} should request the dynamic component atlas`,
+    );
 
     recording.calls.length = 0;
-    game.update(0.08);
+    game.update(effect.maxLife * 0.12);
     game.drawDynamicEffects(recording.ctx, effect.layer);
-    const secondGeometry = recording.calls.filter(([name]) => (
-      ['arc', 'ellipse', 'lineTo', 'quadraticCurveTo', 'stroke', 'fill'].includes(name)
-    ));
-    assert.notDeepEqual(secondGeometry, firstGeometry, `${kind} should move between frames`);
-    assert.equal(recording.calls.some(([name]) => name === 'drawImage'), false);
+    const secondImages = recording.calls.filter(([name]) => name === 'drawImage');
+    const secondMotion = normalizedCallTrace(recording.calls, DYNAMIC_MOTION_METHODS);
+    assert.ok(secondImages.length >= 2, `${kind} should keep multiple atlas cells alive on its next frame`);
+    assert.equal(
+      secondImages.length,
+      firstImages.length,
+      `${kind} comparison frames should contain the same components so motion cannot pass by count alone`,
+    );
+    assert.notDeepEqual(
+      secondMotion,
+      firstMotion,
+      `${kind} atlas cells should independently translate, rotate, scale, or resize between frames`,
+    );
+    for (const legacyKey of LEGACY_DYNAMIC_COMPOSITE_KEYS) {
+      assert.equal(
+        store.requests.includes(legacyKey),
+        false,
+        `${kind} must not request legacy full-frame effect ${legacyKey}`,
+      );
+    }
   });
 });
 
-test('enemy-pop staggers droplets instead of revealing the whole burst on its first frame', () => {
+test('all nine dynamic effect families retain changing procedural geometry without the atlas', () => {
+  DYNAMIC_EFFECT_CASES.forEach(([kind, options], index) => {
+    const recording = createDynamicEffectRecordingContext();
+    const store = createReadyAssetStore([]);
+    const { game } = createHarness({ context: recording.ctx, assetStore: store });
+    const effect = game.spawnDynamicEffect(kind, 180 + index * 80, 260, {
+      ...options,
+      seed: 60 + index,
+      color: '#65CBE4',
+      accent: '#FFF8E9',
+    });
+    effect.life = effect.maxLife * 0.55;
+
+    game.drawDynamicEffects(recording.ctx, effect.layer);
+    const firstGeometry = normalizedCallTrace(recording.calls, DYNAMIC_GEOMETRY_METHODS);
+    assert.ok(firstGeometry.length >= 3, `${kind} fallback should contain multiple procedural parts`);
+    assert.equal(
+      recording.calls.some(([name]) => name === 'drawImage'),
+      false,
+      `${kind} fallback must not require a bitmap`,
+    );
+
+    recording.calls.length = 0;
+    game.update(effect.maxLife * 0.12);
+    game.drawDynamicEffects(recording.ctx, effect.layer);
+    const secondGeometry = normalizedCallTrace(recording.calls, DYNAMIC_GEOMETRY_METHODS);
+    assert.notDeepEqual(secondGeometry, firstGeometry, `${kind} fallback geometry should move between frames`);
+    assert.equal(recording.calls.some(([name]) => name === 'drawImage'), false);
+    assert.ok(
+      store.requests.includes(DYNAMIC_COMPONENT_ATLAS_KEY),
+      `${kind} should safely attempt the shared atlas before falling back`,
+    );
+    for (const legacyKey of LEGACY_DYNAMIC_COMPOSITE_KEYS) {
+      assert.equal(store.requests.includes(legacyKey), false);
+    }
+  });
+});
+
+test('enemy-pop reveals fewer atlas components on its first frame than during the burst', () => {
   const recording = createDynamicEffectRecordingContext();
-  const { game } = createHarness({ context: recording.ctx });
-  game.spawnDynamicEffect('enemy-pop', 320, 240, { seed: 19, intensity: 1 });
+  const store = createDynamicAtlasStore();
+  const { game } = createHarness({ context: recording.ctx, assetStore: store });
+  const effect = game.spawnDynamicEffect('enemy-pop', 320, 240, { seed: 19, intensity: 1 });
 
   game.drawDynamicEffects(recording.ctx, 'front');
-  const initialFills = recording.calls.filter(([name]) => name === 'fill').length;
-  assert.equal(initialFills, 1, 'only the compression flash should be visible before the burst starts');
+  const initialImages = recording.calls.filter(([name]) => name === 'drawImage').length;
 
   recording.calls.length = 0;
-  game.update(0.2);
+  game.update(effect.maxLife * 0.35);
   game.drawDynamicEffects(recording.ctx, 'front');
-  const burstFills = recording.calls.filter(([name]) => name === 'fill').length;
-  assert.ok(burstFills > initialFills, 'droplets and sparks should enter on later frames');
+  const burstImages = recording.calls.filter(([name]) => name === 'drawImage').length;
+  assert.ok(
+    initialImages < burstImages,
+    `enemy-pop should stagger atlas cells (${initialImages} initially, ${burstImages} during burst)`,
+  );
+  assert.ok(store.requests.includes(DYNAMIC_COMPONENT_ATLAS_KEY));
+  for (const legacyKey of LEGACY_DYNAMIC_COMPOSITE_KEYS) {
+    assert.equal(store.requests.includes(legacyKey), false);
+  }
+});
+
+test('dense kill chains cap illustrated components at 64 and reserve room for wave-clear art', () => {
+  const recording = createDynamicEffectRecordingContext();
+  const store = createDynamicAtlasStore();
+  const { game } = createHarness({ context: recording.ctx, assetStore: store });
+  const addEffect = (kind, options, count) => {
+    for (let index = 0; index < count; index += 1) {
+      const effect = game.spawnDynamicEffect(kind, 260 + index * 4, 250 + index * 2, {
+        ...options,
+        seed: 300 + index,
+        color: '#65CBE4',
+        accent: '#FFF8E9',
+      });
+      effect.life = effect.maxLife * 0.55;
+    }
+  };
+
+  addEffect('impact', {}, 14);
+  addEffect('enemy-pop', {}, 7);
+  addEffect('push', { dx: 78, dy: -16 }, 6);
+  addEffect('wave-clear', {}, 1);
+  game.resetDynamicComponentBudget();
+  game.drawDynamicEffects(recording.ctx, 'front');
+
+  const atlasDraws = recording.calls.filter(([name, asset]) => (
+    name === 'drawImage' && asset?.key === DYNAMIC_COMPONENT_ATLAS_KEY
+  ));
+  assert.ok(atlasDraws.length <= 64, `expected at most 64 atlas draws, got ${atlasDraws.length}`);
+  assert.equal(game.dynamicComponentDrawCount, atlasDraws.length);
+  assert.ok(
+    atlasDraws.some(([, , , sourceY]) => sourceY >= 1254 * 0.75),
+    'reserved component slots should keep the wave-clear ribbon and confetti row visible',
+  );
 });
 
 test('enemy hits and deaths emit distinct procedural impact and pop effects', () => {

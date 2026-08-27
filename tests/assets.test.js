@@ -25,12 +25,12 @@ const PROJECT_ASSET_SPEC = JSON.parse(await readFile(
   'utf8',
 ));
 
-test('the workspace asset manifest strictly validates all 73 finished PNGs', async () => {
+test('the workspace asset manifest strictly validates all 74 finished PNGs', async () => {
   const result = await verifyAssets({ cwd: PROJECT_ROOT, allowMissingSpec: false });
   assert.equal(result.ok, true, formatErrors(result));
   assert.equal(result.skipped, false);
-  assert.equal(result.summary.declaredAssets, 73);
-  assert.equal(result.summary.checkedAssets, 73);
+  assert.equal(result.summary.declaredAssets, 74);
+  assert.equal(result.summary.checkedAssets, 74);
   assert.deepEqual(result.errors, [], formatErrors(result));
   assert.deepEqual(result.warnings, [], formatErrors(result));
 });
@@ -184,8 +184,8 @@ test('missing asset-spec is skippable by default and an error in strict mode', a
   }, { writeAssetsDirectory: false });
 });
 
-test('runtime asset map covers all 73 canonical nested paths and three aliases', () => {
-  assert.equal(PROJECT_ASSET_SPEC.assets.length, 73);
+test('runtime asset map covers all 74 canonical nested paths and three aliases', () => {
+  assert.equal(PROJECT_ASSET_SPEC.assets.length, 74);
   for (const asset of PROJECT_ASSET_SPEC.assets) {
     assert.equal(typeof ASSET_PATHS[asset.id], 'string', `missing runtime asset: ${asset.id}`);
     assert.ok(
@@ -193,7 +193,7 @@ test('runtime asset map covers all 73 canonical nested paths and three aliases',
       `unexpected runtime path for ${asset.id}: ${ASSET_PATHS[asset.id]}`,
     );
   }
-  assert.equal(Object.keys(ASSET_PATHS).length, 76);
+  assert.equal(Object.keys(ASSET_PATHS).length, 77);
   assert.equal(ASSET_PATHS['scene-gel-garden'], ASSET_PATHS['background-garden-base']);
   assert.equal(ASSET_PATHS['town-core'], ASSET_PATHS['town-soft-core']);
   assert.equal(ASSET_PATHS['enemy-portal'], ASSET_PATHS['rift-entry-portal']);

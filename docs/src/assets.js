@@ -71,6 +71,7 @@ const DECLARED_ASSET_PATHS = {
   'effect-particle-healing-leaf': generatedAssetUrl('effect/effect-particle-healing-leaf.png'),
   'effect-particle-bubble': generatedAssetUrl('effect/effect-particle-bubble.png'),
   'effect-particle-dust-puff': generatedAssetUrl('effect/effect-particle-dust-puff.png'),
+  'effect-dynamic-components-v1': generatedAssetUrl('effect/effect-dynamic-components-v1.png'),
   'effect-selection-ring-friendly': generatedAssetUrl('effect/effect-selection-ring-friendly.png'),
   'effect-target-ring-danger': generatedAssetUrl('effect/effect-target-ring-danger.png'),
   'effect-shield-dome': generatedAssetUrl('effect/effect-shield-dome.png'),

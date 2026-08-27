@@ -905,6 +905,22 @@
       "maxBytes": 65000
     },
     {
+      "id": "effect-dynamic-components-v1",
+      "category": "effect",
+      "sourceId": "game:drawDynamicEffects:componentAtlas",
+      "filename": "effect-dynamic-components-v1.png",
+      "path": "assets/generated/effect/effect-dynamic-components-v1.png",
+      "recommendedCanvas": { "width": 1254, "height": 1254 },
+      "width": 1254,
+      "height": 1254,
+      "runtimeDisplaySize": "4×4图集；单个组件8–180逻辑像素，由Canvas独立裁切、平移、旋转与缩放",
+      "view": "四乘四透明动态图元图集，每格一个独立软胶特效组件",
+      "brief": "动态战斗特效组件图集：命中星芒、速度条、单冲击环、胶滴、独立泡泡、治愈叶、治愈闪光、裂隙碎片、蜜胶滴、双色换位光团、尘团、彩带、晶屑、小星芒与放置胶花；所有组件分格独立，低细节、高饱和、有光泽，透明背景。",
+      "transparent": true,
+      "priority": "P0",
+      "maxBytes": 950000
+    },
+    {
       "id": "effect-selection-ring-friendly",
       "category": "effect",
       "sourceId": "drawSelectionRing:selected",

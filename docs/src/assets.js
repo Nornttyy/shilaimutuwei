@@ -43,6 +43,27 @@ export const CRITICAL_STARTUP_ASSET_KEYS = Object.freeze([
   'ui-audio-off',
 ]);
 
+/**
+ * Bright, streamed world art used by the procedural infinite map. These are
+ * intentionally kept out of the first-screen critical set. The renderer
+ * requests nearby region/POI keys as chunks enter view, while any other idle
+ * asset begins loading the first time its fallback is drawn.
+ */
+export const INFINITE_WORLD_ASSET_KEYS = Object.freeze([
+  'region-gel-meadow-field-a',
+  'region-dew-grove-field-a',
+  'region-crystal-bloom-field-a',
+  'region-bubble-heath-field-a',
+  'region-shell-canyon-field-a',
+  'nest-soft-rift-energy-a',
+  'nest-soft-rift-frame-a',
+  'landmark-soft-relay-a',
+  'landmark-giant-crystal-bloom-a',
+  'landmark-dew-canopy-a',
+  'landmark-bubble-arch-a',
+  'landmark-boss-shell-grotto-a',
+]);
+
 const DECLARED_ASSET_PATHS = {
   'survivor-shell-shell': generatedAssetUrl('survivor/survivor-shell-shell.png'),
   'survivor-crystal-pin': generatedAssetUrl('survivor/survivor-crystal-pin.png'),
@@ -100,6 +121,18 @@ const DECLARED_ASSET_PATHS = {
   'terrain-waste-cable-thicket-a': generatedAssetUrl('terrain-waste/terrain-waste-cable-thicket-a.png'),
   'terrain-waste-rusted-wreck-a': generatedAssetUrl('terrain-waste/terrain-waste-rusted-wreck-a.png'),
   'terrain-waste-acid-sludge-a': generatedAssetUrl('terrain-waste/terrain-waste-acid-sludge-a.png'),
+  'region-gel-meadow-field-a': generatedAssetUrl('region/region-gel-meadow-field-a.png'),
+  'region-dew-grove-field-a': generatedAssetUrl('region/region-dew-grove-field-a.png'),
+  'region-crystal-bloom-field-a': generatedAssetUrl('region/region-crystal-bloom-field-a.png'),
+  'region-bubble-heath-field-a': generatedAssetUrl('region/region-bubble-heath-field-a.png'),
+  'region-shell-canyon-field-a': generatedAssetUrl('region/region-shell-canyon-field-a.png'),
+  'nest-soft-rift-frame-a': generatedAssetUrl('nest/nest-soft-rift-frame-a.png'),
+  'nest-soft-rift-energy-a': generatedAssetUrl('nest/nest-soft-rift-energy-a.png'),
+  'landmark-soft-relay-a': generatedAssetUrl('landmark/landmark-soft-relay-a.png'),
+  'landmark-giant-crystal-bloom-a': generatedAssetUrl('landmark/landmark-giant-crystal-bloom-a.png'),
+  'landmark-dew-canopy-a': generatedAssetUrl('landmark/landmark-dew-canopy-a.png'),
+  'landmark-bubble-arch-a': generatedAssetUrl('landmark/landmark-bubble-arch-a.png'),
+  'landmark-boss-shell-grotto-a': generatedAssetUrl('landmark/landmark-boss-shell-grotto-a.png'),
   'resource-soft-gel-token': generatedAssetUrl('resource/resource-soft-gel-token.png'),
   'resource-dew-honey-token': generatedAssetUrl('resource/resource-dew-honey-token.png'),
   'resource-crystal-shard-token': generatedAssetUrl('resource/resource-crystal-shard-token.png'),
@@ -354,6 +387,7 @@ export function createAssetStore(
         return false;
       }
     }
+    if (records.get(key)?.status === 'idle') void load(key).catch(() => null);
     renderFallback(status(key), null);
     return false;
   }

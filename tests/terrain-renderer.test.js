@@ -6,11 +6,17 @@ import {
   drawOrganicGround,
   drawOrganicTerrainProps,
   isWastelandCell,
+  LANDMARK_ASSET_KEYS,
+  POI_ASSET_KEYS,
+  REGION_ASSET_KEYS,
+  landmarkAssetKeyForZone,
+  regionAssetKeyForZone,
   TERRAIN_ASSET_KEYS,
   WASTELAND_TERRAIN_ASSET_KEYS,
   terrainAssetKey,
   terrainAssetKeyForCell,
   terrainRenderLayer,
+  worldPoiAssetKeys,
 } from '../src/terrain-renderer.js';
 
 function createContextSpy() {
@@ -184,35 +190,45 @@ test('terrain PNG contract uses authored ids and the shared helper keeps a botto
     'the untransformed image bottom lands exactly on the anchor');
 });
 
-test('the eastern wasteland boundary is deterministic, irregular, and keeps the base clear', () => {
-  const world = { width: 24, height: 16 };
-  const boundaryForRow = () => Array.from({ length: world.height }, (_, y) => {
-    for (let x = 0; x < world.width; x += 1) {
-      if (isWastelandCell(x, y, world)) return x;
-    }
-    return null;
+test('bright infinite-world biome and POI contracts resolve every generated layer', () => {
+  assert.deepEqual(REGION_ASSET_KEYS, {
+    'gel-garden': 'region-gel-meadow-field-a',
+    'dew-grove': 'region-dew-grove-field-a',
+    'crystal-meadow': 'region-crystal-bloom-field-a',
+    'bubble-wetland': 'region-bubble-heath-field-a',
+    'soft-shell-canyon': 'region-shell-canyon-field-a',
   });
-  const first = boundaryForRow();
-  const second = boundaryForRow();
+  assert.deepEqual(LANDMARK_ASSET_KEYS, {
+    'gel-garden': 'landmark-soft-relay-a',
+    'dew-grove': 'landmark-dew-canopy-a',
+    'crystal-meadow': 'landmark-giant-crystal-bloom-a',
+    'bubble-wetland': 'landmark-bubble-arch-a',
+    'soft-shell-canyon': 'landmark-boss-shell-grotto-a',
+  });
+  assert.deepEqual(POI_ASSET_KEYS, {
+    nest: ['nest-soft-rift-energy-a', 'nest-soft-rift-frame-a'],
+    relay: ['landmark-soft-relay-a'],
+    boss: ['landmark-boss-shell-grotto-a'],
+  });
 
-  assert.deepEqual(second, first, 'the same world coordinates always produce the same frontier');
-  assert.ok(new Set(first).size >= 3, 'the frontier varies by row instead of forming a rectangle');
-  assert.ok(first.every((x) => x >= 17 && x < world.width));
-  assert.ok(Array.from({ length: world.height }, (_, y) => y)
-    .every((y) => isWastelandCell(world.width - 1, y, world)),
-  'the outer eastern edge always belongs to the wasteland');
-
-  for (let y = 5; y <= 10; y += 1) {
-    for (let x = 8; x <= 15; x += 1) {
-      assert.equal(isWastelandCell(x, y, world), false, `base cell ${x},${y} stays unchanged`);
-    }
-  }
-  assert.equal(isWastelandCell(-1, 8, world), false);
-  assert.equal(isWastelandCell(24, 8, world), false);
-  assert.equal(isWastelandCell(23, 16, world), false);
+  assert.equal(regionAssetKeyForZone('gel-garden'), 'region-gel-meadow-field-a');
+  assert.equal(regionAssetKeyForZone({ kind: 'crystal-meadow' }),
+    'region-crystal-bloom-field-a');
+  assert.equal(regionAssetKeyForZone({ biomeId: 'bubble-wetland' }),
+    'region-bubble-heath-field-a');
+  assert.equal(regionAssetKeyForZone('unknown'), null);
+  assert.equal(landmarkAssetKeyForZone({ zone: { kind: 'dew-grove' } }),
+    'landmark-dew-canopy-a');
+  assert.deepEqual(worldPoiAssetKeys('nest'),
+    ['nest-soft-rift-energy-a', 'nest-soft-rift-frame-a'],
+    'the moving energy layer is composited behind the static nest frame');
+  assert.deepEqual(worldPoiAssetKeys({ kind: 'landmark' }, { kind: 'soft-shell-canyon' }),
+    ['landmark-boss-shell-grotto-a']);
+  assert.deepEqual(worldPoiAssetKeys({ kind: 'boss' }), ['landmark-boss-shell-grotto-a']);
+  assert.deepEqual(worldPoiAssetKeys({ kind: 'unknown' }), []);
 });
 
-test('terrain asset selection swaps every terrain family only inside the wasteland', () => {
+test('the retired wasteland key map remains import-compatible but is never selected', () => {
   const world = { width: 24, height: 16 };
   assert.deepEqual(WASTELAND_TERRAIN_ASSET_KEYS, {
     ground: 'terrain-waste-ground-detail-a',
@@ -224,39 +240,38 @@ test('terrain asset selection swaps every terrain family only inside the wastela
     'deep-water': 'terrain-waste-acid-sludge-a',
   });
 
-  for (const terrainId of Object.keys(TERRAIN_ASSET_KEYS)) {
-    assert.equal(
-      terrainAssetKeyForCell(terrainId, { x: 12, y: 8, world }),
-      TERRAIN_ASSET_KEYS[terrainId],
-      `${terrainId} keeps its normal PNG near the base`,
-    );
-    assert.equal(
-      terrainAssetKeyForCell(terrainId, { x: 23, y: 8, world }),
-      WASTELAND_TERRAIN_ASSET_KEYS[terrainId],
-      `${terrainId} selects its wasteland PNG at the eastern edge`,
-    );
+  const coordinates = [
+    { x: 12, y: 8 },
+    { x: 23, y: 8 },
+    { x: -1_000_000, y: 900_000 },
+    { x: 2_000_000, y: -3_000_000 },
+  ];
+  for (const { x, y } of coordinates) {
+    assert.equal(isWastelandCell(x, y, { width: 24, height: 16 }), false);
+    for (const terrainId of Object.keys(TERRAIN_ASSET_KEYS)) {
+      const key = terrainAssetKeyForCell(terrainId, { x, y, world: { infinite: true } });
+      assert.equal(key, TERRAIN_ASSET_KEYS[terrainId]);
+      assert.equal(key.startsWith('terrain-waste-'), false);
+    }
   }
   assert.equal(terrainAssetKeyForCell({ variant: 'honey-flower', x: 23, y: 8 }, { world }),
-    'terrain-waste-dew-pod-a');
+    'terrain-dew-honey-node-a');
   assert.equal(terrainAssetKeyForCell('giant-rock', { x: 23, y: 8, world }), null);
 });
 
-test('ground detail and all authored props request wasteland PNGs at eastern cells', () => {
+test('ground detail and all authored props request only bright terrain PNGs', () => {
   const world = { width: 24, height: 16 };
   const groundTiles = Array.from({ length: world.height }, () => Array(world.width).fill('ground'));
   const groundContext = createContextSpy();
-  const groundStore = readyAssetStore([
-    TERRAIN_ASSET_KEYS.ground,
-    WASTELAND_TERRAIN_ASSET_KEYS.ground,
-  ]);
+  const groundStore = readyAssetStore([TERRAIN_ASSET_KEYS.ground]);
   const ground = drawOrganicGround(groundContext, {
     ...optionsFor(groundTiles),
     world,
     assetStore: groundStore,
   });
-  assert.ok(ground.wastelandCells > 0);
+  assert.equal(ground.wastelandCells, 0);
   assert.ok(groundStore.requested.includes(TERRAIN_ASSET_KEYS.ground));
-  assert.ok(groundStore.requested.includes(WASTELAND_TERRAIN_ASSET_KEYS.ground));
+  assert.equal(groundStore.requested.some((key) => key.startsWith('terrain-waste-')), false);
 
   const tiles = Array.from({ length: world.height }, () => Array(world.width).fill('ground'));
   tiles[0][23] = { kind: 'resource', terrainId: 'soft-gel' };
@@ -265,8 +280,8 @@ test('ground detail and all authored props request wasteland PNGs at eastern cel
   tiles[3][23] = { kind: 'obstacle', terrainId: 'thorn-thicket' };
   tiles[4][23] = { kind: 'destructible', terrainId: 'brittle-boulder' };
   tiles[5][23] = { kind: 'indestructible', terrainId: 'deep-water' };
-  const propKeys = Object.values(WASTELAND_TERRAIN_ASSET_KEYS)
-    .filter((key) => key !== WASTELAND_TERRAIN_ASSET_KEYS.ground);
+  const propKeys = Object.values(TERRAIN_ASSET_KEYS)
+    .filter((key) => key !== TERRAIN_ASSET_KEYS.ground);
   const propContext = createContextSpy();
   const propStore = readyAssetStore(propKeys);
   const props = drawOrganicTerrainProps(propContext, {
@@ -277,11 +292,12 @@ test('ground detail and all authored props request wasteland PNGs at eastern cel
 
   assert.deepEqual(new Set(propStore.requested), new Set(propKeys));
   assert.equal(props.assetDraws, propKeys.length);
-  assert.equal(props.wastelandAssetDraws, propKeys.length);
+  assert.equal(props.wastelandAssetDraws, 0);
+  assert.equal(propStore.requested.some((key) => key.startsWith('terrain-waste-')), false);
   assert.equal(propContext.calls.filter(({ method }) => method === 'drawImage').length, propKeys.length);
 });
 
-test('an unavailable wasteland PNG safely executes the Canvas fallback', () => {
+test('an unavailable bright terrain PNG safely executes the Canvas fallback', () => {
   const ctx = createContextSpy();
   const store = readyAssetStore([]);
   let fallbackCalls = 0;
@@ -302,7 +318,7 @@ test('an unavailable wasteland PNG safely executes the Canvas fallback', () => {
   });
 
   assert.equal(drawn, false);
-  assert.deepEqual(store.requested, ['terrain-waste-rusted-wreck-a']);
+  assert.deepEqual(store.requested, ['terrain-brittle-boulder-a']);
   assert.equal(fallbackCalls, 1);
   assert.ok(ctx.calls.some(({ method }) => method === 'fill'));
 });

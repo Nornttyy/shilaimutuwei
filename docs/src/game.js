@@ -51,6 +51,10 @@ import {
   zoomWorldCameraAt,
 } from './world.js';
 import {
+  createInfiniteWorld,
+  restoreInfiniteWorld,
+} from './infinite-world.js';
+import {
   INITIAL_WORLD_TERRAIN,
   BUILDING_RECIPE_BY_ID,
   SLIME_JOBS,
@@ -64,9 +68,13 @@ import {
   drawOrganicGround,
   drawOrganicTerrainProps,
   drawTerrainAsset,
+  regionAssetKeyForZone,
+  worldPoiAssetKeys,
 } from './terrain-renderer.js';
 import {
   addBlueprint,
+  addResourceNode,
+  cancelColonySlimeWork,
   createColonyState,
   downColonySlime,
   setColonyThreatIntensity,
@@ -94,7 +102,9 @@ import {
 } from './expedition.js';
 
 const VIEW = Object.freeze({ width: 1280, height: 720 });
-const WORLD = COLONY_WORLD;
+// The authored 24x16 garden remains the starter clearing, while all cells
+// beyond it are generated lazily in deterministic chunks.
+const WORLD = Object.freeze({ ...COLONY_WORLD, infinite: true });
 const BOARD = Object.freeze({
   ...DEFAULT_WORLD_VIEWPORT,
   cell: DEFAULT_WORLD_VIEWPORT.cellSize,
@@ -297,7 +307,9 @@ const effectNoise = (seed, index = 0) => {
   return value - Math.floor(value);
 };
 const cellKey = (x, y) => `${x},${y}`;
-const inBoard = (x, y) => x >= 0 && x < BOARD.cols && y >= 0 && y < BOARD.rows;
+const inBoard = (x, y) => WORLD.infinite
+  ? Number.isSafeInteger(x) && Number.isSafeInteger(y)
+  : x >= 0 && x < BOARD.cols && y >= 0 && y < BOARD.rows;
 const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const uid = (() => {
   let value = 1;
@@ -516,6 +528,15 @@ function replaceWorldTerrainCell(terrain, x, y, terrainId = 'ground') {
 
 function colonyTerrainFromWorldCell(cell) {
   if (!cell) return { kind: 'indestructible', passable: false, buildable: false };
+  if (cell.discovered === false) {
+    return {
+      kind: 'indestructible',
+      terrainId: cell.terrainId,
+      passable: false,
+      buildable: false,
+      unexplored: true,
+    };
+  }
   const definition = TERRAIN_TYPES[cell.terrainId] || TERRAIN_TYPES.ground;
   const kind = definition.kind === 'destructible-obstacle'
     ? 'destructible'
@@ -530,6 +551,12 @@ function colonyTerrainFromWorldCell(cell) {
     harvestable: definition.harvestable,
     destructible: definition.destructible,
     durability: definition.destructible ? 3.2 : undefined,
+    yield: definition.yield
+      ? {
+        resourceType: COLONY_RESOURCE_ID[definition.yield.resourceId] || null,
+        amount: Math.max(0, Number(definition.yield.amount) || 0),
+      }
+      : null,
   };
 }
 
@@ -560,6 +587,25 @@ function terrainNavigationEntries(terrain, dynamicCatalog) {
     });
 }
 
+function terrainCellFromSource(terrain, x, y) {
+  if (typeof terrain?.getCell === 'function') return terrain.getCell(x, y);
+  return catalogTerrainAt(terrain, x, y);
+}
+
+function terrainCellIsBuildable(terrain, x, y) {
+  const cell = terrainCellFromSource(terrain, x, y);
+  if (!cell || cell.discovered === false) return false;
+  if (typeof cell.buildable === 'boolean') return cell.buildable;
+  return terrainAllowsPlacement(terrain, x, y);
+}
+
+function terrainCellIsPassable(terrain, x, y) {
+  const cell = terrainCellFromSource(terrain, x, y);
+  if (!cell || cell.discovered === false) return false;
+  if (typeof cell.passable === 'boolean') return cell.passable;
+  return Boolean(TERRAIN_TYPES[cell.terrainId]?.passable);
+}
+
 function buildingAt(buildings, x, y, exceptUid = null) {
   return buildings.find((building) => {
     if (building.uid === exceptUid || building.destroyed) return false;
@@ -578,8 +624,12 @@ function canPlace(
   terrain = INITIAL_WORLD_TERRAIN,
 ) {
   const cells = footprintCells(card, x, y, rotation);
-  if (!cells.every((cell) => terrainAllowsPlacement(terrain, cell.x, cell.y))) return false;
+  if (!cells.every((cell) => inBoard(cell.x, cell.y)
+    && terrainCellIsBuildable(terrain, cell.x, cell.y))) return false;
   if (cells.some((cell) => cell.x === CORE_CELL.x && cell.y === CORE_CELL.y)) return false;
+  if (terrain?.infinite || typeof terrain?.getCell === 'function') {
+    return !cells.some((cell) => buildingAt(buildings, cell.x, cell.y, exceptUid));
+  }
   const active = buildings
     .filter((building) => !building.destroyed && building.uid !== exceptUid)
     .map((building) => ({
@@ -599,6 +649,102 @@ function canPlace(
   }, BUILDING_BY_ID);
 }
 
+function heapPush(heap, entry) {
+  heap.push(entry);
+  let index = heap.length - 1;
+  while (index > 0) {
+    const parent = Math.floor((index - 1) / 2);
+    if (heap[parent].score <= entry.score) break;
+    heap[index] = heap[parent];
+    index = parent;
+  }
+  heap[index] = entry;
+}
+
+function heapPop(heap) {
+  if (!heap.length) return null;
+  const first = heap[0];
+  const last = heap.pop();
+  if (!heap.length) return first;
+  let index = 0;
+  while (true) {
+    const left = index * 2 + 1;
+    const right = left + 1;
+    if (left >= heap.length) break;
+    const child = right < heap.length && heap[right].score < heap[left].score ? right : left;
+    if (heap[child].score >= last.score) break;
+    heap[index] = heap[child];
+    index = child;
+  }
+  heap[index] = last;
+  return first;
+}
+
+function infiniteRouteFor(
+  buildings,
+  start,
+  target,
+  terrain,
+  { allowBuildingBreaching = true } = {},
+) {
+  const origin = { x: Math.round(start.x), y: Math.round(start.y) };
+  const goal = { x: Math.round(target.x), y: Math.round(target.y) };
+  if (origin.x === goal.x && origin.y === goal.y) return [origin];
+  const span = Math.abs(goal.x - origin.x) + Math.abs(goal.y - origin.y);
+  const margin = Math.min(32, Math.max(8, Math.ceil(Math.sqrt(span + 1) * 2)));
+  const minX = Math.min(origin.x, goal.x) - margin;
+  const maxX = Math.max(origin.x, goal.x) + margin;
+  const minY = Math.min(origin.y, goal.y) - margin;
+  const maxY = Math.max(origin.y, goal.y) + margin;
+  const open = [];
+  const originKey = cellKey(origin.x, origin.y);
+  const costs = new Map([[originKey, 0]]);
+  const cameFrom = new Map([[originKey, null]]);
+  heapPush(open, { ...origin, score: span });
+  const directions = [[1, 0], [0, 1], [-1, 0], [0, -1]];
+  let visits = 0;
+
+  while (open.length && visits < 24000) {
+    const current = heapPop(open);
+    const currentKey = cellKey(current.x, current.y);
+    const currentCost = costs.get(currentKey);
+    if (!Number.isFinite(currentCost)) continue;
+    visits += 1;
+    if (current.x === goal.x && current.y === goal.y) break;
+    for (const [dx, dy] of directions) {
+      const next = { x: current.x + dx, y: current.y + dy };
+      if (next.x < minX || next.x > maxX || next.y < minY || next.y > maxY) continue;
+      const isGoal = next.x === goal.x && next.y === goal.y;
+      const blockingBuilding = buildingAt(buildings, next.x, next.y);
+      const blockingCard = blockingBuilding && BUILDING_BY_ID[blockingBuilding.cardId];
+      const buildingBlocks = Boolean(blockingCard?.solid);
+      if ((!terrainCellIsPassable(terrain, next.x, next.y) && !isGoal)
+        || (buildingBlocks && !allowBuildingBreaching && !isGoal)) continue;
+      const stepCost = buildingBlocks
+        ? 5 + Math.max(1, blockingBuilding.hp || blockingCard.hp || 1) / 80
+        : 1;
+      const nextCost = currentCost + stepCost;
+      const nextKey = cellKey(next.x, next.y);
+      if (nextCost >= (costs.get(nextKey) ?? Infinity)) continue;
+      costs.set(nextKey, nextCost);
+      cameFrom.set(nextKey, current);
+      const heuristic = Math.abs(goal.x - next.x) + Math.abs(goal.y - next.y);
+      heapPush(open, { ...next, score: nextCost + heuristic });
+    }
+  }
+
+  const goalKey = cellKey(goal.x, goal.y);
+  if (!cameFrom.has(goalKey)) return [origin];
+  const path = [];
+  let cursor = goal;
+  while (cursor) {
+    path.push(cursor);
+    cursor = cameFrom.get(cellKey(cursor.x, cursor.y));
+  }
+  path.reverse();
+  return path;
+}
+
 function routeFor(
   buildings,
   start,
@@ -607,6 +753,10 @@ function routeFor(
   { allowBuildingBreaching = true } = {},
 ) {
   const active = buildings.filter((building) => !building.destroyed);
+  const routeTarget = target || CORE_CELL;
+  if (terrain?.infinite || typeof terrain?.getCell === 'function') {
+    return infiniteRouteFor(active, start, routeTarget, terrain, { allowBuildingBreaching });
+  }
   const dynamicCatalog = {};
   const gridBuildings = active.map((building) => {
     const card = BUILDING_BY_ID[building.cardId];
@@ -630,7 +780,6 @@ function routeFor(
     buildings: gridBuildings,
   });
   let route;
-  const routeTarget = target || CORE_CELL;
   if (routeTarget) {
     const pathOptions = { starts: [start], goals: [routeTarget] };
     route = findGridPath(grid, dynamicCatalog, { ...pathOptions, allowBreaching: false })
@@ -693,6 +842,7 @@ export class SlimeGame {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d', { alpha: false });
     this.assetStore = null;
+    this.requestedWorldAssetKeys = new Set();
     this.rigAssetStore = null;
     this.generatedCharacterArtEnabled = options?.generatedCharacterArtEnabled !== false;
     this.setRigAssetStore(
@@ -714,6 +864,19 @@ export class SlimeGame {
     this.pointerDrag = null;
     this.pinchGesture = null;
     this.activePointers = new Map();
+    this.visibleWorldPois = [];
+    this.infiniteWorld = createInfiniteWorld({
+      seed: INITIAL_WORLD_TERRAIN.seed,
+      core: CORE_CELL,
+      maxLoadedChunks: 81,
+    });
+    // The starter clearing is immediately known. New territory is revealed by
+    // physical exploration rather than by moving the camera over it.
+    this.infiniteWorld.reveal(CORE_CELL.x, CORE_CELL.y, 18);
+    this.runtimeTerrain = Object.freeze({
+      infinite: true,
+      getCell: (x, y) => this.placementWorldCellAt(x, y),
+    });
     this.camera = createWorldCamera({
       world: WORLD,
       viewport: BOARD,
@@ -749,12 +912,223 @@ export class SlimeGame {
       && typeof store.useOrFallback === 'function'
       ? store
       : null;
+    this.requestedWorldAssetKeys?.clear();
     return this;
+  }
+
+  requestWorldAssetKeys(keys = []) {
+    if (!this.assetStore || typeof this.assetStore.preload !== 'function') return;
+    const pending = [...new Set(keys)].filter((key) => (
+      typeof key === 'string'
+      && key.length > 0
+      && !this.requestedWorldAssetKeys.has(key)
+    ));
+    if (!pending.length) return;
+    pending.forEach((key) => this.requestedWorldAssetKeys.add(key));
+    void this.assetStore.preload({ keys: pending }).catch(() => {
+      pending.forEach((key) => this.requestedWorldAssetKeys.delete(key));
+    });
   }
 
   setGeneratedCharacterArtEnabled(enabled = true) {
     this.generatedCharacterArtEnabled = enabled !== false;
     return this;
+  }
+
+  isStarterCell(x, y) {
+    return Number.isSafeInteger(x) && Number.isSafeInteger(y)
+      && x >= 0 && y >= 0
+      && x < this.state.worldTerrain.width && y < this.state.worldTerrain.height;
+  }
+
+  worldCellAt(x, y) {
+    if (!Number.isSafeInteger(x) || !Number.isSafeInteger(y)) return null;
+    if (this.state?.worldTerrain && this.isStarterCell(x, y)) {
+      const cell = catalogTerrainAt(this.state.worldTerrain, x, y);
+      return cell ? { ...cell, discovered: true, modified: false } : null;
+    }
+    return this.infiniteWorld.getCell(x, y);
+  }
+
+  placementWorldCellAt(x, y) {
+    const cell = this.worldCellAt(x, y);
+    if (!cell) return null;
+    const reservedByGeneratedPoi = this.infiniteWorld.getPoisInBounds({
+      minX: x,
+      minY: y,
+      maxXExclusive: x + 1,
+      maxYExclusive: y + 1,
+    }).some((poi) => poi.x === x && poi.y === y);
+    const reservedByOutpost = (this.state.expeditionProgress?.outposts || [])
+      .some((outpost) => outpost.x === x && outpost.y === y);
+    return reservedByGeneratedPoi || reservedByOutpost
+      ? { ...cell, buildable: false, poiReserved: true }
+      : cell;
+  }
+
+  ensureColonyBounds(cells = []) {
+    const colony = this.state.colony;
+    if (!colony || !cells.length) return colony?.bounds || null;
+    const minX = Math.min(colony.bounds.x, ...cells.map((cell) => Math.floor(cell.x)));
+    const minY = Math.min(colony.bounds.y, ...cells.map((cell) => Math.floor(cell.y)));
+    const maxX = Math.max(
+      colony.bounds.x + colony.bounds.width - 1,
+      ...cells.map((cell) => Math.floor(cell.x)),
+    );
+    const maxY = Math.max(
+      colony.bounds.y + colony.bounds.height - 1,
+      ...cells.map((cell) => Math.floor(cell.y)),
+    );
+    colony.bounds = {
+      x: minX,
+      y: minY,
+      width: maxX - minX + 1,
+      height: maxY - minY + 1,
+    };
+    return colony.bounds;
+  }
+
+  colonyDepotPositions() {
+    return [
+      { ...CORE_CELL },
+      ...(this.state.expeditionProgress?.outposts || []).map(({ x, y }) => ({ x, y })),
+    ];
+  }
+
+  syncColonyDepots() {
+    const colony = this.state.colony;
+    if (!colony) return [];
+    const depots = this.colonyDepotPositions();
+    this.ensureColonyBounds(depots);
+    colony.depots = depots;
+    return depots;
+  }
+
+  colonyWorkCells() {
+    const cells = new Map();
+    const add = (x, y) => {
+      const cellX = Math.floor(Number(x));
+      const cellY = Math.floor(Number(y));
+      if (!Number.isSafeInteger(cellX) || !Number.isSafeInteger(cellY)) return;
+      const key = cellKey(cellX, cellY);
+      if (cells.has(key)) return;
+      if (this.worldCellAt(cellX, cellY)?.discovered === false) return;
+      cells.set(key, { x: cellX, y: cellY });
+    };
+    // Keep the authored clearing fully active, then inspect only small circles
+    // around actual work locations in generated territory. This stays bounded
+    // even when one blueprint is thousands of cells from the core.
+    for (let y = 0; y < this.state.worldTerrain.height; y += 1) {
+      for (let x = 0; x < this.state.worldTerrain.width; x += 1) add(x, y);
+    }
+    const colony = this.state.colony;
+    const centers = [
+      CORE_CELL,
+      ...(colony?.slimes || []).filter((slime) => slime.aiState !== 'downed'),
+      ...(colony?.blueprints || []).filter((blueprint) => (
+        !blueprint.complete && !blueprint.cancelled
+      )),
+    ];
+    for (const center of centers) {
+      const originX = Math.round(center.x);
+      const originY = Math.round(center.y);
+      for (let dy = -4; dy <= 4; dy += 1) {
+        for (let dx = -4; dx <= 4; dx += 1) {
+          if (dx * dx + dy * dy <= 16) add(originX + dx, originY + dy);
+        }
+      }
+    }
+    // Activated relays index their nearby breakable obstacles once. Exact
+    // pending targets stay eligible without rescanning every historical relay
+    // or expanding every resource node into another 9x9 neighborhood.
+    for (const target of this.state.expeditionProgress?.activeClearTargets || []) {
+      add(target.x, target.y);
+    }
+    return [...cells.values()];
+  }
+
+  indexOutpostClearTargets(outpost, radius = 4) {
+    const x = Math.floor(Number(outpost?.x));
+    const y = Math.floor(Number(outpost?.y));
+    if (!Number.isSafeInteger(x) || !Number.isSafeInteger(y)) return 0;
+    const boundedRadius = clamp(Math.floor(Number(radius) || 0), 1, 6);
+    this.revealWorldAround(x, y, boundedRadius, { registerResources: false });
+    const targets = this.state.expeditionProgress.activeClearTargets ||= [];
+    const seen = new Set(targets.map((target) => cellKey(target.x, target.y)));
+    const addedTargets = [];
+    let added = 0;
+    for (let dy = -boundedRadius; dy <= boundedRadius; dy += 1) {
+      for (let dx = -boundedRadius; dx <= boundedRadius; dx += 1) {
+        if (dx * dx + dy * dy > boundedRadius * boundedRadius) continue;
+        const targetX = x + dx;
+        const targetY = y + dy;
+        const key = cellKey(targetX, targetY);
+        if (seen.has(key) || !this.worldCellAt(targetX, targetY)?.destructible) continue;
+        seen.add(key);
+        const target = {
+          x: targetX,
+          y: targetY,
+          outpostId: typeof outpost?.id === 'string' ? outpost.id : null,
+        };
+        targets.push(target);
+        addedTargets.push(target);
+        added += 1;
+      }
+    }
+    if (addedTargets.length) this.ensureColonyBounds(addedTargets);
+    return added;
+  }
+
+  registerDiscoveredResourceNodes(cells = [], { limit = Infinity } = {}) {
+    const colony = this.state.colony;
+    if (!colony) return 0;
+    let added = 0;
+    for (const point of cells) {
+      if (added >= limit) break;
+      const x = Math.floor(Number(point?.x));
+      const y = Math.floor(Number(point?.y));
+      if (!Number.isSafeInteger(x) || !Number.isSafeInteger(y) || this.isStarterCell(x, y)) continue;
+      const cell = this.worldCellAt(x, y);
+      const resourceType = COLONY_RESOURCE_ID[cell?.yield?.resourceId];
+      if (!cell?.discovered || !cell.harvestable || !resourceType) continue;
+      const nodeUid = `infinite-resource-${x}-${y}`;
+      if (colony.resourceNodes.some((node) => node.uid === nodeUid
+        || (node.x === x && node.y === y && node.amount > 0))) continue;
+      this.ensureColonyBounds([{ x, y }]);
+      try {
+        addResourceNode(colony, {
+          uid: nodeUid,
+          x,
+          y,
+          resourceType,
+          amount: Math.max(1, Math.floor(Number(cell.yield.amount) || 1)),
+          harvestSeconds: Math.max(0.05, Number(cell.yield.gatherSeconds) || 2.5),
+        });
+        added += 1;
+      } catch {
+        // Another simulation event may reserve or replace the cell between
+        // discovery and registration; the next reveal pass can try again.
+      }
+    }
+    return added;
+  }
+
+  revealWorldAround(x, y, radius = 2, { registerResources = true } = {}) {
+    const centerX = Math.round(x);
+    const centerY = Math.round(y);
+    this.infiniteWorld.reveal(centerX, centerY, radius);
+    const cells = [];
+    for (let dy = -radius; dy <= radius; dy += 1) {
+      for (let dx = -radius; dx <= radius; dx += 1) {
+        if (dx * dx + dy * dy > radius * radius) continue;
+        cells.push({ x: centerX + dx, y: centerY + dy });
+      }
+    }
+    // Discovery expands the logical work envelope without making job scans
+    // proportional to the huge rectangle; `jobCellProvider` still supplies
+    // only the small active neighborhoods above.
+    this.ensureColonyBounds(cells);
+    if (registerResources) this.registerDiscoveredResourceNodes(cells);
   }
 
   rigAssetFor(cardId) {
@@ -798,11 +1172,15 @@ export class SlimeGame {
       rewardEarned: 0,
       result: null,
       expeditionRun: null,
+      worldExpedition: null,
       expeditionProgress: {
         firstClear: false,
         completions: 0,
         attempts: 0,
         claimedRunIds: [],
+        frontier: { ...CORE_CELL },
+        outposts: [],
+        activeClearTargets: [],
       },
       tutorialSeen: false,
     };
@@ -862,6 +1240,12 @@ export class SlimeGame {
         harvestSeconds: definition.yield.gatherSeconds,
       }];
     });
+    resourceNodes.push(...(this.loadedInfiniteResourceNodes || []).filter((node) => (
+      Number.isSafeInteger(node?.x)
+        && Number.isSafeInteger(node?.y)
+        && COLONY_RESOURCE_LABEL[node.resourceType]
+        && Number(node.amount) > 0
+    )));
     const slimes = this.state.survivors.map((survivor) => {
       const card = SURVIVOR_BY_ID[survivor.cardId];
       const job = SLIME_JOBS.find((profile) => profile.slimeId === survivor.cardId);
@@ -871,6 +1255,7 @@ export class SlimeGame {
         cardId: survivor.cardId,
         x: survivor.x,
         y: survivor.y,
+        aiState: survivor.downed || survivor.hp <= 0 ? 'downed' : 'idle',
         speed: job?.moveSpeedCellsPerSecond || 1,
         carryCapacity: job?.carryCapacity || 6,
         gatherMultiplier: job?.jobBonus?.task === 'resource-harvest' ? multiplier : 1,
@@ -883,24 +1268,59 @@ export class SlimeGame {
         aggroRange: Math.max(3, card.attack.rangeTiles),
       };
     });
+    const persistedBlueprintCells = (this.loadedColonyBlueprints || []).flatMap((blueprint) => {
+      const width = Math.max(1, Math.floor(Number(blueprint.footprint?.width) || 1));
+      const height = Math.max(1, Math.floor(Number(blueprint.footprint?.height) || 1));
+      return [
+        { x: blueprint.x, y: blueprint.y },
+        { x: blueprint.x + width - 1, y: blueprint.y + height - 1 },
+      ];
+    });
+    const persistedBuildingCells = this.state.buildings.flatMap((building) => {
+      const card = BUILDING_BY_ID[building.cardId];
+      if (!card) return [];
+      return footprintCells(card, building.x, building.y, building.rotation);
+    });
+    const persistedSurvivorCells = this.state.survivors.map((survivor) => ({
+      x: Math.round(survivor.x),
+      y: Math.round(survivor.y),
+    }));
+    const persistedExpansionCells = [
+      ...persistedBlueprintCells,
+      ...(this.loadedInfiniteResourceNodes || []),
+      ...(this.state.expeditionProgress?.activeClearTargets || []),
+      ...persistedBuildingCells,
+      ...persistedSurvivorCells,
+      ...this.colonyDepotPositions(),
+      ...(this.state.expeditionProgress?.activeClearTargets || []),
+    ].filter((cell) => Number.isSafeInteger(cell?.x) && Number.isSafeInteger(cell?.y));
+    const colonyMinX = Math.min(0, ...persistedExpansionCells.map((cell) => cell.x));
+    const colonyMinY = Math.min(0, ...persistedExpansionCells.map((cell) => cell.y));
+    const colonyMaxX = Math.max(WORLD.width - 1, ...persistedExpansionCells.map((cell) => cell.x));
+    const colonyMaxY = Math.max(WORLD.height - 1, ...persistedExpansionCells.map((cell) => cell.y));
     const colony = createColonyState({
-      bounds: { x: 0, y: 0, width: WORLD.width, height: WORLD.height },
+      bounds: {
+        x: colonyMinX,
+        y: colonyMinY,
+        width: colonyMaxX - colonyMinX + 1,
+        height: colonyMaxY - colonyMinY + 1,
+      },
       basePosition: CORE_CELL,
       rallyPoint: WORLD.base.rallyPoint,
+      depots: this.colonyDepotPositions(),
       resources,
       resourceNodes,
       blueprints: this.loadedColonyBlueprints || [],
       slimes,
-      terrainQuery: (x, y) => colonyTerrainFromWorldCell(
-        catalogTerrainAt(this.state.worldTerrain, x, y),
-      ),
+      terrainQuery: (x, y) => colonyTerrainFromWorldCell(this.worldCellAt(x, y)),
+      jobCellProvider: () => this.colonyWorkCells(),
       findPath: ({ from, to }) => {
         const start = { x: Math.round(from.x), y: Math.round(from.y) };
         const path = routeFor(
           this.state.buildings.filter((building) => !building.underConstruction),
           start,
           { x: Math.round(to.x), y: Math.round(to.y) },
-          this.state.worldTerrain,
+          this.runtimeTerrain,
           { allowBuildingBreaching: false },
         );
         return path[0]?.x === start.x && path[0]?.y === start.y ? path.slice(1) : path;
@@ -915,14 +1335,17 @@ export class SlimeGame {
     colony.threat.elapsed = this.state.colonyDirector.elapsed;
     colony.onTerrainChange = (x, y, tile) => {
       if (tile.kind !== 'ground') return;
-      replaceWorldTerrainCell(this.state.worldTerrain, x, y, 'ground');
+      if (this.isStarterCell(x, y)) replaceWorldTerrainCell(this.state.worldTerrain, x, y, 'ground');
+      else this.infiniteWorld.setTerrain(x, y, 'ground');
       if (this.selection?.kind === 'inspect-terrain'
         && this.selection.x === x && this.selection.y === y) this.selection = null;
       this.state.enemies.forEach((enemy) => { enemy.routeTimer = 0; });
     };
     this.state.colony = colony;
+    this.syncColonyDepots();
     this.loadedColonyResources = null;
     this.loadedColonyBlueprints = null;
+    this.loadedInfiniteResourceNodes = null;
     for (const building of this.state.buildings) {
       if (building.underConstruction
         && !colony.blueprints.some((blueprint) => blueprint.uid === building.blueprintUid)) {
@@ -938,6 +1361,7 @@ export class SlimeGame {
     for (const slime of this.state.colony.slimes) {
       const survivor = this.state.survivors.find((item) => item.uid === slime.uid);
       if (!survivor) continue;
+      if (this.isWorldExpeditionMember(survivor.uid)) continue;
       survivor.x = slime.x;
       survivor.y = slime.y;
       survivor.aiState = slime.aiState;
@@ -1093,17 +1517,50 @@ export class SlimeGame {
         layoutBuildings = safeLayout.buildings;
         layoutSurvivors = safeLayout.survivors;
       }
+      if (this.state.worldExpedition?.squadUids?.length) {
+        const away = new Set(this.state.worldExpedition.squadUids);
+        let rallyIndex = 0;
+        layoutSurvivors = this.state.survivors.map((survivor) => {
+          if (!away.has(survivor.uid)) return survivor;
+          const index = rallyIndex++;
+          return {
+            ...survivor,
+            x: WORLD.base.rallyPoint.x + (index % 2) * 0.55,
+            y: WORLD.base.rallyPoint.y + Math.floor(index / 2) * 0.55,
+            expeditionActive: false,
+            visualMoving: false,
+          };
+        });
+      }
+      // Colony workers are reconstructed on load instead of persisting their
+      // frame-by-frame AI state. Refund anything currently in their hands into
+      // the saved stockpile snapshot without disturbing the live simulation.
+      const colonyResources = this.state.colony
+        ? { ...this.state.colony.resources }
+        : null;
+      if (colonyResources) {
+        for (const slime of this.state.colony.slimes || []) {
+          const resourceType = slime.carrying?.resourceType;
+          if (!Object.hasOwn(colonyResources, resourceType)) continue;
+          colonyResources[resourceType] += Math.max(0, Number(slime.carrying.amount) || 0);
+        }
+      }
       const payload = {
         softCrystals: this.state.softCrystals,
         tutorialSeen: this.state.tutorialSeen,
         terrainIds: this.state.worldTerrain.cells.map((cell) => cell.terrainId),
-        colonyResources: this.state.colony?.resources || null,
+        infiniteWorld: this.infiniteWorld.serialize(),
+        colonyResources,
         colonyBlueprints: (this.state.colony?.blueprints || [])
           .filter((blueprint) => !blueprint.complete && !blueprint.cancelled)
           .map(({ reservedBy: _reservedBy, ...blueprint }) => ({ ...blueprint })),
+        infiniteResourceNodes: (this.state.colony?.resourceNodes || [])
+          .filter((node) => node.uid.startsWith('infinite-resource-') && node.amount > 0)
+          .map(({ reservedBy: _reservedBy, ...node }) => ({ ...node })),
         colonyDirector: this.state.colonyDirector,
         expeditionProgress: this.state.expeditionProgress,
         expeditionRun: this.isExpeditionActive() ? this.state.expeditionRun : null,
+        worldExpedition: null,
         expeditionSnapshot: this.isExpeditionActive() ? this.preBattleSnapshot : null,
         buildings: layoutBuildings.filter((building) => !building.destroyed).map(({ uid: _uid, ...building }) => ({
           ...building,
@@ -1111,7 +1568,13 @@ export class SlimeGame {
             building.rotation,
             BUILDING_BY_ID[building.cardId],
           ),
-          hp: BUILDING_BY_ID[building.cardId].hp,
+          hp: clamp(
+            Number.isFinite(Number(building.hp))
+              ? Number(building.hp)
+              : BUILDING_BY_ID[building.cardId].hp,
+            0,
+            BUILDING_BY_ID[building.cardId].hp,
+          ),
           maxHp: BUILDING_BY_ID[building.cardId].hp,
           cooldown: 0,
           shotCount: 0,
@@ -1119,10 +1582,16 @@ export class SlimeGame {
         })),
         survivors: layoutSurvivors.map(({ uid: _uid, ...survivor }) => ({
           ...survivor,
-          hp: SURVIVOR_BY_ID[survivor.cardId].hp,
+          hp: clamp(
+            Number.isFinite(Number(survivor.hp))
+              ? Number(survivor.hp)
+              : SURVIVOR_BY_ID[survivor.cardId].hp,
+            0,
+            SURVIVOR_BY_ID[survivor.cardId].hp,
+          ),
           maxHp: SURVIVOR_BY_ID[survivor.cardId].hp,
           cooldown: 0,
-          downed: false,
+          downed: Boolean(survivor.downed) || Number(survivor.hp) <= 0,
         })),
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
@@ -1139,9 +1608,26 @@ export class SlimeGame {
       if (Number.isFinite(saved.softCrystals)) this.state.softCrystals = saved.softCrystals;
       this.state.tutorialSeen = Boolean(saved.tutorialSeen);
       this.state.worldTerrain = worldTerrainFromIds(saved.terrainIds);
+      if (saved.infiniteWorld) {
+        try {
+          this.infiniteWorld = restoreInfiniteWorld(saved.infiniteWorld, { maxLoadedChunks: 81 });
+        } catch {
+          // A generator-version change should never discard the player's base;
+          // keep a fresh surrounding world and continue loading the layout.
+          this.infiniteWorld = createInfiniteWorld({
+            seed: INITIAL_WORLD_TERRAIN.seed,
+            core: CORE_CELL,
+            maxLoadedChunks: 81,
+          });
+          this.infiniteWorld.reveal(CORE_CELL.x, CORE_CELL.y, 18);
+        }
+      }
       this.loadedColonyResources = saved.colonyResources || null;
       this.loadedColonyBlueprints = Array.isArray(saved.colonyBlueprints)
         ? saved.colonyBlueprints
+        : [];
+      this.loadedInfiniteResourceNodes = Array.isArray(saved.infiniteResourceNodes)
+        ? saved.infiniteResourceNodes
         : [];
       if (saved.colonyDirector && Number.isFinite(saved.colonyDirector.elapsed)) {
         this.state.colonyDirector = {
@@ -1152,6 +1638,20 @@ export class SlimeGame {
         };
       }
       if (saved.expeditionProgress && typeof saved.expeditionProgress === 'object') {
+        const savedFrontier = saved.expeditionProgress.frontier;
+        const activeClearTargets = [];
+        const clearTargetKeys = new Set();
+        for (const target of saved.expeditionProgress.activeClearTargets || []) {
+          if (!Number.isSafeInteger(target?.x) || !Number.isSafeInteger(target?.y)) continue;
+          const key = cellKey(target.x, target.y);
+          if (clearTargetKeys.has(key)) continue;
+          clearTargetKeys.add(key);
+          activeClearTargets.push({
+            x: target.x,
+            y: target.y,
+            outpostId: typeof target.outpostId === 'string' ? target.outpostId : null,
+          });
+        }
         this.state.expeditionProgress = {
           firstClear: Boolean(saved.expeditionProgress.firstClear),
           completions: Math.max(0, Math.floor(Number(saved.expeditionProgress.completions) || 0)),
@@ -1159,6 +1659,19 @@ export class SlimeGame {
           claimedRunIds: Array.isArray(saved.expeditionProgress.claimedRunIds)
             ? saved.expeditionProgress.claimedRunIds.filter((id) => typeof id === 'string').slice(-24)
             : [],
+          frontier: Number.isSafeInteger(savedFrontier?.x) && Number.isSafeInteger(savedFrontier?.y)
+            ? { x: savedFrontier.x, y: savedFrontier.y }
+            : { ...CORE_CELL },
+          outposts: Array.isArray(saved.expeditionProgress.outposts)
+            ? saved.expeditionProgress.outposts
+              .filter((outpost) => (
+                typeof outpost?.id === 'string'
+                && Number.isSafeInteger(outpost.x)
+                && Number.isSafeInteger(outpost.y)
+              ))
+              .map(({ id, x, y, name = '生态前哨' }) => ({ id, x, y, name }))
+            : [],
+          activeClearTargets,
         };
       }
       if (saved.expeditionRun && typeof saved.expeditionRun === 'object') {
@@ -1172,18 +1685,38 @@ export class SlimeGame {
       if (Array.isArray(saved.buildings) && saved.buildings.length) {
         this.state.buildings = saved.buildings
           .filter((item) => BUILDING_BY_ID[item.cardId])
-          .map((item) => ({
-            ...item,
-            uid: uid('building'),
-            rotation: canonicalBuildingRotation(item.rotation, BUILDING_BY_ID[item.cardId]),
-            destroyed: false,
-            placedAt: -10,
-          }));
+          .map((item) => {
+            const card = BUILDING_BY_ID[item.cardId];
+            return {
+              ...item,
+              uid: uid('building'),
+              rotation: canonicalBuildingRotation(item.rotation, card),
+              hp: clamp(Number.isFinite(Number(item.hp)) ? Number(item.hp) : card.hp, 0, card.hp),
+              maxHp: card.hp,
+              destroyed: false,
+              placedAt: -10,
+            };
+          });
       }
       if (Array.isArray(saved.survivors) && saved.survivors.length) {
         this.state.survivors = saved.survivors
           .filter((item) => SURVIVOR_BY_ID[item.cardId])
-          .map((item) => ({ ...item, uid: uid('survivor'), downed: false, placedAt: -10 }));
+          .map((item) => {
+            const card = SURVIVOR_BY_ID[item.cardId];
+            const hp = clamp(
+              Number.isFinite(Number(item.hp)) ? Number(item.hp) : card.hp,
+              0,
+              card.hp,
+            );
+            return {
+              ...item,
+              uid: uid('survivor'),
+              hp,
+              maxHp: card.hp,
+              downed: Boolean(item.downed) || hp <= 0,
+              placedAt: -10,
+            };
+          });
       }
     } catch {
       try {
@@ -1195,6 +1728,11 @@ export class SlimeGame {
   }
 
   onBackground() {
+    if (this.state.worldExpedition) {
+      this.finishWorldExpeditionReturn();
+      this.save();
+      return;
+    }
     if (this.isExpeditionSession()) {
       this.abandonCurrentExpedition({ silent: true, returnToBase: true });
       this.save();
@@ -1318,30 +1856,37 @@ export class SlimeGame {
       .reduce((total, building) => total + BUILDING_BY_ID[building.cardId].cost, 0);
   }
 
+  shapingLimit() {
+    // Each activated ecology outpost permanently expands the colony budget.
+    // The procedural world has no final ring, so this capacity can keep growing.
+    return SHAPING_BUDGET + (this.state.expeditionProgress?.outposts?.length || 0) * 4;
+  }
+
   isExpeditionActive() {
     return Boolean(this.state.expeditionRun?.status === 'active');
   }
 
   isExpeditionSession() {
-    return Boolean(this.state.expeditionRun);
+    return Boolean(this.state.expeditionRun || this.state.worldExpedition);
+  }
+
+  isWorldExpeditionMember(survivorUid) {
+    return Boolean(this.state.worldExpedition?.squadUids?.includes(survivorUid));
   }
 
   availableExpeditionSlimeIds() {
     const eligible = new Set(EXPEDITION_PARTY_RULES.availableSlimeIds);
     return [...new Set(this.state.survivors
+      .filter((survivor) => !survivor.downed && survivor.hp > 0)
       .map(({ cardId }) => cardId)
       .filter((cardId) => eligible.has(cardId)))];
   }
 
   openExpedition() {
     if (this.state.phase !== 'build' || this.isExpeditionSession()) return false;
-    if (this.state.enemies.some((enemy) => !enemy.dead)) {
-      this.showToast('先让史莱姆清理基地附近的怪物', 'danger');
-      return false;
-    }
     const availableIds = this.availableExpeditionSlimeIds();
     if (availableIds.length < EXPEDITION_PARTY_RULES.size) {
-      this.showToast('远征需要三只不同的史莱姆', 'danger');
+      this.showToast('大世界探索需要三只不同的史莱姆', 'danger');
       return false;
     }
     const defaults = EXPEDITION_PARTY_RULES.defaultSlimeIds
@@ -1362,7 +1907,7 @@ export class SlimeGame {
     if (selected.has(cardId)) selected.delete(cardId);
     else if (selected.size < EXPEDITION_PARTY_RULES.size) selected.add(cardId);
     else {
-      this.showToast('远征小队最多三只，先取消一只', 'danger');
+      this.showToast('探索小队最多三只，先取消一只', 'danger');
       return false;
     }
     this.modal.selectedIds = [...selected];
@@ -1371,10 +1916,6 @@ export class SlimeGame {
 
   startExpedition(squadIds = this.modal?.selectedIds || []) {
     if (this.state.phase !== 'build' || this.isExpeditionSession()) return false;
-    if (this.state.enemies.some((enemy) => !enemy.dead)) {
-      this.showToast('基地仍在战斗，暂时不能远征', 'danger');
-      return false;
-    }
     const ids = Array.isArray(squadIds) ? squadIds.map(String) : [];
     const availableIds = this.availableExpeditionSlimeIds();
     if (ids.length !== EXPEDITION_PARTY_RULES.size || new Set(ids).size !== ids.length) {
@@ -1382,69 +1923,505 @@ export class SlimeGame {
       return false;
     }
     if (ids.some((cardId) => !availableIds.includes(cardId))) {
-      this.showToast('小队里有尚未入住基地的史莱姆', 'danger');
+      this.showToast('小队里有尚未入住或正在恢复的史莱姆', 'danger');
       return false;
     }
 
-    this.snapshotForBattle();
-    const baseSnapshot = JSON.parse(this.preBattleSnapshot);
     const attempt = this.state.expeditionProgress.attempts + 1;
-    const run = createExpeditionState({
-      id: `${FIRST_EXPEDITION.id}-run-${attempt}`,
-      seed: `${FIRST_EXPEDITION.id}:${attempt}`,
-      expeditionId: FIRST_EXPEDITION.id,
-      roster: availableIds,
-    }, EXPEDITION_CATALOG);
-    selectExpeditionSquad(run, ids);
-    startExpeditionRun(run, EXPEDITION_CATALOG);
-
-    this.state.expeditionRun = run;
     this.state.expeditionProgress.attempts = attempt;
-    this.state.buildings = [];
-    const rallyPoints = [
-      { x: CORE_CELL.x - 1.4, y: CORE_CELL.y - 1.15 },
-      { x: CORE_CELL.x - 1.75, y: CORE_CELL.y + 0.15 },
-      { x: CORE_CELL.x - 1.35, y: CORE_CELL.y + 1.35 },
-    ];
-    this.state.survivors = ids.map((cardId, index) => {
-      const original = baseSnapshot.survivors.find((survivor) => survivor.cardId === cardId);
-      const card = SURVIVOR_BY_ID[cardId];
-      return {
-        ...(original || {}),
-        uid: uid('expedition-survivor'),
-        cardId,
-        x: rallyPoints[index].x,
-        y: rallyPoints[index].y,
-        hp: card.hp,
-        maxHp: card.hp,
-        shield: 0,
-        seed: 0,
-        cooldown: 0,
-        actionCount: 0,
-        hitCount: 0,
-        attackCount: 0,
-        downed: false,
-        hitFlash: 0,
-        expeditionDamageMultiplier: 1,
-        expeditionAttackIntervalMultiplier: 1,
-        expeditionHealMultiplier: 1,
-      };
-    });
-    this.state.coreHp = this.state.coreMaxHp;
+    const squadUids = ids.map((cardId) => (
+      this.state.survivors.find((survivor) => survivor.cardId === cardId)?.uid
+    )).filter(Boolean);
+    const knownSites = this.findNearbyWorldSites(8);
+    if (!knownSites.length) {
+      this.state.expeditionProgress.attempts = attempt - 1;
+      this.state.paused = false;
+      this.modal = null;
+      this.showToast('附近暂时没有可定位的生态地标，请稍后再试', 'danger');
+      return false;
+    }
+    for (const slime of this.state.colony?.slimes || []) {
+      if (squadUids.includes(slime.uid)) cancelColonySlimeWork(this.state.colony, slime);
+    }
+    this.state.worldExpedition = {
+      id: `world-exploration-${attempt}`,
+      status: 'choose-site',
+      squadUids,
+      knownPoiIds: knownSites.map((site) => site.id),
+      sites: knownSites,
+      origin: { ...(this.state.expeditionProgress.frontier || CORE_CELL) },
+      targetPoiId: null,
+      path: [],
+      pathIndex: 0,
+      leader: null,
+      formation: [],
+      enemies: [],
+      rewards: {},
+    };
+    this.requestWorldAssetKeys(knownSites.flatMap((site) => (
+      worldPoiAssetKeys(site, site.zoneKind)
+    )));
+    this.state.phase = 'build';
+    this.state.paused = false;
+    this.modal = null;
+    this.selection = null;
+    for (const survivor of this.state.survivors) {
+      if (!squadUids.includes(survivor.uid)) continue;
+      survivor.expeditionDamageMultiplier = 1;
+      survivor.expeditionAttackIntervalMultiplier = 1;
+      survivor.expeditionHealMultiplier = 1;
+      survivor.expeditionActive = true;
+    }
     this.camera = createWorldCamera({
       world: WORLD,
       viewport: BOARD,
-      focus: DEFAULT_CAMERA_FOCUS,
-      zoom: 1,
+      focus: { x: knownSites[0].x + 0.5, y: knownSites[0].y + 0.5 },
+      zoom: this.camera.zoom,
     });
-    this.state.phase = 'battle';
-    this.state.paused = true;
-    this.state.result = null;
-    this.state.kills = 0;
-    this.resetCombatCards();
-    this.showExpeditionRouteChoices();
+    this.showToast(
+      knownSites.length
+        ? '探索队已集结：在大地图点击发光的资源地或怪物巢穴'
+        : '探索队已集结，向外移动地图寻找生态地标',
+      'good',
+      3.2,
+    );
     this.save();
     return true;
+  }
+
+  findNearbyWorldSites(limit = 8) {
+    const attempt = Math.max(1, this.state.expeditionProgress.attempts || 1);
+    const step = attempt - 1;
+    const directions = [
+      { x: -1, y: 0 }, { x: 0, y: -1 }, { x: 1, y: 0 }, { x: 0, y: 1 },
+      { x: -1, y: -1 }, { x: 1, y: -1 }, { x: 1, y: 1 }, { x: -1, y: 1 },
+    ];
+    const savedFrontier = this.state.expeditionProgress.frontier;
+    const frontier = Number.isSafeInteger(savedFrontier?.x) && Number.isSafeInteger(savedFrontier?.y)
+      ? savedFrontier
+      : CORE_CELL;
+    const frontierDx = frontier.x - CORE_CELL.x;
+    const frontierDy = frontier.y - CORE_CELL.y;
+    const frontierDistance = Math.hypot(frontierDx, frontierDy);
+    const fallbackDirection = directions[(step - 1 + directions.length) % directions.length];
+    const direction = frontierDistance > 8
+      ? { x: frontierDx / frontierDistance, y: frontierDy / frontierDistance }
+      : fallbackDirection;
+    // Each run advances one bounded leg from the latest activated frontier.
+    // This keeps pathfinding and travel time stable even after hundreds of
+    // expeditions while the absolute world coordinates continue unbounded.
+    const ring = step === 0 && frontierDistance <= 8 ? 0 : 56;
+    const focus = {
+      x: Math.round(frontier.x + direction.x * ring),
+      y: Math.round(frontier.y + direction.y * ring),
+    };
+    // Query several small deterministic windows instead of one enormous
+    // rectangle, so the bounded chunk cache never turns infinity into a
+    // hidden 81-chunk ceiling.
+    const centers = step === 0 && frontierDistance <= 8
+      ? [
+        focus,
+        { x: focus.x - 36, y: focus.y },
+        { x: focus.x + 36, y: focus.y },
+        { x: focus.x, y: focus.y - 36 },
+        { x: focus.x, y: focus.y + 36 },
+      ]
+      : [
+        focus,
+        { x: focus.x + direction.y * 28, y: focus.y - direction.x * 28 },
+        { x: focus.x - direction.y * 28, y: focus.y + direction.x * 28 },
+      ];
+    const found = new Map();
+    const collectAround = (center) => {
+      const half = 24;
+      for (const site of this.infiniteWorld.getPoisInBounds({
+        minX: center.x - half,
+        minY: center.y - half,
+        maxXExclusive: center.x + half,
+        maxYExclusive: center.y + half,
+      })) {
+        if (!['nest', 'landmark', 'boss'].includes(site.kind)) continue;
+        if (this.infiniteWorld.getPoiState(site.id)?.cleared === true) continue;
+        found.set(site.id, site);
+      }
+    };
+    for (const center of centers) collectAround(center);
+    for (let fallbackRing = 1; found.size === 0 && fallbackRing <= 16; fallbackRing += 1) {
+      const fallbackDirection = directions[(step + fallbackRing) % directions.length];
+      const fallbackRadius = 48 + Math.floor((fallbackRing - 1) / directions.length) * 32;
+      collectAround({
+        x: frontier.x + fallbackDirection.x * fallbackRadius,
+        y: frontier.y + fallbackDirection.y * fallbackRadius,
+      });
+    }
+    return [...found.values()]
+      .filter((site) => ['nest', 'landmark', 'boss'].includes(site.kind))
+      .filter((site) => this.infiniteWorld.getPoiState(site.id)?.cleared !== true)
+      .sort((left, right) => distance(left, focus) - distance(right, focus)
+        || left.id.localeCompare(right.id))
+      .slice(0, limit)
+      .map((site) => {
+        const zoneKind = this.infiniteWorld.getZoneAt(site.x, site.y).kind;
+        return {
+          id: site.id,
+          kind: site.kind,
+          name: site.name,
+          x: site.x,
+          y: site.y,
+          zoneKind,
+          stage: Math.max(1, Math.floor(Number(site.stage) || 1)),
+          boss: Boolean(site.boss),
+          enemyId: site.enemyId || null,
+          revealRadius: site.revealRadius || 6,
+        };
+      });
+  }
+
+  worldExpeditionSite(poiId = this.state.worldExpedition?.targetPoiId) {
+    return this.state.worldExpedition?.sites?.find((site) => site.id === poiId) || null;
+  }
+
+  explorationTerrainSource() {
+    return {
+      infinite: true,
+      getCell: (x, y) => {
+        const cell = this.worldCellAt(x, y);
+        return cell ? { ...cell, discovered: true } : null;
+      },
+    };
+  }
+
+  selectWorldExpeditionSite(poiId) {
+    const expedition = this.state.worldExpedition;
+    const site = this.worldExpeditionSite(poiId);
+    if (!expedition || expedition.status !== 'choose-site' || !site) return false;
+    const members = expedition.squadUids
+      .map((survivorUid) => this.state.survivors.find((survivor) => survivor.uid === survivorUid))
+      .filter(Boolean);
+    if (!members.length) return false;
+    const origin = Number.isSafeInteger(expedition.origin?.x) && Number.isSafeInteger(expedition.origin?.y)
+      ? expedition.origin
+      : CORE_CELL;
+    const leader = { x: origin.x, y: origin.y };
+    const path = routeFor(
+      this.state.buildings.filter((building) => !building.underConstruction),
+      { x: Math.round(leader.x), y: Math.round(leader.y) },
+      { x: site.x, y: site.y },
+      this.explorationTerrainSource(),
+      { allowBuildingBreaching: false },
+    );
+    if (path.length < 2) {
+      this.showToast('这处地标暂时没有可通行的探索路线', 'danger');
+      return false;
+    }
+    expedition.status = 'travel';
+    expedition.targetPoiId = poiId;
+    expedition.path = path;
+    expedition.pathIndex = 0;
+    expedition.leader = leader;
+    const compactFormation = [
+      { dx: 0, dy: 0 },
+      { dx: -0.42, dy: 0.38 },
+      { dx: 0.42, dy: 0.38 },
+    ];
+    expedition.formation = members.map((member, index) => ({
+      uid: member.uid,
+      ...(compactFormation[index] || { dx: 0, dy: 0.72 + index * 0.28 }),
+    }));
+    for (const formation of expedition.formation) {
+      const member = members.find(({ uid: memberUid }) => memberUid === formation.uid);
+      if (!member) continue;
+      member.x = leader.x + formation.dx;
+      member.y = leader.y + formation.dy;
+    }
+    expedition.enemies = [];
+    this.selection = null;
+    this.showToast(
+      `${distance(origin, CORE_CELL) > 8 ? '已从生态前哨出发，' : ''}探索队正在前往${site.name || '生态地标'}，基地仍会继续运转`,
+      'good',
+      3,
+    );
+    return true;
+  }
+
+  beginWorldSiteEncounter() {
+    const expedition = this.state.worldExpedition;
+    const site = this.worldExpeditionSite();
+    if (!expedition || !site) return false;
+    this.revealWorldAround(site.x, site.y, Math.max(4, site.revealRadius || 6), {
+      registerResources: false,
+    });
+    if (site.kind === 'landmark') {
+      this.completeWorldSiteEncounter(true);
+      return true;
+    }
+    const stage = Math.max(1, Math.floor(Number(site.stage) || 1));
+    const encounterSize = 7 + Math.min(9, Math.floor((stage - 1) / 2));
+    const enemyIds = site.kind === 'boss'
+      ? [site.enemyId || 'enemy-acid-shell-king', ...Array(encounterSize - 1).fill('enemy-soft-biter')]
+      : Array.from({ length: encounterSize }, (_, index) => (
+        index % 4 === 3 ? 'enemy-windcap' : 'enemy-soft-biter'
+      ));
+    expedition.enemies = enemyIds.map((cardId, index) => {
+      const card = ENEMY_BY_ID[cardId];
+      const angle = (index / enemyIds.length) * TAU;
+      const radius = site.kind === 'boss' && index === 0 ? 0.7 : 1.6 + (index % 2) * 0.45;
+      const stageHealth = 1 + Math.min(1.5, (stage - 1) * 0.06);
+      const maxHp = Math.max(1, Math.round(
+        card.hp * (site.kind === 'boss' && index === 0 ? 0.72 : 0.34) * stageHealth,
+      ));
+      return {
+        uid: uid('world-site-enemy'),
+        cardId,
+        x: site.x + Math.cos(angle) * radius,
+        y: site.y + Math.sin(angle) * radius,
+        hp: maxHp,
+        maxHp,
+        damageMultiplier: 1 + Math.min(0.8, (stage - 1) * 0.035),
+        cooldown: index * 0.08,
+        dead: false,
+        deathElapsed: 0,
+        hitFlash: 0,
+        visualMoving: false,
+      };
+    });
+    for (const survivorUid of expedition.squadUids) {
+      const survivor = this.state.survivors.find(({ uid: survivorUidValue }) => (
+        survivorUidValue === survivorUid
+      ));
+      const card = SURVIVOR_BY_ID[survivor?.cardId];
+      if (!survivor || !card) continue;
+      survivor.cooldown = 0;
+      survivor.actionCount ||= 0;
+      survivor.attackCount ||= 0;
+      survivor.hitCount ||= 0;
+      if (card.id === 'survivor-shell-shell') {
+        survivor.shield = Math.max(survivor.shield || 0, card.ability.shield);
+      }
+    }
+    expedition.status = 'battle';
+    this.showToast(site.kind === 'boss' ? 'Boss栖息地开战！' : '抵达怪物巢穴，探索队自动迎战', 'danger', 2.8);
+    return true;
+  }
+
+  updateWorldTravel(dt) {
+    const expedition = this.state.worldExpedition;
+    if (!expedition?.leader || !expedition.path?.length) return;
+    const returning = expedition.status === 'return';
+    const next = expedition.path[Math.min(expedition.pathIndex + 1, expedition.path.length - 1)];
+    const dx = next.x - expedition.leader.x;
+    const dy = next.y - expedition.leader.y;
+    const length = Math.hypot(dx, dy);
+    const amount = Math.min(length, 4.2 * dt);
+    if (length > 0.001) {
+      expedition.leader.x += (dx / length) * amount;
+      expedition.leader.y += (dy / length) * amount;
+    }
+    if (amount >= length - 0.001) expedition.pathIndex += 1;
+    for (const formation of expedition.formation) {
+      const survivor = this.state.survivors.find((member) => member.uid === formation.uid);
+      if (!survivor) continue;
+      survivor.x = expedition.leader.x + formation.dx;
+      survivor.y = expedition.leader.y + formation.dy;
+      survivor.visualMoving = length > 0.04;
+      const revealKey = cellKey(Math.round(survivor.x), Math.round(survivor.y));
+      if (survivor.lastWorldRevealKey !== revealKey) {
+        survivor.lastWorldRevealKey = revealKey;
+        this.revealWorldAround(survivor.x, survivor.y, 2, { registerResources: false });
+      }
+    }
+    if (expedition.pathIndex < expedition.path.length - 1) return;
+    if (returning) this.finishWorldExpeditionReturn();
+    else this.beginWorldSiteEncounter();
+  }
+
+  updateWorldSiteBattle(dt) {
+    const expedition = this.state.worldExpedition;
+    if (!expedition || expedition.status !== 'battle') return;
+    const members = expedition.squadUids
+      .map((survivorUid) => this.state.survivors.find((survivor) => survivor.uid === survivorUid))
+      .filter(Boolean);
+    const livingMembers = members.filter((member) => !member.downed && member.hp > 0);
+    const livingEnemies = expedition.enemies.filter((enemy) => !enemy.dead && enemy.hp > 0);
+    for (const survivor of livingMembers) {
+      survivor.cooldown = Math.max(0, (survivor.cooldown || 0) - dt);
+      const card = SURVIVOR_BY_ID[survivor.cardId];
+      const target = livingEnemies
+        .filter((enemy) => !enemy.dead && enemy.hp > 0)
+        .sort((a, b) => distance(survivor, a) - distance(survivor, b))[0];
+      if (!target) break;
+      const gap = distance(survivor, target);
+      if (gap <= card.attack.rangeTiles) {
+        survivor.visualMoving = false;
+        if (survivor.cooldown <= 0) {
+          const acted = this.performSurvivorAction(survivor);
+          survivor.cooldown = acted
+            ? card.attack.intervalSeconds * (survivor.expeditionAttackIntervalMultiplier || 1)
+            : 0.18;
+        }
+      } else {
+        const speed = 1.25 * dt;
+        survivor.x += ((target.x - survivor.x) / Math.max(0.001, gap)) * Math.min(speed, gap);
+        survivor.y += ((target.y - survivor.y) / Math.max(0.001, gap)) * Math.min(speed, gap);
+        survivor.visualMoving = true;
+      }
+      const revealKey = cellKey(Math.round(survivor.x), Math.round(survivor.y));
+      if (survivor.lastWorldRevealKey !== revealKey) {
+        survivor.lastWorldRevealKey = revealKey;
+        this.revealWorldAround(survivor.x, survivor.y, 2, { registerResources: false });
+      }
+    }
+    for (const enemy of livingEnemies) {
+      if (enemy.dead || enemy.hp <= 0) continue;
+      enemy.cooldown = Math.max(0, (enemy.cooldown || 0) - dt);
+      enemy.hitFlash = Math.max(0, (enemy.hitFlash || 0) - dt * 5);
+      const target = livingMembers
+        .filter((member) => !member.downed && member.hp > 0)
+        .sort((a, b) => distance(enemy, a) - distance(enemy, b))[0];
+      if (!target) break;
+      const card = ENEMY_BY_ID[enemy.cardId];
+      const gap = distance(enemy, target);
+      if (gap <= 0.85) {
+        enemy.visualMoving = false;
+        if (enemy.cooldown <= 0) {
+          const started = this.startEntityAttack(enemy, () => {
+            if (!target.downed) this.damageSurvivor(
+              target,
+              card.damage * 0.34 * (enemy.damageMultiplier || 1),
+            );
+          });
+          if (started) enemy.cooldown = card.attackIntervalSeconds;
+        }
+      } else {
+        const speed = Math.min(gap, card.speed * 0.62 * dt);
+        enemy.x += ((target.x - enemy.x) / Math.max(0.001, gap)) * speed;
+        enemy.y += ((target.y - enemy.y) / Math.max(0.001, gap)) * speed;
+        enemy.visualMoving = speed > 0;
+      }
+    }
+    if (expedition.enemies.every((enemy) => enemy.dead || enemy.hp <= 0)) {
+      this.completeWorldSiteEncounter(true);
+    } else if (members.every((member) => member.downed || member.hp <= 0)) {
+      this.completeWorldSiteEncounter(false);
+    }
+  }
+
+  completeWorldSiteEncounter(victory) {
+    const expedition = this.state.worldExpedition;
+    const site = this.worldExpeditionSite();
+    if (!expedition || !site) return false;
+    if (victory) {
+      const baseRewards = site.kind === 'boss'
+        ? { gel: 18, nectar: 10, shard: 12, softCrystals: 24 }
+        : site.kind === 'nest'
+          ? { gel: 10, nectar: 5, shard: 4, softCrystals: 6 }
+          : { gel: 8, nectar: 7, shard: 5, softCrystals: 3 };
+      const rewardMultiplier = 1 + Math.min(2.5, Math.max(0, (site.stage || 1) - 1) * 0.12);
+      const rewards = Object.fromEntries(Object.entries(baseRewards).map(([resourceId, amount]) => (
+        [resourceId, Math.max(1, Math.round(amount * rewardMultiplier))]
+      )));
+      this.state.colony.resources.gel += rewards.gel;
+      this.state.colony.resources.nectar += rewards.nectar;
+      this.state.colony.resources.shard += rewards.shard;
+      this.state.softCrystals += rewards.softCrystals;
+      expedition.rewards = rewards;
+      this.infiniteWorld.setPoiState(site.id, {
+        cleared: true,
+        clearedAt: this.time,
+        x: site.x,
+        y: site.y,
+      });
+      const outposts = this.state.expeditionProgress.outposts ||= [];
+      let activatedOutpost = false;
+      if (!outposts.some(({ id }) => id === site.id)) {
+        outposts.push({ id: site.id, x: site.x, y: site.y, name: site.name || '生态前哨' });
+        activatedOutpost = true;
+      }
+      this.syncColonyDepots();
+      // Activating a relay claims only a small local harvest patch. This keeps
+      // exploration collectible without accumulating every resource crossed
+      // by a long travel corridor as a permanent global job.
+      const relayCells = [];
+      for (let dy = -4; dy <= 4; dy += 1) {
+        for (let dx = -4; dx <= 4; dx += 1) {
+          if (dx * dx + dy * dy <= 16) relayCells.push({ x: site.x + dx, y: site.y + dy });
+        }
+      }
+      if (activatedOutpost) this.indexOutpostClearTargets(site, 4);
+      this.registerDiscoveredResourceNodes(relayCells, { limit: 8 });
+      const currentFrontier = this.state.expeditionProgress.frontier || CORE_CELL;
+      if (distance(site, CORE_CELL) > distance(currentFrontier, CORE_CELL)) {
+        this.state.expeditionProgress.frontier = { x: site.x, y: site.y };
+      }
+    }
+    for (const survivorUid of expedition.squadUids) {
+      const survivor = this.state.survivors.find((member) => member.uid === survivorUid);
+      if (!survivor) continue;
+      survivor.downed = false;
+      survivor.hp = Math.max(survivor.maxHp * 0.4, survivor.hp);
+    }
+    expedition.status = 'return';
+    expedition.enemies = [];
+    expedition.path = [...expedition.path].reverse();
+    expedition.pathIndex = 0;
+    expedition.leader = { x: site.x, y: site.y };
+    this.showToast(victory ? '探索完成，战利品已入库，小队正在返回' : '探索队安全撤回，基地内容保持不变', victory ? 'good' : 'normal', 3);
+    this.save();
+    return true;
+  }
+
+  finishWorldExpeditionReturn() {
+    const expedition = this.state.worldExpedition;
+    if (!expedition) return false;
+    const encounterEntityIds = new Set([
+      ...expedition.squadUids,
+      ...(expedition.enemies || []).map((enemy) => enemy.uid),
+    ]);
+    for (const entityUid of encounterEntityIds) {
+      this.pendingAttackHits.delete(entityUid);
+      this.animators.delete(entityUid);
+      this.expressionMixers.delete(entityUid);
+    }
+    this.state.projectiles = this.state.projectiles.filter((projectile) => (
+      !encounterEntityIds.has(projectile.sourceUid)
+      && !encounterEntityIds.has(projectile.targetUid)
+    ));
+    const rally = WORLD.base.rallyPoint;
+    expedition.squadUids.forEach((survivorUid, index) => {
+      const survivor = this.state.survivors.find((member) => member.uid === survivorUid);
+      const colonySlime = this.state.colony?.slimes.find((member) => member.uid === survivorUid);
+      const x = rally.x + (index % 2) * 0.55;
+      const y = rally.y + Math.floor(index / 2) * 0.55;
+      if (survivor) {
+        survivor.x = x;
+        survivor.y = y;
+        survivor.expeditionActive = false;
+        survivor.visualMoving = false;
+      }
+      if (colonySlime) {
+        cancelColonySlimeWork(this.state.colony, colonySlime);
+        colonySlime.x = x;
+        colonySlime.y = y;
+        colonySlime.hp = survivor?.hp ?? colonySlime.hp;
+        if (survivor?.downed || colonySlime.hp <= 0) {
+          downColonySlime(colonySlime);
+        } else {
+          colonySlime.aiState = 'idle';
+          colonySlime.downedElapsed = 0;
+        }
+      }
+    });
+    this.state.worldExpedition = null;
+    this.showToast('探索队已返回基地，可以继续选择新的生态地标', 'good');
+    this.save();
+    return true;
+  }
+
+  updateWorldExploration(dt) {
+    const expedition = this.state.worldExpedition;
+    if (!expedition) return;
+    if (expedition.status === 'travel' || expedition.status === 'return') this.updateWorldTravel(dt);
+    else if (expedition.status === 'battle') this.updateWorldSiteBattle(dt);
   }
 
   showExpeditionRouteChoices() {
@@ -1753,7 +2730,11 @@ export class SlimeGame {
     this.state.survivors.forEach((survivor) => { survivor.hitFlash = Math.max(0, (survivor.hitFlash || 0) - animationDt * 4); });
     this.state.enemies.forEach((enemy) => { enemy.hitFlash = Math.max(0, (enemy.hitFlash || 0) - animationDt * 5); });
 
-    if (this.state.phase === 'build' && !this.state.paused) this.updateAutonomousColony(dt);
+    if (this.state.phase === 'build' && !this.state.paused) {
+      this.updateAutonomousColony(dt);
+      this.updateWorldExploration(dt);
+      this.revealAroundActiveSlimes();
+    }
     if (this.state.phase === 'battle' && !this.state.paused && !this.selection) this.updateBattle(dt);
 
     this.updateEntityAnimations(animationDt);
@@ -1761,6 +2742,9 @@ export class SlimeGame {
 
   updateAutonomousColony(dt) {
     if (!this.state.colony) return;
+    const allColonySlimes = this.state.colony.slimes;
+    const awayUids = new Set(this.state.worldExpedition?.squadUids || []);
+    this.state.colony.slimes = allColonySlimes.filter((slime) => !awayUids.has(slime.uid));
     this.updateContinuousThreatDirector(dt);
     const livingEnemies = this.state.enemies.filter((enemy) => !enemy.dead);
 
@@ -1780,6 +2764,7 @@ export class SlimeGame {
     })));
     setColonyThreatIntensity(this.state.colony, livingEnemies.length ? 0.68 : 0.12);
     const events = updateColony(this.state.colony, dt);
+    this.state.colony.slimes = allColonySlimes;
     for (const building of this.state.buildings) {
       if (!building.underConstruction) continue;
       const blueprint = this.state.colony.blueprints.find((item) => item.uid === building.blueprintUid);
@@ -1802,6 +2787,16 @@ export class SlimeGame {
       && Math.floor(this.state.colony.time) % 12 === 0) this.save();
   }
 
+  revealAroundActiveSlimes() {
+    for (const survivor of this.state.survivors) {
+      if (!Number.isFinite(survivor.x) || !Number.isFinite(survivor.y)) continue;
+      const revealKey = cellKey(Math.round(survivor.x), Math.round(survivor.y));
+      if (survivor.lastWorldRevealKey === revealKey) continue;
+      survivor.lastWorldRevealKey = revealKey;
+      this.revealWorldAround(survivor.x, survivor.y, 2);
+    }
+  }
+
   handleColonyEvents(events) {
     for (const event of events) {
       if (event.type === 'threat-hit') {
@@ -1812,7 +2807,10 @@ export class SlimeGame {
           this.damageEnemy(enemy, event.damage, survivor);
         }
       } else if (event.type === 'resource-deposited') {
-        const position = this.cellCenter(CORE_CELL.x, CORE_CELL.y);
+        const position = this.cellCenter(
+          Number.isFinite(event.x) ? event.x : CORE_CELL.x,
+          Number.isFinite(event.y) ? event.y : CORE_CELL.y,
+        );
         this.spawnDynamicEffect('place', position.x, position.y + 12 * this.camera.zoom, {
           color: event.resourceType === 'shard' ? PALETTE.crystal : event.resourceType === 'nectar' ? '#F6BE58' : PALETTE.heal,
           accent: '#FFF8E9',
@@ -1852,6 +2850,14 @@ export class SlimeGame {
           this.save();
         }
       } else if (event.type === 'resource-depleted' || event.type === 'terrain-cleared') {
+        if (event.type === 'resource-depleted') {
+          this.state.colony.resourceNodes = this.state.colony.resourceNodes
+            .filter((node) => node.uid !== event.nodeUid && node.amount > 0);
+        } else {
+          this.state.expeditionProgress.activeClearTargets = (
+            this.state.expeditionProgress.activeClearTargets || []
+          ).filter((target) => target.x !== event.x || target.y !== event.y);
+        }
         const position = this.cellCenter(event.x, event.y);
         this.spawnDynamicEffect('enemy-pop', position.x, position.y, {
           color: event.type === 'terrain-cleared' ? '#9EB8AF' : '#61D6A2',
@@ -2018,7 +3024,11 @@ export class SlimeGame {
       this.resolveEntityAnimationEvents(survivor, controller, events);
       this.updateEntityExpression(survivor, controller, events, dt);
     }
-    for (const enemy of this.state.enemies) {
+    const animatedEnemies = [
+      ...this.state.enemies,
+      ...(this.state.worldExpedition?.enemies || []),
+    ];
+    for (const enemy of animatedEnemies) {
       liveIds.add(enemy.uid);
       if (enemy.dead) enemy.deathElapsed = (enemy.deathElapsed || 0) + dt;
       const controller = this.animatorFor(enemy);
@@ -2126,7 +3136,7 @@ export class SlimeGame {
           [],
           from,
           to,
-          this.state.worldTerrain,
+          this.runtimeTerrain,
           { allowBuildingBreaching: false },
         );
         survivor.expeditionRouteTimer = 0.42;
@@ -2211,6 +3221,7 @@ export class SlimeGame {
 
   updateSurvivors(dt) {
     for (const survivor of this.state.survivors) {
+      if (this.isWorldExpeditionMember(survivor.uid)) continue;
       if (survivor.downed) continue;
       const card = SURVIVOR_BY_ID[survivor.cardId];
       survivor.cooldown -= dt;
@@ -2379,7 +3390,7 @@ export class SlimeGame {
           this.state.buildings,
           current,
           lure ? { x: lure.x, y: lure.y } : null,
-          this.state.worldTerrain,
+          this.runtimeTerrain,
         );
         enemy.routeTimer = 0.55;
         enemy.routeGoal = lure?.uid || null;
@@ -2517,25 +3528,37 @@ export class SlimeGame {
     }
   }
 
+  activeEnemyPool(entity = null) {
+    const worldExpedition = this.state.worldExpedition;
+    const belongsToWorldEncounter = Boolean(worldExpedition?.status === 'battle' && entity && (
+      worldExpedition.squadUids?.includes(entity.uid)
+      || worldExpedition.enemies?.some((enemy) => enemy.uid === entity.uid)
+    ));
+    if (belongsToWorldEncounter) return worldExpedition.enemies || [];
+    return this.state.enemies;
+  }
+
   findTargetsForAttack(attacker, attack) {
+    const enemyPool = this.activeEnemyPool(attacker);
     if (this.state.phase === 'build' || this.isExpeditionActive()) {
-      return this.state.enemies
+      return enemyPool
         .filter((enemy) => !enemy.dead && distance(attacker, enemy) <= attack.rangeTiles)
         .sort((a, b) => distance(attacker, a) - distance(attacker, b));
     }
     if (attack.targetRule === 'first-in-lane') return this.findLaneTargets(attacker, attack.rangeTiles);
-    return this.state.enemies
+    return enemyPool
       .filter((enemy) => !enemy.dead && distance(attacker, enemy) <= attack.rangeTiles && enemy.x >= attacker.x - 0.7)
       .sort((a, b) => a.x - b.x || distance(attacker, a) - distance(attacker, b));
   }
 
   findLaneTargets(attacker, rangeTiles) {
+    const enemyPool = this.activeEnemyPool(attacker);
     if (this.state.phase === 'build' || this.isExpeditionActive()) {
-      return this.state.enemies
+      return enemyPool
         .filter((enemy) => !enemy.dead && distance(attacker, enemy) <= rangeTiles)
         .sort((a, b) => distance(attacker, a) - distance(attacker, b));
     }
-    return this.state.enemies
+    return enemyPool
       .filter((enemy) => !enemy.dead && Math.abs(enemy.y - attacker.y) < 0.48 && enemy.x >= attacker.x - 0.55 && enemy.x - attacker.x <= rangeTiles)
       .sort((a, b) => a.x - b.x);
   }
@@ -2671,7 +3694,7 @@ export class SlimeGame {
       const burstRadius = source?.expeditionBurstRadiusTiles || 0;
       if (burstDamage > 0 && burstRadius > 0 && !enemy.expeditionBurstResolved) {
         enemy.expeditionBurstResolved = true;
-        this.state.enemies
+        this.activeEnemyPool(source)
           .filter((other) => !other.dead && distance(enemy, other) <= burstRadius)
           .forEach((other) => this.damageEnemy(other, burstDamage, source));
       }
@@ -2701,13 +3724,14 @@ export class SlimeGame {
       target.shield -= absorbed;
       damage -= absorbed;
       if (target.shield <= 0 && kind === 'survivor' && target.expeditionShieldBreakDamage > 0) {
-        const nearby = this.state.enemies
+        const nearby = this.activeEnemyPool(target)
           .filter((enemy) => !enemy.dead)
           .sort((left, right) => distance(target, left) - distance(target, right))[0];
         if (nearby) this.damageEnemy(nearby, target.expeditionShieldBreakDamage, target);
       }
       if (target.shield <= 0 && kind === 'survivor' && target.cardId === 'survivor-shell-shell') {
-        const nearby = this.state.enemies.find((enemy) => !enemy.dead && distance(enemy, target) <= 1.2);
+        const nearby = this.activeEnemyPool(target)
+          .find((enemy) => !enemy.dead && distance(enemy, target) <= 1.2);
         if (nearby) this.pushEnemy(nearby, 1, 0, SURVIVOR_BY_ID[target.cardId].ability);
       }
     }
@@ -2787,14 +3811,15 @@ export class SlimeGame {
     }
     const old = { x: enemy.x, y: enemy.y };
     const oldPosition = this.entityCanvasPosition(enemy);
-    enemy.x = clamp(enemy.x + dx, 0, WORLD.width - 0.01);
-    enemy.y = clamp(enemy.y + dy, 0, WORLD.height - 0.01);
+    enemy.x = WORLD.infinite ? enemy.x + dx : clamp(enemy.x + dx, 0, WORLD.width - 0.01);
+    enemy.y = WORLD.infinite ? enemy.y + dy : clamp(enemy.y + dy, 0, WORLD.height - 0.01);
     enemy.path = [];
     enemy.routeTimer = 0;
     enemy.justPushed = true;
     enemy.bubbleStatus = Math.max(enemy.bubbleStatus || 0, 0.55);
     const position = this.entityCanvasPosition(enemy);
-    const collision = this.state.enemies.find((other) => other.uid !== enemy.uid && !other.dead && distance(enemy, other) < 0.38);
+    const collision = this.activeEnemyPool(enemy)
+      .find((other) => other.uid !== enemy.uid && !other.dead && distance(enemy, other) < 0.38);
     if (collision && effect.collisionDamage) {
       this.damageEnemy(enemy, effect.collisionDamage, effect);
       this.damageEnemy(collision, effect.collisionDamage, effect);
@@ -2836,6 +3861,8 @@ export class SlimeGame {
     const to = this.entityCanvasPosition(target);
     this.state.projectiles.push({
       uid: uid('projectile'), type, from, to,
+      sourceUid: source?.uid || null,
+      targetUid: target?.uid || null,
       progress: -delay, duration: type === 'crystal' ? 0.24 : 0.32,
     });
   }
@@ -2911,8 +3938,8 @@ export class SlimeGame {
 
   nearestCell(entity) {
     return {
-      x: clamp(Math.round(entity.x), 0, BOARD.cols - 1),
-      y: clamp(Math.round(entity.y), 0, BOARD.rows - 1),
+      x: WORLD.infinite ? Math.round(entity.x) : clamp(Math.round(entity.x), 0, BOARD.cols - 1),
+      y: WORLD.infinite ? Math.round(entity.y) : clamp(Math.round(entity.y), 0, BOARD.rows - 1),
     };
   }
 
@@ -2928,7 +3955,7 @@ export class SlimeGame {
   }
 
   terrainRenderCell(x, y) {
-    const cell = catalogTerrainAt(this.state.worldTerrain, x, y);
+    const cell = this.worldCellAt(x, y);
     if (!cell) return null;
     const definition = TERRAIN_TYPES[cell.terrainId] || TERRAIN_TYPES.ground;
     const renderKind = definition.kind === 'destructible-obstacle'
@@ -3210,7 +4237,7 @@ export class SlimeGame {
           cell.y,
           source.rotation,
           source.uid,
-          this.state.worldTerrain,
+          this.runtimeTerrain,
         )) {
           this.showToast('目的地放不下这座建筑', 'danger');
           return;
@@ -3389,6 +4416,14 @@ export class SlimeGame {
     ctx.fillRect(BOARD.x, BOARD.y, BOARD.width, BOARD.height);
 
     const bounds = visibleWorldBounds(this.camera, WORLD, BOARD, 1);
+    const visibleChunks = this.infiniteWorld.updateCamera({
+      minX: bounds.minX,
+      minY: bounds.minY,
+      maxXExclusive: bounds.maxX + 1,
+      maxYExclusive: bounds.maxY + 1,
+    }, { paddingChunks: 1, reveal: false });
+    const visiblePois = this.worldPoisForBounds(bounds);
+    this.visibleWorldPois = visiblePois;
     const tileSize = this.worldPixelsPerCell();
     const terrainOptions = {
       visibleBounds: bounds,
@@ -3400,6 +4435,7 @@ export class SlimeGame {
       assetStore: this.assetStore,
     };
     drawOrganicGround(ctx, terrainOptions);
+    this.drawWorldRegionDecals(ctx, visibleChunks, bounds);
 
     const corePosition = this.cellCenter(CORE_CELL.x, CORE_CELL.y);
     const portalPositions = WORLD.monsterEntrances.map((entrance) => ({
@@ -3409,7 +4445,9 @@ export class SlimeGame {
 
     this.drawRoutes(ctx);
     drawOrganicTerrainProps(ctx, terrainOptions);
+    this.drawDiscoveryFog(ctx, bounds);
     this.drawTerrain(ctx);
+    this.drawWorldPoiBackEffects(ctx, visiblePois);
     const expeditionBattle = this.state.phase === 'battle' && this.isExpeditionSession();
     const beaconDrawn = expeditionBattle && drawAssetOrFallback(
       ctx,
@@ -3474,22 +4512,219 @@ export class SlimeGame {
     ctx.fillText(expeditionBattle ? '远征信标' : '基地核心', corePosition.x, corePosition.y + 70 * this.camera.zoom);
     for (const { position } of portalPositions) {
       if (this.isWorldScreenPositionVisible(position, 40 * this.camera.zoom)) {
-        ctx.fillText(expeditionBattle ? '远征裂隙' : '荒野入口', position.x, position.y + 58 * this.camera.zoom);
+        ctx.fillText(expeditionBattle ? '探索裂隙' : '生态入口', position.x, position.y + 58 * this.camera.zoom);
       }
     }
     ctx.restore();
     ctx.restore();
 
     ctx.save();
-    drawRoundedRect(ctx, BOARD.x + 14, BOARD.y + 12, 184, 34, {
+    drawRoundedRect(ctx, BOARD.x + 14, BOARD.y + 12, 270, 34, {
       radius: 14,
       fill: 'rgba(35,69,58,0.7)',
     });
     ctx.fillStyle = '#FFF8E9';
     ctx.font = '700 13px "PingFang SC", sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(`大地图 24×16 · 缩放 ${Math.round(this.camera.zoom * 100)}%`, BOARD.x + 106, BOARD.y + 34);
+    ctx.fillText(
+      `无限生态世界 · ${this.infiniteWorld.stats().loadedChunks} 区块 · ${Math.round(this.camera.zoom * 100)}%`,
+      BOARD.x + 149,
+      BOARD.y + 34,
+    );
     ctx.restore();
+  }
+
+  drawDiscoveryFog(ctx, bounds) {
+    const size = this.worldPixelsPerCell();
+    ctx.save();
+    for (let y = bounds.minY; y <= bounds.maxY; y += 1) {
+      for (let x = bounds.minX; x <= bounds.maxX; x += 1) {
+        const cell = this.worldCellAt(x, y);
+        if (!cell || cell.discovered !== false) continue;
+        const corner = worldToScreen({ x, y }, this.camera, BOARD);
+        ctx.fillStyle = 'rgba(52, 92, 83, 0.50)';
+        ctx.fillRect(corner.x, corner.y, size + 1, size + 1);
+        ctx.fillStyle = 'rgba(218, 244, 211, 0.10)';
+        ctx.beginPath();
+        ctx.arc(corner.x + size * 0.34, corner.y + size * 0.38, size * 0.15, 0, TAU);
+        ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+
+  drawWorldRegionDecals(ctx, chunks, bounds) {
+    const cellSize = this.worldPixelsPerCell();
+    this.requestWorldAssetKeys((chunks || []).map((chunk) => (
+      regionAssetKeyForZone(chunk.zone)
+    )));
+    for (const chunk of chunks || []) {
+      if (chunk.maxXExclusive <= bounds.minX || chunk.minX > bounds.maxX
+        || chunk.maxYExclusive <= bounds.minY || chunk.minY > bounds.maxY) continue;
+      const assetKey = regionAssetKeyForZone(chunk.zone);
+      if (!assetKey) continue;
+      const seed = chunk.chunkX * 131 + chunk.chunkY * 197;
+      const offsetX = (effectNoise(seed, 1) - 0.5) * 2.2;
+      const offsetY = (effectNoise(seed, 2) - 0.5) * 2.2;
+      const center = worldToScreen({
+        x: chunk.originX + chunk.size / 2 + offsetX,
+        y: chunk.originY + chunk.size / 2 + offsetY,
+      }, this.camera, BOARD);
+      const width = cellSize * (10.5 + effectNoise(seed, 3) * 3.2);
+      const height = width * 0.72;
+      drawAssetOrFallback(ctx, this.assetStore, assetKey, (asset) => {
+        ctx.globalAlpha *= 0.13;
+        drawImageContained(
+          ctx,
+          asset,
+          center.x - width / 2,
+          center.y - height / 2,
+          width,
+          height,
+        );
+      }, () => {});
+    }
+  }
+
+  worldPoisForBounds(bounds) {
+    const found = new Map();
+    for (const poi of this.infiniteWorld.getPoisInBounds({
+      minX: bounds.minX,
+      minY: bounds.minY,
+      maxXExclusive: bounds.maxX + 1,
+      maxYExclusive: bounds.maxY + 1,
+    }, { discoveredOnly: true })) {
+      found.set(poi.id, {
+        ...poi,
+        zoneKind: this.infiniteWorld.getZoneAt(poi.x, poi.y).kind,
+        cleared: poi.state?.cleared === true,
+      });
+    }
+    for (const site of this.state.worldExpedition?.sites || []) {
+      if (site.x < bounds.minX || site.x > bounds.maxX
+        || site.y < bounds.minY || site.y > bounds.maxY) continue;
+      found.set(site.id, {
+        ...found.get(site.id),
+        ...site,
+        cleared: this.infiniteWorld.getPoiState(site.id)?.cleared === true,
+      });
+    }
+    return [...found.values()].sort((left, right) => left.y - right.y || left.x - right.x);
+  }
+
+  worldPoiAssetLayers(site) {
+    return site.cleared
+      ? worldPoiAssetKeys('relay', site.zoneKind)
+      : worldPoiAssetKeys(site, site.zoneKind);
+  }
+
+  drawWorldPoiBackEffects(ctx, sites = []) {
+    this.requestWorldAssetKeys(sites.flatMap((site) => this.worldPoiAssetLayers(site)));
+    const zoom = this.camera.zoom;
+    for (const site of sites) {
+      const position = this.cellCenter(site.x, site.y);
+      const pulse = 1 + Math.sin(this.time * 3.4 + site.x * 0.3) * 0.08;
+      for (const assetKey of this.worldPoiAssetLayers(site).filter((key) => key.includes('energy'))) {
+        const drawSize = 88 * zoom * pulse;
+        drawAssetOrFallback(ctx, this.assetStore, assetKey, (asset) => {
+          ctx.globalAlpha *= 0.74 + pulse * 0.16;
+          drawImageContained(
+            ctx,
+            asset,
+            position.x - drawSize / 2,
+            position.y - 18 * zoom - drawSize / 2,
+            drawSize,
+            drawSize,
+          );
+        }, () => {});
+      }
+    }
+  }
+
+  drawWorldPoiActor(ctx, site) {
+    const expedition = this.state.worldExpedition;
+    const selected = expedition?.targetPoiId === site.id;
+    const zoom = this.camera.zoom;
+    const position = this.cellCenter(site.x, site.y);
+    const pulse = 1 + Math.sin(this.time * 3.4 + site.x * 0.3) * 0.08;
+    const radius = (site.kind === 'boss' ? 28 : 22) * zoom * pulse;
+    const assetKeys = this.worldPoiAssetLayers(site).filter((key) => !key.includes('energy'));
+    let authoredDrawn = false;
+    for (const assetKey of assetKeys) {
+      const baseSize = site.cleared ? 78 : site.kind === 'boss' ? 112 : site.kind === 'landmark' ? 96 : 88;
+      const drawSize = baseSize * zoom;
+      authoredDrawn = drawAssetOrFallback(ctx, this.assetStore, assetKey, (asset) => {
+        ctx.globalAlpha *= selected ? 1 : site.cleared ? 0.82 : 0.94;
+        drawImageContained(
+          ctx,
+          asset,
+          position.x - drawSize / 2,
+          position.y - 18 * zoom - drawSize / 2,
+          drawSize,
+          drawSize,
+        );
+      }, () => {}) || authoredDrawn;
+    }
+    ctx.save();
+    if (!authoredDrawn) {
+      ctx.globalAlpha = selected ? 1 : 0.92;
+      ctx.fillStyle = site.cleared
+        ? 'rgba(97,214,162,0.82)'
+        : site.kind === 'boss'
+          ? 'rgba(239,137,105,0.92)'
+          : site.kind === 'nest'
+            ? 'rgba(137,117,221,0.90)'
+            : 'rgba(97,214,162,0.92)';
+      ctx.strokeStyle = '#FFF8E9';
+      ctx.lineWidth = Math.max(2, 3 * zoom);
+      ctx.beginPath();
+      ctx.arc(position.x, position.y - 18 * zoom, radius, 0, TAU);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#FFF8E9';
+      ctx.font = `900 ${Math.max(12, 17 * zoom)}px "PingFang SC", sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(site.cleared ? '站' : site.kind === 'boss' ? '王' : site.kind === 'nest' ? '巢' : '礼', position.x, position.y - 18 * zoom);
+    }
+    if (selected) {
+      ctx.strokeStyle = '#FFF0A8';
+      ctx.lineWidth = Math.max(2, 3 * zoom);
+      ctx.beginPath();
+      ctx.arc(position.x, position.y - 18 * zoom, radius + 6 * zoom, 0, TAU);
+      ctx.stroke();
+    }
+    if (selected || site.cleared || zoom >= 0.82) {
+      ctx.font = `800 ${Math.max(10, 12 * zoom)}px "PingFang SC", sans-serif`;
+      ctx.fillStyle = PALETTE.inkSoft;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(
+        site.cleared ? '已激活生态前哨' : site.name || (site.kind === 'nest' ? '怪物巢穴' : '资源地'),
+        position.x,
+        position.y + 22 * zoom,
+      );
+    }
+    ctx.restore();
+    const selectable = expedition?.status === 'choose-site'
+      && expedition.sites.some(({ id }) => id === site.id)
+      && !site.cleared;
+    if (selectable) {
+      this.addHit(
+        `world-site-${site.id}`,
+        position.x - radius,
+        position.y - 18 * zoom - radius,
+        radius * 2,
+        radius * 2,
+        () => this.selectWorldExpeditionSite(site.id),
+      );
+    }
+  }
+
+  drawWorldPoiMarkers(ctx, bounds) {
+    const sites = this.worldPoisForBounds(bounds);
+    this.drawWorldPoiBackEffects(ctx, sites);
+    sites.forEach((site) => this.drawWorldPoiActor(ctx, site));
   }
 
   drawRoutes(ctx) {
@@ -3512,7 +4747,7 @@ export class SlimeGame {
         this.state.buildings,
         start,
         null,
-        this.state.worldTerrain,
+        this.runtimeTerrain,
       );
       const crossesBuilding = path.some((cell) => BUILDING_BY_ID[buildingAt(this.state.buildings, cell.x, cell.y)?.cardId]?.solid);
       const alpha = (crossesBuilding ? 0.46 : 0.38) - routeIndex * 0.025;
@@ -3618,6 +4853,9 @@ export class SlimeGame {
 
   drawWorldActors(ctx) {
     const actors = [];
+    for (const site of this.visibleWorldPois || []) {
+      actors.push({ kind: 'poi', entity: site, depth: site.y + 0.72, rank: 1 });
+    }
     for (const building of this.state.buildings) {
       const card = BUILDING_BY_ID[building.cardId];
       const shape = rotatedFootprint(card, building.rotation);
@@ -3640,6 +4878,9 @@ export class SlimeGame {
     for (const enemy of this.state.enemies) {
       actors.push({ kind: 'enemy', entity: enemy, depth: enemy.y + 0.78, rank: 2 });
     }
+    for (const enemy of this.state.worldExpedition?.enemies || []) {
+      actors.push({ kind: 'enemy', entity: enemy, depth: enemy.y + 0.78, rank: 2 });
+    }
     actors.sort((left, right) => (
       left.depth - right.depth
       || left.rank - right.rank
@@ -3648,6 +4889,7 @@ export class SlimeGame {
     for (const actor of actors) {
       if (actor.kind === 'building') this.drawBuildings(ctx, [actor.entity]);
       else if (actor.kind === 'deployable') this.drawDeployables(ctx, [actor.entity]);
+      else if (actor.kind === 'poi') this.drawWorldPoiActor(ctx, actor.entity);
       else this.drawUnits(ctx, [actor]);
     }
   }
@@ -4715,7 +5957,7 @@ export class SlimeGame {
     if (selection.kind === 'place-building') {
       const card = BUILDING_BY_ID[selection.cardId];
       return Boolean(card)
-        && this.shapingUsed() + card.cost <= SHAPING_BUDGET
+        && this.shapingUsed() + card.cost <= this.shapingLimit()
         && canPlace(
           this.state.buildings,
           card,
@@ -4723,7 +5965,7 @@ export class SlimeGame {
           cell.y,
           selection.rotation,
           null,
-          this.state.worldTerrain,
+          this.runtimeTerrain,
         );
     }
     if (selection.kind === 'move-building') {
@@ -4737,14 +5979,19 @@ export class SlimeGame {
           cell.y,
           selection.rotation ?? building.rotation,
           building.uid,
-          this.state.worldTerrain,
+          this.runtimeTerrain,
         );
     }
     if (selection.kind === 'place-survivor' || selection.kind === 'move-survivor') {
       const survivor = selection.uid
         ? this.state.survivors.find((item) => item.uid === selection.uid)
         : this.state.survivors.find((item) => item.cardId === selection.cardId);
+      const terrainCell = this.worldCellAt(cell.x, cell.y);
+      const blockingBuilding = buildingAt(this.state.buildings, cell.x, cell.y);
       return Boolean(survivor)
+        && terrainCell?.discovered !== false
+        && terrainCellIsPassable(this.runtimeTerrain, cell.x, cell.y)
+        && !BUILDING_BY_ID[blockingBuilding?.cardId]?.solid
         && !this.state.survivors.some((item) => (
           item.uid !== survivor.uid && !item.downed && item.x === cell.x && item.y === cell.y
         ));
@@ -4818,7 +6065,7 @@ export class SlimeGame {
           cell.y,
           building.rotation,
           building.uid,
-          this.state.worldTerrain,
+          this.runtimeTerrain,
         );
     }
     return true;
@@ -4974,18 +6221,25 @@ export class SlimeGame {
     ctx.fillStyle = PALETTE.ink;
     ctx.font = '900 22px "PingFang SC", sans-serif';
     ctx.fillText(this.isExpeditionSession()
-      ? (this.state.phase === 'result' ? '远征结算' : '小队远征')
+      ? (this.state.worldExpedition ? '大世界探索' : this.state.phase === 'result' ? '远征结算' : '小队远征')
       : phaseText, 625, 45);
     ctx.font = '600 14px "PingFang SC", sans-serif';
     ctx.fillStyle = PALETTE.textMuted;
     const expeditionRun = this.state.expeditionRun;
-    const subtitle = expeditionRun
+    const worldExpedition = this.state.worldExpedition;
+    const worldExpeditionStatus = {
+      'choose-site': '请选择地图内的资源地或怪物巢穴',
+      travel: '探索队移动中 · 基地同步运转',
+      battle: '现场自动战斗 · 仍可建设基地',
+      return: '探索队正在返回 · 战利品已入库',
+    }[worldExpedition?.status];
+    const subtitle = worldExpeditionStatus || (expeditionRun
       ? expeditionRun.currentEncounter?.isFinalBoss || expeditionRun.route.isBossStage
         ? '最终节点 · 酸壳蜗王'
         : `路线 ${Math.min(expeditionRun.route.regularWins + 1, expeditionRun.route.regularSteps)} / ${expeditionRun.route.regularSteps} · 自动战斗`
       : this.state.phase === 'battle' || this.state.phase === 'between'
         ? `第 ${this.state.waveIndex + 1} / ${WAVES.length} 波 · ${WAVES[this.state.waveIndex].name}`
-        : '持续白昼 · 自动采集与自动防守';
+        : '持续白昼 · 自动采集与自动防守');
     ctx.fillText(subtitle, 625, 66);
 
     const colonyResources = this.state.colony?.resources || { gel: 0, nectar: 0, shard: 0 };
@@ -5047,7 +6301,7 @@ export class SlimeGame {
   drawBuildSide(ctx) {
     const card = this.selectedCard();
     const terrainCell = this.selection?.kind === 'inspect-terrain'
-      ? catalogTerrainAt(this.state.worldTerrain, this.selection.x, this.selection.y)
+      ? this.worldCellAt(this.selection.x, this.selection.y)
       : null;
     const terrainDefinition = terrainCell ? TERRAIN_TYPES[terrainCell.terrainId] : null;
     const terrainHelp = terrainDefinition ? TERRAIN_HELP[terrainDefinition.id] : null;
@@ -5207,14 +6461,14 @@ export class SlimeGame {
     } else {
       ctx.fillStyle = PALETTE.textMuted;
       ctx.font = '600 17px "PingFang SC", sans-serif';
-      wrapText(ctx, '史莱姆会自动采集、建造与守卫基地。准备好后，点右下角“三人远征”进入路线与变异玩法。', PANEL.x + 28, PANEL.y + 82, 330, 27, 5);
+      wrapText(ctx, '史莱姆会自动采集、建造与守卫基地。准备好后，点右下角“三人探索”，在同一张大地图寻找资源地和怪物巢穴。', PANEL.x + 28, PANEL.y + 82, 330, 27, 5);
 
       drawRoundedRect(ctx, PANEL.x + 26, PANEL.y + 222, 336, 96, {
         radius: 20, fill: '#EDF7E9', stroke: '#8DBA8A', lineWidth: 2,
       });
       ctx.fillStyle = '#3C745E';
       ctx.font = '800 17px "PingFang SC", sans-serif';
-      ctx.fillText('荒野地形规则', PANEL.x + 44, PANEL.y + 250);
+      ctx.fillText('生态地形规则', PANEL.x + 44, PANEL.y + 250);
       ctx.fillStyle = PALETTE.inkSoft;
       ctx.font = '600 14px "PingFang SC", sans-serif';
       ctx.fillText('胶洼 / 花丛 / 晶脉：采完变空地', PANEL.x + 44, PANEL.y + 276);
@@ -5223,13 +6477,14 @@ export class SlimeGame {
     ctx.restore();
 
     const used = this.shapingUsed();
+    const limit = this.shapingLimit();
     ctx.save();
     ctx.font = '800 15px "PingFang SC", sans-serif';
     ctx.fillStyle = PALETTE.textMuted;
-    ctx.fillText(`定形值 ${used} / ${SHAPING_BUDGET}`, PANEL.x + 28, PANEL.y + 370);
+    ctx.fillText(`定形值 ${used} / ${limit}（每座前哨 +4）`, PANEL.x + 28, PANEL.y + 370);
     drawRoundedRect(ctx, PANEL.x + 28, PANEL.y + 382, 330, 10, { radius: 5, fill: '#D8D8C9' });
-    drawRoundedRect(ctx, PANEL.x + 28, PANEL.y + 382, 330 * clamp(used / SHAPING_BUDGET, 0, 1), 10, {
-      radius: 5, fill: used >= SHAPING_BUDGET ? '#E3A83C' : '#61D6A2',
+    drawRoundedRect(ctx, PANEL.x + 28, PANEL.y + 382, 330 * clamp(used / limit, 0, 1), 10, {
+      radius: 5, fill: used >= limit ? '#E3A83C' : '#61D6A2',
     });
     ctx.restore();
 
@@ -5244,7 +6499,19 @@ export class SlimeGame {
           zoom: this.camera.zoom,
         });
       });
-      this.drawButton(ctx, 'open-expedition', { x: PANEL.x + 194, y: PANEL.y + 414, w: 168, h: 54 }, '三人远征', {}, () => this.openExpedition());
+      this.drawButton(
+        ctx,
+        'open-expedition',
+        { x: PANEL.x + 194, y: PANEL.y + 414, w: 168, h: 54 },
+        this.state.worldExpedition ? '召回小队' : '三人探索',
+        {
+          secondary: Boolean(this.state.worldExpedition),
+          enabled: true,
+        },
+        () => (this.state.worldExpedition
+          ? this.finishWorldExpeditionReturn()
+          : this.openExpedition()),
+      );
     }
   }
 
@@ -5689,10 +6956,10 @@ export class SlimeGame {
     ctx.textAlign = 'center';
     ctx.fillStyle = PALETTE.ink;
     ctx.font = '900 34px "PingFang SC", sans-serif';
-    ctx.fillText(page === 0 ? '欢迎来到史莱姆基地' : '经营基地，组队远征', VIEW.width / 2, rect.y + 66);
+    ctx.fillText(page === 0 ? '欢迎来到史莱姆基地' : '经营基地，探索大世界', VIEW.width / 2, rect.y + 66);
     ctx.fillStyle = PALETTE.textMuted;
     ctx.font = '600 18px "PingFang SC", sans-serif';
-    ctx.fillText(page === 0 ? '史莱姆会自己工作，你来决定基地发展和远征路线' : '三只史莱姆自动战斗，路线与战后变异由你选择', VIEW.width / 2, rect.y + 101);
+    ctx.fillText(page === 0 ? '史莱姆会自己工作，你来决定基地发展和探索方向' : '三只史莱姆在同一张地图行走、开雾并自动战斗', VIEW.width / 2, rect.y + 101);
     ctx.restore();
 
     if (page === 0) {
@@ -5728,13 +6995,13 @@ export class SlimeGame {
       ctx.fillStyle = PALETTE.inkSoft;
       ctx.font = '700 17px "PingFang SC", sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('基地和四只史莱姆已经准备好，进入后可以立刻派队远征。', VIEW.width / 2, rect.y + 356);
+      ctx.fillText('基地和四只史莱姆已经准备好，进入后可以立刻派队探索。', VIEW.width / 2, rect.y + 356);
       ctx.restore();
     } else {
       const tips = [
         ['经营', '史莱姆自动采集、搬运和建造'],
         ['组队', '从四只史莱姆中恰好选择三只'],
-        ['远征', '选路线、拿变异，最后挑战首领'],
+        ['探索', '点选真实地标，行走开雾并挑战Boss栖息地'],
       ];
       tips.forEach((tip, index) => {
         const x = rect.x + 44 + index * 196;
@@ -5762,7 +7029,7 @@ export class SlimeGame {
         this.state.tutorialSeen = true;
         this.modal = null;
         this.save();
-        this.showToast('右侧点“三人远征”，马上开始第一次冒险', 'good', 3.4);
+        this.showToast('右侧点“三人探索”，马上开始第一次大世界冒险', 'good', 3.4);
       }
     });
   }
@@ -5778,7 +7045,7 @@ export class SlimeGame {
     ctx.textAlign = 'center';
     ctx.fillStyle = PALETTE.ink;
     ctx.font = '900 30px "PingFang SC", sans-serif';
-    ctx.fillText('选择三只远征史莱姆', VIEW.width / 2, rect.y + 58);
+    ctx.fillText('选择三只探索史莱姆', VIEW.width / 2, rect.y + 58);
     ctx.fillStyle = PALETTE.textMuted;
     ctx.font = '600 16px "PingFang SC", sans-serif';
     ctx.fillText(`必须恰好三只 · 已选 ${selected.size} / ${EXPEDITION_PARTY_RULES.size}`, VIEW.width / 2, rect.y + 88);
@@ -5818,7 +7085,7 @@ export class SlimeGame {
       this.modal = null;
       this.state.paused = false;
     });
-    this.drawButton(ctx, 'expedition-squad-start', { x: rect.x + rect.w - 320, y: rect.y + 430, w: 282, h: 58 }, '出发远征', {
+    this.drawButton(ctx, 'expedition-squad-start', { x: rect.x + rect.w - 320, y: rect.y + 430, w: 282, h: 58 }, '进入大世界', {
       enabled: selected.size === EXPEDITION_PARTY_RULES.size,
     }, () => this.startExpedition(this.modal?.selectedIds));
   }
@@ -6180,10 +7447,17 @@ export class SlimeGame {
 
   handleBuildCellTap(cell) {
     const selection = this.selection;
+    const worldSite = this.state.worldExpedition?.status === 'choose-site'
+      ? this.state.worldExpedition.sites?.find((site) => site.x === cell.x && site.y === cell.y)
+      : null;
+    if (worldSite && (!selection || selection.kind.startsWith('inspect-'))) {
+      this.selectWorldExpeditionSite(worldSite.id);
+      return;
+    }
     if (selection?.kind === 'place-building') {
       const card = BUILDING_BY_ID[selection.cardId];
       const rotation = canonicalBuildingRotation(selection.rotation, card);
-      if (this.shapingUsed() + card.cost > SHAPING_BUDGET) {
+      if (this.shapingUsed() + card.cost > this.shapingLimit()) {
         this.showToast(`定形值不足，还需要 ${card.cost} 点`, 'danger');
         this.audio.play('warning');
         return;
@@ -6195,12 +7469,14 @@ export class SlimeGame {
         cell.y,
         rotation,
         null,
-        this.state.worldTerrain,
+        this.runtimeTerrain,
       )) {
         this.showToast('这里放不下，换个位置试试', 'danger');
         return;
       }
       const shape = rotatedFootprint(card, rotation);
+      const occupiedCells = footprintCells(card, cell.x, cell.y, rotation);
+      this.ensureColonyBounds(occupiedCells);
       const recipe = BUILDING_RECIPE_BY_ID[card.id];
       let blueprint = null;
       if (recipe && this.state.colony) {
@@ -6256,7 +7532,7 @@ export class SlimeGame {
         cell.y,
         rotation,
         building.uid,
-        this.state.worldTerrain,
+        this.runtimeTerrain,
       )) {
         this.showToast('这个位置会和其他建筑重叠', 'danger');
         return;
@@ -6264,6 +7540,7 @@ export class SlimeGame {
       building.x = cell.x;
       building.y = cell.y;
       building.rotation = rotation;
+      this.ensureColonyBounds(footprintCells(card, cell.x, cell.y, rotation));
       building.placedAt = this.time;
       const shape = rotatedFootprint(card, rotation);
       const position = worldToScreen({
@@ -6286,9 +7563,24 @@ export class SlimeGame {
         ? this.state.survivors.find((item) => item.uid === selection.uid)
         : this.state.survivors.find((item) => item.cardId === selection.cardId);
       if (!survivor) return;
+      const terrainCell = this.worldCellAt(cell.x, cell.y);
+      const blockingBuilding = buildingAt(this.state.buildings, cell.x, cell.y);
+      if (terrainCell?.discovered === false
+        || !terrainCellIsPassable(this.runtimeTerrain, cell.x, cell.y)
+        || BUILDING_BY_ID[blockingBuilding?.cardId]?.solid) {
+        this.showToast('史莱姆只能驻守在已探索的可通行地面', 'danger');
+        return;
+      }
       if (this.state.survivors.some((item) => item.uid !== survivor.uid && item.x === cell.x && item.y === cell.y)) {
         this.showToast('一个格子只能驻守一名幸存者', 'danger');
         return;
+      }
+      this.ensureColonyBounds([{ x: cell.x, y: cell.y }]);
+      const colonySlime = this.state.colony?.slimes.find((item) => item.uid === survivor.uid);
+      if (colonySlime) {
+        cancelColonySlimeWork(this.state.colony, colonySlime);
+        colonySlime.x = cell.x;
+        colonySlime.y = cell.y;
       }
       survivor.x = cell.x;
       survivor.y = cell.y;
@@ -6315,7 +7607,12 @@ export class SlimeGame {
       this.selection = { kind: 'inspect-building', uid: building.uid };
       return;
     }
-    const terrainCell = catalogTerrainAt(this.state.worldTerrain, cell.x, cell.y);
+    const terrainCell = this.worldCellAt(cell.x, cell.y);
+    if (terrainCell?.discovered === false) {
+      this.selection = null;
+      this.showToast('这里尚未探索，派史莱姆靠近后会逐步发现', 'normal');
+      return;
+    }
     if (terrainCell?.terrainId !== 'ground') {
       this.selection = {
         kind: 'inspect-terrain',

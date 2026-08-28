@@ -22,6 +22,7 @@ export const DEFAULT_COLONY_CONFIG = Object.freeze({
   buildRate: 1,
   obstacleDamagePerSecond: 1,
   defaultHarvestSeconds: 2.5,
+  depotDefenseRadius: 9,
   priorities: Object.freeze({ defense: 3, build: 2, gather: 1, clear: 1 }),
 });
 
@@ -95,6 +96,7 @@ function nextUid(state, prefix) {
 
 export function createColonySlime(spec = {}) {
   if (!isFinitePoint(spec)) throw new TypeError('slime requires finite x/y');
+  const hp = Number.isFinite(Number(spec.hp)) ? Math.max(0, Number(spec.hp)) : 100;
   return {
     uid: spec.uid || null,
     cardId: spec.cardId || 'slime',
@@ -105,8 +107,8 @@ export function createColonySlime(spec = {}) {
     carryCapacity: Math.max(1, Math.floor(Number(spec.carryCapacity) || 1)),
     gatherMultiplier: Math.max(0.05, Number(spec.gatherMultiplier) || 1),
     buildMultiplier: Math.max(0.05, Number(spec.buildMultiplier) || 1),
-    hp: Math.max(0, Number(spec.hp) || 100),
-    maxHp: Math.max(1, Number(spec.maxHp) || Number(spec.hp) || 100),
+    hp,
+    maxHp: Math.max(1, Number(spec.maxHp) || hp || 100),
     attackDamage: Math.max(0, Number(spec.attackDamage) || 10),
     attackRange: Math.max(0.1, Number(spec.attackRange) || 1.15),
     attackInterval: Math.max(0.05, Number(spec.attackInterval) || 1),
@@ -139,8 +141,11 @@ export function createColonyState(options = {}) {
     slimes: [],
     threats: [],
     jobs: [],
+    jobSnapshot: null,
+    jobTargetIndex: null,
     rallyPoint: isFinitePoint(options.rallyPoint) ? { ...options.rallyPoint } : { x: bounds.x, y: bounds.y },
     basePosition: isFinitePoint(options.basePosition) ? { ...options.basePosition } : { x: bounds.x, y: bounds.y },
+    depots: [],
     workPriorities: { ...mergedConfig(options.config).priorities, ...(options.workPriorities || {}) },
     threat: {
       elapsed: 0,
@@ -149,6 +154,7 @@ export function createColonyState(options = {}) {
       warned: [],
     },
     terrainQuery: typeof options.terrainQuery === 'function' ? options.terrainQuery : null,
+    jobCellProvider: typeof options.jobCellProvider === 'function' ? options.jobCellProvider : null,
     onTerrainChange: typeof options.onTerrainChange === 'function' ? options.onTerrainChange : null,
     findPath: typeof options.findPath === 'function' ? options.findPath : null,
     terrainOverrides: new Map(),
@@ -157,6 +163,16 @@ export function createColonyState(options = {}) {
   };
   if (!isInsideColonyWorld(state, Math.round(state.basePosition.x), Math.round(state.basePosition.y))) {
     throw new RangeError('basePosition must be inside world bounds');
+  }
+  const depotCandidates = [state.basePosition, ...(options.depots || [])];
+  const seenDepots = new Set();
+  for (const depot of depotCandidates) {
+    if (!isFinitePoint(depot)) continue;
+    const normalized = { x: Math.round(depot.x), y: Math.round(depot.y) };
+    const key = cellKey(normalized.x, normalized.y);
+    if (seenDepots.has(key) || !isInsideColonyWorld(state, normalized.x, normalized.y)) continue;
+    seenDepots.add(key);
+    state.depots.push(normalized);
   }
   for (const slime of options.slimes || []) addColonySlime(state, slime);
   for (const node of options.resourceNodes || []) addResourceNode(state, node);
@@ -357,37 +373,119 @@ function releaseReservation(state, slime) {
   if (target?.reservedBy === slime.uid) target.reservedBy = null;
 }
 
+/**
+ * Cancel a slime's current autonomous work without leaking reservations or
+ * carried materials. Used when a resident is manually relocated or joins an
+ * exploration squad outside the colony scheduler.
+ */
+export function cancelColonySlimeWork(state, slime, { returnCarrying = true } = {}) {
+  if (!state || !slime || !state.slimes.includes(slime)) return false;
+  releaseReservation(state, slime);
+  if (returnCarrying && slime.carrying && RESOURCE_TYPES.includes(slime.carrying.resourceType)) {
+    state.resources[slime.carrying.resourceType] += Math.max(
+      0,
+      Number(slime.carrying.amount) || 0,
+    );
+  }
+  slime.job = null;
+  slime.path = [];
+  slime.carrying = null;
+  slime.workRemaining = 0;
+  slime.destination = null;
+  if (slime.aiState !== 'downed') slime.aiState = 'idle';
+  return true;
+}
+
 export function rebuildColonyJobs(state) {
   const jobs = [];
+  state.jobTargetIndex = {
+    resources: new Map(state.resourceNodes.map((node) => [node.uid, node])),
+    blueprints: new Map(state.blueprints.map((blueprint) => [blueprint.uid, blueprint])),
+  };
   for (const node of state.resourceNodes) {
-    if (node.amount > 0) jobs.push({ uid: `gather:${node.uid}`, type: 'gather', targetUid: node.uid, priority: state.workPriorities.gather, reservedBy: node.reservedBy });
+    if (node.amount > 0) jobs.push({ uid: `gather:${node.uid}`, type: 'gather', targetUid: node.uid, x: node.x, y: node.y, priority: state.workPriorities.gather, reservedBy: node.reservedBy });
   }
   for (const blueprint of state.blueprints) {
     if (blueprint.complete || blueprint.cancelled) continue;
     if (blueprintReady(blueprint)) {
-      jobs.push({ uid: `build:${blueprint.uid}`, type: 'build', targetUid: blueprint.uid, priority: state.workPriorities.build, reservedBy: blueprint.reservedBy });
+      jobs.push({ uid: `build:${blueprint.uid}`, type: 'build', targetUid: blueprint.uid, x: blueprint.x, y: blueprint.y, priority: state.workPriorities.build, reservedBy: blueprint.reservedBy });
     } else {
       for (const type of RESOURCE_TYPES) {
         const missing = blueprint.required[type] - blueprint.delivered[type];
-        if (missing > 0 && state.resources[type] > 0) jobs.push({ uid: `deliver:${blueprint.uid}:${type}`, type: 'deliver', targetUid: blueprint.uid, resourceType: type, priority: state.workPriorities.build, reservedBy: blueprint.reservedBy });
+        if (missing > 0 && state.resources[type] > 0) jobs.push({ uid: `deliver:${blueprint.uid}:${type}`, type: 'deliver', targetUid: blueprint.uid, x: blueprint.x, y: blueprint.y, resourceType: type, priority: state.workPriorities.build, reservedBy: blueprint.reservedBy });
       }
     }
   }
-  for (let y = state.bounds.y; y < state.bounds.y + state.bounds.height; y += 1) {
-    for (let x = state.bounds.x; x < state.bounds.x + state.bounds.width; x += 1) {
-      const terrain = terrainAt(state, x, y);
-      if (terrain.destructible) jobs.push({
-        uid: `clear:${x}:${y}`,
-        type: 'clear',
-        x,
-        y,
-        priority: state.workPriorities.clear,
-        reservedBy: state.terrainReservations.get(cellKey(x, y)) || null,
-      });
+  const providedCells = state.jobCellProvider?.(state);
+  const workCells = providedCells && typeof providedCells[Symbol.iterator] === 'function'
+    ? [...providedCells]
+    : null;
+  const visitTerrainCell = (x, y) => {
+    if (!isInsideColonyWorld(state, x, y)) return;
+    const terrain = terrainAt(state, x, y);
+    if (terrain.destructible) jobs.push({
+      uid: `clear:${x}:${y}`,
+      type: 'clear',
+      x,
+      y,
+      priority: state.workPriorities.clear,
+      reservedBy: state.terrainReservations.get(cellKey(x, y)) || null,
+    });
+  };
+  if (workCells) {
+    const visited = new Set();
+    for (const cell of workCells) {
+      const x = Math.floor(Number(cell?.x));
+      const y = Math.floor(Number(cell?.y));
+      const key = cellKey(x, y);
+      if (!Number.isFinite(x) || !Number.isFinite(y) || visited.has(key)) continue;
+      visited.add(key);
+      visitTerrainCell(x, y);
+    }
+  } else {
+    for (let y = state.bounds.y; y < state.bounds.y + state.bounds.height; y += 1) {
+      for (let x = state.bounds.x; x < state.bounds.x + state.bounds.width; x += 1) {
+        visitTerrainCell(x, y);
+      }
     }
   }
   state.jobs = jobs;
   return jobs;
+}
+
+function sharedColonyJobs(state) {
+  if (!state.jobSnapshot) state.jobSnapshot = rebuildColonyJobs(state);
+  return state.jobSnapshot;
+}
+
+function jobTarget(state, job) {
+  if (job.type === 'gather') {
+    return state.jobTargetIndex?.resources.get(job.targetUid)
+      || state.resourceNodes.find((entry) => entry.uid === job.targetUid)
+      || null;
+  }
+  if (job.type === 'build' || job.type === 'deliver') {
+    return state.jobTargetIndex?.blueprints.get(job.targetUid)
+      || state.blueprints.find((entry) => entry.uid === job.targetUid)
+      || null;
+  }
+  return null;
+}
+
+function currentJobReservation(state, job) {
+  if (job.type === 'clear') return state.terrainReservations.get(cellKey(job.x, job.y)) || null;
+  return jobTarget(state, job)?.reservedBy || null;
+}
+
+function jobIsCurrent(state, job) {
+  if (job.type === 'clear') return terrainAt(state, job.x, job.y).destructible;
+  const target = jobTarget(state, job);
+  if (!target) return false;
+  if (job.type === 'gather') return target.amount > 0;
+  if (target.complete || target.cancelled) return false;
+  if (job.type === 'build') return blueprintReady(target);
+  return target.required[job.resourceType] - target.delivered[job.resourceType] > 0
+    && state.resources[job.resourceType] > 0;
 }
 
 function assignPath(state, slime, destination, options = {}) {
@@ -398,13 +496,54 @@ function assignPath(state, slime, destination, options = {}) {
   return true;
 }
 
+function depotCandidates(state, point) {
+  const depots = state.depots?.length ? state.depots : [state.basePosition];
+  return [...depots]
+    .filter((depot) => isFinitePoint(depot)
+      && isInsideColonyWorld(state, Math.round(depot.x), Math.round(depot.y)))
+    .sort((left, right) => distance(point, left) - distance(point, right));
+}
+
+function assignPathToNearestDepot(state, slime, point = slime) {
+  for (const depot of depotCandidates(state, point)) {
+    if (assignPath(state, slime, depot)) return depot;
+  }
+  return null;
+}
+
+function relaySlimeToDepotForWork(state, slime, workPoint, preferredDepot = null) {
+  const currentDepot = depotCandidates(state, slime)[0];
+  const targetDepot = preferredDepot || depotCandidates(state, workPoint)[0];
+  if (!currentDepot || !targetDepot) return false;
+  if (distance(slime, currentDepot) > 2.25 || distance(workPoint, targetDepot) > 12) return false;
+  if (distance(currentDepot, targetDepot) < 0.1) return false;
+  slime.x = targetDepot.x;
+  slime.y = targetDepot.y;
+  slime.path = [];
+  slime.destination = { ...targetDepot };
+  return true;
+}
+
+function relevantThreats(state, slime) {
+  const threats = livingThreats(state);
+  if (!threats.length) return threats;
+  const depot = depotCandidates(state, slime)[0] || state.basePosition;
+  return threats.filter((threat) => (
+    distance(slime, threat) <= slime.aggroRange
+    || (state.threat.intensity >= state.config.combatThreatIntensity
+      && distance(depot, threat) <= state.config.depotDefenseRadius)
+  ));
+}
+
 function chooseJob(state, slime) {
-  const nearestThreat = livingThreats(state).sort((a, b) => distance(slime, a) - distance(slime, b))[0];
+  const activeThreats = livingThreats(state);
+  const localThreats = relevantThreats(state, slime);
+  const nearestThreat = localThreats.sort((a, b) => distance(slime, a) - distance(slime, b))[0];
   if (slime.hp / slime.maxHp < state.config.restHealthRatio) {
     releaseReservation(state, slime);
     slime.job = { type: 'rest' };
     slime.aiState = 'move';
-    assignPath(state, slime, state.basePosition);
+    assignPathToNearestDepot(state, slime);
     return;
   }
   if (nearestThreat && (state.threat.intensity >= state.config.combatThreatIntensity || distance(slime, nearestThreat) <= slime.aggroRange)) {
@@ -414,7 +553,8 @@ function chooseJob(state, slime) {
     if (slime.aiState === 'chase') assignPath(state, slime, nearestThreat);
     return;
   }
-  if (state.threat.intensity >= state.config.rallyThreatIntensity) {
+  if (state.threat.intensity >= state.config.rallyThreatIntensity
+    && (!activeThreats.length || localThreats.length)) {
     releaseReservation(state, slime);
     slime.job = { type: 'rally' };
     if (distance(slime, state.rallyPoint) <= 0.1) slime.aiState = 'rally';
@@ -424,44 +564,74 @@ function chooseJob(state, slime) {
     }
     return;
   }
-  const jobs = rebuildColonyJobs(state)
-    .filter((job) => !job.reservedBy || job.reservedBy === slime.uid)
+  const jobs = sharedColonyJobs(state)
+    .filter((job) => {
+      const reservedBy = currentJobReservation(state, job);
+      return !reservedBy || reservedBy === slime.uid;
+    })
     .sort((a, b) => b.priority - a.priority || distance(slime, jobPosition(state, a)) - distance(slime, jobPosition(state, b)));
-  const job = jobs[0];
-  if (!job) {
-    slime.job = null;
-    slime.aiState = 'idle';
+  for (const job of jobs) {
+    if (!jobIsCurrent(state, job)) continue;
+    const target = jobTarget(state, job);
+    let selectedDepot = null;
+    if (job.type === 'deliver') {
+      const blueprint = target;
+      if (!blueprint) continue;
+      for (const depot of depotCandidates(state, blueprint)) {
+        const deliveryPath = findColonyPath(state, depot, blueprint);
+        if (!deliveryPath.length && distance(depot, blueprint) > 0.1) continue;
+        relaySlimeToDepotForWork(state, slime, blueprint, depot);
+        if (!assignPath(state, slime, depot)) continue;
+        selectedDepot = depot;
+        break;
+      }
+      if (!selectedDepot) continue;
+    }
+    const destinations = job.type === 'deliver'
+      ? []
+      : job.type === 'clear'
+        ? clearApproachPositions(state, slime, job)
+        : [jobPosition(state, job)];
+    if (job.type !== 'deliver') {
+      relaySlimeToDepotForWork(state, slime, jobPosition(state, job));
+      if (job.type === 'clear') destinations.splice(
+        0,
+        destinations.length,
+        ...clearApproachPositions(state, slime, job),
+      );
+    }
+    const reachable = selectedDepot || destinations.some((destination) => (
+      destination && assignPath(state, slime, destination)
+    ));
+    if (!reachable) continue;
+
+    slime.job = {
+      ...job,
+      ...(selectedDepot ? { depot: { x: selectedDepot.x, y: selectedDepot.y } } : {}),
+    };
+    slime.jobLockUntil = state.time + state.config.jobLockSeconds;
+    if (target) target.reservedBy = slime.uid;
+    if (job.type === 'clear') state.terrainReservations.set(cellKey(job.x, job.y), slime.uid);
+    slime.aiState = 'move';
     return;
   }
-  slime.job = { ...job };
-  slime.jobLockUntil = state.time + state.config.jobLockSeconds;
-  const target = [...state.resourceNodes, ...state.blueprints].find((entry) => entry.uid === job.targetUid);
-  if (target) target.reservedBy = slime.uid;
-  if (job.type === 'clear') state.terrainReservations.set(cellKey(job.x, job.y), slime.uid);
-  slime.aiState = 'move';
-  const destination = job.type === 'deliver'
-    ? state.basePosition
-    : job.type === 'clear'
-      ? clearApproachPosition(state, slime, job)
-      : jobPosition(state, job);
-  if (!destination || !assignPath(state, slime, destination)) {
-    releaseReservation(state, slime);
-    slime.job = null;
-    slime.aiState = 'idle';
-  }
+  slime.job = null;
+  slime.path = [];
+  slime.aiState = 'idle';
 }
 
-function clearApproachPosition(state, slime, job) {
+function clearApproachPositions(state, slime, job) {
   return [[1, 0], [-1, 0], [0, 1], [0, -1]]
     .map(([dx, dy]) => ({ x: job.x + dx, y: job.y + dy }))
     .filter(({ x, y }) => isInsideColonyWorld(state, x, y) && terrainAt(state, x, y).passable)
-    .sort((a, b) => distance(slime, a) - distance(slime, b))[0] || null;
+    .sort((a, b) => distance(slime, a) - distance(slime, b));
 }
 
 function jobPosition(state, job) {
-  if (job.type === 'clear') return { x: job.x, y: job.y };
-  return [...state.resourceNodes, ...state.blueprints, ...state.threats]
-    .find((entry) => entry.uid === job.targetUid) || state.basePosition;
+  if (Number.isFinite(job.x) && Number.isFinite(job.y)) return job;
+  return jobTarget(state, job)
+    || state.threats.find((entry) => entry.uid === job.targetUid)
+    || state.basePosition;
 }
 
 function moveSlime(slime, dt) {
@@ -530,8 +700,9 @@ function updateSlime(state, slime, dt, events) {
     if (slime.downedElapsed >= state.config.respawnSeconds && state.resources.nectar >= state.config.respawnNectarCost) {
       state.resources.nectar -= state.config.respawnNectarCost;
       slime.hp = slime.maxHp * 0.4;
-      slime.x = state.basePosition.x;
-      slime.y = state.basePosition.y;
+      const depot = depotCandidates(state, slime)[0] || state.basePosition;
+      slime.x = depot.x;
+      slime.y = depot.y;
       slime.aiState = 'rest';
       events.push({ type: 'slime-respawned', slimeUid: slime.uid });
     }
@@ -541,11 +712,11 @@ function updateSlime(state, slime, dt, events) {
   slime.thinkTimer -= dt;
   if (slime.thinkTimer <= 0) {
     slime.thinkTimer += state.config.thinkInterval;
-    const combatOpportunity = livingThreats(state).some((threat) => distance(slime, threat) <= slime.aggroRange)
-      || (livingThreats(state).length > 0 && state.threat.intensity >= state.config.combatThreatIntensity);
+    const activeThreats = livingThreats(state);
+    const combatOpportunity = relevantThreats(state, slime).length > 0;
     const urgent = slime.hp / slime.maxHp < state.config.restHealthRatio
       || combatOpportunity
-      || state.threat.intensity >= state.config.rallyThreatIntensity;
+      || (state.threat.intensity >= state.config.rallyThreatIntensity && !activeThreats.length);
     const invalid = !slime.job
       || (slime.job.type === 'combat' && !livingThreats(state).some((threat) => threat.uid === slime.job.targetUid));
     const mayInterrupt = state.time >= slime.jobLockUntil && urgent;
@@ -573,9 +744,20 @@ function updateSlime(state, slime, dt, events) {
     slime.workRemaining -= dt;
     if (slime.workRemaining > 0) return;
     if (slime.job.type === 'clear') {
+      const clearYield = terrainAt(state, slime.job.x, slime.job.y).yield;
       setTerrainAt(state, slime.job.x, slime.job.y, { kind: 'ground' });
       state.terrainReservations.delete(cellKey(slime.job.x, slime.job.y));
       events.push({ type: 'terrain-cleared', x: slime.job.x, y: slime.job.y, slimeUid: slime.uid });
+      if (RESOURCE_TYPES.includes(clearYield?.resourceType) && Number(clearYield.amount) > 0) {
+        slime.carrying = {
+          resourceType: clearYield.resourceType,
+          amount: Math.max(1, Math.floor(clearYield.amount)),
+          destination: 'base',
+        };
+        slime.aiState = 'carry';
+        assignPathToNearestDepot(state, slime, slime);
+        return;
+      }
       slime.job = null;
       slime.aiState = 'idle';
       return;
@@ -595,7 +777,7 @@ function updateSlime(state, slime, dt, events) {
       events.push({ type: 'resource-depleted', nodeUid: node.uid, x: node.x, y: node.y });
     }
     slime.aiState = 'carry';
-    assignPath(state, slime, state.basePosition);
+    assignPathToNearestDepot(state, slime, node);
   } else if (slime.aiState === 'deposit') {
     if (slime.carrying?.destination === 'blueprint') {
       const blueprint = state.blueprints.find((entry) => entry.uid === slime.job.targetUid);
@@ -603,7 +785,13 @@ function updateSlime(state, slime, dt, events) {
       events.push({ type: 'material-delivered', blueprintUid: blueprint.uid, ...slime.carrying });
     } else if (slime.carrying) {
       state.resources[slime.carrying.resourceType] += slime.carrying.amount;
-      events.push({ type: 'resource-deposited', slimeUid: slime.uid, ...slime.carrying });
+      events.push({
+        type: 'resource-deposited',
+        slimeUid: slime.uid,
+        x: slime.x,
+        y: slime.y,
+        ...slime.carrying,
+      });
     }
     slime.carrying = null;
     releaseReservation(state, slime);
@@ -668,6 +856,10 @@ export function updateColony(state, dt) {
   if (!Number.isFinite(dt) || dt < 0) throw new TypeError('dt must be a non-negative finite number');
   const events = [];
   if (dt === 0) return events;
+  // Slimes whose think timers expire in the same simulation update all choose
+  // from one terrain/job snapshot. Reservations remain live and are checked
+  // per slime, so sharing the expensive scan cannot double-assign work.
+  state.jobSnapshot = null;
   state.time += dt;
   updateThreatClock(state, dt, events);
   for (const slime of state.slimes) updateSlime(state, slime, dt, events);

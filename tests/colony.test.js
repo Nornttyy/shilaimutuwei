@@ -10,6 +10,7 @@ import {
   addColonyThreat,
   addResourceNode,
   canPlaceBlueprint,
+  cancelColonySlimeWork,
   createColonyState,
   downColonySlime,
   findColonyPath,
@@ -235,4 +236,92 @@ test('invalid dt values and blocked rally points are rejected safely', () => {
   assert.equal(setColonyRallyPoint(state, { x: 23, y: 15 }), true);
   assert.throws(() => updateColony(state, -1), /dt/);
   assert.throws(() => updateColony(state, Number.NaN), /dt/);
+});
+
+test('cancelling autonomous work releases every reservation and conserves carried resources', () => {
+  const state = createColonyState({
+    bounds: { width: 12, height: 8 },
+    basePosition: { x: 1, y: 1 },
+    resources: { gel: 2 },
+  });
+  const slime = addColonySlime(state, { uid: 'worker', x: 1, y: 1 });
+  const node = addResourceNode(state, { uid: 'node', x: 3, y: 1, resourceType: 'gel', amount: 3 });
+  node.reservedBy = slime.uid;
+  slime.job = { type: 'gather', targetUid: node.uid };
+  slime.path = [{ x: 2, y: 1 }];
+  slime.carrying = { resourceType: 'gel', amount: 3, destination: 'base' };
+
+  assert.equal(cancelColonySlimeWork(state, slime), true);
+  assert.equal(node.reservedBy, null);
+  assert.equal(state.resources.gel, 5);
+  assert.equal(slime.job, null);
+  assert.deepEqual(slime.path, []);
+  assert.equal(slime.carrying, null);
+
+  slime.job = { type: 'clear', x: 5, y: 3 };
+  slime.carrying = { resourceType: 'gel', amount: 2, destination: 'blueprint' };
+  state.terrainReservations.set('5,3', slime.uid);
+  assert.equal(cancelColonySlimeWork(state, slime, { returnCarrying: false }), true);
+  assert.equal(state.terrainReservations.has('5,3'), false);
+  assert.equal(state.resources.gel, 5);
+});
+
+test('an unreachable near job does not starve a farther reachable resource', () => {
+  const state = createColonyState({
+    bounds: { width: 12, height: 6 },
+    basePosition: { x: 0, y: 1 },
+    findPath({ from, to }) {
+      if (to.x === 2 && to.y === 1) return [];
+      const path = [];
+      let x = Math.round(from.x);
+      let y = Math.round(from.y);
+      while (x !== Math.round(to.x)) {
+        x += Math.sign(to.x - x);
+        path.push({ x, y });
+      }
+      while (y !== Math.round(to.y)) {
+        y += Math.sign(to.y - y);
+        path.push({ x, y });
+      }
+      return path;
+    },
+  });
+  const slime = addColonySlime(state, { uid: 'worker', x: 0, y: 1 });
+  addResourceNode(state, { uid: 'blocked-near', x: 2, y: 1, resourceType: 'gel', amount: 2 });
+  addResourceNode(state, { uid: 'reachable-far', x: 6, y: 1, resourceType: 'gel', amount: 2 });
+
+  updateColony(state, 0.25);
+  assert.equal(slime.job?.targetUid, 'reachable-far');
+});
+
+test('remote workers use the nearest activated depot for gathering and delivery', () => {
+  const state = createColonyState({
+    bounds: { width: 120, height: 8 },
+    basePosition: { x: 1, y: 1 },
+    depots: [{ x: 90, y: 1 }],
+    config: { passiveThreatPerSecond: 0 },
+  });
+  const slime = addColonySlime(state, { x: 1, y: 1, speed: 12, carryCapacity: 6 });
+  addResourceNode(state, { x: 96, y: 1, resourceType: 'shard', amount: 3, harvestSeconds: 0.1 });
+
+  advance(state, 3);
+  assert.equal(state.resources.shard, 3);
+  assert.ok(slime.x > 80, 'activated relays should transfer a worker instead of requiring a 90-cell walk');
+});
+
+test('a remote depot worker ignores ordinary threats around the original core', () => {
+  const state = createColonyState({
+    bounds: { width: 120, height: 8 },
+    basePosition: { x: 1, y: 1 },
+    depots: [{ x: 90, y: 1 }],
+    config: { passiveThreatPerSecond: 0 },
+  });
+  const worker = addColonySlime(state, { x: 90, y: 1, speed: 8, aggroRange: 3 });
+  addResourceNode(state, { x: 94, y: 1, resourceType: 'gel', amount: 2, harvestSeconds: 0.1 });
+  setColonyThreats(state, [{ uid: 'core-bug', x: 2, y: 1, hp: 50 }]);
+  setColonyThreatIntensity(state, 0.68);
+
+  updateColony(state, 0.25);
+  assert.equal(worker.job?.type, 'gather');
+  assert.equal(worker.job?.targetUid?.startsWith('node-'), true);
 });

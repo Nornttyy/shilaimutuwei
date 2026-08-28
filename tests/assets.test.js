@@ -17,6 +17,7 @@ import {
   ASSET_PRELOAD_CONCURRENCY,
   ASSET_PRELOAD_RETRIES,
   CRITICAL_STARTUP_ASSET_KEYS,
+  INFINITE_WORLD_ASSET_KEYS,
   createAssetStore,
 } from '../src/assets.js';
 
@@ -26,12 +27,12 @@ const PROJECT_ASSET_SPEC = JSON.parse(await readFile(
   'utf8',
 ));
 
-test('the workspace asset manifest strictly validates all 105 finished PNGs', async () => {
+test('the workspace asset manifest strictly validates all 117 finished PNGs', async () => {
   const result = await verifyAssets({ cwd: PROJECT_ROOT, allowMissingSpec: false });
   assert.equal(result.ok, true, formatErrors(result));
   assert.equal(result.skipped, false);
-  assert.equal(result.summary.declaredAssets, 105);
-  assert.equal(result.summary.checkedAssets, 105);
+  assert.equal(result.summary.declaredAssets, 117);
+  assert.equal(result.summary.checkedAssets, 117);
   assert.deepEqual(result.errors, [], formatErrors(result));
   assert.deepEqual(result.warnings, [], formatErrors(result));
 });
@@ -185,8 +186,8 @@ test('missing asset-spec is skippable by default and an error in strict mode', a
   }, { writeAssetsDirectory: false });
 });
 
-test('runtime asset map covers all 105 canonical nested paths and three aliases', () => {
-  assert.equal(PROJECT_ASSET_SPEC.assets.length, 105);
+test('runtime asset map covers all 117 canonical nested paths and three aliases', () => {
+  assert.equal(PROJECT_ASSET_SPEC.assets.length, 117);
   for (const asset of PROJECT_ASSET_SPEC.assets) {
     assert.equal(typeof ASSET_PATHS[asset.id], 'string', `missing runtime asset: ${asset.id}`);
     assert.ok(
@@ -194,10 +195,62 @@ test('runtime asset map covers all 105 canonical nested paths and three aliases'
       `unexpected runtime path for ${asset.id}: ${ASSET_PATHS[asset.id]}`,
     );
   }
-  assert.equal(Object.keys(ASSET_PATHS).length, 108);
+  assert.equal(Object.keys(ASSET_PATHS).length, 120);
   assert.equal(ASSET_PATHS['scene-gel-garden'], ASSET_PATHS['background-garden-base']);
   assert.equal(ASSET_PATHS['town-core'], ASSET_PATHS['town-soft-core']);
   assert.equal(ASSET_PATHS['enemy-portal'], ASSET_PATHS['rift-entry-portal']);
+});
+
+test('infinite-world region, nest, and landmark art has a bright streamed contract', () => {
+  const expectedIds = [
+    'region-gel-meadow-field-a',
+    'region-dew-grove-field-a',
+    'region-crystal-bloom-field-a',
+    'region-bubble-heath-field-a',
+    'region-shell-canyon-field-a',
+    'nest-soft-rift-energy-a',
+    'nest-soft-rift-frame-a',
+    'landmark-soft-relay-a',
+    'landmark-giant-crystal-bloom-a',
+    'landmark-dew-canopy-a',
+    'landmark-bubble-arch-a',
+    'landmark-boss-shell-grotto-a',
+  ];
+  assert.deepEqual(INFINITE_WORLD_ASSET_KEYS, expectedIds);
+  assert.equal(expectedIds.some((id) => CRITICAL_STARTUP_ASSET_KEYS.includes(id)), false,
+    'large distant-region art streams after the first screen');
+
+  const assets = PROJECT_ASSET_SPEC.assets.filter(({ id }) => expectedIds.includes(id));
+  assert.deepEqual(assets.map(({ id }) => id), [
+    ...expectedIds.slice(0, 5),
+    'nest-soft-rift-frame-a',
+    'nest-soft-rift-energy-a',
+    ...expectedIds.slice(7),
+  ]);
+  assert.equal(new Set(assets.map(({ path }) => path)).size, expectedIds.length);
+  for (const asset of assets) {
+    assert.equal(asset.transparent, true);
+    assert.equal(asset.width, asset.recommendedCanvas.width);
+    assert.equal(asset.height, asset.recommendedCanvas.height);
+    assert.equal(asset.filename, `${asset.id}.png`);
+    assert.equal(asset.path, `assets/generated/${asset.category}/${asset.filename}`);
+    assert.equal(typeof ASSET_PATHS[asset.id], 'string');
+    assert.ok(new URL(ASSET_PATHS[asset.id]).pathname.endsWith(`/${asset.path}`));
+    assert.match(asset.brief, /固定白昼/);
+    assert.match(asset.brief, /高饱和/);
+    assert.match(asset.brief, /光泽/);
+    assert.match(asset.brief, /透明底/);
+    assert.match(asset.brief, /无文字/);
+    assert.match(asset.brief, /(不含|不画|不铺|不形成).*末日/);
+  }
+  assert.match(
+    assets.find(({ id }) => id === 'nest-soft-rift-energy-a').brief,
+    /不画第二个环/,
+  );
+  assert.match(
+    assets.find(({ id }) => id === 'landmark-bubble-arch-a').brief,
+    /绝不能出现双环/,
+  );
 });
 
 test('shared resource tokens cover HUD, cargo, and expedition reward ids', () => {
@@ -344,7 +397,7 @@ test('organic terrain PNG contracts stay transparent and match the colony source
   assert.match(fence.brief, /一个完整建筑对象/);
 });
 
-test('browser startup waits only for generated first-screen art and streams the rest', async () => {
+test('browser startup waits only for first-screen art and leaves the rest on demand', async () => {
   const source = await readFile(path.join(PROJECT_ROOT, 'src/main.js'), 'utf8');
   assert.match(source, /import \{[\s\S]*createAssetStore,[\s\S]*\} from '\.\/assets\.js';/);
   assert.match(source, /game\.setAssetStore\(assetStore\)|game\.assetStore = assetStore/);
@@ -357,9 +410,8 @@ test('browser startup waits only for generated first-screen art and streams the 
   const attachRigIndex = source.indexOf('game.setRigAssetStore(store)');
   const preloadRigIndex = source.indexOf('await store.preload()');
   const startIndex = source.indexOf('game.start()');
-  const backgroundPreloadIndex = source.lastIndexOf('assetStore.preload()');
   assert.ok(criticalPreloadIndex >= 0 && criticalPreloadIndex < startIndex);
-  assert.ok(backgroundPreloadIndex > startIndex);
+  assert.equal(source.includes('assetStore.preload()'), false, 'startup must not download every PNG');
   assert.ok(attachRigIndex >= 0 && attachRigIndex < preloadRigIndex);
   assert.ok(CRITICAL_STARTUP_ASSET_KEYS.length >= 20);
   CRITICAL_STARTUP_ASSET_KEYS.forEach((key) => {
@@ -459,6 +511,20 @@ test('asset renderer safely falls back for failed, unknown, and throwing rendere
   assert.equal(fallbacks[0].error, null);
   assert.equal(fallbacks[1].error, null);
   assert.equal(fallbacks[2].error, rendererError);
+});
+
+test('first use streams an idle asset without requiring a full-store preload', async () => {
+  const store = createAssetStore(
+    { streamed: 'streamed.png' },
+    { resolvePath: (value) => value, imageFactory: () => fakeImage() },
+  );
+  let fallbackCount = 0;
+  assert.equal(store.useOrFallback('streamed', () => {}, () => { fallbackCount += 1; }), false);
+  assert.equal(fallbackCount, 1);
+  assert.equal(store.status('streamed').status, 'loading');
+  await new Promise((resolve) => queueMicrotask(resolve));
+  assert.equal(store.status('streamed').status, 'loaded');
+  assert.equal(store.useOrFallback('streamed', () => {}, () => {}), true);
 });
 
 test('asset store reports unsupported runtimes without rejecting preload', async () => {

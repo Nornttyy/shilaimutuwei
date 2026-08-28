@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import { SlimeGame } from '../src/game.js';
 import { EXPEDITION_PARTY_RULES } from '../src/expedition-catalog.js';
+import { worldPoiAssetKeys } from '../src/terrain-renderer.js';
 
 function installRuntime(storage = new Map()) {
   globalThis.localStorage = {
@@ -20,22 +21,15 @@ function installRuntime(storage = new Map()) {
 }
 
 function createContext() {
-  const methods = new Set([
-    'arc', 'beginPath', 'bezierCurveTo', 'clearRect', 'clip', 'closePath', 'drawImage',
-    'ellipse', 'fill', 'fillRect', 'fillText', 'lineTo', 'moveTo', 'quadraticCurveTo',
-    'restore', 'rotate', 'save', 'scale', 'setLineDash', 'setTransform', 'stroke',
-    'strokeRect', 'strokeText', 'translate',
-  ]);
   const gradient = () => ({ addColorStop() {} });
   return new Proxy({
     createLinearGradient: gradient,
     createRadialGradient: gradient,
-    measureText: (text) => ({ width: String(text).length * 16 }),
+    measureText: (text) => ({ width: String(text).length * 14 }),
   }, {
     get(target, property) {
       if (property in target) return target[property];
-      if (methods.has(property)) return () => {};
-      return undefined;
+      return () => {};
     },
     set(target, property, value) {
       target[property] = value;
@@ -59,16 +53,7 @@ function createFallbackAssetStore() {
   };
 }
 
-function tapRegisteredHit(game, id) {
-  game.render();
-  const hit = game.hits.find((candidate) => candidate.id === id);
-  assert.ok(hit, `${id} is not visible or registered`);
-  assert.notEqual(hit.enabled, false, `${id} is unexpectedly disabled`);
-  game.handleTap({ x: hit.x + hit.w / 2, y: hit.y + hit.h / 2 });
-  return hit;
-}
-
-function createGame(storage = new Map(), context = {}) {
+function createGame(storage = new Map(), context = createContext()) {
   installRuntime(storage);
   const canvas = {
     width: 1280,
@@ -84,331 +69,303 @@ function createGame(storage = new Map(), context = {}) {
   return game;
 }
 
-function startDefaultExpedition(game) {
+function startDefaultWorldExploration(game) {
   assert.equal(game.openExpedition(), true);
   assert.equal(game.modal.type, 'expedition-squad');
-  assert.equal(game.state.paused, true, 'the colony freezes while choosing a squad');
-  assert.equal(game.modal.selectedIds.length, 3);
+  assert.equal(game.modal.selectedIds.length, EXPEDITION_PARTY_RULES.size);
   assert.equal(game.startExpedition(game.modal.selectedIds), true);
-  return game.state.expeditionRun;
+  return game.state.worldExpedition;
 }
 
-function winCurrentRoute(game) {
-  const run = game.state.expeditionRun;
-  assert.equal(run.phase, 'route-selection');
-  assert.equal(game.chooseExpeditionRouteNode(run.route.choices[0].uid), true);
-  assert.equal(run.phase, 'encounter');
-  assert.equal(game.finishExpeditionEncounter(true), true);
+function advance(game, seconds, step = 0.05) {
+  for (let elapsed = 0; elapsed < seconds; elapsed += step) {
+    game.time += step;
+    game.update(step);
+  }
 }
 
-test('requires exactly three unique resident slimes and starts in route selection', () => {
+test('three resident slimes start same-map exploration without clearing or snapshotting the base', () => {
   const game = createGame();
   const ids = game.availableExpeditionSlimeIds();
-  assert.equal(EXPEDITION_PARTY_RULES.size, 3);
   assert.equal(game.startExpedition(ids.slice(0, 2)), false);
+  assert.equal(game.state.worldExpedition, null);
+
+  const buildingUids = game.state.buildings.map(({ uid }) => uid);
+  const survivorUids = game.state.survivors.map(({ uid }) => uid);
+  const expedition = startDefaultWorldExploration(game);
   assert.equal(game.state.phase, 'build');
-  assert.equal(game.state.expeditionRun, null);
-  assert.equal(game.startExpedition([ids[0], ids[1], ids[2], ids[3]]), false);
-
-  const baseBuildingCount = game.state.buildings.length;
-  const run = startDefaultExpedition(game);
-  assert.equal(game.state.phase, 'battle');
-  assert.equal(game.state.paused, true);
-  assert.equal(game.modal.type, 'expedition-route');
-  assert.equal(run.phase, 'route-selection');
-  assert.equal(run.squad.length, 3);
-  assert.equal(game.state.survivors.length, 3);
-  assert.equal(game.state.buildings.length, 0, 'base buildings do not join a squad expedition');
-  assert.equal(JSON.parse(game.preBattleSnapshot).buildings.length, baseBuildingCount);
-});
-
-test('a first-time player can dismiss onboarding and reach the expedition squad button', () => {
-  const game = createGame(new Map(), createContext());
-  game.state.tutorialSeen = false;
-  globalThis.requestAnimationFrame = () => 0;
-  game.start();
-  assert.equal(game.modal.type, 'welcome');
-  tapRegisteredHit(game, 'welcome-next');
-  assert.equal(game.modal.page, 1);
-  tapRegisteredHit(game, 'welcome-next');
-  assert.equal(game.modal, null);
-  assert.match(game.toast.text, /三人远征/);
-  tapRegisteredHit(game, 'open-expedition');
-  assert.equal(game.modal.type, 'expedition-squad');
-  assert.equal(game.modal.selectedIds.length, 3);
-  game.render();
-  const startHit = game.hits.find(({ id }) => id === 'expedition-squad-start');
-  assert.ok(startHit);
-  assert.equal(startHit.enabled, true);
-});
-
-test('every modal CTA is clickable from squad selection through Boss and back to base', () => {
-  const game = createGame(new Map(), createContext());
-  game.openExpedition();
-  tapRegisteredHit(game, 'expedition-squad-start');
-  const run = game.state.expeditionRun;
-  assert.equal(run.phase, 'route-selection');
-
-  while (run.status === 'active') {
-    if (run.phase === 'route-selection') {
-      const node = run.route.choices[0];
-      tapRegisteredHit(game, `expedition-route-${node.uid}`);
-      assert.equal(run.phase, 'encounter');
-    } else if (run.phase === 'encounter') {
-      game.finishExpeditionEncounter(true);
-    } else if (run.phase === 'boon-selection') {
-      const boon = run.boonChoices[0];
-      tapRegisteredHit(game, `expedition-boon-${boon.id}`);
-    }
-  }
-
-  assert.equal(run.stats.bossWins, 1);
-  assert.equal(game.state.phase, 'result');
-  tapRegisteredHit(game, 'expedition-result-return');
-  assert.equal(game.state.phase, 'build');
-  assert.equal(game.state.expeditionRun, null);
-  assert.equal(game.state.survivors.length, 4);
-});
-
-test('route choice enters an encounter and creates the weakened swarm queue', () => {
-  const game = createGame();
-  const run = startDefaultExpedition(game);
-  const node = run.route.choices[0];
-  assert.equal(game.chooseExpeditionRouteNode(node.uid), true);
-  assert.equal(run.phase, 'encounter');
   assert.equal(game.state.paused, false);
   assert.equal(game.modal, null);
-  assert.ok(game.state.spawnQueue.length >= 9);
-  assert.equal(game.state.spawnQueue.length, run.currentEncounter.groups.reduce((sum, group) => sum + group.count, 0));
-  assert.ok(run.currentEncounter.tuning.enemyHpMultiplier <= 0.62);
-  assert.ok(run.currentEncounter.tuning.enemyDamageMultiplier <= 0.55);
-});
-
-test('the autonomous three-slime squad can clear a real encounter without animation errors', () => {
-  const game = createGame();
-  const run = startDefaultExpedition(game);
-  game.chooseExpeditionRouteNode(run.route.choices[0].uid);
-  let elapsed = 0;
-  while (elapsed < 60 && run.phase === 'encounter') {
-    game.time += 0.05;
-    game.update(0.05);
-    elapsed += 0.05;
-  }
-  assert.equal(run.phase, 'boon-selection');
-  assert.equal(game.modal.type, 'expedition-boon');
-  assert.ok(game.state.kills >= 9);
-  assert.ok(game.state.survivors.some((survivor) => survivor.visualMoving));
-});
-
-test('a beacon breach settles the expedition without falling into the legacy wave flow', () => {
-  const game = createGame();
-  const run = startDefaultExpedition(game);
-  game.chooseExpeditionRouteNode(run.route.choices[0].uid);
-  game.updateEnemies = () => game.damageCore(game.state.coreMaxHp + 1);
-  game.updateBattle(0.1);
-  assert.equal(run.status, 'failed');
-  assert.equal(game.state.phase, 'result');
-  assert.equal(game.state.result.expedition, true);
-});
-
-test('regular encounters draft boons, then the final boss settles and restores the base once', () => {
-  const game = createGame();
-  const originalSurvivors = game.state.survivors.map(({ cardId }) => cardId);
-  const originalBuildings = game.state.buildings.map(({ cardId }) => cardId);
-  const crystalsBefore = game.state.softCrystals;
-  const resourcesBefore = { ...game.state.colony.resources };
-  const run = startDefaultExpedition(game);
-
-  while (run.status === 'active') {
-    if (run.phase === 'route-selection') {
-      const node = run.route.choices[0];
-      game.chooseExpeditionRouteNode(node.uid);
-    } else if (run.phase === 'encounter') {
-      game.finishExpeditionEncounter(true);
-    } else if (run.phase === 'boon-selection') {
-      assert.equal(run.boonChoices.length, 3);
-      game.chooseExpeditionUpgrade(run.boonChoices[0].id);
-    } else {
-      assert.fail(`unexpected expedition phase ${run.phase}`);
-    }
-  }
-
-  assert.equal(run.status, 'completed');
-  assert.equal(run.stats.bossWins, 1);
-  assert.equal(run.settlement.claimed, true);
-  assert.equal(game.state.phase, 'result');
-  assert.equal(game.state.result.expedition, true);
-  assert.equal(game.state.result.victory, true);
-  assert.deepEqual(game.state.survivors.map(({ cardId }) => cardId), originalSurvivors);
-  assert.deepEqual(game.state.buildings.map(({ cardId }) => cardId), originalBuildings);
-  assert.equal(game.state.expeditionProgress.firstClear, true);
-  assert.equal(game.state.expeditionProgress.completions, 1);
-  assert.ok(game.state.softCrystals > crystalsBefore);
-  assert.ok(Object.keys(resourcesBefore).some((key) => game.state.colony.resources[key] > resourcesBefore[key]));
-
-  const balances = {
-    softCrystals: game.state.softCrystals,
-    resources: { ...game.state.colony.resources },
-    completions: game.state.expeditionProgress.completions,
-  };
-  assert.equal(game.settleExpeditionRun(), false, 'a settled run cannot grant rewards twice');
-  assert.deepEqual({
-    softCrystals: game.state.softCrystals,
-    resources: game.state.colony.resources,
-    completions: game.state.expeditionProgress.completions,
-  }, balances);
-
-  game.returnToTown();
-  assert.equal(game.state.phase, 'build');
+  assert.equal(game.preBattleSnapshot, null);
   assert.equal(game.state.expeditionRun, null);
+  assert.equal(expedition.status, 'choose-site');
+  assert.equal(expedition.squadUids.length, 3);
+  assert.deepEqual(game.state.buildings.map(({ uid }) => uid), buildingUids);
+  assert.deepEqual(game.state.survivors.map(({ uid }) => uid), survivorUids);
 });
 
-test('abandonment restores the base and only keeps the configured fraction', () => {
+test('joining an exploration squad releases colony jobs, reservations, and cargo', () => {
   const game = createGame();
-  const run = startDefaultExpedition(game);
-  run.runLoot = { 'soft-gel': 20, softCrystals: 8 };
+  assert.equal(game.openExpedition(), true);
+  const selectedCards = new Set(game.modal.selectedIds);
+  const squadWorkers = game.state.colony.slimes.filter((slime) => selectedCards.has(slime.cardId));
+  const node = game.state.colony.resourceNodes[0];
+  node.reservedBy = squadWorkers[0].uid;
+  squadWorkers[0].job = { type: 'gather', targetUid: node.uid };
+  squadWorkers[0].carrying = { resourceType: 'gel', amount: 2, destination: 'base' };
   const gelBefore = game.state.colony.resources.gel;
-  const crystalsBefore = game.state.softCrystals;
-  assert.equal(game.abandonCurrentExpedition(), true);
-  assert.equal(run.status, 'abandoned');
-  assert.equal(game.state.phase, 'result');
-  assert.equal(game.state.colony.resources.gel, gelBefore + 5);
-  assert.equal(game.state.softCrystals, crystalsBefore + 2);
-  assert.equal(game.state.survivors.length, 4);
-  assert.equal(game.abandonCurrentExpedition(), false);
-  assert.equal(game.state.colony.resources.gel, gelBefore + 5);
-  assert.equal(game.state.softCrystals, crystalsBefore + 2);
+  game.state.colony.terrainReservations.set('8,5', squadWorkers[1].uid);
+  squadWorkers[1].job = { type: 'clear', x: 8, y: 5 };
+
+  assert.equal(game.startExpedition(game.modal.selectedIds), true);
+  assert.equal(node.reservedBy, null);
+  assert.equal(game.state.colony.terrainReservations.has('8,5'), false);
+  assert.equal(game.state.colony.resources.gel, gelBefore + 2);
+  assert.ok(squadWorkers.every((slime) => slime.job === null && slime.carrying === null));
 });
 
-test('backgrounding an active expedition safely abandons it and cannot replay rewards', () => {
+test('route cards are replaced by real map sites with generated layered POI art', () => {
+  const game = createGame();
+  const store = createFallbackAssetStore();
+  game.setAssetStore(store);
+  const expedition = startDefaultWorldExploration(game);
+  const site = expedition.sites[0];
+  assert.ok(site);
+  const keys = worldPoiAssetKeys(site, site.zoneKind);
+  assert.ok(keys.length > 0);
+
+  game.drawWorldPoiMarkers(game.ctx, {
+    minX: site.x - 1,
+    minY: site.y - 1,
+    maxX: site.x + 1,
+    maxY: site.y + 1,
+  });
+  for (const key of keys) assert.ok(store.requests.includes(key));
+  if (site.kind === 'nest') {
+    assert.ok(store.requests.indexOf(keys[0]) < store.requests.indexOf(keys[1]), 'energy renders behind frame');
+  }
+  assert.ok(game.hits.some(({ id }) => id === `world-site-${site.id}`));
+  assert.equal(game.modal, null, 'no full-screen route-card modal remains');
+  game.hits = [];
+  game.drawBattlefield(game.ctx);
+  assert.ok(store.requests.some((key) => key.startsWith('region-')), 'visible chunks request generated region decals');
+  assert.ok(game.hits.some(({ id }) => id === `world-site-${site.id}`), 'normal battlefield render keeps the POI interactive');
+});
+
+test('clicking a physical site moves the original survivor UIDs and reveals terrain along the path', () => {
+  const game = createGame();
+  game.state.colonyDirector.nextPackAt = Infinity;
+  const expedition = startDefaultWorldExploration(game);
+  const site = expedition.sites[0];
+  const squadUids = [...expedition.squadUids];
+  const discoveryBefore = game.infiniteWorld.stats().discoveryChunks;
+
+  game.handleBuildCellTap({ x: site.x, y: site.y });
+  assert.equal(expedition.status, 'travel');
+  advance(game, 4);
+
+  assert.deepEqual(expedition.squadUids, squadUids);
+  assert.ok(squadUids.every((uid) => game.state.survivors.some((survivor) => survivor.uid === uid)));
+  assert.ok(game.infiniteWorld.stats().discoveryChunks >= discoveryBefore);
+  const leaderCell = { x: Math.round(expedition.leader.x), y: Math.round(expedition.leader.y) };
+  assert.equal(game.infiniteWorld.isDiscovered(leaderCell.x, leaderCell.y), true);
+});
+
+test('site battle happens on the world map while the colony clock and buildings continue', () => {
+  const game = createGame();
+  game.state.colonyDirector.nextPackAt = Infinity;
+  const expedition = startDefaultWorldExploration(game);
+  const combatSite = expedition.sites.find(({ kind }) => kind === 'nest' || kind === 'boss');
+  assert.ok(combatSite);
+  const buildingUids = game.state.buildings.map(({ uid }) => uid);
+  const colonyTimeBefore = game.state.colony.time;
+  assert.equal(game.selectWorldExpeditionSite(combatSite.id), true);
+
+  let elapsed = 0;
+  while (elapsed < 90 && game.state.worldExpedition?.status === 'travel') {
+    advance(game, 0.1, 0.05);
+    elapsed += 0.1;
+  }
+  assert.equal(game.state.worldExpedition?.status, 'battle');
+  assert.ok(game.state.worldExpedition.enemies.length >= 7);
+  const worldEnemy = game.state.worldExpedition.enemies[0];
+  const explorer = game.state.survivors.find(({ uid }) => expedition.squadUids.includes(uid));
+  const homeGuard = game.state.survivors.find(({ uid }) => !expedition.squadUids.includes(uid));
+  const baseEnemy = game.spawnEnemyAtWorld('enemy-soft-biter', { x: homeGuard.x + 0.4, y: homeGuard.y });
+  assert.ok(game.findTargetsForAttack(explorer, { rangeTiles: 99 }).some(({ uid }) => uid === worldEnemy.uid));
+  assert.ok(game.findTargetsForAttack(homeGuard, { rangeTiles: 3 }).some(({ uid }) => uid === baseEnemy.uid));
+  game.updateEntityAnimations(0.12);
+  assert.ok(game.animators.has(worldEnemy.uid), 'world enemies keep a live rig animator');
+  advance(game, 1.2, 0.05);
+  assert.ok(explorer.actionCount > 0 || explorer.attackCount > 0, 'world battle uses the survivor action system');
+  assert.doesNotThrow(() => game.drawWorldActors(game.ctx));
+  assert.ok(game.state.colony.time > colonyTimeBefore);
+  assert.deepEqual(game.state.buildings.map(({ uid }) => uid), buildingUids);
+});
+
+test('a complete site loop grants rewards, returns the squad, and never rolls back base changes', () => {
+  const game = createGame();
+  game.state.colonyDirector.nextPackAt = Infinity;
+  const expedition = startDefaultWorldExploration(game);
+  const site = expedition.sites.find(({ kind }) => kind === 'landmark') || expedition.sites[0];
+  const buildingUids = game.state.buildings.map(({ uid }) => uid);
+  const resourcesBefore = { ...game.state.colony.resources };
+  assert.equal(game.selectWorldExpeditionSite(site.id), true);
+
+  let elapsed = 0;
+  while (elapsed < 240 && game.state.worldExpedition) {
+    advance(game, 0.1, 0.05);
+    elapsed += 0.1;
+  }
+  assert.equal(game.state.worldExpedition, null);
+  assert.deepEqual(game.state.buildings.map(({ uid }) => uid), buildingUids);
+  assert.equal(game.infiniteWorld.getPoiState(site.id)?.cleared, true);
+  assert.ok(game.state.expeditionProgress.outposts.some(({ id }) => id === site.id));
+  assert.ok(game.state.colony.depots.some(({ x, y }) => x === site.x && y === site.y));
+  assert.ok(game.shapingLimit() >= 16);
+  assert.ok(Object.keys(resourcesBefore).some((key) => game.state.colony.resources[key] > resourcesBefore[key]));
+  assert.equal(game.state.phase, 'build');
+});
+
+test('backgrounding safely recalls a same-map squad without replacing the base', () => {
   const storage = new Map();
   const game = createGame(storage);
-  const run = startDefaultExpedition(game);
-  run.runLoot = { 'soft-gel': 20, softCrystals: 8 };
-  const gelBefore = game.state.colony.resources.gel;
-  const crystalsBefore = game.state.softCrystals;
+  const expedition = startDefaultWorldExploration(game);
+  const site = expedition.sites[0];
+  game.selectWorldExpeditionSite(site.id);
+  advance(game, 2);
+  const buildingCards = game.state.buildings.map(({ cardId }) => cardId);
 
   game.onBackground();
+  assert.equal(game.state.worldExpedition, null);
   assert.equal(game.state.phase, 'build');
-  assert.equal(game.state.expeditionRun, null);
+  assert.deepEqual(game.state.buildings.map(({ cardId }) => cardId), buildingCards);
   assert.equal(game.state.survivors.length, 4);
-  assert.equal(game.state.colony.resources.gel, gelBefore + 5);
-  assert.equal(game.state.softCrystals, crystalsBefore + 2);
-  game.onBackground();
-  assert.equal(game.state.colony.resources.gel, gelBefore + 5);
-  assert.equal(game.state.softCrystals, crystalsBefore + 2);
 
-  const saved = JSON.parse([...storage.values()][0]);
-  assert.equal(saved.expeditionRun, null);
+  const restored = createGame(storage);
+  assert.deepEqual(restored.state.buildings.map(({ cardId }) => cardId), buildingCards);
+  assert.equal(restored.state.worldExpedition, null);
 });
 
-test('an abruptly saved active run is recovered as a single safe abandonment', () => {
+test('manual recall preserves wounds and cancels detached encounter attacks', () => {
+  const game = createGame();
+  game.state.colonyDirector.nextPackAt = Infinity;
+  const expedition = startDefaultWorldExploration(game);
+  const site = expedition.sites.find(({ kind }) => kind === 'nest' || kind === 'boss');
+  assert.ok(site);
+  expedition.targetPoiId = site.id;
+  expedition.leader = { x: site.x, y: site.y };
+  assert.equal(game.beginWorldSiteEncounter(), true);
+
+  const squad = expedition.squadUids
+    .map((survivorUid) => game.state.survivors.find(({ uid }) => uid === survivorUid));
+  const attacker = squad.find(({ cardId }) => cardId !== 'survivor-moss-sprout') || squad[0];
+  const downed = squad.find(({ uid }) => uid !== attacker.uid);
+  const enemy = expedition.enemies[0];
+  expedition.enemies.slice(1).forEach((other) => { other.dead = true; });
+  enemy.x = attacker.x + 0.2;
+  enemy.y = attacker.y;
+  enemy.maxHp = 999;
+  enemy.hp = 999;
+
+  assert.equal(game.performSurvivorAction(attacker, true), true);
+  assert.equal(game.pendingAttackHits.has(attacker.uid), true);
+  assert.ok(game.state.projectiles.some(({ sourceUid }) => sourceUid === attacker.uid));
+  assert.equal(game.startEntityAttack(enemy, () => game.damageSurvivor(attacker, 7)), true);
+  assert.equal(game.pendingAttackHits.has(enemy.uid), true);
+
+  attacker.hp = 3;
+  downed.hp = 0;
+  downed.downed = true;
+  const enemyHpBeforeRecall = enemy.hp;
+  const killsBeforeRecall = game.state.kills;
+  const energyBeforeRecall = game.state.energy;
+
+  assert.equal(game.finishWorldExpeditionReturn(), true);
+  assert.equal(game.state.worldExpedition, null);
+  assert.equal(attacker.hp, 3, 'recall is not a free heal');
+  assert.equal(downed.hp, 0);
+  assert.equal(downed.downed, true, 'recall is not a free revive');
+  assert.equal(game.state.colony.slimes.find(({ uid }) => uid === downed.uid).aiState, 'downed');
+  assert.ok(expedition.squadUids.every((uid) => !game.pendingAttackHits.has(uid)));
+  assert.ok(expedition.enemies.every(({ uid }) => !game.pendingAttackHits.has(uid)));
+  assert.ok(game.state.projectiles.every(({ sourceUid, targetUid }) => (
+    !expedition.squadUids.includes(sourceUid)
+    && !expedition.squadUids.includes(targetUid)
+    && !expedition.enemies.some(({ uid }) => uid === sourceUid || uid === targetUid)
+  )));
+
+  game.updateEntityAnimations(2);
+  assert.equal(enemy.hp, enemyHpBeforeRecall, 'removed enemies cannot receive delayed hits');
+  assert.equal(attacker.hp, 3, 'removed enemy attacks cannot hit the recalled squad');
+  assert.equal(game.state.kills, killsBeforeRecall);
+  assert.equal(game.state.energy, energyBeforeRecall);
+});
+
+test('explorers regroup into a compact formation even when assigned across distant bases', () => {
+  const game = createGame();
+  const expedition = startDefaultWorldExploration(game);
+  const members = expedition.squadUids.map((uid) => game.state.survivors.find((survivor) => survivor.uid === uid));
+  members[0].x = -500;
+  members[0].y = -500;
+  members[1].x = 500;
+  members[1].y = 500;
+  members[2].x = 12;
+  members[2].y = 8;
+  const site = expedition.sites[0];
+
+  assert.equal(game.selectWorldExpeditionSite(site.id), true);
+  const spread = Math.max(...expedition.formation.map(({ dx, dy }) => Math.hypot(dx, dy)));
+  assert.ok(spread < 1.1);
+  assert.ok(members.every((member) => Math.hypot(
+    member.x - expedition.leader.x,
+    member.y - expedition.leader.y,
+  ) < 1.1));
+});
+
+test('generated POIs and activated relays reserve their cell against construction', () => {
+  const game = createGame();
+  const expedition = startDefaultWorldExploration(game);
+  const site = expedition.sites[0];
+  game.infiniteWorld.reveal(site.x, site.y, 2);
+  game.selection = { kind: 'place-building', cardId: 'building-bubble-tower', rotation: 0 };
+  assert.equal(game.selectionCellIsValid(site), false);
+
+  game.state.expeditionProgress.outposts.push({ id: site.id, x: site.x, y: site.y, name: site.name });
+  game.syncColonyDepots();
+  assert.equal(game.placementWorldCellAt(site.x, site.y).poiReserved, true);
+  assert.equal(game.selectionCellIsValid(site), false);
+});
+
+test('hundreds of outposts retain unbounded shaping capacity and depot positions after reload', () => {
   const storage = new Map();
-  const first = createGame(storage);
-  const run = startDefaultExpedition(first);
-  run.runLoot = { 'soft-gel': 20, softCrystals: 8 };
-  first.save();
+  const game = createGame(storage);
+  game.state.expeditionProgress.outposts = Array.from({ length: 300 }, (_, index) => ({
+    id: `relay-${index}`,
+    x: 1000 + index * 3,
+    y: -1000 - index * 2,
+    name: `前哨 ${index}`,
+  }));
+  game.syncColonyDepots();
+  const limit = game.shapingLimit();
+  game.save();
 
-  const recovered = createGame(storage);
-  assert.equal(recovered.state.phase, 'build');
-  assert.equal(recovered.state.expeditionRun, null);
-  assert.equal(recovered.state.survivors.length, 4);
-  assert.equal(recovered.state.colony.resources.gel, first.state.colony.resources.gel + 5);
-  assert.equal(recovered.state.softCrystals, first.state.softCrystals + 2);
-
-  const afterRecovery = {
-    gel: recovered.state.colony.resources.gel,
-    crystals: recovered.state.softCrystals,
-  };
-  const reloadedAgain = createGame(storage);
-  assert.deepEqual({
-    gel: reloadedAgain.state.colony.resources.gel,
-    crystals: reloadedAgain.state.softCrystals,
-  }, afterRecovery);
+  const restored = createGame(storage);
+  assert.equal(restored.state.expeditionProgress.outposts.length, 300);
+  assert.equal(restored.shapingLimit(), limit);
+  assert.equal(restored.state.colony.depots.length, 301);
 });
 
-test('squad, route, boon, and expedition result screens render without new bitmap assets', () => {
-  const game = createGame(new Map(), createContext());
-  game.openExpedition();
-  assert.doesNotThrow(() => game.render());
-  game.startExpedition(game.modal.selectedIds);
-  assert.doesNotThrow(() => game.render());
-  game.chooseExpeditionRouteNode(game.state.expeditionRun.route.choices[0].uid);
-  assert.doesNotThrow(() => game.render());
-  game.finishExpeditionEncounter(true);
-  assert.equal(game.modal.type, 'expedition-boon');
-  assert.doesNotThrow(() => game.render());
-  game.abandonCurrentExpedition();
-  assert.equal(game.state.phase, 'result');
-  assert.doesNotThrow(() => game.render());
-  tapRegisteredHit(game, 'expedition-result-return');
-  assert.equal(game.state.phase, 'build');
-  assert.equal(game.state.expeditionRun, null);
-});
-
-test('expedition screens consume route, beacon, and selected boon art with safe fallbacks', () => {
-  const store = createFallbackAssetStore();
-  const game = createGame(new Map(), createContext());
-  game.setAssetStore(store);
-  const run = startDefaultExpedition(game);
-  game.render();
-  assert.ok(store.requests.includes('expedition-beacon'));
-  assert.ok(store.requests.includes('expedition-route-combat'));
-  assert.ok(store.requests.includes('expedition-route-resource'));
-  assert.ok(store.requests.includes('expedition-route-event'));
-
-  game.chooseExpeditionRouteNode(run.route.choices[0].uid);
-  game.finishExpeditionEncounter(true);
-  const firstDraftIds = run.boonChoices.map(({ id }) => id);
-  game.render();
-  firstDraftIds.forEach((id) => assert.ok(store.requests.includes(id), `${id} art was not requested`));
-  game.chooseExpeditionUpgrade(run.boonChoices[0].id);
-
-  while (!run.route.isBossStage) {
-    game.chooseExpeditionRouteNode(run.route.choices[0].uid);
-    game.finishExpeditionEncounter(true);
-    game.chooseExpeditionUpgrade(run.boonChoices[0].id);
-  }
-  game.render();
-  assert.ok(store.requests.includes('expedition-route-boss'));
-});
-
-test('welcome, cargo HUD, and settlement request generated character and resource art', () => {
-  const store = createFallbackAssetStore();
-  const context = createContext();
-  const game = createGame(new Map(), context);
-  game.setAssetStore(store);
-  game.modal = { type: 'welcome', page: 0 };
-  game.render();
-  for (const survivorId of [
-    'survivor-shell-shell',
-    'survivor-crystal-pin',
-    'survivor-bubble-float',
-    'survivor-moss-sprout',
-  ]) assert.ok(store.requests.includes(survivorId), `${survivorId} welcome art was not requested`);
-
-  game.modal = null;
-  game.state.survivors[0].carrying = { resourceType: 'gel', amount: 4 };
-  game.render();
-  for (const resourceAssetId of [
-    'resource-soft-gel-token',
-    'resource-dew-honey-token',
-    'resource-crystal-shard-token',
-    'ui-soft-crystal',
-  ]) assert.ok(store.requests.includes(resourceAssetId), `${resourceAssetId} HUD/cargo art was not requested`);
-
-  game.drawExpeditionResultModal(context, {
-    outcome: 'completed',
-    firstClear: false,
-    rewards: { 'soft-gel': 4, 'dew-honey': 3, 'crystal-shard': 2, softCrystals: 1 },
-    regularWins: 4,
-    eliteWins: 0,
-    kills: 28,
-  });
-  for (const resourceAssetId of [
-    'resource-soft-gel-token',
-    'resource-dew-honey-token',
-    'resource-crystal-shard-token',
-    'ui-soft-crystal',
-  ]) assert.ok(store.requests.includes(resourceAssetId), `${resourceAssetId} settlement art was not requested`);
+test('late exploration advances in a bounded leg from a far frontier instead of routing back to core', () => {
+  const game = createGame();
+  const frontier = { x: 10000, y: -10000 };
+  game.state.expeditionProgress.frontier = frontier;
+  game.state.expeditionProgress.attempts = 64;
+  assert.equal(game.openExpedition(), true);
+  assert.equal(game.startExpedition(game.modal.selectedIds), true);
+  const sites = game.state.worldExpedition.sites;
+  assert.ok(sites.length > 0);
+  assert.ok(sites.every((site) => Math.hypot(site.x - frontier.x, site.y - frontier.y) < 180));
+  assert.equal(game.selectWorldExpeditionSite(sites[0].id), true);
+  assert.ok(game.state.worldExpedition.path.length < 220);
 });

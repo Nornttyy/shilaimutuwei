@@ -633,8 +633,8 @@ test('moving a wide building previews rotation, cancels safely, rejects invalid 
 
   game.selection = { kind: 'move-building', uid: building.uid, rotation: building.rotation };
   game.rotateSelection();
-  assert.equal(game.selectionCellIsValid({ x: 23, y: 15 }), false);
-  game.handleBuildCellTap({ x: 23, y: 15 });
+  assert.equal(game.selectionCellIsValid({ x: 0, y: 9 }), false);
+  game.handleBuildCellTap({ x: 0, y: 9 });
   assert.deepEqual(
     { x: building.x, y: building.y, rotation: building.rotation },
     { x: 10, y: 7, rotation: 0 },
@@ -1216,8 +1216,6 @@ test('game routes world, UI, projectile, status, and particle slots through the 
   const keys = [
     'terrain-ground-detail-a', 'terrain-soft-gel-node-a', 'terrain-dew-honey-node-a',
     'terrain-crystal-shard-node-a', 'terrain-brittle-boulder-a',
-    'terrain-waste-ground-detail-a', 'terrain-waste-soft-gel-cache-a',
-    'terrain-waste-crystal-scrap-a', 'terrain-waste-acid-sludge-a',
     'tile-honey-puddle', 'tile-crystal-spikes',
     'tile-building-rubble', 'building-mushroom-home', 'building-honey-plot',
     'building-bubble-tower', 'building-bouncy-fence', 'building-weather-scout',

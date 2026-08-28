@@ -77,3 +77,28 @@ test('visible bounds are clipped to arbitrary configured world sizes', () => {
   assert.ok(bounds.minX > 0);
   assert.ok(bounds.minY > 0);
 });
+
+test('infinite worlds keep signed camera coordinates and signed cell selection', () => {
+  const world = { infinite: true, width: 24, height: 16 };
+  const camera = clampCamera({ x: -120.5, y: 4096.25, zoom: 1 }, world);
+  assert.deepEqual(camera, { x: -120.5, y: 4096.25, zoom: 1 });
+
+  const moved = panWorldCamera(camera, { x: 640, y: -128 }, world);
+  assert.equal(moved.x, -130.5);
+  assert.equal(moved.y, 4098.25);
+
+  const screen = worldToScreen({ x: -127.5, y: 4101.5 }, moved);
+  assert.deepEqual(screenToWorldCell(screen, moved, world), { x: -128, y: 4101 });
+});
+
+test('infinite visible bounds are not clipped to the authored starter dimensions', () => {
+  const world = { infinite: true, width: 24, height: 16 };
+  const camera = { x: -33.2, y: 81.4, zoom: 1 };
+  const visible = cameraVisibleSize(camera);
+  assert.deepEqual(visibleWorldBounds(camera, world, DEFAULT_WORLD_VIEWPORT, 1), {
+    minX: -35,
+    minY: 80,
+    maxX: Math.ceil(camera.x + visible.width) + 1,
+    maxY: Math.ceil(camera.y + visible.height) + 1,
+  });
+});

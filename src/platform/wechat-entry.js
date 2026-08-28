@@ -148,8 +148,10 @@ export function createWechatImageAssetStore(paths = {}, {
       };
     },
     useOrFallback(key, renderAsset, renderFallback = () => {}) {
-      const image = records.get(key)?.status === 'loaded' ? records.get(key).image : null;
+      const record = records.get(key);
+      const image = record?.status === 'loaded' ? record.image : null;
       if (!image) {
+        if (record?.status === 'idle') void load(key).catch(() => null);
         renderFallback(this.status(key), null);
         return false;
       }
@@ -272,12 +274,7 @@ export function startWechatGame({
           if (waitTimer !== null) clearTimeout(waitTimer);
         })
         .then(startLoop);
-      void ready.then(() => {
-        if (disposed) return null;
-        return assetStore.preload({
-          concurrency: Number(config.assetLoadConcurrency) || 6,
-        });
-      }).catch((error) => {
+      void ready.catch((error) => {
         globalThis.__SLIME_WECHAT_BOOT_ERROR__ = error;
         safeCall(wxApi.showModal?.bind(wxApi), {
           title: '启动失败',

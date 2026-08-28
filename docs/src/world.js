@@ -19,6 +19,7 @@ function positiveNumber(value, fallback) {
 
 function normalizeWorld(world = DEFAULT_WORLD) {
   return {
+    infinite: world?.infinite === true,
     width: Math.max(1, Math.floor(positiveNumber(world.width, DEFAULT_WORLD.width))),
     height: Math.max(1, Math.floor(positiveNumber(world.height, DEFAULT_WORLD.height))),
   };
@@ -49,6 +50,13 @@ export function clampCamera(camera, world = DEFAULT_WORLD, viewport = DEFAULT_WO
   const normalizedViewport = normalizeViewport(viewport);
   const zoom = clamp(positiveNumber(camera?.zoom, 1), 0.6, 1.6);
   const visible = cameraVisibleSize({ zoom }, normalizedViewport);
+  if (normalizedWorld.infinite) {
+    return {
+      x: Number.isFinite(camera?.x) ? camera.x : 0,
+      y: Number.isFinite(camera?.y) ? camera.y : 0,
+      zoom,
+    };
+  }
   const maxX = Math.max(0, normalizedWorld.width - visible.width);
   const maxY = Math.max(0, normalizedWorld.height - visible.height);
   return {
@@ -128,6 +136,7 @@ export function screenToWorldCell(
   const normalizedWorld = normalizeWorld(world);
   const worldPoint = screenToWorld(point, camera, viewport);
   const cell = { x: Math.floor(worldPoint.x), y: Math.floor(worldPoint.y) };
+  if (normalizedWorld.infinite) return cell;
   if (cell.x < 0 || cell.y < 0
     || cell.x >= normalizedWorld.width || cell.y >= normalizedWorld.height) return null;
   return cell;
@@ -183,6 +192,14 @@ export function visibleWorldBounds(
   const normalizedWorld = normalizeWorld(world);
   const normalizedCamera = clampCamera(camera, normalizedWorld, viewport);
   const visible = cameraVisibleSize(normalizedCamera, viewport);
+  if (normalizedWorld.infinite) {
+    return {
+      minX: Math.floor(normalizedCamera.x) - padding,
+      minY: Math.floor(normalizedCamera.y) - padding,
+      maxX: Math.ceil(normalizedCamera.x + visible.width) + padding,
+      maxY: Math.ceil(normalizedCamera.y + visible.height) + padding,
+    };
+  }
   return {
     minX: clamp(Math.floor(normalizedCamera.x) - padding, 0, normalizedWorld.width - 1),
     minY: clamp(Math.floor(normalizedCamera.y) - padding, 0, normalizedWorld.height - 1),

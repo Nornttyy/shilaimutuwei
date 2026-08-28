@@ -44,7 +44,6 @@ async function startGame() {
 
   game.start();
   requestAnimationFrame(() => loading?.classList.add('hidden'));
-  void assetStore.preload().catch(() => null);
 }
 
 void startGame();

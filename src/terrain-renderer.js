@@ -45,11 +45,35 @@ export const TERRAIN_ASSET_KEYS = Object.freeze({
   'deep-water': 'terrain-deep-water-patch-a',
 });
 
+/** Large organic decals for the five deterministic infinite-world biomes. */
+export const REGION_ASSET_KEYS = Object.freeze({
+  'gel-garden': 'region-gel-meadow-field-a',
+  'dew-grove': 'region-dew-grove-field-a',
+  'crystal-meadow': 'region-crystal-bloom-field-a',
+  'bubble-wetland': 'region-bubble-heath-field-a',
+  'soft-shell-canyon': 'region-shell-canyon-field-a',
+});
+
+/** Bright landmark cutouts keyed by their owning infinite-world biome. */
+export const LANDMARK_ASSET_KEYS = Object.freeze({
+  'gel-garden': 'landmark-soft-relay-a',
+  'dew-grove': 'landmark-dew-canopy-a',
+  'crystal-meadow': 'landmark-giant-crystal-bloom-a',
+  'bubble-wetland': 'landmark-bubble-arch-a',
+  'soft-shell-canyon': 'landmark-boss-shell-grotto-a',
+});
+
 /**
- * The wasteland is a visual biome only. Keys deliberately mirror the authored
- * terrain ids above so choosing a different cutout can never change movement,
- * harvesting, destruction, or replacement rules.
+ * POI layer contract. Nest energy is deliberately listed before its frame so
+ * callers always composite the moving glow behind the solid authored shell.
  */
+export const POI_ASSET_KEYS = Object.freeze({
+  nest: Object.freeze(['nest-soft-rift-energy-a', 'nest-soft-rift-frame-a']),
+  relay: Object.freeze(['landmark-soft-relay-a']),
+  boss: Object.freeze(['landmark-boss-shell-grotto-a']),
+});
+
+/** @deprecated Retained only so old saves/imports do not lose their key map. */
 export const WASTELAND_TERRAIN_ASSET_KEYS = Object.freeze({
   ground: 'terrain-waste-ground-detail-a',
   'soft-gel': 'terrain-waste-soft-gel-cache-a',
@@ -122,6 +146,54 @@ export function terrainAssetKey(tileOrId) {
   return terrainId ? TERRAIN_ASSET_KEYS[terrainId] : null;
 }
 
+function canonicalZoneId(zoneOrId) {
+  const source = typeof zoneOrId === 'string'
+    ? zoneOrId
+    : zoneOrId?.kind
+      || zoneOrId?.biomeId
+      || zoneOrId?.biome
+      || zoneOrId?.zoneKind
+      || zoneOrId?.zone?.kind
+      || '';
+  const id = String(source).toLowerCase();
+  if (REGION_ASSET_KEYS[id]) return id;
+  if (/gel|garden|花园|花圃/.test(id)) return 'gel-garden';
+  if (/dew|honey|grove|露蜜|露珠/.test(id)) return 'dew-grove';
+  if (/crystal|晶/.test(id)) return 'crystal-meadow';
+  if (/bubble|wetland|泡泡|湿地/.test(id)) return 'bubble-wetland';
+  if (/shell|canyon|壳|峡谷/.test(id)) return 'soft-shell-canyon';
+  return null;
+}
+
+/** Resolve a generated organic field decal for an infinite-world zone. */
+export function regionAssetKeyForZone(zoneOrId) {
+  const zoneId = canonicalZoneId(zoneOrId);
+  return zoneId ? REGION_ASSET_KEYS[zoneId] : null;
+}
+
+/** Resolve a generated landmark cutout for an infinite-world zone. */
+export function landmarkAssetKeyForZone(zoneOrId) {
+  const zoneId = canonicalZoneId(zoneOrId);
+  return zoneId ? LANDMARK_ASSET_KEYS[zoneId] : null;
+}
+
+/**
+ * Resolve ordered generated layers for a world POI. Pass the owning chunk's
+ * `zone` as the second argument when resolving a natural landmark.
+ */
+export function worldPoiAssetKeys(poiOrKind, zoneOrId = null) {
+  const poi = poiOrKind && typeof poiOrKind === 'object' ? poiOrKind : null;
+  const kind = String(poi?.kind ?? poiOrKind ?? '').toLowerCase();
+  if (kind === 'nest') return POI_ASSET_KEYS.nest;
+  if (kind === 'boss') return POI_ASSET_KEYS.boss;
+  if (kind === 'relay' || kind === 'soft-relay') return POI_ASSET_KEYS.relay;
+  if (kind === 'landmark') {
+    const key = landmarkAssetKeyForZone(zoneOrId ?? poi?.zone ?? poi?.biome);
+    return key ? Object.freeze([key]) : Object.freeze([]);
+  }
+  return Object.freeze([]);
+}
+
 function normalizeWorldSize(world = DEFAULT_WASTELAND_WORLD) {
   return {
     width: Math.max(1, Math.floor(finite(world?.width, DEFAULT_WASTELAND_WORLD.width))),
@@ -130,46 +202,17 @@ function normalizeWorldSize(world = DEFAULT_WASTELAND_WORLD) {
 }
 
 /**
- * Returns whether a logical world cell belongs to the bright eastern
- * wasteland. The boundary is one continuous, row-varying frontier: it is
- * deterministic from world coordinates, never depends on animation time, and
- * keeps the central two-thirds (including the authored base) untouched.
+ * @deprecated The abandoned finite-map wasteland classifier is intentionally
+ * disabled. Infinite world coordinates always use the bright biome system.
  */
-export function isWastelandCell(x, y, world = DEFAULT_WASTELAND_WORLD) {
-  const { width, height } = normalizeWorldSize(world);
-  const cellX = Math.floor(Number(x));
-  const cellY = Math.floor(Number(y));
-  if (!Number.isFinite(cellX) || !Number.isFinite(cellY)
-    || cellX < 0 || cellY < 0 || cellX >= width || cellY >= height) return false;
-
-  const protectedMaxX = Math.min(width - 1, Math.floor(width * (2 / 3)));
-  if (cellX <= protectedMaxX) return false;
-
-  const baseBoundary = Math.max(protectedMaxX + 1, Math.floor(width * 0.76));
-  const wave = Math.sin((cellY + 1) * 1.31 + height * 0.17) * 0.9;
-  const noise = (hash2d(cellY, height, 911) - 0.5) * 2.2;
-  const inlet = hash2d(cellY, width, 919) > 0.82 ? -1 : 0;
-  const boundary = clamp(
-    Math.round(baseBoundary + wave + noise) + inlet,
-    protectedMaxX + 1,
-    width - 1,
-  );
-  return cellX >= boundary;
+export function isWastelandCell() {
+  return false;
 }
 
-/** Resolve the normal or wasteland PNG for a terrain type at a world cell. */
-export function terrainAssetKeyForCell(tileOrId, options = {}) {
+/** Resolve the bright authored PNG for a terrain type at any world cell. */
+export function terrainAssetKeyForCell(tileOrId) {
   const terrainId = canonicalTerrainId(tileOrId);
-  if (!terrainId) return null;
-  const tile = tileOrId && typeof tileOrId === 'object' ? tileOrId : null;
-  const rawX = options.x ?? tile?.x;
-  const rawY = options.y ?? tile?.y;
-  const x = Number(rawX);
-  const y = Number(rawY);
-  const wasteland = Number.isFinite(x) && Number.isFinite(y)
-    && isWastelandCell(x, y, options.world);
-  const keys = wasteland ? WASTELAND_TERRAIN_ASSET_KEYS : TERRAIN_ASSET_KEYS;
-  return keys[terrainId] || null;
+  return terrainId ? TERRAIN_ASSET_KEYS[terrainId] : null;
 }
 
 function normalizedVisualVariant(tileOrId, suppliedVariant) {

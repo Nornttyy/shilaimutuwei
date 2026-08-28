@@ -78,9 +78,9 @@ const REQUIRED_GAMEPLAY_ASSET_CATEGORIES = Object.freeze({
   resource: 3,
 });
 
-test('the project asset whitelist covers all 117 canonical nested PNG paths', () => {
+test('the project asset whitelist covers all 118 canonical nested PNG paths', () => {
   const paths = collectDeclaredAssetPaths(PROJECT_ASSET_SPEC);
-  assert.equal(paths.length, 117);
+  assert.equal(paths.length, 118);
   assert.equal(new Set(paths).size, paths.length);
   assert.equal(paths.every((assetPath) => (
     /^assets\/generated\/[a-z][a-z0-9-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*\.png$/.test(assetPath)

@@ -20,6 +20,7 @@ import {
   INFINITE_WORLD_ASSET_KEYS,
   createAssetStore,
 } from '../src/assets.js';
+import { WECHAT_CRITICAL_ASSET_KEYS } from '../src/platform/wechat-entry.js';
 
 const PROJECT_ROOT = fileURLToPath(new URL('../', import.meta.url));
 const PROJECT_ASSET_SPEC = JSON.parse(await readFile(
@@ -27,12 +28,12 @@ const PROJECT_ASSET_SPEC = JSON.parse(await readFile(
   'utf8',
 ));
 
-test('the workspace asset manifest strictly validates all 117 finished PNGs', async () => {
+test('the workspace asset manifest strictly validates all 118 finished PNGs', async () => {
   const result = await verifyAssets({ cwd: PROJECT_ROOT, allowMissingSpec: false });
   assert.equal(result.ok, true, formatErrors(result));
   assert.equal(result.skipped, false);
-  assert.equal(result.summary.declaredAssets, 117);
-  assert.equal(result.summary.checkedAssets, 117);
+  assert.equal(result.summary.declaredAssets, 118);
+  assert.equal(result.summary.checkedAssets, 118);
   assert.deepEqual(result.errors, [], formatErrors(result));
   assert.deepEqual(result.warnings, [], formatErrors(result));
 });
@@ -186,8 +187,8 @@ test('missing asset-spec is skippable by default and an error in strict mode', a
   }, { writeAssetsDirectory: false });
 });
 
-test('runtime asset map covers all 117 canonical nested paths and three aliases', () => {
-  assert.equal(PROJECT_ASSET_SPEC.assets.length, 117);
+test('runtime asset map covers all 118 canonical nested paths and three aliases', () => {
+  assert.equal(PROJECT_ASSET_SPEC.assets.length, 118);
   for (const asset of PROJECT_ASSET_SPEC.assets) {
     assert.equal(typeof ASSET_PATHS[asset.id], 'string', `missing runtime asset: ${asset.id}`);
     assert.ok(
@@ -195,7 +196,7 @@ test('runtime asset map covers all 117 canonical nested paths and three aliases'
       `unexpected runtime path for ${asset.id}: ${ASSET_PATHS[asset.id]}`,
     );
   }
-  assert.equal(Object.keys(ASSET_PATHS).length, 120);
+  assert.equal(Object.keys(ASSET_PATHS).length, 121);
   assert.equal(ASSET_PATHS['scene-gel-garden'], ASSET_PATHS['background-garden-base']);
   assert.equal(ASSET_PATHS['town-core'], ASSET_PATHS['town-soft-core']);
   assert.equal(ASSET_PATHS['enemy-portal'], ASSET_PATHS['rift-entry-portal']);
@@ -392,9 +393,27 @@ test('organic terrain PNG contracts stay transparent and match the colony source
 
   assert.ok(PROJECT_ASSET_SPEC.generatedFrom.includes('src/colony-catalog.js'));
   assert.ok(PROJECT_ASSET_SPEC.generatedFrom.includes('src/terrain-renderer.js'));
-  const fence = PROJECT_ASSET_SPEC.assets.find(({ id }) => id === 'building-bouncy-fence');
-  assert.match(fence.runtimeDisplaySize, /2×1地块/);
-  assert.match(fence.brief, /一个完整建筑对象/);
+  const buildingIds = [
+    'building-mushroom-home',
+    'building-honey-plot',
+    'building-bubble-tower',
+    'building-bouncy-fence',
+    'building-weather-scout',
+    'building-gel-foundation',
+  ];
+  const buildingAssets = PROJECT_ASSET_SPEC.assets.filter(({ id }) => buildingIds.includes(id));
+  assert.deepEqual(buildingAssets.map(({ id }) => id), buildingIds);
+  for (const asset of buildingAssets) {
+    assert.equal(asset.category, 'building');
+    assert.equal(asset.transparent, true);
+    assert.deepEqual(asset.recommendedCanvas, { width: 512, height: 512 });
+    assert.equal(asset.width, 512);
+    assert.equal(asset.height, 512);
+    assert.match(asset.runtimeDisplaySize, /1×1地块内不超过60×60/);
+    assert.equal(CRITICAL_STARTUP_ASSET_KEYS.includes(asset.id), true);
+    assert.equal(WECHAT_CRITICAL_ASSET_KEYS.includes(asset.id), true);
+    assert.equal(typeof ASSET_PATHS[asset.id], 'string');
+  }
 });
 
 test('browser startup waits only for first-screen art and leaves the rest on demand', async () => {

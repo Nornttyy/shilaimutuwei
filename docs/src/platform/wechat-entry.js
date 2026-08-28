@@ -16,6 +16,7 @@ export const WECHAT_CRITICAL_ASSET_KEYS = Object.freeze([
   'building-bubble-tower',
   'building-bouncy-fence',
   'building-weather-scout',
+  'building-gel-foundation',
   'terrain-soft-gel-node-a',
   'terrain-dew-honey-node-a',
   'terrain-crystal-shard-node-a',

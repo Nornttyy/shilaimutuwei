@@ -122,6 +122,7 @@ const CORE_CELL = WORLD.base.core;
 const DEFAULT_CAMERA_FOCUS = Object.freeze({ x: CORE_CELL.x + 0.5, y: CORE_CELL.y + 0.5 });
 const PANEL = Object.freeze({ x: 866, y: 92, width: 388, height: 486 });
 const BOTTOM = Object.freeze({ x: 22, y: 592, width: 1232, height: 110 });
+const BUILDING_WORLD_SLOT = 60;
 const STORAGE_KEY = 'slime-haven-colony-v2';
 const TAU = Math.PI * 2;
 const COLONY_RESOURCE_ID = Object.freeze({
@@ -1282,6 +1283,21 @@ export class SlimeGame {
       nectar: startingStockpile['dew-honey'],
       shard: startingStockpile['crystal-shard'],
     };
+    // A blueprint footprint is derived from its current building card, not
+    // authoritative save data. This lets catalog footprint migrations release
+    // obsolete cells without discarding delivered materials or build progress.
+    const persistedBlueprints = (this.loadedColonyBlueprints || []).map((blueprint) => {
+      const building = this.state.buildings.find(({ blueprintUid }) => (
+        blueprintUid === blueprint?.uid
+      ));
+      const card = BUILDING_BY_ID[building?.cardId] || BUILDING_BY_ID[blueprint?.cardId];
+      if (!card) return blueprint;
+      const rotation = canonicalBuildingRotation(building?.rotation ?? 0, card);
+      return {
+        ...blueprint,
+        footprint: rotatedFootprint(card, rotation),
+      };
+    });
     const authoredResourceNodes = this.state.worldTerrain.cells.flatMap((cell) => {
       const definition = TERRAIN_TYPES[cell.terrainId];
       const resourceType = COLONY_RESOURCE_ID[definition?.yield?.resourceId];
@@ -1338,7 +1354,7 @@ export class SlimeGame {
         aggroRange: Math.max(3, card.attack.rangeTiles),
       };
     });
-    const persistedBlueprintCells = (this.loadedColonyBlueprints || []).flatMap((blueprint) => {
+    const persistedBlueprintCells = persistedBlueprints.flatMap((blueprint) => {
       const width = Math.max(1, Math.floor(Number(blueprint.footprint?.width) || 1));
       const height = Math.max(1, Math.floor(Number(blueprint.footprint?.height) || 1));
       return [
@@ -1380,7 +1396,7 @@ export class SlimeGame {
       depots: this.colonyDepotPositions(),
       resources,
       resourceNodes,
-      blueprints: this.loadedColonyBlueprints || [],
+      blueprints: persistedBlueprints,
       slimes,
       terrainQuery: (x, y) => colonyTerrainFromWorldCell(this.worldCellAt(x, y)),
       jobCellProvider: () => this.colonyWorkCells(),
@@ -3427,11 +3443,15 @@ export class SlimeGame {
       telegraph: 0, telegraphTarget: null,
       spawnAt: this.time,
     };
-    if (card.elite && this.state.buildings.some((building) => (
+    const weatherScout = this.state.buildings.find((building) => (
       building.cardId === 'building-weather-scout' && buildingIsOperational(building)
-    ))) {
+    ));
+    if (card.elite && weatherScout) {
       enemy.marked = true;
-      this.showToast('气象台已标记酸壳蜗王', 'good');
+      enemy.markedDamageTakenMultiplier = BUILDING_BY_ID[
+        weatherScout.cardId
+      ].effect.markedDamageTakenMultiplier;
+      this.showToast('气象台已标记精英目标', 'good');
     }
     this.state.enemies.push(enemy);
     const spawnPosition = this.entityCanvasPosition(enemy);
@@ -3887,7 +3907,9 @@ export class SlimeGame {
 
   damageEnemy(enemy, amount, source) {
     if (enemy.dead) return;
-    const multiplier = enemy.marked ? 1.15 : 1;
+    const multiplier = enemy.marked
+      ? enemy.markedDamageTakenMultiplier || 1.15
+      : 1;
     const damage = Math.round(
       amount * multiplier * (source?.expeditionDamageMultiplier || 1),
     );
@@ -3957,7 +3979,17 @@ export class SlimeGame {
 
   damageSurvivor(survivor, amount) {
     survivor.hitFlash = 1;
-    this.damageFriendly(survivor, amount, 'survivor');
+    const shelter = this.state.buildings.find((building) => {
+      if (building.cardId !== 'building-mushroom-home' || !buildingIsOperational(building)) {
+        return false;
+      }
+      const effect = BUILDING_BY_ID[building.cardId].effect;
+      return distance(building, survivor) <= effect.protectionRadiusTiles;
+    });
+    const multiplier = shelter
+      ? BUILDING_BY_ID[shelter.cardId].effect.allyDamageMultiplier
+      : 1;
+    this.damageFriendly(survivor, amount * multiplier, 'survivor');
   }
 
   damageFriendly(target, amount, kind) {
@@ -5172,7 +5204,7 @@ export class SlimeGame {
       if (building.underConstruction) ctx.globalAlpha *= 0.58;
       ctx.translate(centerX, centerY);
       ctx.scale(scale * zoom, scale * zoom);
-      drawBuilding(ctx, 0, 0, card.footprint.width > 1 ? 104 : 88, BUILDING_VARIANT[card.id], {
+      drawBuilding(ctx, 0, 0, BUILDING_WORLD_SLOT, BUILDING_VARIANT[card.id], {
         assetStore: this.assetStore,
         time: this.time,
         selected,
@@ -6382,7 +6414,7 @@ export class SlimeGame {
         ctx,
         centerX,
         centerY,
-        (card.footprint.width > 1 ? 104 : 88) * this.camera.zoom,
+        BUILDING_WORLD_SLOT * this.camera.zoom,
         BUILDING_VARIANT[card.id],
         {
           assetStore: this.assetStore,
@@ -7014,19 +7046,18 @@ export class SlimeGame {
   }
 
   cardGlyph(card) {
+    if (card.type === 'building') return '';
     const glyphs = {
       'survivor-shell-shell': '盾', 'survivor-crystal-pin': '晶', 'survivor-bubble-float': '泡', 'survivor-moss-sprout': '芽',
       'skill-jelly-bounce': '弹', 'skill-honey-line': '胶', 'skill-soft-swap': '换', 'skill-sprout-renewal': '春',
       'item-spring-pad': '垫', 'item-lure-jelly': '诱', 'item-moving-bubble': '搬',
-      'building-mushroom-home': '屋', 'building-honey-plot': '圃', 'building-bubble-tower': '塔',
-      'building-bouncy-fence': '栏', 'building-weather-scout': '测', 'building-gel-foundation': '铺',
     };
     return glyphs[card.id] || '胶';
   }
 
   cardAssetKey(card) {
     if (card.type === 'skill' || card.type === 'item') return `${card.id}-icon`;
-    if (card.type === 'survivor' || (card.type === 'building' && !card.terrainProject)) return card.id;
+    if (card.type === 'survivor' || card.type === 'building') return card.id;
     return null;
   }
 
@@ -7056,7 +7087,7 @@ export class SlimeGame {
         Math.max(1, rect.h - padding * 2),
         1,
       );
-    }, drawGlyph);
+    }, card.type === 'building' ? () => {} : drawGlyph);
   }
 
   drawMiniCard(ctx, id, rect, card, options, onTap, enabled = true) {
@@ -7108,7 +7139,7 @@ export class SlimeGame {
           rect.h - 24,
           card.type === 'survivor' || card.type === 'building' ? 1 : 0.5,
         );
-      }, drawGlyph);
+      }, card.type === 'building' ? () => {} : drawGlyph);
     } else {
       drawGlyph();
     }
@@ -7529,7 +7560,7 @@ export class SlimeGame {
     ctx.fillText('敌情预览', rect.x + 34, rect.y + 54);
     ctx.fillStyle = PALETTE.textMuted;
     ctx.font = '600 16px "PingFang SC", sans-serif';
-    ctx.fillText('侦察气象台已标出入口行；三波之间不会自动倒计时。', rect.x + 34, rect.y + 82);
+    ctx.fillText('三波敌情可随时查看；气象台会在战斗中标记精英目标。', rect.x + 34, rect.y + 82);
     ctx.restore();
 
     WAVES.forEach((wave, index) => {
@@ -8074,7 +8105,6 @@ export class SlimeGame {
       building.fenceTrigger = card.id === 'building-bouncy-fence' ? 1 : 0;
       building.cooldown = Math.random() * 0.35;
       building.shotCount = 0;
-      if (card.id === 'building-mushroom-home') building.shield = card.effect.shieldPerWave;
     });
     this.state.survivors.forEach((survivor) => {
       const card = SURVIVOR_BY_ID[survivor.cardId];
@@ -8086,8 +8116,6 @@ export class SlimeGame {
       survivor.hitCount = 0;
       survivor.attackCount = 0;
       if (card.id === 'survivor-shell-shell') survivor.shield = card.ability.shield;
-      const home = operationalBuildingAt(this.state.buildings, survivor.x, survivor.y);
-      if (home?.cardId === 'building-mushroom-home') survivor.shield += BUILDING_BY_ID[home.cardId].effect.shieldPerWave;
     });
     this.showToast(`第 ${index + 1} 波 · ${wave.name}`);
   }

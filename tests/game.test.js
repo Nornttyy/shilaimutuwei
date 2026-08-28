@@ -344,13 +344,13 @@ test('main background PNG replaces the whole vector scene and safely falls back'
   assert.equal(failing.calls.some(([name]) => name === 'fillRect'), true);
 });
 
-test('right-side card details use generated art with contained scaling and glyph fallback', () => {
+test('right-side details require building PNGs while other card types retain glyph fallback', () => {
   const building = BUILDINGS.find((card) => card.id === 'building-honey-plot');
   const skill = SKILLS.find((card) => card.id === 'skill-jelly-bounce');
   const item = ITEMS.find((card) => card.id === 'item-moving-bubble');
   const buildingArt = {
     key: building.id,
-    naturalWidth: 768,
+    naturalWidth: 512,
     naturalHeight: 512,
   };
   const skillArt = {
@@ -388,7 +388,7 @@ test('right-side card details use generated art with contained scaling and glyph
     call[0] === 'drawImage' && call[1] === buildingArt
   ));
   assert.ok(buildingCall, 'the selected building detail should request its generated PNG');
-  assert.ok(Math.abs(buildingCall[4] / buildingCall[5] - 1.5) < 1e-9);
+  assert.ok(Math.abs(buildingCall[4] / buildingCall[5] - 1) < 1e-9);
   assert.ok(buildingCall[4] <= 66 && buildingCall[5] <= 66);
 
   recording.calls.length = 0;
@@ -432,7 +432,22 @@ test('right-side card details use generated art with contained scaling and glyph
     { x: 0, y: 0, w: 78, h: 78 },
     { fallbackFontSize: 34 },
   );
-  assert.ok(fallbackTexts.includes(fallbackHarness.game.cardGlyph(building)));
+  assert.equal(
+    fallbackTexts.includes(fallbackHarness.game.cardGlyph(building)),
+    false,
+    'a missing production building PNG must not be replaced by a glyph',
+  );
+
+  fallbackHarness.game.drawCardArtwork(
+    fallbackRecording.ctx,
+    skill,
+    { x: 0, y: 0, w: 78, h: 78 },
+    { fallbackFontSize: 34 },
+  );
+  assert.ok(
+    fallbackTexts.includes(fallbackHarness.game.cardGlyph(skill)),
+    'non-building card types keep their existing fallback behavior',
+  );
 
   const throwingRecording = createRecordingContext({ throwOnDrawImage: true });
   const throwingTexts = [];
@@ -449,7 +464,7 @@ test('right-side card details use generated art with contained scaling and glyph
     ),
     false,
   );
-  assert.ok(throwingTexts.includes(throwingHarness.game.cardGlyph(building)));
+  assert.equal(throwingTexts.includes(throwingHarness.game.cardGlyph(building)), false);
 });
 
 test('character detail and mini-card art crops transparent margins without distorting the PNG', () => {
@@ -575,173 +590,117 @@ test('battlefield keeps the portal and moving-bubble shell behind depth-sorted a
   );
 });
 
-test('generated card and wide-building art is contained without changing its aspect ratio', () => {
-  const building = BUILDINGS.find((card) => card.id === 'building-honey-plot');
+test('all six building surfaces use their formal PNG and a 60px world slot', () => {
   const frame = { key: 'ui-card-frame-common', naturalWidth: 512, naturalHeight: 384 };
-  const art = { key: building.id, naturalWidth: 768, naturalHeight: 512 };
+  const buildingArt = new Map(BUILDINGS.map((card) => [card.id, {
+    key: card.id,
+    naturalWidth: 512,
+    naturalHeight: 512,
+  }]));
   const store = createReadyAssetStore(new Map([
     ['ui-card-frame-common', frame],
-    [building.id, art],
+    ...buildingArt,
   ]));
   const recording = createRecordingContext();
+  const scales = [];
+  recording.ctx.scale = (x, y) => scales.push([x, y]);
   const { game } = createHarness({ context: recording.ctx, assetStore: store });
+  game.state.phase = 'build';
+  game.state.buildings = BUILDINGS.map((card, index) => ({
+    uid: `formal-building-${index}`,
+    cardId: card.id,
+    x: 8 + index,
+    y: 7,
+    rotation: 0,
+    hp: card.hp,
+    maxHp: card.hp,
+    placedAt: -10,
+  }));
 
-  game.drawMiniCard(
-    recording.ctx,
-    'ratio-card',
-    { x: 20, y: 30, w: 134, h: 84 },
-    building,
-    { selected: false, disabled: false, meta: '' },
-    () => {},
+  game.drawBuildings(recording.ctx);
+
+  for (const art of buildingArt.values()) {
+    assert.ok(
+      recording.calls.some((call) => call[0] === 'drawImage' && call[1] === art),
+      `${art.key} should render its formal world PNG`,
+    );
+  }
+  assert.ok(
+    scales.filter(([x, y]) => (
+      Math.abs(x - 60 / 115) < 1e-9 && Math.abs(y - 60 / 115) < 1e-9
+    )).length >= BUILDINGS.length,
+    'every world building should use the 60px logical art slot',
   );
-  const cardArtCall = recording.calls.find((call) => call[0] === 'drawImage' && call[1] === art);
-  assert.ok(cardArtCall);
-  assert.ok(Math.abs(cardArtCall[4] / cardArtCall[5] - 1.5) < 1e-9);
-  assert.ok(cardArtCall[4] <= 40 && cardArtCall[5] <= 60);
   assert.equal(
-    recording.calls.filter((call) => call[0] === 'drawImage' && call[1] === frame).length,
-    9,
-    'the frame should use nine-slice drawing instead of one stretched bitmap',
+    scales.some(([x, y]) => Math.abs(x - 104 / 115) < 1e-9 || Math.abs(y - 104 / 115) < 1e-9),
+    false,
+  );
+  assert.equal(
+    scales.some(([x, y]) => Math.abs(x - 88 / 115) < 1e-9 || Math.abs(y - 88 / 115) < 1e-9),
+    false,
   );
 
   recording.calls.length = 0;
-  drawBuilding(recording.ctx, 0, 0, 104, 'farm', { assetStore: store });
-  const worldArtCall = recording.calls.find((call) => call[0] === 'drawImage' && call[1] === art);
-  assert.ok(worldArtCall);
-  assert.ok(Math.abs(worldArtCall[4] / worldArtCall[5] - 1.5) < 1e-9);
-  assert.ok(worldArtCall[4] <= 115 && worldArtCall[5] <= 115, 'world art stays inside its logical slot');
-});
-
-test('rotated wide buildings keep generated PNG art upright and center world effects on the footprint', () => {
-  const art = { key: 'building-honey-plot', naturalWidth: 768, naturalHeight: 512 };
-  const store = createReadyAssetStore(new Map([[art.key, art]]));
-  const recording = createRecordingContext();
-  const rotations = [];
-  const translations = [];
-  recording.ctx.rotate = (angle) => rotations.push(angle);
-  recording.ctx.translate = (x, y) => translations.push([x, y]);
-  const { game } = createHarness({ context: recording.ctx, assetStore: store });
-  const building = {
-    uid: 'rotated-plot',
-    cardId: 'building-honey-plot',
-    x: 10,
-    y: 7,
-    rotation: 90,
-    hp: 150,
-    maxHp: 150,
-    placedAt: -10,
-  };
-
-  game.drawBuildings(recording.ctx, [building]);
-
-  assert.deepEqual(game.entityCanvasPosition(building), { x: 512, y: 377 });
-  assert.deepEqual(translations[0], [512, 377]);
-  assert.deepEqual(
-    rotations,
-    [],
-    'a front-facing generated illustration must not be rolled sideways with its grid footprint',
+  game.drawBuildCards(recording.ctx);
+  for (const art of buildingArt.values()) {
+    assert.ok(
+      recording.calls.some((call) => call[0] === 'drawImage' && call[1] === art),
+      `${art.key} should render in the bottom building card`,
+    );
+  }
+  assert.equal(
+    recording.calls.filter((call) => call[0] === 'drawImage' && call[1] === frame).length,
+    BUILDINGS.length * 9,
+    'each building card should keep the generated nine-slice frame',
   );
-  assert.ok(recording.calls.some((call) => call[0] === 'drawImage' && call[1] === art));
 });
 
-test('building placement preview paints every rotated footprint cell and keeps its ghost upright', () => {
-  const validTile = { key: 'tile-placement-valid' };
-  const art = { key: 'building-honey-plot', naturalWidth: 768, naturalHeight: 512 };
-  const store = createReadyAssetStore(new Map([
-    [validTile.key, validTile],
-    [art.key, art],
-  ]));
-  const recording = createRecordingContext();
-  const rotations = [];
-  recording.ctx.rotate = (angle) => rotations.push(angle);
-  const { game } = createHarness({ context: recording.ctx, assetStore: store });
-  game.state.phase = 'build';
-  game.state.buildings = [];
-  game.selection = {
-    kind: 'place-building',
-    cardId: 'building-honey-plot',
-    rotation: 90,
-  };
-  game.hoverCell = { x: 14, y: 4 };
+test('missing building PNGs never invoke procedural building art or building glyphs', () => {
+  const missingStore = createReadyAssetStore([]);
+  const variants = ['hut', 'farm', 'tower', 'fence', 'weather', 'paver'];
+  let emptySlotTrace = null;
+  for (const variant of variants) {
+    const recording = createDynamicEffectRecordingContext();
+    drawBuilding(recording.ctx, 0, 0, 60, variant, { assetStore: missingStore });
+    assert.equal(recording.calls.some(([name]) => name === 'drawImage'), false, variant);
+    const trace = normalizedCallTrace(recording.calls, new Set([
+      'arc', 'ellipse', 'lineTo', 'quadraticCurveTo', 'bezierCurveTo',
+      'stroke', 'fill', 'translate', 'rotate', 'scale', 'drawImage',
+    ]));
+    if (emptySlotTrace === null) emptySlotTrace = trace;
+    else assert.deepEqual(
+      trace,
+      emptySlotTrace,
+      `${variant} must not add a variant-specific procedural building fallback`,
+    );
+  }
 
-  game.drawSelectionOverlay(recording.ctx);
-
-  const footprintCalls = recording.calls.filter((call) => (
-    call[0] === 'drawImage' && call[1] === validTile
-  ));
-  assert.deepEqual(
-    footprintCalls.map((call) => ({ x: call[2], y: call[3] })),
-    [{ x: 740, y: 76 }, { x: 740, y: 140 }],
-  );
-  assert.ok(recording.calls.some((call) => call[0] === 'drawImage' && call[1] === art));
-  assert.deepEqual(rotations, []);
-});
-
-test('moving a wide building previews rotation, cancels safely, rejects invalid cells, then commits', () => {
   const recording = createRecordingContext();
   const texts = [];
-  recording.ctx.fillText = (value, ...args) => texts.push([String(value), ...args]);
-  const { game } = createHarness({ context: recording.ctx });
-  const building = {
-    uid: 'moving-plot',
-    cardId: 'building-honey-plot',
-    x: 10,
-    y: 7,
-    rotation: 0,
-    hp: 150,
-    maxHp: 150,
-    placedAt: -10,
-  };
-  game.state.phase = 'build';
-  game.state.buildings = [building];
-  game.selection = { kind: 'move-building', uid: building.uid, rotation: building.rotation };
-
-  game.rotateSelection();
-
-  assert.equal(game.selection.rotation, 90);
-  assert.equal(building.rotation, 0, 'previewing a move must leave the placed direction unchanged');
-  assert.equal(game.selectionCellIsValid({ x: 14, y: 4 }), true);
-  game.drawBuildSide(recording.ctx);
-  assert.ok(texts.some(([text]) => text === '1×2 · 胶4 蜜2'));
-
-  const cancel = game.hits.find(({ id }) => id === 'cancel-move');
-  assert.ok(cancel);
-  cancel.onTap();
-  assert.equal(game.selection, null);
-  assert.deepEqual(
-    { x: building.x, y: building.y, rotation: building.rotation },
-    { x: 10, y: 7, rotation: 0 },
-    'canceling must preserve the placed building exactly',
-  );
-
-  game.selection = { kind: 'move-building', uid: building.uid, rotation: building.rotation };
-  game.rotateSelection();
-  assert.equal(game.selectionCellIsValid({ x: 0, y: 9 }), false);
-  game.handleBuildCellTap({ x: 0, y: 9 });
-  assert.deepEqual(
-    { x: building.x, y: building.y, rotation: building.rotation },
-    { x: 10, y: 7, rotation: 0 },
-    'an invalid rotated footprint must not mutate the placed building',
-  );
-
-  game.handleBuildCellTap({ x: 14, y: 4 });
-
-  assert.deepEqual(
-    { x: building.x, y: building.y, rotation: building.rotation },
-    { x: 14, y: 4, rotation: 90 },
-  );
-  assert.deepEqual(game.selection, { kind: 'inspect-building', uid: building.uid });
+  recording.ctx.fillText = (value) => texts.push(String(value));
+  const { game } = createHarness({ context: recording.ctx, assetStore: missingStore });
+  for (const card of BUILDINGS) {
+    texts.length = 0;
+    assert.equal(
+      game.drawCardArtwork(recording.ctx, card, { x: 0, y: 0, w: 78, h: 78 }),
+      false,
+    );
+    assert.equal(texts.includes(game.cardGlyph(card)), false, card.id);
+  }
 });
 
-test('one complete fence object occupies two cells and rotates without moving the placed object', () => {
-  const fence = BUILDINGS.find((card) => card.id === 'building-bouncy-fence');
-  assert.deepEqual(fence.footprint, { width: 2, height: 1 });
-
+test('all building previews stay on one tile, use formal art, and expose no rotation UI', () => {
   const validTile = { key: 'tile-placement-valid' };
-  const art = { key: fence.id, naturalWidth: 768, naturalHeight: 512 };
+  const invalidTile = { key: 'tile-placement-invalid' };
+  const buildingArt = new Map(BUILDINGS.map((card) => [card.id, {
+    key: card.id,
+    naturalWidth: 512,
+    naturalHeight: 512,
+  }]));
   const store = createReadyAssetStore(new Map([
     [validTile.key, validTile],
-    [art.key, art],
+    [invalidTile.key, invalidTile],
+    ...buildingArt,
   ]));
   const recording = createRecordingContext();
   const scales = [];
@@ -749,111 +708,38 @@ test('one complete fence object occupies two cells and rotates without moving th
   const { game } = createHarness({ context: recording.ctx, assetStore: store });
   game.state.phase = 'build';
   game.state.buildings = [];
-  game.selection = { kind: 'place-building', cardId: fence.id, rotation: 0 };
   game.hoverCell = { x: 14, y: 4 };
 
-  game.rotateSelection();
-  assert.equal(game.selection.rotation, 90, 'the two-cell footprint rotates as one fence object');
-  game.drawSelectionOverlay(recording.ctx);
+  for (const card of BUILDINGS) {
+    recording.calls.length = 0;
+    scales.length = 0;
+    game.hits = [];
+    game.selection = { kind: 'place-building', cardId: card.id, rotation: 0 };
+    game.drawSelectionOverlay(recording.ctx);
 
-  const footprintCalls = recording.calls.filter((call) => (
-    call[0] === 'drawImage' && call[1] === validTile
-  ));
-  assert.deepEqual(
-    footprintCalls.map((call) => ({ x: call[2], y: call[3] })),
-    [{ x: 740, y: 76 }, { x: 740, y: 140 }],
-    'one complete fence object must preview both occupied cells',
-  );
-  assert.ok(
-    scales.some(([x, y]) => Math.abs(x - 104 / 115) < 1e-9 && Math.abs(y - 104 / 115) < 1e-9),
-    'the two-cell fence must use the wide-building world slot',
-  );
+    const footprintCalls = recording.calls.filter((call) => (
+      call[0] === 'drawImage' && (call[1] === validTile || call[1] === invalidTile)
+    ));
+    assert.equal(footprintCalls.length, 1, `${card.id} must preview exactly one occupied tile`);
+    assert.ok(
+      recording.calls.some((call) => call[0] === 'drawImage' && call[1] === buildingArt.get(card.id)),
+      `${card.id} preview should use its formal PNG`,
+    );
+    assert.ok(scales.some(([x, y]) => (
+      Math.abs(x - 60 / 115) < 1e-9 && Math.abs(y - 60 / 115) < 1e-9
+    )), `${card.id} preview must use the 60px slot`);
 
-  const fenceRingMoves = [];
-  recording.ctx.moveTo = (...args) => fenceRingMoves.push(args);
-  drawBuilding(recording.ctx, 0, 0, 104, 'fence', {
-    assetStore: store,
-    ghost: true,
-    valid: true,
-  });
-  assert.ok(
-    fenceRingMoves.some(([moveX, moveY]) => (
-      Math.abs(moveX + 104 * 0.47) < 1e-9
-      && Math.abs(moveY) < 1e-9
-    )),
-    'the ghost ring must remain centered on the single wide fence object',
-  );
-
-  game.hits = [];
-  game.drawBuildSide(recording.ctx);
-  assert.equal(game.hits.some(({ id }) => id === 'rotate-new'), true);
-
-  const placedFence = {
-    uid: 'two-cell-fence',
-    cardId: fence.id,
-    x: 2,
-    y: 1,
-    rotation: 0,
-    hp: fence.hp,
-    maxHp: fence.hp,
-    placedAt: -10,
-  };
-  game.state.buildings = [placedFence];
-  game.selection = { kind: 'inspect-building', uid: placedFence.uid };
-  game.hits = [];
-  game.drawBuildSide(recording.ctx);
-  assert.equal(game.hits.some(({ id }) => id === 'rotate-building'), true);
-  game.rotateSelection();
-  assert.deepEqual(game.selection, {
-    kind: 'move-building',
-    uid: placedFence.uid,
-    rotation: 90,
-  });
-  assert.deepEqual(
-    { x: placedFence.x, y: placedFence.y, rotation: placedFence.rotation },
-    { x: 2, y: 1, rotation: 0 },
-    'opening the rotated preview must not teleport or mutate the placed fence',
-  );
-  assert.equal(placedFence.rotation, 0);
+    recording.calls.length = 0;
+    game.drawBuildSide(recording.ctx);
+    assert.ok(
+      recording.calls.some((call) => call[0] === 'drawImage' && call[1] === buildingArt.get(card.id)),
+      `${card.id} right-side details should use its formal PNG`,
+    );
+    assert.equal(game.hits.some(({ id }) => id === 'rotate-new'), false, card.id);
+  }
 });
 
-test('inspecting rotation opens a pending preview without moving, saving, or committing', () => {
-  const { game, storage } = createHarness();
-  const building = {
-    uid: 'stable-plot',
-    cardId: 'building-honey-plot',
-    x: 2,
-    y: 3,
-    rotation: 0,
-    hp: 150,
-    maxHp: 150,
-    placedAt: -10,
-  };
-  game.state.phase = 'build';
-  game.state.buildings = [building];
-  game.selection = { kind: 'inspect-building', uid: building.uid };
-
-  game.rotateSelection();
-
-  assert.deepEqual(
-    { x: building.x, y: building.y, rotation: building.rotation },
-    { x: 2, y: 3, rotation: 0 },
-    'rotation must not move or mutate the placed building before confirmation',
-  );
-  assert.deepEqual(game.selection, {
-    kind: 'move-building',
-    uid: building.uid,
-    rotation: 90,
-  });
-  assert.equal(storage.size, 0, 'opening a rotation preview must not write a save');
-  game.selection = null;
-  assert.deepEqual(
-    { x: building.x, y: building.y, rotation: building.rotation },
-    { x: 2, y: 3, rotation: 0 },
-  );
-});
-
-test('saved fences remain one rotatable object with a two-cell footprint', () => {
+test('single-cell buildings ignore rotation and legacy saved directions normalize to zero', () => {
   const { game, storage } = createHarness();
   game.save();
   const storageKey = storage.keys().next().value;
@@ -861,7 +747,7 @@ test('saved fences remain one rotatable object with a two-cell footprint', () =>
     softCrystals: 160,
     tutorialSeen: true,
     buildings: [
-      { cardId: 'building-bouncy-fence', x: 4, y: 3, rotation: 90, hp: 340, maxHp: 340 },
+      { cardId: 'building-bouncy-fence', x: 4, y: 3, rotation: 90, hp: 200, maxHp: 340 },
       { cardId: 'building-honey-plot', x: 1, y: 1, rotation: 90, hp: 150, maxHp: 150 },
     ],
   }));
@@ -870,24 +756,29 @@ test('saved fences remain one rotatable object with a two-cell footprint', () =>
 
   const fence = game.state.buildings.find(({ cardId }) => cardId === 'building-bouncy-fence');
   const plot = game.state.buildings.find(({ cardId }) => cardId === 'building-honey-plot');
-  assert.deepEqual({ x: fence.x, y: fence.y, rotation: fence.rotation }, { x: 4, y: 3, rotation: 90 });
-  assert.equal(
-    game.state.buildings.filter(({ cardId }) => cardId === 'building-bouncy-fence').length,
-    1,
-    'the two occupied cells must not be serialized as two separate fence objects',
-  );
+  assert.equal(fence.rotation, 0);
+  assert.equal(plot.rotation, 0);
+
   game.state.phase = 'build';
-  game.selection = null;
-  game.handleBuildCellTap({ x: 4, y: 4 });
-  assert.deepEqual(game.selection, { kind: 'inspect-building', uid: fence.uid });
-  assert.equal(plot.rotation, 90, 'a genuinely wide building must retain its saved direction');
+  for (const building of [fence, plot]) {
+    game.selection = { kind: 'inspect-building', uid: building.uid };
+    game.hits = [];
+    game.drawBuildSide(game.ctx);
+    assert.equal(game.hits.some(({ id }) => id === 'rotate-building'), false, building.cardId);
+    game.rotateSelection();
+    assert.deepEqual(game.selection, { kind: 'inspect-building', uid: building.uid });
+
+    game.selection = { kind: 'move-building', uid: building.uid, rotation: 0 };
+    game.hits = [];
+    game.drawBuildSide(game.ctx);
+    assert.equal(game.hits.some(({ id }) => id === 'rotate-move'), false, building.cardId);
+    game.rotateSelection();
+    assert.equal(game.selection.rotation, 0);
+  }
 
   game.save();
   const resaved = JSON.parse(storage.get(storageKey));
-  assert.equal(
-    resaved.buildings.find(({ cardId }) => cardId === 'building-bouncy-fence').rotation,
-    90,
-  );
+  assert.ok(resaved.buildings.every(({ rotation }) => rotation === 0));
 });
 
 test('placement, danger rings, and combat statuses request their dedicated PNG layers', () => {
@@ -1302,6 +1193,7 @@ test('game routes world, UI, projectile, status, and particle slots through the 
     'tile-honey-puddle', 'tile-crystal-spikes',
     'tile-building-rubble', 'building-mushroom-home', 'building-honey-plot',
     'building-bubble-tower', 'building-bouncy-fence', 'building-weather-scout',
+    'building-gel-foundation',
     'town-soft-core', 'rift-entry-portal', 'item-spring-pad-world', 'item-lure-jelly-world',
     'background-garden-base', 'background-cloud-overlay', 'background-foreground-grass',
     'effect-projectile-goo', 'effect-projectile-needle', 'effect-projectile-bubble',
@@ -1488,7 +1380,7 @@ test('all survivor rigs resolve damage, hurt, and hit particles at the attack hi
     game.updateEntityAnimations(game.animationClipsFor(cardId).attack.duration);
     assert.equal(enemy.hp, hpAfterHit, 'a drained hit event must settle exactly once');
 
-    game.damageSurvivor(survivor, survivor.hp);
+    game.damageSurvivor(survivor, survivor.maxHp * 2);
     assert.equal(survivor.downed, true);
     assert.equal(game.animators.get(survivor.uid)?.controller.current, 'downed');
   }
@@ -1718,7 +1610,7 @@ test('death and downed states immediately cancel committed attack impacts', () =
   const targetHp = target.hp;
 
   assert.equal(survivorGame.performSurvivorAction(shell), true);
-  survivorGame.damageSurvivor(shell, shell.hp);
+  survivorGame.damageSurvivor(shell, shell.maxHp * 2);
   assert.equal(shell.downed, true);
   assert.equal(survivorGame.pendingAttackHits.has(shell.uid), false);
   survivorGame.updateEntityAnimations(SHELL_CLIPS.attack.duration);

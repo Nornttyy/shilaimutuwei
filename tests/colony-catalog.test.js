@@ -312,6 +312,86 @@ test('all building and terrain-project recipes are complete and the starting res
   }
 });
 
+test('all six construction cards use one cell and the rebalanced material contracts', () => {
+  const expected = {
+    'building-mushroom-home': {
+      recipe: { 'soft-gel': 7, 'dew-honey': 3 },
+      constructionSeconds: 10,
+      effect: {
+        kind: 'nearby-protection',
+        protectionRadiusTiles: 1.5,
+        allyDamageMultiplier: 0.8,
+      },
+    },
+    'building-honey-plot': {
+      recipe: { 'soft-gel': 2, 'dew-honey': 1 },
+      constructionSeconds: 6,
+      effect: { kind: 'enemy-slow', speedMultiplier: 0.62 },
+    },
+    'building-bubble-tower': {
+      recipe: { 'soft-gel': 6, 'dew-honey': 2, 'crystal-shard': 4 },
+      constructionSeconds: 15,
+      effect: {
+        kind: 'defense',
+        damage: 13,
+        rangeCells: 4.8,
+        attackIntervalSeconds: 2.15,
+        pushEveryShots: 3,
+      },
+    },
+    'building-bouncy-fence': {
+      recipe: { 'soft-gel': 2, 'crystal-shard': 1 },
+      constructionSeconds: 5,
+      effect: {
+        kind: 'route-control',
+        triggersPerWave: 1,
+        knockbackCells: 1,
+        maxPushWeight: 1,
+        heavyStaggerSeconds: 1,
+      },
+    },
+    'building-weather-scout': {
+      recipe: { 'soft-gel': 4, 'dew-honey': 2, 'crystal-shard': 3 },
+      constructionSeconds: 12,
+      effect: {
+        kind: 'elite-mark',
+        markElites: true,
+        markedDamageTakenMultiplier: 1.15,
+      },
+    },
+    'building-gel-foundation': {
+      recipe: { 'soft-gel': 1 },
+      constructionSeconds: 2,
+      effect: { kind: 'terrain-foundation', replacementTerrainId: 'ground' },
+    },
+  };
+
+  for (const [buildingId, contract] of Object.entries(expected)) {
+    assert.deepEqual(CARD_BY_ID[buildingId].footprint, { width: 1, height: 1 });
+    assert.deepEqual(BUILDING_RECIPE_BY_ID[buildingId].footprint, { width: 1, height: 1 });
+    assert.deepEqual(BUILDING_RECIPE_BY_ID[buildingId].recipe, contract.recipe);
+    assert.equal(
+      BUILDING_RECIPE_BY_ID[buildingId].constructionSeconds,
+      contract.constructionSeconds,
+    );
+    assert.deepEqual(BUILDING_RECIPE_BY_ID[buildingId].effect, contract.effect);
+  }
+
+  const fence = CARD_BY_ID['building-bouncy-fence'];
+  assert.equal(fence.hp, 200);
+  assert.doesNotMatch(fence.description, /两格|二格|2×1/);
+  assert.equal(
+    Object.values(BUILDING_RECIPE_BY_ID)
+      .some(({ effect }) => effect.kind === 'resource-production'),
+    false,
+    'the recipe catalog must not advertise an unimplemented passive resource output',
+  );
+  assert.deepEqual(
+    recipeTotal(Object.keys(expected)),
+    { 'soft-gel': 22, 'dew-honey': 8, 'crystal-shard': 8 },
+  );
+});
+
 test('four slime jobs preserve character identity and distinct work advantages', () => {
   assert.equal(SLIME_JOBS.length, 4);
   assert.equal(new Set(SLIME_JOBS.map(({ id }) => id)).size, 4);

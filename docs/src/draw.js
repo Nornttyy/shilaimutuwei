@@ -1855,33 +1855,11 @@ const BUILDING_ASSET_BY_TYPE = Object.freeze({
   tower: 'building-bubble-tower',
   fence: 'building-bouncy-fence',
   weather: 'building-weather-scout',
+  paver: 'building-gel-foundation',
 });
 
-function drawPaverLocal(ctx) {
-  const gradient = ctx.createLinearGradient?.(-42, -34, 42, 12);
-  if (gradient?.addColorStop) {
-    gradient.addColorStop(0, '#B8FFD0');
-    gradient.addColorStop(0.52, '#63DDA5');
-    gradient.addColorStop(1, '#2DAA82');
-  }
-  drawRoundedRect(ctx, -45, -36, 90, 48, {
-    radius: 18,
-    fill: gradient || '#63DDA5',
-    stroke: PALETTE.inkSoft,
-    lineWidth: 5,
-  });
-  drawRoundedRect(ctx, -31, -27, 50, 12, {
-    radius: 8,
-    fill: 'rgba(255,255,255,0.68)',
-  });
-  ctx.fillStyle = 'rgba(33,132,105,0.34)';
-  ctx.beginPath();
-  ctx.ellipse(17, -2, 18, 7, -0.15, 0, TAU);
-  ctx.fill();
-}
-
 /**
- * Draw a functional toy-like building or a temporary terrain paver blueprint.
+ * Draw one formal generated building sprite, including the terrain paver.
  * `typeOrOptions`: 'hut' | 'farm' | 'tower' | 'fence' | 'weather' | 'paver', or an options object.
  */
 export function drawBuilding(ctx, x, y, size, typeOrOptions = 'hut', maybeOptions = {}) {
@@ -1889,7 +1867,7 @@ export function drawBuilding(ctx, x, y, size, typeOrOptions = 'hut', maybeOption
   const type = ['hut', 'farm', 'tower', 'fence', 'weather', 'paver'].includes(typeRaw) ? typeRaw : 'hut';
   const time = safeNumber(options.time, 0);
   const bob = options.active ? Math.sin(time * 4.2 + (options.phase || 0)) * size * 0.008 : 0;
-  const footprintScale = type === 'farm' ? 1.12 : 1;
+  const footprintScale = 1;
 
   drawSelectionRing(ctx, x, y + size * 0.01, size * footprintScale, options);
   drawSoftShadow(ctx, x, y + size * 0.025, size, {
@@ -1903,24 +1881,17 @@ export function drawBuilding(ctx, x, y, size, typeOrOptions = 'hut', maybeOption
   ctx.translate(x, y + bob);
   const unit = size / 115;
   ctx.scale(unit, unit);
-  if (type === 'paver') {
-    drawPaverLocal(ctx, options);
-  } else {
-    drawAssetOrFallback(ctx, options.assetStore, BUILDING_ASSET_BY_TYPE[type], (asset) => {
-      const sourceWidth = Number(asset?.naturalWidth || asset?.videoWidth || asset?.width) || 1;
-      const sourceHeight = Number(asset?.naturalHeight || asset?.videoHeight || asset?.height) || 1;
-      const imageScale = Math.min(115 / sourceWidth, 115 / sourceHeight);
-      const imageWidth = sourceWidth * imageScale;
-      const imageHeight = sourceHeight * imageScale;
-      ctx.drawImage(asset, -imageWidth / 2, 5 - imageHeight, imageWidth, imageHeight);
-    }, () => {
-      if (type === 'hut') drawHutLocal(ctx, options);
-      if (type === 'farm') drawFarmLocal(ctx, options);
-      if (type === 'tower') drawTowerLocal(ctx, options);
-      if (type === 'fence') drawFenceLocal(ctx, options);
-      if (type === 'weather') drawWeatherLocal(ctx, options);
-    });
-  }
+  // Placeable buildings are production art: if a required PNG cannot be
+  // decoded, keep the slot empty instead of silently changing its appearance
+  // to one of the old procedural stand-ins.
+  drawAssetOrFallback(ctx, options.assetStore, BUILDING_ASSET_BY_TYPE[type], (asset) => {
+    const sourceWidth = Number(asset?.naturalWidth || asset?.videoWidth || asset?.width) || 1;
+    const sourceHeight = Number(asset?.naturalHeight || asset?.videoHeight || asset?.height) || 1;
+    const imageScale = Math.min(115 / sourceWidth, 115 / sourceHeight);
+    const imageWidth = sourceWidth * imageScale;
+    const imageHeight = sourceHeight * imageScale;
+    ctx.drawImage(asset, -imageWidth / 2, 5 - imageHeight, imageWidth, imageHeight);
+  }, () => {});
   const damage = clamp(options.damage || 0);
   if (damage > 0.25) {
     drawAssetOrFallback(ctx, options.assetStore, 'effect-damage-cracks-overlay', (asset) => {

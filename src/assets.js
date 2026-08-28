@@ -1,9 +1,9 @@
 /**
- * Optional PNG asset loading for the browser and WeChat Mini Game runtimes.
+ * PNG asset loading for the browser and WeChat Mini Game runtimes.
  *
- * The current game remains fully renderable through draw.js. These files are
- * deliberately optional: a missing image, unsupported Image API, or drawing
- * error always leaves callers free to use the existing vector renderer.
+ * Formal building art and first-screen gameplay art are preloaded as critical
+ * assets. Other decorative images may still use their dedicated runtime
+ * fallback while they stream in.
  */
 
 const generatedAssetUrl = (relativePath) => (
@@ -25,6 +25,7 @@ export const CRITICAL_STARTUP_ASSET_KEYS = Object.freeze([
   'building-bubble-tower',
   'building-bouncy-fence',
   'building-weather-scout',
+  'building-gel-foundation',
   'terrain-soft-gel-node-a',
   'terrain-dew-honey-node-a',
   'terrain-crystal-shard-node-a',
@@ -75,6 +76,7 @@ const DECLARED_ASSET_PATHS = {
   'building-bubble-tower': generatedAssetUrl('building/building-bubble-tower.png'),
   'building-bouncy-fence': generatedAssetUrl('building/building-bouncy-fence.png'),
   'building-weather-scout': generatedAssetUrl('building/building-weather-scout.png'),
+  'building-gel-foundation': generatedAssetUrl('building/building-gel-foundation.png'),
   'skill-jelly-bounce-icon': generatedAssetUrl('skill/skill-jelly-bounce-icon.png'),
   'skill-honey-line-icon': generatedAssetUrl('skill/skill-honey-line-icon.png'),
   'skill-soft-swap-icon': generatedAssetUrl('skill/skill-soft-swap-icon.png'),

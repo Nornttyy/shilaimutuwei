@@ -139,6 +139,141 @@ test('legacy saves without starter node remainders rebuild authored nodes and re
   assert.equal(restored.state.colony.resourceNodes.find(({ uid }) => uid === infiniteNode.uid).amount, 1);
 });
 
+test('legacy construction footprints migrate from current cards without losing progress or materials', () => {
+  const storage = new Map();
+  const seed = createGame(storage);
+  seed.save();
+  const storageKey = storage.keys().next().value;
+  const payload = JSON.parse(storage.get(storageKey));
+  const tower = BUILDINGS.find(({ id }) => id === 'building-bubble-tower');
+  const foundation = BUILDINGS.find(({ id }) => id === 'building-gel-foundation');
+  const terrainProject = {
+    replacementTerrainId: 'ground',
+    allowBuildableGround: false,
+    allowHarvestableTerrain: true,
+  };
+  payload.colonyResources = { gel: 9, nectar: 6, shard: 4 };
+  payload.buildings = [
+    {
+      cardId: tower.id,
+      x: 8,
+      y: 5,
+      rotation: 90,
+      hp: tower.hp,
+      maxHp: tower.hp,
+      underConstruction: true,
+      blueprintUid: 'legacy-wide-tower',
+      buildProgress: 0.36,
+    },
+    {
+      cardId: foundation.id,
+      x: 3,
+      y: 6,
+      rotation: 90,
+      hp: foundation.hp,
+      maxHp: foundation.hp,
+      underConstruction: true,
+      blueprintUid: 'legacy-tall-foundation',
+      buildProgress: 0.4,
+    },
+  ];
+  payload.colonyBlueprints = [
+    {
+      uid: 'legacy-wide-tower',
+      cardId: tower.id,
+      x: 8,
+      y: 5,
+      footprint: { width: 2, height: 1 },
+      required: { gel: 7, nectar: 2, shard: 6 },
+      delivered: { gel: 3, nectar: 1, shard: 2 },
+      buildSeconds: 18,
+      buildProgress: 6.5,
+      terrainProject: null,
+    },
+    {
+      uid: 'legacy-tall-foundation',
+      cardId: foundation.id,
+      x: 3,
+      y: 6,
+      footprint: { width: 1, height: 2 },
+      required: { gel: 2, nectar: 0, shard: 0 },
+      delivered: { gel: 1, nectar: 0, shard: 0 },
+      buildSeconds: 3,
+      buildProgress: 1.2,
+      terrainProject,
+    },
+  ];
+  storage.set(storageKey, JSON.stringify(payload));
+
+  const restored = createGame(storage);
+  const restoredTower = restored.state.buildings.find(({ blueprintUid }) => (
+    blueprintUid === 'legacy-wide-tower'
+  ));
+  const restoredFoundation = restored.state.buildings.find(({ blueprintUid }) => (
+    blueprintUid === 'legacy-tall-foundation'
+  ));
+  const towerPlan = restored.state.colony.blueprints.find(({ uid }) => uid === 'legacy-wide-tower');
+  const foundationPlan = restored.state.colony.blueprints.find(({ uid }) => (
+    uid === 'legacy-tall-foundation'
+  ));
+
+  assert.deepEqual(restored.state.colony.resources, payload.colonyResources);
+  assert.equal(restoredTower.rotation, 0);
+  assert.equal(restoredFoundation.rotation, 0);
+  assert.deepEqual(towerPlan.footprint, { width: 1, height: 1 });
+  assert.deepEqual(foundationPlan.footprint, { width: 1, height: 1 });
+  assert.deepEqual(
+    {
+      uid: towerPlan.uid,
+      cardId: towerPlan.cardId,
+      required: towerPlan.required,
+      delivered: towerPlan.delivered,
+      buildSeconds: towerPlan.buildSeconds,
+      buildProgress: towerPlan.buildProgress,
+      terrainProject: towerPlan.terrainProject,
+    },
+    {
+      uid: 'legacy-wide-tower',
+      cardId: tower.id,
+      required: { gel: 7, nectar: 2, shard: 6 },
+      delivered: { gel: 3, nectar: 1, shard: 2 },
+      buildSeconds: 18,
+      buildProgress: 6.5,
+      terrainProject: null,
+    },
+  );
+  assert.deepEqual(foundationPlan.terrainProject, terrainProject);
+  const materialTotals = (game) => Object.fromEntries(
+    ['gel', 'nectar', 'shard'].map((type) => [
+      type,
+      game.state.colony.resources[type]
+        + game.state.colony.blueprints.reduce((sum, blueprint) => (
+          sum + (blueprint.delivered[type] || 0)
+        ), 0),
+    ]),
+  );
+  assert.deepEqual(materialTotals(restored), { gel: 13, nectar: 7, shard: 6 });
+
+  restored.selection = {
+    kind: 'place-building',
+    cardId: 'building-weather-scout',
+    rotation: 0,
+  };
+  assert.equal(
+    restored.selectionCellIsValid({ x: 9, y: 5 }),
+    true,
+    'the obsolete second cell of the 2×1 blueprint is released',
+  );
+
+  restored.save();
+  const resaved = JSON.parse(storage.get(storageKey));
+  assert.ok(resaved.buildings.every(({ rotation }) => rotation === 0));
+  assert.ok(resaved.colonyBlueprints.every(({ footprint }) => (
+    footprint.width === 1 && footprint.height === 1
+  )));
+  assert.deepEqual(resaved.colonyResources, payload.colonyResources);
+});
+
 test('building placement uses terrain capabilities and reserves the base core', () => {
   const game = createGame();
   const tower = BUILDINGS.find(({ id }) => id === 'building-bubble-tower');
@@ -220,7 +355,7 @@ test('all construction uses material blueprints and may wait for missing stockpi
   ));
   const blueprint = game.state.colony.blueprints.find(({ uid }) => uid === building.blueprintUid);
   assert.equal(building.underConstruction, true);
-  assert.deepEqual(blueprint.required, { gel: 7, nectar: 2, shard: 6 });
+  assert.deepEqual(blueprint.required, { gel: 6, nectar: 2, shard: 4 });
   assert.deepEqual(blueprint.delivered, { gel: 0, nectar: 0, shard: 0 });
   assert.match(game.toast.text, /缺料时会等待采集/);
 });
@@ -345,6 +480,60 @@ test('zero-material construction ghosts cannot act as walls, towers, honey field
   game.selection = { kind: 'target-card', cardType: 'skill', cardId: 'skill-sprout-renewal' };
   assert.equal(game.selectionCellIsValid({ x: tower.x, y: tower.y }), false, 'construction ghosts cannot receive building repair effects');
   assert.equal(scout.underConstruction, true);
+});
+
+test('mushroom homes protect nearby slimes and weather scouts amplify elite damage', () => {
+  const game = createGame();
+  game.state.colonyDirector.nextPackAt = Infinity;
+  const home = game.state.buildings.find(({ cardId }) => cardId === 'building-mushroom-home');
+  const survivor = game.state.survivors.find(({ cardId }) => cardId === 'survivor-shell-shell');
+  assert.ok(home);
+  assert.ok(survivor);
+
+  survivor.shield = 0;
+  survivor.hp = 100;
+  survivor.x = home.x + 1;
+  survivor.y = home.y;
+  game.damageSurvivor(survivor, 10);
+  assert.equal(survivor.hp, 92, 'a completed nearby home applies its 20% damage reduction');
+
+  survivor.hp = 100;
+  survivor.x = home.x + 3;
+  game.damageSurvivor(survivor, 10);
+  assert.equal(survivor.hp, 90, 'the shelter effect does not reach distant slimes');
+
+  survivor.hp = 100;
+  survivor.x = home.x + 1;
+  home.underConstruction = true;
+  game.damageSurvivor(survivor, 10);
+  assert.equal(survivor.hp, 90, 'an unfinished home cannot protect slimes');
+  home.underConstruction = false;
+
+  const weatherCard = BUILDINGS.find(({ id }) => id === 'building-weather-scout');
+  const weather = {
+    uid: 'operational-weather-scout',
+    cardId: weatherCard.id,
+    x: 6,
+    y: 6,
+    rotation: 0,
+    hp: weatherCard.hp,
+    maxHp: weatherCard.hp,
+    destroyed: false,
+    underConstruction: false,
+  };
+  game.state.buildings.push(weather);
+  const marked = game.spawnEnemyAtWorld('enemy-acid-shell-king', { x: 20, y: 8 });
+  assert.equal(marked.marked, true);
+  const markedHp = marked.hp;
+  game.damageEnemy(marked, 10, { color: '#FFFFFF' });
+  assert.equal(markedHp - marked.hp, 12, '15% bonus rounds a 10 damage hit to 12');
+
+  weather.underConstruction = true;
+  const unmarked = game.spawnEnemyAtWorld('enemy-acid-shell-king', { x: 20, y: 9 });
+  assert.equal(unmarked.marked, false, 'an unfinished weather scout cannot mark elites');
+  const unmarkedHp = unmarked.hp;
+  game.damageEnemy(unmarked, 10, { color: '#FFFFFF' });
+  assert.equal(unmarkedHp - unmarked.hp, 10);
 });
 
 test('destroyed or externally removed construction ghosts retire blueprints and refund every committed material', () => {

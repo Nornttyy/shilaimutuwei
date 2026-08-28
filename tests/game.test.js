@@ -111,6 +111,60 @@ function createRecordingContext({ throwOnDrawImage = false } = {}) {
   return { ctx, calls };
 }
 
+function createTransformRecordingContext() {
+  const ctx = createContext();
+  const calls = [];
+  const stack = [];
+  let matrix = [1, 0, 0, 1, 0, 0];
+  const transformPoint = (x, y) => ({
+    x: matrix[0] * x + matrix[2] * y + matrix[4],
+    y: matrix[1] * x + matrix[3] * y + matrix[5],
+  });
+  const multiply = ([a, b, c, d, e, f]) => {
+    const [ma, mb, mc, md, me, mf] = matrix;
+    matrix = [
+      ma * a + mc * b,
+      mb * a + md * b,
+      ma * c + mc * d,
+      mb * c + md * d,
+      ma * e + mc * f + me,
+      mb * e + md * f + mf,
+    ];
+  };
+  ctx.save = () => stack.push([...matrix]);
+  ctx.restore = () => { matrix = stack.pop() || [1, 0, 0, 1, 0, 0]; };
+  ctx.translate = (x, y) => multiply([1, 0, 0, 1, x, y]);
+  ctx.scale = (x, y) => multiply([x, 0, 0, y, 0, 0]);
+  ctx.rotate = (angle) => {
+    const cosine = Math.cos(angle);
+    const sine = Math.sin(angle);
+    multiply([cosine, sine, -sine, cosine, 0, 0]);
+  };
+  ctx.drawImage = (...args) => {
+    const destination = args.length === 5 ? args.slice(1) : args.slice(5);
+    const [x, y, width, height] = destination;
+    const corners = [
+      transformPoint(x, y),
+      transformPoint(x + width, y),
+      transformPoint(x, y + height),
+      transformPoint(x + width, y + height),
+    ];
+    calls.push({
+      method: 'drawImage',
+      asset: args[0],
+      args,
+      matrix: [...matrix],
+      bounds: {
+        minX: Math.min(...corners.map((point) => point.x)),
+        minY: Math.min(...corners.map((point) => point.y)),
+        maxX: Math.max(...corners.map((point) => point.x)),
+        maxY: Math.max(...corners.map((point) => point.y)),
+      },
+    });
+  };
+  return { ctx, calls };
+}
+
 function createDynamicEffectRecordingContext() {
   const ctx = createContext();
   const calls = [];
@@ -177,6 +231,19 @@ function normalizedCallTrace(calls, methodNames) {
           : value
       )),
     ]);
+}
+
+function assertClose(actual, expected, message, epsilon = 1e-7) {
+  assert.ok(
+    Math.abs(actual - expected) <= epsilon,
+    `${message}: expected ${expected}, received ${actual}`,
+  );
+}
+
+function assertBoundsClose(actual, expected, message) {
+  for (const edge of ['minX', 'minY', 'maxX', 'maxY']) {
+    assertClose(actual[edge], expected[edge], `${message}.${edge}`);
+  }
 }
 
 function createDynamicAtlasStore() {
@@ -596,6 +663,7 @@ test('battlefield keeps the portal and moving-bubble shell behind depth-sorted a
   const { game } = createHarness({ assetStore: store });
   game.drawRoutes = () => events.push('routes');
   game.drawTerrain = () => events.push('terrain');
+  game.drawBuildingFoundations = () => events.push('building-foundations');
   game.drawWorldEffects = (_ctx, layer) => events.push(`effects:${layer}`);
   game.drawDynamicEffects = (_ctx, layer) => events.push(`dynamic:${layer}`);
   game.drawMovingBubblePreview = () => events.push('moving-bubble-preview');
@@ -608,6 +676,11 @@ test('battlefield keeps the portal and moving-bubble shell behind depth-sorted a
   assert.ok(
     events.indexOf('asset:rift-entry-portal') < events.indexOf('actors'),
     'the portal must be painted before enemies emerging from it',
+  );
+  assert.ok(
+    events.indexOf('terrain') < events.indexOf('building-foundations')
+      && events.indexOf('building-foundations') < events.indexOf('actors'),
+    'the seamless module floor must render once between terrain and every building body',
   );
   assert.deepEqual(events.filter((event) => [
     'effects:back',
@@ -667,7 +740,7 @@ test('battlefield keeps the portal and moving-bubble shell behind depth-sorted a
   );
 });
 
-test('all six building surfaces use their formal PNG and a 60px world slot', () => {
+test('all six building surfaces use their formal PNG and fill one world-cell module', () => {
   const frame = { key: 'ui-card-frame-common', naturalWidth: 512, naturalHeight: 384 };
   const buildingArt = new Map(BUILDINGS.map((card) => [card.id, {
     key: card.id,
@@ -682,6 +755,7 @@ test('all six building surfaces use their formal PNG and a 60px world slot', () 
   const scales = [];
   recording.ctx.scale = (x, y) => scales.push([x, y]);
   const { game } = createHarness({ context: recording.ctx, assetStore: store });
+  const cellSize = game.worldPixelsPerCell();
   game.state.phase = 'build';
   game.state.buildings = BUILDINGS.map((card, index) => ({
     uid: `formal-building-${index}`,
@@ -697,39 +771,120 @@ test('all six building surfaces use their formal PNG and a 60px world slot', () 
   game.drawBuildings(recording.ctx);
 
   for (const art of buildingArt.values()) {
-    assert.ok(
-      recording.calls.some((call) => call[0] === 'drawImage' && call[1] === art),
-      `${art.key} should render its formal world PNG`,
-    );
+    const worldCall = recording.calls.find((call) => call[0] === 'drawImage' && call[1] === art);
+    assert.ok(worldCall, `${art.key} should render its formal world PNG`);
+    assert.equal(worldCall.length, 10, `${art.key} world art must crop transparent padding`);
+    assert.ok(worldCall[2] > 0 && worldCall[3] > 0, `${art.key} crop starts inside its source canvas`);
+    assert.ok(worldCall[4] < 512 && worldCall[5] < 512, `${art.key} crop removes empty source margins`);
   }
   assert.ok(
     scales.filter(([x, y]) => (
-      Math.abs(x - 60 / 115) < 1e-9 && Math.abs(y - 60 / 115) < 1e-9
+      Math.abs(x - cellSize / 115) < 1e-9 && Math.abs(y - cellSize / 115) < 1e-9
     )).length >= BUILDINGS.length,
-    'every world building should use the 60px logical art slot',
+    'every world building should fill the complete logical cell instead of leaving a seam',
   );
   assert.equal(
-    scales.some(([x, y]) => Math.abs(x - 104 / 115) < 1e-9 || Math.abs(y - 104 / 115) < 1e-9),
+    scales.some(([x, y]) => Math.abs(x - 60 / 115) < 1e-9 || Math.abs(y - 60 / 115) < 1e-9),
     false,
-  );
-  assert.equal(
-    scales.some(([x, y]) => Math.abs(x - 88 / 115) < 1e-9 || Math.abs(y - 88 / 115) < 1e-9),
-    false,
+    'the former inset 60px building slot must not return',
   );
 
   recording.calls.length = 0;
   game.drawBuildCards(recording.ctx);
   for (const art of buildingArt.values()) {
-    assert.ok(
-      recording.calls.some((call) => call[0] === 'drawImage' && call[1] === art),
-      `${art.key} should render in the bottom building card`,
-    );
+    const cardCall = recording.calls.find((call) => call[0] === 'drawImage' && call[1] === art);
+    assert.ok(cardCall, `${art.key} should render in the bottom building card`);
+    assert.equal(cardCall.length, 6, `${art.key} cards preserve the authored full-canvas framing`);
   }
   assert.equal(
     recording.calls.filter((call) => call[0] === 'drawImage' && call[1] === frame).length,
     BUILDINGS.length * 9,
     'each building card should keep the generated nine-slice frame',
   );
+});
+
+test('every one-cell building shares the cell-bottom anchor and rotation never changes its cell', () => {
+  const { game } = createHarness();
+  const cell = { x: 9, y: 6 };
+  const center = game.cellCenter(cell.x, cell.y);
+  const expected = {
+    x: center.x,
+    y: center.y + game.worldPixelsPerCell() / 2,
+  };
+
+  for (const card of BUILDINGS) {
+    const positions = [0, 90, 180, 270].map((rotation) => game.entityCanvasPosition({
+      uid: `${card.id}-${rotation}`,
+      cardId: card.id,
+      x: cell.x,
+      y: cell.y,
+      rotation,
+    }));
+    for (const [index, position] of positions.entries()) {
+      assertClose(position.x, expected.x, `${card.id} rotation ${index * 90} anchor x`);
+      assertClose(position.y, expected.y, `${card.id} rotation ${index * 90} anchor y`);
+    }
+    assert.deepEqual(
+      positions,
+      [positions[0], positions[0], positions[0], positions[0]],
+      `${card.id} legacy rotation metadata must not move the one-cell module`,
+    );
+  }
+});
+
+test('adjacent buildings compose one continuous module floor with a one-pixel seam guard', () => {
+  const moduleFloor = {
+    key: 'building-module-floor-v1',
+    naturalWidth: 512,
+    naturalHeight: 512,
+  };
+  const recording = createTransformRecordingContext();
+  const { game } = createHarness({
+    context: recording.ctx,
+    assetStore: createReadyAssetStore({ [moduleFloor.key]: moduleFloor }),
+  });
+  const cells = [
+    { x: 8, y: 6, cardId: 'building-mushroom-home' },
+    { x: 9, y: 6, cardId: 'building-honey-plot' },
+    { x: 8, y: 7, cardId: 'building-bubble-tower' },
+    { x: 9, y: 7, cardId: 'building-bouncy-fence' },
+  ];
+  const buildings = cells.map((cell, index) => ({
+    uid: `module-${index}`,
+    ...cell,
+    rotation: index * 90,
+    hp: BUILDINGS.find(({ id }) => id === cell.cardId).hp,
+    maxHp: BUILDINGS.find(({ id }) => id === cell.cardId).hp,
+    placedAt: -10,
+  }));
+
+  game.drawBuildingFoundations(recording.ctx, buildings);
+
+  const moduleCalls = recording.calls.filter(({ asset }) => asset === moduleFloor);
+  assert.equal(moduleCalls.length, cells.length, 'each occupied cell gets one shared floor draw');
+  const size = game.worldPixelsPerCell();
+  for (const [index, cell] of cells.entries()) {
+    const center = game.cellCenter(cell.x, cell.y);
+    assertBoundsClose(moduleCalls[index].bounds, {
+      minX: center.x - size / 2 - 0.5,
+      minY: center.y - size / 2 - 0.5,
+      maxX: center.x + size / 2 + 0.5,
+      maxY: center.y + size / 2 + 0.5,
+    }, `${cell.cardId} module floor`);
+  }
+
+  assertClose(
+    moduleCalls[0].bounds.maxX - moduleCalls[1].bounds.minX,
+    1,
+    'horizontal neighbors overlap by the seam guard',
+  );
+  assertClose(
+    moduleCalls[0].bounds.maxY - moduleCalls[2].bounds.minY,
+    1,
+    'vertical neighbors overlap by the seam guard',
+  );
+  assertClose(moduleCalls[0].bounds.minY, moduleCalls[1].bounds.minY, 'top row alignment');
+  assertClose(moduleCalls[0].bounds.minX, moduleCalls[2].bounds.minX, 'left column alignment');
 });
 
 test('missing building PNGs never invoke procedural building art or building glyphs', () => {
@@ -766,9 +921,10 @@ test('missing building PNGs never invoke procedural building art or building gly
   }
 });
 
-test('all building previews stay on one tile, use formal art, and expose no rotation UI', () => {
+test('all building previews fill exactly one tile, use formal art, and expose no rotation UI', () => {
   const validTile = { key: 'tile-placement-valid' };
   const invalidTile = { key: 'tile-placement-invalid' };
+  const moduleFloor = { key: 'building-module-floor-v1' };
   const buildingArt = new Map(BUILDINGS.map((card) => [card.id, {
     key: card.id,
     naturalWidth: 512,
@@ -777,12 +933,14 @@ test('all building previews stay on one tile, use formal art, and expose no rota
   const store = createReadyAssetStore(new Map([
     [validTile.key, validTile],
     [invalidTile.key, invalidTile],
+    [moduleFloor.key, moduleFloor],
     ...buildingArt,
   ]));
   const recording = createRecordingContext();
   const scales = [];
   recording.ctx.scale = (x, y) => scales.push([x, y]);
   const { game } = createHarness({ context: recording.ctx, assetStore: store });
+  const cellSize = game.worldPixelsPerCell();
   game.state.phase = 'build';
   game.state.buildings = [];
   game.hoverCell = { x: 14, y: 4 };
@@ -798,13 +956,22 @@ test('all building previews stay on one tile, use formal art, and expose no rota
       call[0] === 'drawImage' && (call[1] === validTile || call[1] === invalidTile)
     ));
     assert.equal(footprintCalls.length, 1, `${card.id} must preview exactly one occupied tile`);
+    const moduleCall = recording.calls.find((call) => (
+      call[0] === 'drawImage' && call[1] === moduleFloor
+    ));
+    assert.ok(moduleCall, `${card.id} preview should include its complete module floor`);
+    const previewCenter = game.cellCenter(game.hoverCell.x, game.hoverCell.y);
+    assertClose(moduleCall[2], previewCenter.x - cellSize / 2 - 0.5, `${card.id} floor x`);
+    assertClose(moduleCall[3], previewCenter.y - cellSize / 2 - 0.5, `${card.id} floor y`);
+    assertClose(moduleCall[4], cellSize + 1, `${card.id} floor width`);
+    assertClose(moduleCall[5], cellSize + 1, `${card.id} floor height`);
     assert.ok(
       recording.calls.some((call) => call[0] === 'drawImage' && call[1] === buildingArt.get(card.id)),
       `${card.id} preview should use its formal PNG`,
     );
     assert.ok(scales.some(([x, y]) => (
-      Math.abs(x - 60 / 115) < 1e-9 && Math.abs(y - 60 / 115) < 1e-9
-    )), `${card.id} preview must use the 60px slot`);
+      Math.abs(x - cellSize / 115) < 1e-9 && Math.abs(y - cellSize / 115) < 1e-9
+    )), `${card.id} preview must fill one complete logical cell`);
 
     recording.calls.length = 0;
     game.drawBuildSide(recording.ctx);

@@ -123,7 +123,12 @@ const CORE_CELL = WORLD.base.core;
 const DEFAULT_CAMERA_FOCUS = Object.freeze({ x: CORE_CELL.x + 0.5, y: CORE_CELL.y + 0.5 });
 const PANEL = Object.freeze({ x: 866, y: 92, width: 388, height: 486 });
 const BOTTOM = Object.freeze({ x: 22, y: 592, width: 1232, height: 110 });
-const BUILDING_WORLD_SLOT = 60;
+// A building is one complete world module. Its separate generated floor fills
+// the cell, while the transparent building cutout is bottom-centre anchored on
+// the same boundary.
+const BUILDING_WORLD_SLOT = BOARD.cell;
+const BUILDING_MODULE_FLOOR_ASSET_KEY = 'building-module-floor-v1';
+const BUILDING_MODULE_FLOOR_OVERLAP = 1;
 const STORAGE_KEY = 'slime-haven-colony-v2';
 const TAU = Math.PI * 2;
 const COLONY_RESOURCE_ID = Object.freeze({
@@ -4289,7 +4294,7 @@ export class SlimeGame {
         x: entity.x + shape.width / 2,
         y: entity.y + shape.height,
       }, this.camera, BOARD);
-      return { x: ground.x, y: ground.y - 15 * this.camera.zoom };
+      return ground;
     }
     return worldToScreen({ x: entity.x + 0.5, y: entity.y + 0.78 }, this.camera, BOARD);
   }
@@ -4754,6 +4759,7 @@ export class SlimeGame {
     drawOrganicTerrainProps(ctx, terrainOptions);
     this.drawDiscoveryFog(ctx, bounds);
     this.drawTerrain(ctx);
+    this.drawBuildingFoundations(ctx);
     this.drawWorldPoiBackEffects(ctx, visiblePois);
     const expeditionBattle = this.state.phase === 'battle' && this.isExpeditionSession();
     const beaconDrawn = expeditionBattle && drawAssetOrFallback(
@@ -5176,9 +5182,9 @@ export class SlimeGame {
     for (const building of this.state.buildings) {
       const card = BUILDING_BY_ID[building.cardId];
       const shape = rotatedFootprint(card, building.rotation);
-      // Match the building's visible ground contact (centerY is 15px above the
-      // footprint edge). Equal-depth units then paint after the structure, so a
-      // survivor stationed inside a home remains visible instead of vanishing behind it.
+      // The body is anchored to the exact cell bottom, but shares the unit's
+      // logical contact depth so a slime stationed in the same one-cell module
+      // remains visible in front of the structure.
       actors.push({
         kind: 'building',
         entity: building,
@@ -5209,6 +5215,47 @@ export class SlimeGame {
       else if (actor.kind === 'poi') this.drawWorldPoiActor(ctx, actor.entity);
       else this.drawUnits(ctx, [actor]);
     }
+  }
+
+  drawBuildingFoundationCells(ctx, cells, { alpha = 1 } = {}) {
+    const size = this.worldPixelsPerCell();
+    const overlap = BUILDING_MODULE_FLOOR_OVERLAP;
+    const seen = new Set();
+    for (const cell of cells || []) {
+      if (!Number.isFinite(cell?.x) || !Number.isFinite(cell?.y)) continue;
+      const key = `${cell.x},${cell.y}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const corner = worldToScreen({ x: cell.x, y: cell.y }, this.camera, BOARD);
+      const center = { x: corner.x + size / 2, y: corner.y + size / 2 };
+      if (!this.isWorldScreenPositionVisible(center, size)) continue;
+      drawAssetOrFallback(
+        ctx,
+        this.assetStore,
+        BUILDING_MODULE_FLOOR_ASSET_KEY,
+        (asset) => {
+          ctx.globalAlpha *= clamp(alpha, 0, 1);
+          ctx.drawImage(
+            asset,
+            corner.x - overlap / 2,
+            corner.y - overlap / 2,
+            size + overlap,
+            size + overlap,
+          );
+        },
+        () => {},
+      );
+    }
+  }
+
+  drawBuildingFoundations(ctx, buildings = this.state.buildings) {
+    const cells = [];
+    for (const building of buildings || []) {
+      const card = BUILDING_BY_ID[building?.cardId];
+      if (!card) continue;
+      cells.push(...footprintCells(card, building.x, building.y, building.rotation));
+    }
+    this.drawBuildingFoundationCells(ctx, cells);
   }
 
   drawBuildings(ctx, buildings = this.state.buildings) {
@@ -5244,6 +5291,8 @@ export class SlimeGame {
       drawBuilding(ctx, 0, 0, BUILDING_WORLD_SLOT, BUILDING_VARIANT[card.id], {
         assetStore: this.assetStore,
         time: this.time,
+        moduleFloor: true,
+        trimTransparentPadding: true,
         selected,
         active: underAttack && !building.underConstruction,
         ghost: building.underConstruction,
@@ -6680,12 +6729,16 @@ export class SlimeGame {
       }
       if (!card) return false;
       const valid = this.selectionCellIsValid(this.hoverCell);
-      for (const cell of footprintCells(
+      const previewCells = footprintCells(
         card,
         this.hoverCell.x,
         this.hoverCell.y,
         rotation,
-      )) {
+      );
+      this.drawBuildingFoundationCells(ctx, previewCells, {
+        alpha: valid ? 0.78 : 0.52,
+      });
+      for (const cell of previewCells) {
         if (inBoard(cell.x, cell.y)) drawCellOverlay(cell, valid);
       }
       const shape = rotatedFootprint(card, rotation);
@@ -6694,7 +6747,7 @@ export class SlimeGame {
         y: this.hoverCell.y + shape.height,
       }, this.camera, BOARD);
       const centerX = previewGround.x;
-      const centerY = previewGround.y - 15 * this.camera.zoom;
+      const centerY = previewGround.y;
       drawBuilding(
         ctx,
         centerX,
@@ -6704,6 +6757,8 @@ export class SlimeGame {
         {
           assetStore: this.assetStore,
           time: this.time,
+          moduleFloor: true,
+          trimTransparentPadding: true,
           ghost: true,
           valid,
         },

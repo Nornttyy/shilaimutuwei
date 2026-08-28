@@ -28,12 +28,12 @@ const PROJECT_ASSET_SPEC = JSON.parse(await readFile(
   'utf8',
 ));
 
-test('the workspace asset manifest strictly validates all 122 finished PNGs', async () => {
+test('the workspace asset manifest strictly validates all 123 finished PNGs', async () => {
   const result = await verifyAssets({ cwd: PROJECT_ROOT, allowMissingSpec: false });
   assert.equal(result.ok, true, formatErrors(result));
   assert.equal(result.skipped, false);
-  assert.equal(result.summary.declaredAssets, 122);
-  assert.equal(result.summary.checkedAssets, 122);
+  assert.equal(result.summary.declaredAssets, 123);
+  assert.equal(result.summary.checkedAssets, 123);
   assert.deepEqual(result.errors, [], formatErrors(result));
   assert.deepEqual(result.warnings, [], formatErrors(result));
 });
@@ -187,8 +187,8 @@ test('missing asset-spec is skippable by default and an error in strict mode', a
   }, { writeAssetsDirectory: false });
 });
 
-test('runtime asset map covers all 122 canonical nested paths and three aliases', () => {
-  assert.equal(PROJECT_ASSET_SPEC.assets.length, 122);
+test('runtime asset map covers all 123 canonical nested paths and three aliases', () => {
+  assert.equal(PROJECT_ASSET_SPEC.assets.length, 123);
   for (const asset of PROJECT_ASSET_SPEC.assets) {
     assert.equal(typeof ASSET_PATHS[asset.id], 'string', `missing runtime asset: ${asset.id}`);
     assert.ok(
@@ -196,7 +196,7 @@ test('runtime asset map covers all 122 canonical nested paths and three aliases'
       `unexpected runtime path for ${asset.id}: ${ASSET_PATHS[asset.id]}`,
     );
   }
-  assert.equal(Object.keys(ASSET_PATHS).length, 125);
+  assert.equal(Object.keys(ASSET_PATHS).length, 126);
   assert.equal(ASSET_PATHS['scene-gel-garden'], ASSET_PATHS['background-garden-base']);
   assert.equal(ASSET_PATHS['town-core'], ASSET_PATHS['town-soft-core']);
   assert.equal(ASSET_PATHS['enemy-portal'], ASSET_PATHS['rift-entry-portal']);
@@ -440,11 +440,25 @@ test('organic terrain PNG contracts stay transparent and match the colony source
     assert.deepEqual(asset.recommendedCanvas, { width: 512, height: 512 });
     assert.equal(asset.width, 512);
     assert.equal(asset.height, 512);
-    assert.match(asset.runtimeDisplaySize, /1×1地块内不超过60×60/);
+    assert.match(asset.runtimeDisplaySize, /完整1×1地块模块内/);
     assert.equal(CRITICAL_STARTUP_ASSET_KEYS.includes(asset.id), true);
     assert.equal(WECHAT_CRITICAL_ASSET_KEYS.includes(asset.id), true);
     assert.equal(typeof ASSET_PATHS[asset.id], 'string');
   }
+});
+
+test('shared building module floor is one opaque full-cell critical PNG', () => {
+  const asset = PROJECT_ASSET_SPEC.assets.find(({ id }) => id === 'building-module-floor-v1');
+  assert.ok(asset);
+  assert.equal(asset.category, 'building');
+  assert.equal(asset.background, true);
+  assert.equal(asset.transparent, false);
+  assert.deepEqual(asset.recommendedCanvas, { width: 512, height: 512 });
+  assert.match(asset.runtimeDisplaySize, /完整64×64单格/);
+  assert.match(asset.brief, /一整块方形软胶板铺满画布四边/);
+  assert.equal(CRITICAL_STARTUP_ASSET_KEYS.includes(asset.id), true);
+  assert.equal(WECHAT_CRITICAL_ASSET_KEYS.includes(asset.id), true);
+  assert.equal(typeof ASSET_PATHS[asset.id], 'string');
 });
 
 test('browser startup waits only for first-screen art and leaves the rest on demand', async () => {

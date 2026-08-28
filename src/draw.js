@@ -1858,6 +1858,32 @@ const BUILDING_ASSET_BY_TYPE = Object.freeze({
   paver: 'building-gel-foundation',
 });
 
+// The authored building sheets deliberately keep generous transparent safety
+// margins. World modules crop those margins at draw time so the building body
+// actually uses its complete one-cell slot. UI cards keep the original canvas
+// framing by leaving `trimTransparentPadding` disabled.
+const BUILDING_SOURCE_RECT_BY_TYPE = Object.freeze({
+  hut: Object.freeze({ x: 51, y: 31, width: 416, height: 440 }),
+  farm: Object.freeze({ x: 49, y: 60, width: 415, height: 416 }),
+  tower: Object.freeze({ x: 52, y: 35, width: 421, height: 442 }),
+  fence: Object.freeze({ x: 9, y: 61, width: 496, height: 387 }),
+  weather: Object.freeze({ x: 68, y: 63, width: 323, height: 383 }),
+  paver: Object.freeze({ x: 41, y: 97, width: 430, height: 311 }),
+});
+
+function scaledBuildingSourceRect(type, sourceWidth, sourceHeight) {
+  const contract = BUILDING_SOURCE_RECT_BY_TYPE[type];
+  if (!contract) return null;
+  const scaleX = sourceWidth / 512;
+  const scaleY = sourceHeight / 512;
+  return {
+    x: contract.x * scaleX,
+    y: contract.y * scaleY,
+    width: contract.width * scaleX,
+    height: contract.height * scaleY,
+  };
+}
+
 /**
  * Draw one formal generated building sprite, including the terrain paver.
  * `typeOrOptions`: 'hut' | 'farm' | 'tower' | 'fence' | 'weather' | 'paver', or an options object.
@@ -1868,13 +1894,22 @@ export function drawBuilding(ctx, x, y, size, typeOrOptions = 'hut', maybeOption
   const time = safeNumber(options.time, 0);
   const bob = options.active ? Math.sin(time * 4.2 + (options.phase || 0)) * size * 0.008 : 0;
   const footprintScale = 1;
+  const moduleFloor = options.moduleFloor === true;
+  const ringY = moduleFloor ? y - size * 0.25 : y + size * 0.01;
 
-  drawSelectionRing(ctx, x, y + size * 0.01, size * footprintScale, options);
-  drawSoftShadow(ctx, x, y + size * 0.025, size, {
-    width: size * 0.84 * footprintScale,
-    height: size * 0.18,
-    alpha: 0.2,
-  });
+  drawSelectionRing(ctx, x, ringY, size * footprintScale, options);
+  if (moduleFloor) {
+    drawAssetOrFallback(ctx, options.assetStore, 'terrain-prop-contact-shadow-v1', (asset) => {
+      ctx.globalAlpha *= 0.42;
+      ctx.drawImage(asset, x - size * 0.34, y - size * 0.17, size * 0.68, size * 0.22);
+    }, () => {});
+  } else {
+    drawSoftShadow(ctx, x, y + size * 0.025, size, {
+      width: size * 0.84 * footprintScale,
+      height: size * 0.18,
+      alpha: 0.2,
+    });
+  }
 
   ctx.save();
   ctx.globalAlpha *= options.ghost ? 0.55 : (options.disabled ? 0.48 : clamp(options.alpha ?? 1));
@@ -1887,10 +1922,35 @@ export function drawBuilding(ctx, x, y, size, typeOrOptions = 'hut', maybeOption
   drawAssetOrFallback(ctx, options.assetStore, BUILDING_ASSET_BY_TYPE[type], (asset) => {
     const sourceWidth = Number(asset?.naturalWidth || asset?.videoWidth || asset?.width) || 1;
     const sourceHeight = Number(asset?.naturalHeight || asset?.videoHeight || asset?.height) || 1;
-    const imageScale = Math.min(115 / sourceWidth, 115 / sourceHeight);
-    const imageWidth = sourceWidth * imageScale;
-    const imageHeight = sourceHeight * imageScale;
-    ctx.drawImage(asset, -imageWidth / 2, 5 - imageHeight, imageWidth, imageHeight);
+    const sourceRect = options.trimTransparentPadding
+      ? scaledBuildingSourceRect(type, sourceWidth, sourceHeight)
+      : null;
+    const fittedWidth = sourceRect?.width || sourceWidth;
+    const fittedHeight = sourceRect?.height || sourceHeight;
+    const imageScale = Math.min(115 / fittedWidth, 115 / fittedHeight);
+    const imageWidth = fittedWidth * imageScale;
+    const imageHeight = fittedHeight * imageScale;
+    if (sourceRect) {
+      ctx.drawImage(
+        asset,
+        sourceRect.x,
+        sourceRect.y,
+        sourceRect.width,
+        sourceRect.height,
+        -imageWidth / 2,
+        moduleFloor ? -imageHeight : 5 - imageHeight,
+        imageWidth,
+        imageHeight,
+      );
+    } else {
+      ctx.drawImage(
+        asset,
+        -imageWidth / 2,
+        moduleFloor ? -imageHeight : 5 - imageHeight,
+        imageWidth,
+        imageHeight,
+      );
+    }
   }, () => {});
   const damage = clamp(options.damage || 0);
   if (damage > 0.25) {
@@ -1900,12 +1960,18 @@ export function drawBuilding(ctx, x, y, size, typeOrOptions = 'hut', maybeOption
   }
   ctx.restore();
 
-  if (options.ghost) {
+  if (options.ghost && !moduleFloor) {
     ctx.save();
     ctx.strokeStyle = options.valid === false ? PALETTE.danger : PALETTE.friendly;
     ctx.lineWidth = Math.max(2, size * 0.025);
     ctx.setLineDash?.([size * 0.08, size * 0.05]);
-    ellipsePath(ctx, x, y, size * 0.47 * footprintScale, size * 0.15);
+    ellipsePath(
+      ctx,
+      x,
+      y,
+      size * 0.47 * footprintScale,
+      size * 0.15,
+    );
     ctx.stroke();
     ctx.restore();
   }

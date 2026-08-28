@@ -71,6 +71,74 @@ test('game starts on a persistent 24x16 daylight colony with every terrain inter
   assert.ok(game.state.colony.resourceNodes.length >= 30);
 });
 
+test('an explicitly empty saved building layout remains an empty base after reload', () => {
+  const storage = new Map();
+  const game = createGame(storage);
+  game.state.buildings = [];
+
+  game.save();
+  const payload = JSON.parse([...storage.values()][0]);
+  assert.deepEqual(payload.buildings, []);
+
+  const restored = createGame(storage);
+  assert.deepEqual(restored.state.buildings, []);
+});
+
+test('partially harvested starter and infinite resource nodes keep their exact remainder', () => {
+  const storage = new Map();
+  const game = createGame(storage);
+  const starterNode = game.state.colony.resourceNodes.find((node) => (
+    node.uid.startsWith('world-resource-') && node.amount > 1
+  ));
+  assert.ok(starterNode);
+  starterNode.amount = 1;
+
+  const infiniteTarget = { x: 24, y: 5 };
+  assert.equal(game.registerDiscoveredResourceNodes([infiniteTarget]), 1);
+  const infiniteNode = game.state.colony.resourceNodes.find((node) => (
+    node.uid === `infinite-resource-${infiniteTarget.x}-${infiniteTarget.y}`
+  ));
+  assert.ok(infiniteNode);
+  infiniteNode.amount = 1;
+
+  game.save();
+  const payload = JSON.parse([...storage.values()][0]);
+  assert.equal(payload.starterResourceNodes.find(({ uid }) => uid === starterNode.uid).amount, 1);
+  assert.equal(payload.infiniteResourceNodes.find(({ uid }) => uid === infiniteNode.uid).amount, 1);
+
+  const restored = createGame(storage);
+  assert.equal(restored.state.colony.resourceNodes.find(({ uid }) => uid === starterNode.uid).amount, 1);
+  assert.equal(restored.state.colony.resourceNodes.find(({ uid }) => uid === infiniteNode.uid).amount, 1);
+});
+
+test('legacy saves without starter node remainders rebuild authored nodes and retain infinite nodes', () => {
+  const storage = new Map();
+  const game = createGame(storage);
+  const starterNode = game.state.colony.resourceNodes.find((node) => (
+    node.uid.startsWith('world-resource-') && node.amount > 1
+  ));
+  const authoredAmount = starterNode.amount;
+  const infiniteTarget = { x: 24, y: 5 };
+  assert.equal(game.registerDiscoveredResourceNodes([infiniteTarget]), 1);
+  const infiniteNode = game.state.colony.resourceNodes.find((node) => (
+    node.uid === `infinite-resource-${infiniteTarget.x}-${infiniteTarget.y}`
+  ));
+  infiniteNode.amount = 1;
+  game.save();
+
+  const storageKey = storage.keys().next().value;
+  const legacyPayload = JSON.parse(storage.get(storageKey));
+  delete legacyPayload.starterResourceNodes;
+  storage.set(storageKey, JSON.stringify(legacyPayload));
+
+  const restored = createGame(storage);
+  assert.equal(
+    restored.state.colony.resourceNodes.find(({ uid }) => uid === starterNode.uid).amount,
+    authoredAmount,
+  );
+  assert.equal(restored.state.colony.resourceNodes.find(({ uid }) => uid === infiniteNode.uid).amount, 1);
+});
+
 test('building placement uses terrain capabilities and reserves the base core', () => {
   const game = createGame();
   const tower = BUILDINGS.find(({ id }) => id === 'building-bubble-tower');
@@ -136,6 +204,75 @@ test('placing a building creates a resource blueprint that worker slimes finish 
   assert.equal(building.buildProgress, 1);
 });
 
+test('all construction uses material blueprints and may wait for missing stockpile resources', () => {
+  const game = createGame();
+  game.state.colonyDirector.nextPackAt = Infinity;
+  game.state.colony.resources = { gel: 0, nectar: 0, shard: 0 };
+  const tower = BUILDINGS.find(({ id }) => id === 'building-bubble-tower');
+  game.selection = { kind: 'place-building', cardId: tower.id, rotation: 0 };
+
+  assert.equal(game.shapingLimit, undefined);
+  assert.equal(game.selectionCellIsValid({ x: 8, y: 5 }), true, 'missing materials do not invalidate a blueprint');
+  game.handleBuildCellTap({ x: 8, y: 5 });
+
+  const building = game.state.buildings.find(({ cardId, x, y }) => (
+    cardId === tower.id && x === 8 && y === 5
+  ));
+  const blueprint = game.state.colony.blueprints.find(({ uid }) => uid === building.blueprintUid);
+  assert.equal(building.underConstruction, true);
+  assert.deepEqual(blueprint.required, { gel: 7, nectar: 2, shard: 6 });
+  assert.deepEqual(blueprint.delivered, { gel: 0, nectar: 0, shard: 0 });
+  assert.match(game.toast.text, /缺料时会等待采集/);
+});
+
+test('gel paving converts only explored passable resource terrain and frees the cell for buildings', () => {
+  const storage = new Map();
+  const game = createGame(storage);
+  game.state.colonyDirector.nextPackAt = Infinity;
+  game.state.colony.resources = { gel: 2, nectar: 0, shard: 0 };
+  const paver = BUILDINGS.find(({ id }) => id === 'building-gel-foundation');
+  const target = { x: 3, y: 6 };
+  const targetNode = game.state.colony.resourceNodes.find((node) => (
+    node.x === target.x && node.y === target.y
+  ));
+  assert.ok(targetNode);
+  game.state.colony.resourceNodes = [targetNode];
+  game.selection = { kind: 'place-building', cardId: paver.id, rotation: 0 };
+
+  assert.equal(game.selectionCellIsValid({ x: 8, y: 5 }), false, 'ordinary ground cannot waste a paving blueprint');
+  assert.equal(game.selectionCellIsValid({ x: 0, y: 9 }), false, 'deep water cannot be paved');
+  assert.equal(game.selectionCellIsValid({ x: 1, y: 1 }), false, 'permanent thorns cannot be paved');
+  assert.equal(game.selectionCellIsValid(target), true, 'an explored passable resource cell can be paved');
+
+  game.handleBuildCellTap(target);
+  const temporary = game.state.buildings.find(({ cardId, x, y }) => (
+    cardId === paver.id && x === target.x && y === target.y
+  ));
+  assert.ok(temporary?.underConstruction);
+  assert.equal(game.state.colony.blueprints.find(({ uid }) => uid === temporary.blueprintUid).terrainProject.replacementTerrainId, 'ground');
+
+  advance(game, 30);
+  assert.equal(game.state.buildings.some(({ uid }) => uid === temporary.uid), false, 'the paver is not a permanent building');
+  assert.equal(game.state.colony.resourceNodes.some(({ uid }) => uid === targetNode.uid), false, 'covered resource jobs are removed');
+  assert.equal(game.worldCellAt(target.x, target.y).terrainId, 'ground');
+  assert.equal(game.worldCellAt(target.x, target.y).buildable, true);
+  assert.equal(game.state.colony.blueprints.some(({ complete }) => complete), false, 'completed project blueprints are retired');
+
+  game.state.colony.resources = { gel: 99, nectar: 99, shard: 99 };
+  const tower = BUILDINGS.find(({ id }) => id === 'building-bubble-tower');
+  game.selection = { kind: 'place-building', cardId: tower.id, rotation: 0 };
+  assert.equal(game.selectionCellIsValid(target), true);
+  game.handleBuildCellTap(target);
+  assert.ok(game.state.buildings.some(({ cardId, x, y }) => (
+    cardId === tower.id && x === target.x && y === target.y
+  )), 'the paved cell immediately accepts a normal material blueprint');
+
+  const restored = createGame(storage);
+  assert.equal(restored.worldCellAt(target.x, target.y).terrainId, 'ground');
+  assert.equal(restored.worldCellAt(target.x, target.y).buildable, true);
+  assert.equal(restored.state.buildings.some(({ cardId }) => cardId === paver.id), false);
+});
+
 test('cancelling a blueprint returns delivered and in-transit resources', () => {
   const game = createGame();
   game.state.colonyDirector.nextPackAt = Infinity;
@@ -159,6 +296,112 @@ test('cancelling a blueprint returns delivered and in-transit resources', () => 
   assert.equal(totalAfterCancel, totalBeforeCancel);
 });
 
+test('zero-material construction ghosts cannot act as walls, towers, honey fields, scouts, or repair targets', () => {
+  const game = createGame();
+  game.state.colonyDirector.nextPackAt = Infinity;
+  game.state.buildings = [];
+  game.state.colony.blueprints = [];
+  game.state.colony.resources = { gel: 0, nectar: 0, shard: 0 };
+
+  const placeBlueprint = (cardId, x, y) => {
+    game.selection = { kind: 'place-building', cardId, rotation: 0 };
+    assert.equal(game.selectionCellIsValid({ x, y }), true, `${cardId} should accept clear ground`);
+    game.handleBuildCellTap({ x, y });
+    const building = game.state.buildings.find((item) => (
+      item.cardId === cardId && item.x === x && item.y === y
+    ));
+    assert.ok(building?.underConstruction);
+    return building;
+  };
+
+  const tower = placeBlueprint('building-bubble-tower', 8, 5);
+  const honey = placeBlueprint('building-honey-plot', 9, 5);
+  const scout = placeBlueprint('building-weather-scout', 12, 5);
+  const fence = placeBlueprint('building-bouncy-fence', 10, 8);
+  assert.ok(game.state.colony.blueprints.every((blueprint) => (
+    Object.values(blueprint.delivered).every((amount) => amount === 0)
+  )));
+
+  game.state.survivors = [];
+  const routeEnemy = game.spawnEnemyAtWorld('enemy-soft-biter', { x: 8, y: 8 }, { continuous: true });
+  game.updateEnemies(0.01);
+  assert.ok(routeEnemy.path.some(({ x, y }) => y === 8 && (x === 10 || x === 11)), 'the route crosses the unfinished fence');
+  assert.equal(fence.fenceTrigger, 1, 'the unfinished fence cannot bounce enemies');
+
+  const hpBefore = routeEnemy.hp;
+  game.updateBuildings(5);
+  assert.equal(tower.shotCount, 0, 'the unfinished tower cannot fire');
+  assert.equal(routeEnemy.hp, hpBefore);
+
+  const honeyEnemy = game.spawnEnemyAtWorld('enemy-soft-biter', { x: honey.x, y: honey.y });
+  assert.equal(game.enemySpeedMultiplier(honeyEnemy), 1, 'the unfinished honey plot cannot slow');
+  const elite = game.spawnEnemyAtWorld('enemy-acid-shell-king', { x: 18, y: 5 });
+  assert.equal(elite.marked, false, 'the unfinished weather scout cannot mark elites');
+
+  const fenceHp = fence.hp;
+  assert.equal(game.damageBuilding(fence, 99), false, 'construction ghosts cannot be hit');
+  assert.equal(fence.hp, fenceHp);
+  assert.equal(fence.destroyed, false);
+  game.selection = { kind: 'target-card', cardType: 'skill', cardId: 'skill-sprout-renewal' };
+  assert.equal(game.selectionCellIsValid({ x: tower.x, y: tower.y }), false, 'construction ghosts cannot receive building repair effects');
+  assert.equal(scout.underConstruction, true);
+});
+
+test('destroyed or externally removed construction ghosts retire blueprints and refund every committed material', () => {
+  const game = createGame();
+  game.state.colonyDirector.nextPackAt = Infinity;
+  game.state.buildings = [];
+  game.state.colony.blueprints = [];
+  game.state.colony.resources = { gel: 0, nectar: 0, shard: 0 };
+
+  const placeBlueprint = (cardId, x, y) => {
+    game.selection = { kind: 'place-building', cardId, rotation: 0 };
+    game.handleBuildCellTap({ x, y });
+    return game.state.buildings.find((item) => (
+      item.cardId === cardId && item.x === x && item.y === y
+    ));
+  };
+
+  const destroyed = placeBlueprint('building-weather-scout', 8, 5);
+  const destroyedBlueprint = game.state.colony.blueprints.find(({ uid }) => (
+    uid === destroyed.blueprintUid
+  ));
+  destroyedBlueprint.delivered = { gel: 2, nectar: 1, shard: 0 };
+  const worker = game.state.colony.slimes[0];
+  destroyedBlueprint.reservedBy = worker.uid;
+  worker.job = { type: 'deliver', targetUid: destroyedBlueprint.uid };
+  worker.carrying = { resourceType: 'shard', amount: 3, destination: 'blueprint' };
+  worker.aiState = 'deposit';
+  destroyed.destroyed = true;
+
+  assert.equal(game.reconcileConstructionBlueprints(), true);
+  assert.equal(game.state.buildings.includes(destroyed), false);
+  assert.equal(game.state.colony.blueprints.includes(destroyedBlueprint), false);
+  assert.deepEqual(game.state.colony.resources, { gel: 2, nectar: 1, shard: 3 });
+  assert.equal(worker.job, null);
+  assert.equal(worker.carrying, null);
+
+  game.state.colony.resources = { gel: 0, nectar: 0, shard: 0 };
+  const removed = placeBlueprint('building-bubble-tower', 8, 5);
+  const orphanBlueprint = game.state.colony.blueprints.find(({ uid }) => (
+    uid === removed.blueprintUid
+  ));
+  orphanBlueprint.delivered = { gel: 1, nectar: 0, shard: 1 };
+  orphanBlueprint.reservedBy = worker.uid;
+  worker.job = { type: 'deliver', targetUid: orphanBlueprint.uid };
+  worker.carrying = { resourceType: 'nectar', amount: 2, destination: 'blueprint' };
+  worker.aiState = 'carry';
+  game.state.buildings.splice(game.state.buildings.indexOf(removed), 1);
+
+  assert.equal(game.reconcileConstructionBlueprints(), true);
+  assert.equal(game.state.colony.blueprints.includes(orphanBlueprint), false, 'no invisible blueprint remains');
+  assert.deepEqual(game.state.colony.resources, { gel: 1, nectar: 2, shard: 1 });
+  assert.equal(worker.job, null);
+  assert.equal(worker.carrying, null);
+  game.selection = { kind: 'place-building', cardId: 'building-bubble-tower', rotation: 0 };
+  assert.equal(game.selectionCellIsValid({ x: 8, y: 5 }), true, 'the cleaned cell is immediately reusable');
+});
+
 test('continuous director spawns a larger pack of substantially weaker monsters without a night phase', () => {
   const game = createGame();
   game.state.colonyDirector.nextPackAt = 0.1;
@@ -175,7 +418,7 @@ test('game camera and renderer load signed world chunks instead of clamping to t
   const game = createGame();
   game.camera = { x: -140, y: 90, zoom: 1 };
 
-  assert.deepEqual(game.pointToCell({ x: 54, y: 124 }), { x: -140, y: 90 });
+  assert.deepEqual(game.pointToCell({ x: 0, y: 0 }), { x: -140, y: 90 });
   assert.doesNotThrow(() => game.drawBattlefield(game.ctx));
   assert.ok(game.infiniteWorld.stats().loadedChunks > 0);
   assert.equal(game.worldCellAt(-140, 90).x, -140);

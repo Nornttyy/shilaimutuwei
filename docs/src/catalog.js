@@ -279,7 +279,6 @@ export const BUILDINGS = Object.freeze([
     icon: "🍄",
     color: "#E88985",
     footprint: { width: 1, height: 1 },
-    cost: 2,
     solid: true,
     passable: false,
     hp: 280,
@@ -299,7 +298,6 @@ export const BUILDINGS = Object.freeze([
     icon: "🌾",
     color: "#EAB653",
     footprint: { width: 2, height: 1 },
-    cost: 2,
     solid: false,
     passable: true,
     hp: 150,
@@ -318,7 +316,6 @@ export const BUILDINGS = Object.freeze([
     icon: "🫧",
     color: "#69CFE5",
     footprint: { width: 1, height: 1 },
-    cost: 3,
     solid: true,
     passable: false,
     hp: 210,
@@ -346,7 +343,6 @@ export const BUILDINGS = Object.freeze([
     icon: "🧱",
     color: "#B48768",
     footprint: { width: 2, height: 1 },
-    cost: 1,
     solid: true,
     passable: false,
     hp: 340,
@@ -367,7 +363,6 @@ export const BUILDINGS = Object.freeze([
     icon: "🔭",
     color: "#899DE8",
     footprint: { width: 1, height: 1 },
-    cost: 2,
     solid: true,
     passable: false,
     hp: 185,
@@ -376,6 +371,28 @@ export const BUILDINGS = Object.freeze([
       revealEnemyTypes: true,
       markFirstElite: true,
       markedDamageTakenMultiplier: 1.15,
+    },
+  },
+  {
+    id: "building-gel-foundation",
+    type: "building",
+    name: "软胶铺块",
+    shortName: "铺块",
+    rarity: "common",
+    description: "覆盖一格已探索的软胶、露蜜或晶脉地；完工后变成可建造软土地，不会占住建筑格。",
+    icon: "▣",
+    color: "#65D6A0",
+    footprint: { width: 1, height: 1 },
+    solid: false,
+    passable: true,
+    hp: 80,
+    terrainProject: {
+      replacementTerrainId: "ground",
+      allowBuildableGround: false,
+      allowHarvestableTerrain: true,
+    },
+    effect: {
+      kind: "terrain-foundation",
     },
   },
 ]);
@@ -551,5 +568,3 @@ export const CARD_BY_ID = Object.freeze(
 export const ENEMY_BY_ID = Object.freeze(
   Object.fromEntries(ENEMIES.map((enemy) => [enemy.id, enemy])),
 );
-
-export const SHAPING_BUDGET = 12;

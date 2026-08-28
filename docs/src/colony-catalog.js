@@ -312,7 +312,7 @@ export const BUILDING_RECIPES = deepFreeze([
   {
     id: 'building-mushroom-home',
     name: '蘑菇小屋',
-    footprint: { width: 2, height: 2 },
+    footprint: { width: 1, height: 1 },
     recipe: { 'soft-gel': 8, 'dew-honey': 4 },
     constructionSeconds: 12,
     workerSlots: 2,
@@ -321,7 +321,7 @@ export const BUILDING_RECIPES = deepFreeze([
   {
     id: 'building-honey-plot',
     name: '蜜胶田',
-    footprint: { width: 2, height: 2 },
+    footprint: { width: 2, height: 1 },
     recipe: { 'soft-gel': 4, 'dew-honey': 2 },
     constructionSeconds: 10,
     workerSlots: 1,
@@ -359,7 +359,7 @@ export const BUILDING_RECIPES = deepFreeze([
   {
     id: 'building-weather-scout',
     name: '侦察气象台',
-    footprint: { width: 2, height: 2 },
+    footprint: { width: 1, height: 1 },
     recipe: { 'soft-gel': 5, 'dew-honey': 2, 'crystal-shard': 4 },
     constructionSeconds: 15,
     workerSlots: 1,
@@ -369,6 +369,15 @@ export const BUILDING_RECIPES = deepFreeze([
       forecastSeconds: 18,
       exposesNestWeights: true,
     },
+  },
+  {
+    id: 'building-gel-foundation',
+    name: '软胶铺块',
+    footprint: { width: 1, height: 1 },
+    recipe: { 'soft-gel': 2 },
+    constructionSeconds: 3,
+    workerSlots: 1,
+    effect: { kind: 'terrain-foundation', replacementTerrainId: 'ground' },
   },
 ]);
 

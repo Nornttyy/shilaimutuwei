@@ -5,7 +5,6 @@ import {
   BUILDINGS,
   ENEMY_BY_ID,
   WAVES,
-  SHAPING_BUDGET,
 } from './catalog.js';
 import {
   PALETTE,
@@ -79,6 +78,7 @@ import {
   downColonySlime,
   setColonyThreatIntensity,
   setColonyThreats,
+  setTerrainAt,
   updateColony,
 } from './colony.js';
 import {
@@ -105,12 +105,19 @@ const VIEW = Object.freeze({ width: 1280, height: 720 });
 // The authored 24x16 garden remains the starter clearing, while all cells
 // beyond it are generated lazily in deterministic chunks.
 const WORLD = Object.freeze({ ...COLONY_WORLD, infinite: true });
-const BOARD = Object.freeze({
+// The HUD is authored in the fixed VIEW coordinate system, while the world
+// viewport expands beyond it on non-16:9 screens so terrain reaches every
+// physical edge without stretching character art.
+const BOARD = {
   ...DEFAULT_WORLD_VIEWPORT,
+  x: 0,
+  y: 0,
+  width: VIEW.width,
+  height: VIEW.height,
   cell: DEFAULT_WORLD_VIEWPORT.cellSize,
   cols: WORLD.width,
   rows: WORLD.height,
-});
+};
 const CORE_CELL = WORLD.base.core;
 const DEFAULT_CAMERA_FOCUS = Object.freeze({ x: CORE_CELL.x + 0.5, y: CORE_CELL.y + 0.5 });
 const PANEL = Object.freeze({ x: 866, y: 92, width: 388, height: 486 });
@@ -291,6 +298,7 @@ const BUILDING_VARIANT = Object.freeze({
   'building-bubble-tower': 'tower',
   'building-bouncy-fence': 'fence',
   'building-weather-scout': 'weather',
+  'building-gel-foundation': 'paver',
 });
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
@@ -568,6 +576,35 @@ function colonyRecipeResources(recipe = {}) {
   };
 }
 
+function buildingMaterialRecipe(cardId) {
+  return colonyRecipeResources(BUILDING_RECIPE_BY_ID[cardId]?.recipe);
+}
+
+function formatBuildingMaterials(cardId, { compact = false } = {}) {
+  const recipe = buildingMaterialRecipe(cardId);
+  const labels = compact
+    ? { gel: '胶', nectar: '蜜', shard: '晶' }
+    : COLONY_RESOURCE_LABEL;
+  return Object.entries(recipe)
+    .filter(([, amount]) => amount > 0)
+    .map(([resourceType, amount]) => `${labels[resourceType]}${amount}`)
+    .join(compact ? ' ' : '　');
+}
+
+function missingBuildingMaterials(cardId, resources = {}, delivered = {}) {
+  return Object.fromEntries(Object.entries(buildingMaterialRecipe(cardId))
+    .map(([resourceType, amount]) => [
+      resourceType,
+      Math.max(
+        0,
+        amount
+          - (Number(delivered[resourceType]) || 0)
+          - (Number(resources[resourceType]) || 0),
+      ),
+    ])
+    .filter(([, amount]) => amount > 0));
+}
+
 function terrainNavigationEntries(terrain, dynamicCatalog) {
   if (!terrain?.cells) return [];
   return terrain.cells
@@ -606,12 +643,28 @@ function terrainCellIsPassable(terrain, x, y) {
   return Boolean(TERRAIN_TYPES[cell.terrainId]?.passable);
 }
 
+function terrainCellAllowsProject(terrain, x, y, project = {}) {
+  const cell = terrainCellFromSource(terrain, x, y);
+  if (!cell || cell.discovered === false || cell.poiReserved || !cell.passable) return false;
+  if (cell.buildable) return project.allowBuildableGround !== false;
+  if (cell.harvestable) return project.allowHarvestableTerrain === true;
+  return project.allowPassableTerrain === true;
+}
+
 function buildingAt(buildings, x, y, exceptUid = null) {
   return buildings.find((building) => {
     if (building.uid === exceptUid || building.destroyed) return false;
     const card = BUILDING_BY_ID[building.cardId];
     return footprintCells(card, building.x, building.y, building.rotation).some((cell) => cell.x === x && cell.y === y);
   }) || null;
+}
+
+function buildingIsOperational(building) {
+  return Boolean(building && !building.destroyed && !building.underConstruction);
+}
+
+function operationalBuildingAt(buildings, x, y, exceptUid = null) {
+  return buildingAt(buildings.filter(buildingIsOperational), x, y, exceptUid);
 }
 
 function canPlace(
@@ -624,8 +677,10 @@ function canPlace(
   terrain = INITIAL_WORLD_TERRAIN,
 ) {
   const cells = footprintCells(card, x, y, rotation);
-  if (!cells.every((cell) => inBoard(cell.x, cell.y)
-    && terrainCellIsBuildable(terrain, cell.x, cell.y))) return false;
+  const terrainIsEligible = card.terrainProject
+    ? (cell) => terrainCellAllowsProject(terrain, cell.x, cell.y, card.terrainProject)
+    : (cell) => terrainCellIsBuildable(terrain, cell.x, cell.y);
+  if (!cells.every((cell) => inBoard(cell.x, cell.y) && terrainIsEligible(cell))) return false;
   if (cells.some((cell) => cell.x === CORE_CELL.x && cell.y === CORE_CELL.y)) return false;
   if (terrain?.infinite || typeof terrain?.getCell === 'function') {
     return !cells.some((cell) => buildingAt(buildings, cell.x, cell.y, exceptUid));
@@ -752,7 +807,7 @@ function routeFor(
   terrain = INITIAL_WORLD_TERRAIN,
   { allowBuildingBreaching = true } = {},
 ) {
-  const active = buildings.filter((building) => !building.destroyed);
+  const active = buildings.filter(buildingIsOperational);
   const routeTarget = target || CORE_CELL;
   if (terrain?.infinite || typeof terrain?.getCell === 'function') {
     return infiniteRouteFor(active, start, routeTarget, terrain, { allowBuildingBreaching });
@@ -1227,7 +1282,7 @@ export class SlimeGame {
       nectar: startingStockpile['dew-honey'],
       shard: startingStockpile['crystal-shard'],
     };
-    const resourceNodes = this.state.worldTerrain.cells.flatMap((cell) => {
+    const authoredResourceNodes = this.state.worldTerrain.cells.flatMap((cell) => {
       const definition = TERRAIN_TYPES[cell.terrainId];
       const resourceType = COLONY_RESOURCE_ID[definition?.yield?.resourceId];
       if (!resourceType || !definition.harvestable) return [];
@@ -1240,6 +1295,21 @@ export class SlimeGame {
         harvestSeconds: definition.yield.gatherSeconds,
       }];
     });
+    // New saves persist the exact remainder of authored starter-map nodes.
+    // A missing field means a legacy save, so those saves still reconstruct
+    // their nodes from the saved terrain exactly as they did before.
+    const resourceNodes = Array.isArray(this.loadedStarterResourceNodes)
+      ? authoredResourceNodes.flatMap((node) => {
+        const persisted = this.loadedStarterResourceNodes.find((candidate) => (
+          candidate?.x === node.x
+            && candidate?.y === node.y
+            && Number(candidate.amount) > 0
+        ));
+        return persisted
+          ? [{ ...node, amount: Math.max(1, Math.floor(Number(persisted.amount))) }]
+          : [];
+      })
+      : authoredResourceNodes;
     resourceNodes.push(...(this.loadedInfiniteResourceNodes || []).filter((node) => (
       Number.isSafeInteger(node?.x)
         && Number.isSafeInteger(node?.y)
@@ -1345,14 +1415,9 @@ export class SlimeGame {
     this.syncColonyDepots();
     this.loadedColonyResources = null;
     this.loadedColonyBlueprints = null;
+    this.loadedStarterResourceNodes = null;
     this.loadedInfiniteResourceNodes = null;
-    for (const building of this.state.buildings) {
-      if (building.underConstruction
-        && !colony.blueprints.some((blueprint) => blueprint.uid === building.blueprintUid)) {
-        building.underConstruction = false;
-        building.blueprintUid = null;
-      }
-    }
+    this.reconcileConstructionBlueprints({ persist: false, notify: false });
     this.syncColonySlimesToSurvivors();
   }
 
@@ -1390,7 +1455,9 @@ export class SlimeGame {
         this.canvas.setPointerCapture?.(event.pointerId);
         return;
       }
-      if (!this.modal && pointInsideWorldViewport(point, BOARD)) {
+      if (!this.modal
+        && pointInsideWorldViewport(point, BOARD)
+        && !this.uiBlocksMapDrag(point)) {
         this.pointerDrag = {
           pointerId: event.pointerId ?? 0,
           start: point,
@@ -1478,12 +1545,27 @@ export class SlimeGame {
 
   resize() {
     const rect = this.canvas.getBoundingClientRect();
+    const zoom = Math.max(0.01, Number(this.camera?.zoom) || 1);
+    const previousFocus = {
+      x: (Number(this.camera?.x) || 0) + BOARD.width / (BOARD.cellSize * zoom * 2),
+      y: (Number(this.camera?.y) || 0) + BOARD.height / (BOARD.cellSize * zoom * 2),
+    };
     this.dpr = Math.min(2, window.devicePixelRatio || 1);
     this.canvas.width = Math.max(1, Math.floor(rect.width * this.dpr));
     this.canvas.height = Math.max(1, Math.floor(rect.height * this.dpr));
-    this.scale = Math.min(rect.width / VIEW.width, rect.height / VIEW.height);
+    this.scale = Math.max(0.01, Math.min(rect.width / VIEW.width, rect.height / VIEW.height));
     this.offsetX = (rect.width - VIEW.width * this.scale) / 2;
     this.offsetY = (rect.height - VIEW.height * this.scale) / 2;
+    BOARD.x = -this.offsetX / this.scale;
+    BOARD.y = -this.offsetY / this.scale;
+    BOARD.width = rect.width / this.scale;
+    BOARD.height = rect.height / this.scale;
+    this.camera = createWorldCamera({
+      world: WORLD,
+      viewport: BOARD,
+      focus: previousFocus,
+      zoom,
+    });
   }
 
   toGamePoint(event) {
@@ -1510,6 +1592,7 @@ export class SlimeGame {
 
   save() {
     try {
+      this.reconcileConstructionBlueprints({ persist: false, notify: false });
       let layoutBuildings = this.state.buildings;
       let layoutSurvivors = this.state.survivors;
       if ((this.state.phase === 'battle' || this.state.phase === 'result') && this.preBattleSnapshot) {
@@ -1554,6 +1637,9 @@ export class SlimeGame {
         colonyBlueprints: (this.state.colony?.blueprints || [])
           .filter((blueprint) => !blueprint.complete && !blueprint.cancelled)
           .map(({ reservedBy: _reservedBy, ...blueprint }) => ({ ...blueprint })),
+        starterResourceNodes: (this.state.colony?.resourceNodes || [])
+          .filter((node) => node.uid.startsWith('world-resource-') && node.amount > 0)
+          .map(({ reservedBy: _reservedBy, ...node }) => ({ ...node })),
         infiniteResourceNodes: (this.state.colony?.resourceNodes || [])
           .filter((node) => node.uid.startsWith('infinite-resource-') && node.amount > 0)
           .map(({ reservedBy: _reservedBy, ...node }) => ({ ...node })),
@@ -1626,6 +1712,9 @@ export class SlimeGame {
       this.loadedColonyBlueprints = Array.isArray(saved.colonyBlueprints)
         ? saved.colonyBlueprints
         : [];
+      this.loadedStarterResourceNodes = Array.isArray(saved.starterResourceNodes)
+        ? saved.starterResourceNodes
+        : null;
       this.loadedInfiniteResourceNodes = Array.isArray(saved.infiniteResourceNodes)
         ? saved.infiniteResourceNodes
         : [];
@@ -1682,7 +1771,7 @@ export class SlimeGame {
             : null,
         };
       }
-      if (Array.isArray(saved.buildings) && saved.buildings.length) {
+      if (Array.isArray(saved.buildings)) {
         this.state.buildings = saved.buildings
           .filter((item) => BUILDING_BY_ID[item.cardId])
           .map((item) => {
@@ -1846,20 +1935,25 @@ export class SlimeGame {
     this.hits.push({ id, x, y, w, h, onTap, enabled });
   }
 
+  addUiBlocker(id, x, y, w, h) {
+    this.hits.push({
+      id,
+      x,
+      y,
+      w,
+      h,
+      onTap: null,
+      enabled: true,
+      blocksMapDrag: true,
+    });
+  }
+
+  uiBlocksMapDrag(point) {
+    return this.hits.some((hit) => hit.blocksMapDrag && roundedHit(point, hit));
+  }
+
   showToast(text, tone = 'normal', duration = 2.1) {
     this.toast = { text, tone, expires: this.time + duration };
-  }
-
-  shapingUsed() {
-    return this.state.buildings
-      .filter((building) => !building.destroyed)
-      .reduce((total, building) => total + BUILDING_BY_ID[building.cardId].cost, 0);
-  }
-
-  shapingLimit() {
-    // Each activated ecology outpost permanently expands the colony budget.
-    // The procedural world has no final ring, so this capacity can keep growing.
-    return SHAPING_BUDGET + (this.state.expeditionProgress?.outposts?.length || 0) * 4;
   }
 
   isExpeditionActive() {
@@ -2742,6 +2836,7 @@ export class SlimeGame {
 
   updateAutonomousColony(dt) {
     if (!this.state.colony) return;
+    this.reconcileConstructionBlueprints({ persist: true, notify: false });
     const allColonySlimes = this.state.colony.slimes;
     const awayUids = new Set(this.state.worldExpedition?.squadUids || []);
     this.state.colony.slimes = allColonySlimes.filter((slime) => !awayUids.has(slime.uid));
@@ -2785,6 +2880,142 @@ export class SlimeGame {
 
     if (Math.floor(this.state.colony.time) > Math.floor(this.state.colony.time - dt)
       && Math.floor(this.state.colony.time) % 12 === 0) this.save();
+  }
+
+  refundConstructionBlueprint(blueprintUid) {
+    const colony = this.state.colony;
+    if (!colony || typeof blueprintUid !== 'string') return false;
+    const blueprint = colony.blueprints.find(({ uid: candidateUid }) => (
+      candidateUid === blueprintUid
+    ));
+    if (blueprint) {
+      for (const resourceType of Object.keys(colony.resources)) {
+        colony.resources[resourceType] += Math.max(
+          0,
+          Number(blueprint.delivered?.[resourceType]) || 0,
+        );
+      }
+      blueprint.cancelled = true;
+      blueprint.reservedBy = null;
+    }
+    for (const slime of colony.slimes) {
+      if (slime.job?.targetUid === blueprintUid) cancelColonySlimeWork(colony, slime);
+    }
+    colony.blueprints = colony.blueprints.filter(({ uid: candidateUid }) => (
+      candidateUid !== blueprintUid
+    ));
+    return Boolean(blueprint);
+  }
+
+  cancelConstructionBuilding(building, { persist = false, notify = false } = {}) {
+    if (!building?.underConstruction) return false;
+    this.refundConstructionBlueprint(building.blueprintUid);
+    const index = this.state.buildings.findIndex(({ uid: buildingUid }) => (
+      buildingUid === building.uid
+    ));
+    if (index >= 0) this.state.buildings.splice(index, 1);
+    if (this.selection?.uid === building.uid) this.selection = null;
+    this.state.enemies.forEach((enemy) => { enemy.routeTimer = 0; });
+    if (notify) this.showToast('蓝图已取消，已送达和搬运中的材料已全额退回');
+    if (persist) this.save();
+    return true;
+  }
+
+  reconcileConstructionBlueprints({ persist = false, notify = false } = {}) {
+    const colony = this.state.colony;
+    if (!colony) return false;
+    let changed = false;
+    for (const building of [...this.state.buildings]) {
+      if (!building.underConstruction) continue;
+      const blueprint = colony.blueprints.find(({ uid: blueprintUid }) => (
+        blueprintUid === building.blueprintUid
+      ));
+      const invalid = building.destroyed
+        || !blueprint
+        || blueprint.cancelled
+        || blueprint.cardId !== building.cardId;
+      if (!invalid) continue;
+      changed = this.cancelConstructionBuilding(building, { notify: false }) || changed;
+    }
+    const attachedBlueprintUids = new Set(this.state.buildings
+      .filter(({ underConstruction, destroyed }) => underConstruction && !destroyed)
+      .map(({ blueprintUid }) => blueprintUid));
+    for (const blueprint of [...colony.blueprints]) {
+      if (blueprint.complete) {
+        const building = this.state.buildings.find(({ blueprintUid }) => (
+          blueprintUid === blueprint.uid
+        ));
+        if (!building) {
+          this.refundConstructionBlueprint(blueprint.uid);
+          changed = true;
+          continue;
+        }
+        colony.blueprints = colony.blueprints.filter(({ uid: blueprintUid }) => (
+          blueprintUid !== blueprint.uid
+        ));
+        if (BUILDING_BY_ID[building.cardId]?.terrainProject) {
+          this.completeTerrainProject(building, { persist: false, notify: false });
+        } else {
+          building.underConstruction = false;
+          building.blueprintUid = null;
+          building.buildProgress = 1;
+          building.placedAt = this.time;
+          building.hp = building.maxHp;
+        }
+        changed = true;
+        continue;
+      }
+      if (attachedBlueprintUids.has(blueprint.uid)) continue;
+      this.refundConstructionBlueprint(blueprint.uid);
+      changed = true;
+    }
+    if (changed && notify) this.showToast('失效蓝图已清理，材料已全额退回');
+    if (changed && persist) this.save();
+    return changed;
+  }
+
+  completeTerrainProject(building, { persist = true, notify = true } = {}) {
+    const colony = this.state.colony;
+    const card = BUILDING_BY_ID[building.cardId];
+    if (!colony || !card?.terrainProject) return false;
+    const coveredNodes = colony.resourceNodes.filter((node) => (
+      node.x === building.x && node.y === building.y
+    ));
+    const coveredNodeUids = new Set(coveredNodes.map(({ uid: nodeUid }) => nodeUid));
+    for (const slime of colony.slimes) {
+      if (coveredNodeUids.has(slime.job?.targetUid)) cancelColonySlimeWork(colony, slime);
+    }
+    const coveredAmount = coveredNodes.reduce((total, node) => total + Math.max(0, node.amount), 0);
+    colony.resourceNodes = colony.resourceNodes.filter((node) => !coveredNodeUids.has(node.uid));
+    setTerrainAt(colony, building.x, building.y, {
+      kind: 'ground',
+      terrainId: card.terrainProject.replacementTerrainId || 'ground',
+      passable: true,
+      buildable: true,
+      harvestable: false,
+      destructible: false,
+    });
+    const buildingIndex = this.state.buildings.findIndex(({ uid: buildingUid }) => (
+      buildingUid === building.uid
+    ));
+    if (buildingIndex >= 0) this.state.buildings.splice(buildingIndex, 1);
+    if (this.selection?.uid === building.uid) this.selection = null;
+    const position = this.cellCenter(building.x, building.y);
+    this.spawnDynamicEffect('place', position.x, position.y, {
+      color: card.color,
+      accent: '#FFF0C4',
+      intensity: 0.9,
+    });
+    if (notify) {
+      this.showToast(
+        coveredAmount > 0
+          ? `铺块施工完成，该格剩余 ${coveredAmount} 份资源已被覆盖`
+          : '铺块施工完成，该格现在可以建造',
+        'good',
+      );
+    }
+    if (persist) this.save();
+    return true;
   }
 
   revealAroundActiveSlimes() {
@@ -2834,7 +3065,14 @@ export class SlimeGame {
         }
       } else if (event.type === 'blueprint-completed') {
         const building = this.state.buildings.find((item) => item.blueprintUid === event.blueprintUid);
+        this.state.colony.blueprints = this.state.colony.blueprints.filter(({ uid: blueprintUid }) => (
+          blueprintUid !== event.blueprintUid
+        ));
         if (building) {
+          if (BUILDING_BY_ID[building.cardId]?.terrainProject) {
+            this.completeTerrainProject(building);
+            continue;
+          }
           building.underConstruction = false;
           building.blueprintUid = null;
           building.buildProgress = 1;
@@ -3189,7 +3427,9 @@ export class SlimeGame {
       telegraph: 0, telegraphTarget: null,
       spawnAt: this.time,
     };
-    if (card.elite && this.state.buildings.some((building) => building.cardId === 'building-weather-scout' && !building.destroyed)) {
+    if (card.elite && this.state.buildings.some((building) => (
+      building.cardId === 'building-weather-scout' && buildingIsOperational(building)
+    ))) {
       enemy.marked = true;
       this.showToast('气象台已标记酸壳蜗王', 'good');
     }
@@ -3304,7 +3544,8 @@ export class SlimeGame {
       .filter((target) => !target.downed && distance(survivor, target) <= card.ability.targetRangeTiles)
       .map((target) => ({ kind: 'survivor', target, ratio: target.hp / target.maxHp }));
     const structures = this.state.buildings
-      .filter((target) => !target.destroyed && distance(survivor, target) <= card.ability.targetRangeTiles)
+      .filter((target) => buildingIsOperational(target)
+        && distance(survivor, target) <= card.ability.targetRangeTiles)
       .map((target) => ({ kind: 'building', target, ratio: target.hp / target.maxHp }));
     const choice = [...allies, ...structures].sort((a, b) => a.ratio - b.ratio)[0];
     if (!choice) return false;
@@ -3413,8 +3654,8 @@ export class SlimeGame {
         continue;
       }
 
-      const blocker = buildingAt(this.state.buildings, next.x, next.y);
-      if (blocker && BUILDING_BY_ID[blocker.cardId].solid && !blocker.destroyed) {
+      const blocker = operationalBuildingAt(this.state.buildings, next.x, next.y);
+      if (blocker && BUILDING_BY_ID[blocker.cardId].solid) {
         if (blocker.cardId === 'building-bouncy-fence' && blocker.fenceTrigger > 0) {
           blocker.fenceTrigger -= 1;
           this.pushEnemy(enemy, BUILDING_BY_ID[blocker.cardId].effect.knockbackTiles, 0, BUILDING_BY_ID[blocker.cardId].effect);
@@ -3424,7 +3665,7 @@ export class SlimeGame {
         }
         if (enemy.attackTimer <= 0) {
           const started = this.startEntityAttack(enemy, () => {
-            if (!blocker.destroyed) this.damageBuilding(blocker, this.enemyDamage(enemy, card.damage));
+            if (buildingIsOperational(blocker)) this.damageBuilding(blocker, this.enemyDamage(enemy, card.damage));
           });
           if (started) enemy.attackTimer = card.attackIntervalSeconds;
         }
@@ -3474,7 +3715,7 @@ export class SlimeGame {
             survivor.uid === enemy.telegraphTarget && !survivor.downed
           ))
           : this.state.buildings.find((building) => (
-            building.uid === enemy.telegraphTarget && !building.destroyed
+            building.uid === enemy.telegraphTarget && buildingIsOperational(building)
           ));
         if (target) {
           this.launchProjectile(enemy, target, 'acid');
@@ -3486,7 +3727,7 @@ export class SlimeGame {
           }
           const splashTargets = this.isExpeditionActive()
             ? this.state.survivors.filter((survivor) => !survivor.downed)
-            : this.state.buildings.filter((building) => !building.destroyed);
+            : this.state.buildings.filter(buildingIsOperational);
           for (const other of splashTargets) {
             if (other.uid !== target.uid && distance(other, target) <= card.ability.splashRadiusTiles) {
               other.poisoned = Math.max(other.poisoned || 0, 0.8);
@@ -3511,7 +3752,7 @@ export class SlimeGame {
     if (enemy.abilityTimer <= 0) {
       const candidates = this.isExpeditionActive()
         ? this.state.survivors.filter((survivor) => !survivor.downed)
-        : this.state.buildings.filter((building) => !building.destroyed);
+        : this.state.buildings.filter(buildingIsOperational);
       const target = candidates.sort((a, b) => distance(enemy, a) - distance(enemy, b))[0];
       if (target) {
         enemy.telegraph = card.ability.telegraphSeconds;
@@ -3575,7 +3816,7 @@ export class SlimeGame {
   enemySpeedMultiplier(enemy) {
     const cell = this.nearestCell(enemy);
     let multiplier = 1;
-    const building = buildingAt(this.state.buildings, cell.x, cell.y);
+    const building = operationalBuildingAt(this.state.buildings, cell.x, cell.y);
     if (building?.cardId === 'building-honey-plot') multiplier *= BUILDING_BY_ID[building.cardId].effect.speedMultiplier;
     if (this.state.terrain.some((terrain) => terrain.type === 'honey' && terrain.x === cell.x && terrain.y === cell.y)) multiplier *= 0.55;
     return multiplier;
@@ -3709,7 +3950,9 @@ export class SlimeGame {
   }
 
   damageBuilding(building, amount) {
+    if (!buildingIsOperational(building)) return false;
     this.damageFriendly(building, amount, 'building');
+    return true;
   }
 
   damageSurvivor(survivor, amount) {
@@ -3718,6 +3961,7 @@ export class SlimeGame {
   }
 
   damageFriendly(target, amount, kind) {
+    if (kind === 'building' && !buildingIsOperational(target)) return;
     let damage = amount;
     if ((target.shield || 0) > 0) {
       const absorbed = Math.min(target.shield, damage);
@@ -4056,7 +4300,8 @@ export class SlimeGame {
 
     if (card.id === 'skill-honey-line' || card.id === 'item-spring-pad') {
       if (selection.step === 0) {
-        if (buildingAt(this.state.buildings, cell.x, cell.y) && BUILDING_BY_ID[buildingAt(this.state.buildings, cell.x, cell.y).cardId].solid) {
+        const obstacle = operationalBuildingAt(this.state.buildings, cell.x, cell.y);
+        if (obstacle && BUILDING_BY_ID[obstacle.cardId].solid) {
           this.showToast('需要选择可通行的格子', 'danger');
           return;
         }
@@ -4151,8 +4396,8 @@ export class SlimeGame {
 
     if (card.id === 'skill-sprout-renewal') {
       const survivor = this.state.survivors.find((target) => !target.downed && target.x === cell.x && target.y === cell.y);
-      const building = buildingAt(this.state.buildings, cell.x, cell.y);
-      const target = survivor || (building && !building.destroyed ? building : null);
+      const building = operationalBuildingAt(this.state.buildings, cell.x, cell.y);
+      const target = survivor || building;
       if (!target) {
         this.showToast('这里没有可以修复的目标', 'danger');
         return;
@@ -4177,7 +4422,7 @@ export class SlimeGame {
     }
 
     if (card.id === 'item-lure-jelly') {
-      const obstacle = buildingAt(this.state.buildings, cell.x, cell.y);
+      const obstacle = operationalBuildingAt(this.state.buildings, cell.x, cell.y);
       if (obstacle && BUILDING_BY_ID[obstacle.cardId].solid) {
         this.showToast('诱饵要放在可通行格', 'danger');
         return;
@@ -4202,7 +4447,7 @@ export class SlimeGame {
     if (card.id === 'item-moving-bubble') {
       if (selection.step === 0) {
         const survivor = this.state.survivors.find((target) => !target.downed && target.x === cell.x && target.y === cell.y);
-        const building = buildingAt(this.state.buildings, cell.x, cell.y);
+        const building = operationalBuildingAt(this.state.buildings, cell.x, cell.y);
         if (!survivor && (!building || rotatedFootprint(BUILDING_BY_ID[building.cardId], building.rotation).width !== 1 || rotatedFootprint(BUILDING_BY_ID[building.cardId], building.rotation).height !== 1)) {
           this.showToast('请选择一名幸存者或1×1建筑', 'danger');
           return;
@@ -4224,7 +4469,13 @@ export class SlimeGame {
         source.x = cell.x;
         source.y = cell.y;
       } else {
-        const source = this.state.buildings.find((target) => target.uid === selection.sourceUid);
+        const source = this.state.buildings.find((target) => (
+          target.uid === selection.sourceUid && buildingIsOperational(target)
+        ));
+        if (!source) {
+          this.showToast('这座建筑尚未完工或已失效', 'danger');
+          return;
+        }
         const sourceCard = BUILDING_BY_ID[source.cardId];
         if (this.state.enemies.some((enemy) => !enemy.dead && Math.abs(enemy.x - cell.x) < 0.6 && Math.abs(enemy.y - cell.y) < 0.6)) {
           this.showToast('不能把建筑搬到敌人脚下', 'danger');
@@ -4291,7 +4542,10 @@ export class SlimeGame {
     const cssHeight = this.canvas.height / this.dpr;
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.clearRect(0, 0, cssWidth, cssHeight);
-    ctx.fillStyle = PALETTE.mist;
+    // The procedural world is the page background. The terrain-colored clear
+    // also prevents a decorative scene from flashing at the canvas edge while
+    // camera shake is active.
+    ctx.fillStyle = '#A7CF83';
     ctx.fillRect(0, 0, cssWidth, cssHeight);
     ctx.save();
     ctx.translate(this.offsetX, this.offsetY);
@@ -4301,9 +4555,7 @@ export class SlimeGame {
       Math.cos(this.animationTime * 59) * this.shake * 3,
     );
     this.hits = [];
-    this.drawBackground(ctx);
     this.drawBattlefield(ctx);
-    this.drawForeground(ctx);
     this.drawTopHud(ctx);
     this.drawSidePanel(ctx);
     this.drawBottomBar(ctx);
@@ -4402,16 +4654,9 @@ export class SlimeGame {
 
   drawBattlefield(ctx) {
     this.resetDynamicComponentBudget();
-    drawRoundedRect(ctx, BOARD.x - 4, BOARD.y - 4, BOARD.width + 8, BOARD.height + 8, {
-      radius: 24,
-      fill: 'rgba(255,248,233,0.82)',
-      stroke: 'rgba(51,71,80,0.18)',
-      lineWidth: 3,
-    });
-
+    // Canvas clipping already bounds the scene. Keeping this layer rectangular
+    // makes the infinite map fill the complete view beneath the HUD overlays.
     ctx.save();
-    roundedRectPath(ctx, BOARD.x, BOARD.y, BOARD.width, BOARD.height, 20);
-    ctx.clip?.();
     ctx.fillStyle = '#A7CF83';
     ctx.fillRect(BOARD.x, BOARD.y, BOARD.width, BOARD.height);
 
@@ -4519,7 +4764,8 @@ export class SlimeGame {
     ctx.restore();
 
     ctx.save();
-    drawRoundedRect(ctx, BOARD.x + 14, BOARD.y + 12, 270, 34, {
+    this.addUiBlocker('world-status-blocker', BOARD.x + 14, BOARD.y + 92, 270, 34);
+    drawRoundedRect(ctx, BOARD.x + 14, BOARD.y + 92, 270, 34, {
       radius: 14,
       fill: 'rgba(35,69,58,0.7)',
     });
@@ -4529,7 +4775,7 @@ export class SlimeGame {
     ctx.fillText(
       `无限生态世界 · ${this.infiniteWorld.stats().loadedChunks} 区块 · ${Math.round(this.camera.zoom * 100)}%`,
       BOARD.x + 149,
-      BOARD.y + 34,
+      BOARD.y + 114,
     );
     ctx.restore();
   }
@@ -4749,7 +4995,9 @@ export class SlimeGame {
         null,
         this.runtimeTerrain,
       );
-      const crossesBuilding = path.some((cell) => BUILDING_BY_ID[buildingAt(this.state.buildings, cell.x, cell.y)?.cardId]?.solid);
+      const crossesBuilding = path.some((cell) => BUILDING_BY_ID[
+        operationalBuildingAt(this.state.buildings, cell.x, cell.y)?.cardId
+      ]?.solid);
       const alpha = (crossesBuilding ? 0.46 : 0.38) - routeIndex * 0.025;
       const points = path.map((cell) => this.cellCenter(cell.x, cell.y));
       for (let index = 1; index < points.length; index += 1) {
@@ -5957,7 +6205,6 @@ export class SlimeGame {
     if (selection.kind === 'place-building') {
       const card = BUILDING_BY_ID[selection.cardId];
       return Boolean(card)
-        && this.shapingUsed() + card.cost <= this.shapingLimit()
         && canPlace(
           this.state.buildings,
           card,
@@ -5987,7 +6234,7 @@ export class SlimeGame {
         ? this.state.survivors.find((item) => item.uid === selection.uid)
         : this.state.survivors.find((item) => item.cardId === selection.cardId);
       const terrainCell = this.worldCellAt(cell.x, cell.y);
-      const blockingBuilding = buildingAt(this.state.buildings, cell.x, cell.y);
+      const blockingBuilding = operationalBuildingAt(this.state.buildings, cell.x, cell.y);
       return Boolean(survivor)
         && terrainCell?.discovered !== false
         && terrainCellIsPassable(this.runtimeTerrain, cell.x, cell.y)
@@ -6008,7 +6255,7 @@ export class SlimeGame {
     }
     if (card.id === 'skill-honey-line' || card.id === 'item-spring-pad') {
       if (selection.step === 0) {
-        const obstacle = buildingAt(this.state.buildings, cell.x, cell.y);
+        const obstacle = operationalBuildingAt(this.state.buildings, cell.x, cell.y);
         return !obstacle || !BUILDING_BY_ID[obstacle.cardId].solid;
       }
       const dx = cell.x - selection.origin.x;
@@ -6030,11 +6277,11 @@ export class SlimeGame {
       const survivor = this.state.survivors.some((item) => (
         !item.downed && item.x === cell.x && item.y === cell.y
       ));
-      const building = buildingAt(this.state.buildings, cell.x, cell.y);
-      return survivor || Boolean(building && !building.destroyed);
+      const building = operationalBuildingAt(this.state.buildings, cell.x, cell.y);
+      return survivor || Boolean(building);
     }
     if (card.id === 'item-lure-jelly') {
-      const obstacle = buildingAt(this.state.buildings, cell.x, cell.y);
+      const obstacle = operationalBuildingAt(this.state.buildings, cell.x, cell.y);
       return !obstacle || !BUILDING_BY_ID[obstacle.cardId].solid;
     }
     if (card.id === 'item-moving-bubble') {
@@ -6042,7 +6289,7 @@ export class SlimeGame {
         const survivor = this.state.survivors.some((item) => (
           !item.downed && item.x === cell.x && item.y === cell.y
         ));
-        const building = buildingAt(this.state.buildings, cell.x, cell.y);
+        const building = operationalBuildingAt(this.state.buildings, cell.x, cell.y);
         if (survivor) return true;
         if (!building) return false;
         const shape = rotatedFootprint(BUILDING_BY_ID[building.cardId], building.rotation);
@@ -6053,7 +6300,9 @@ export class SlimeGame {
           item.uid !== selection.sourceUid && !item.downed && item.x === cell.x && item.y === cell.y
         ));
       }
-      const building = this.state.buildings.find((item) => item.uid === selection.sourceUid);
+      const building = this.state.buildings.find((item) => (
+        item.uid === selection.sourceUid && buildingIsOperational(item)
+      ));
       return Boolean(building)
         && !this.state.enemies.some((enemy) => (
           !enemy.dead && Math.abs(enemy.x - cell.x) < 0.6 && Math.abs(enemy.y - cell.y) < 0.6
@@ -6193,6 +6442,7 @@ export class SlimeGame {
   }
 
   drawTopHud(ctx) {
+    this.addUiBlocker('top-hud-blocker', 20, 16, 1240, 64);
     drawRoundedRect(ctx, 20, 16, 1240, 64, {
       radius: 22,
       fill: 'rgba(255,248,233,0.93)',
@@ -6274,6 +6524,7 @@ export class SlimeGame {
   }
 
   drawSidePanel(ctx) {
+    this.addUiBlocker('side-panel-blocker', PANEL.x, PANEL.y, PANEL.width, PANEL.height);
     drawRoundedRect(ctx, PANEL.x, PANEL.y, PANEL.width, PANEL.height, {
       radius: 28,
       fill: 'rgba(255,248,233,0.96)',
@@ -6337,12 +6588,43 @@ export class SlimeGame {
       ctx.fillStyle = PALETTE.textMuted;
       ctx.font = '700 15px "PingFang SC", sans-serif';
       const meta = card.type === 'building'
-        ? `${rotatedFootprint(card, displayedRotation).width}×${rotatedFootprint(card, displayedRotation).height} · 定形值 ${card.cost}`
+        ? `${rotatedFootprint(card, displayedRotation).width}×${rotatedFootprint(card, displayedRotation).height} · ${formatBuildingMaterials(card.id, { compact: true })}`
         : `${COLONY_AI_LABEL[this.state.survivors.find((item) => item.uid === this.selection?.uid)?.aiState] || '自动工作'} · 生命 ${card.hp}`;
       ctx.fillText(meta, PANEL.x + 122, PANEL.y + 84);
       ctx.fillStyle = PALETTE.ink;
       ctx.font = '600 17px "PingFang SC", sans-serif';
       wrapText(ctx, card.description, PANEL.x + 122, PANEL.y + 111, 228, 24, 3);
+
+      if (card.type === 'building') {
+        const blueprint = selectedBuilding?.underConstruction
+          ? this.state.colony?.blueprints.find(({ uid: blueprintUid }) => (
+            blueprintUid === selectedBuilding.blueprintUid
+          ))
+          : null;
+        const missing = missingBuildingMaterials(
+          card.id,
+          this.state.colony?.resources,
+          blueprint?.delivered,
+        );
+        ctx.fillStyle = '#3C745E';
+        ctx.font = '800 14px "PingFang SC", sans-serif';
+        const materialStatus = blueprint
+          ? Object.entries(blueprint.required)
+            .filter(([, amount]) => amount > 0)
+            .map(([type, amount]) => `${COLONY_RESOURCE_LABEL[type]}${blueprint.delivered[type] || 0}/${amount}`)
+            .join('　')
+          : formatBuildingMaterials(card.id);
+        ctx.fillText(`${blueprint ? '已送材料' : '施工配方'}　${materialStatus}`, PANEL.x + 26, PANEL.y + 184);
+        ctx.fillStyle = Object.keys(missing).length ? '#A97528' : PALETTE.textMuted;
+        ctx.font = '700 13px "PingFang SC", sans-serif';
+        ctx.fillText(
+          Object.keys(missing).length
+            ? `缺料 ${Object.entries(missing).map(([type, amount]) => `${COLONY_RESOURCE_LABEL[type]}${amount}`).join(' ')}；可先放蓝图等待采集`
+            : '库存充足；放下蓝图后由史莱姆搬运施工',
+          PANEL.x + 26,
+          PANEL.y + 207,
+        );
+      }
 
       const actionY = PANEL.y + 248;
       if (this.selection.kind === 'inspect-building') {
@@ -6476,15 +6758,20 @@ export class SlimeGame {
     }
     ctx.restore();
 
-    const used = this.shapingUsed();
-    const limit = this.shapingLimit();
     ctx.save();
-    ctx.font = '800 15px "PingFang SC", sans-serif';
+    ctx.font = '800 14px "PingFang SC", sans-serif';
     ctx.fillStyle = PALETTE.textMuted;
-    ctx.fillText(`定形值 ${used} / ${limit}（每座前哨 +4）`, PANEL.x + 28, PANEL.y + 370);
-    drawRoundedRect(ctx, PANEL.x + 28, PANEL.y + 382, 330, 10, { radius: 5, fill: '#D8D8C9' });
-    drawRoundedRect(ctx, PANEL.x + 28, PANEL.y + 382, 330 * clamp(used / limit, 0, 1), 10, {
-      radius: 5, fill: used >= limit ? '#E3A83C' : '#61D6A2',
+    ctx.fillText('仓库材料 · 蓝图可等待采集', PANEL.x + 28, PANEL.y + 368);
+    const resourceEntries = Object.entries(COLONY_RESOURCE_LABEL);
+    resourceEntries.forEach(([resourceType, label], index) => {
+      const x = PANEL.x + 31 + index * 110;
+      ctx.fillStyle = RESOURCE_COLOR_BY_ID[resourceType];
+      ctx.beginPath();
+      ctx.arc(x + 7, PANEL.y + 392, 7, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = PALETTE.inkSoft;
+      ctx.font = '800 14px "PingFang SC", sans-serif';
+      ctx.fillText(`${label} ${Math.floor(this.state.colony?.resources?.[resourceType] || 0)}`, x + 19, PANEL.y + 397);
     });
     ctx.restore();
 
@@ -6628,6 +6915,7 @@ export class SlimeGame {
   }
 
   drawBottomBar(ctx) {
+    this.addUiBlocker('bottom-bar-blocker', BOTTOM.x, BOTTOM.y, BOTTOM.width, BOTTOM.height);
     drawRoundedRect(ctx, BOTTOM.x, BOTTOM.y, BOTTOM.width, BOTTOM.height, {
       radius: 28,
       fill: 'rgba(255,248,233,0.95)',
@@ -6667,7 +6955,7 @@ export class SlimeGame {
       this.drawMiniCard(ctx, `build-card-${card.id}`, { x, y: BOTTOM.y + 13, w: cardWidth, h: 84 }, card, {
         selected,
         meta: card.type === 'building'
-          ? `${card.cost} 定形`
+          ? formatBuildingMaterials(card.id, { compact: true })
           : COLONY_AI_LABEL[survivor?.aiState] || '自动工作',
       }, () => this.selectBuildCard(card));
     });
@@ -6731,14 +7019,14 @@ export class SlimeGame {
       'skill-jelly-bounce': '弹', 'skill-honey-line': '胶', 'skill-soft-swap': '换', 'skill-sprout-renewal': '春',
       'item-spring-pad': '垫', 'item-lure-jelly': '诱', 'item-moving-bubble': '搬',
       'building-mushroom-home': '屋', 'building-honey-plot': '圃', 'building-bubble-tower': '塔',
-      'building-bouncy-fence': '栏', 'building-weather-scout': '测',
+      'building-bouncy-fence': '栏', 'building-weather-scout': '测', 'building-gel-foundation': '铺',
     };
     return glyphs[card.id] || '胶';
   }
 
   cardAssetKey(card) {
     if (card.type === 'skill' || card.type === 'item') return `${card.id}-icon`;
-    if (card.type === 'survivor' || card.type === 'building') return card.id;
+    if (card.type === 'survivor' || (card.type === 'building' && !card.terrainProject)) return card.id;
     return null;
   }
 
@@ -7457,11 +7745,6 @@ export class SlimeGame {
     if (selection?.kind === 'place-building') {
       const card = BUILDING_BY_ID[selection.cardId];
       const rotation = canonicalBuildingRotation(selection.rotation, card);
-      if (this.shapingUsed() + card.cost > this.shapingLimit()) {
-        this.showToast(`定形值不足，还需要 ${card.cost} 点`, 'danger');
-        this.audio.play('warning');
-        return;
-      }
       if (!canPlace(
         this.state.buildings,
         card,
@@ -7478,30 +7761,34 @@ export class SlimeGame {
       const occupiedCells = footprintCells(card, cell.x, cell.y, rotation);
       this.ensureColonyBounds(occupiedCells);
       const recipe = BUILDING_RECIPE_BY_ID[card.id];
-      let blueprint = null;
-      if (recipe && this.state.colony) {
-        try {
-          blueprint = addBlueprint(this.state.colony, {
-            cardId: card.id,
-            x: cell.x,
-            y: cell.y,
-            footprint: shape,
-            required: colonyRecipeResources(recipe.recipe),
-            buildSeconds: recipe.constructionSeconds,
-          });
-        } catch {
-          this.showToast('这块土地暂时不能放蓝图', 'danger');
-          return;
-        }
+      if (!recipe || !this.state.colony) {
+        this.showToast('这座建筑还没有可用的材料配方', 'danger');
+        return;
+      }
+      let blueprint;
+      try {
+        blueprint = addBlueprint(this.state.colony, {
+          cardId: card.id,
+          x: cell.x,
+          y: cell.y,
+          footprint: shape,
+          required: colonyRecipeResources(recipe.recipe),
+          buildSeconds: recipe.constructionSeconds,
+          terrainProject: card.terrainProject || null,
+        });
+      } catch {
+        this.showToast('这块土地暂时不能放蓝图', 'danger');
+        return;
       }
       this.state.buildings.push({
         uid: uid('building'), cardId: card.id, x: cell.x, y: cell.y,
         rotation, hp: card.hp, maxHp: card.hp,
         cooldown: 0, shotCount: 0, shield: 0, seed: 0,
         fenceTrigger: 1, destroyed: false, placedAt: this.time,
-        underConstruction: Boolean(blueprint),
-        blueprintUid: blueprint?.uid || null,
-        buildProgress: blueprint ? 0 : 1,
+        underConstruction: true,
+        blueprintUid: blueprint.uid,
+        buildProgress: 0,
+        terrainProject: Boolean(card.terrainProject),
       });
       const effectPosition = worldToScreen({
         x: cell.x + shape.width / 2,
@@ -7513,9 +7800,11 @@ export class SlimeGame {
         intensity: clamp(shape.width * 0.82, 0.9, 1.55),
       });
       this.audio.play('place');
-      this.showToast(blueprint
-        ? `${card.shortName}蓝图已放下，史莱姆会搬材料施工`
-        : `${card.shortName}安顿好了`);
+      const missing = missingBuildingMaterials(card.id, this.state.colony.resources);
+      const waitHint = Object.keys(missing).length ? '，缺料时会等待采集' : '';
+      this.showToast(card.terrainProject
+        ? `铺块蓝图已放下，会覆盖该格未采资源${waitHint}`
+        : `${card.shortName}蓝图已放下，史莱姆会搬材料施工${waitHint}`);
       this.save();
       return;
     }
@@ -7564,7 +7853,7 @@ export class SlimeGame {
         : this.state.survivors.find((item) => item.cardId === selection.cardId);
       if (!survivor) return;
       const terrainCell = this.worldCellAt(cell.x, cell.y);
-      const blockingBuilding = buildingAt(this.state.buildings, cell.x, cell.y);
+      const blockingBuilding = operationalBuildingAt(this.state.buildings, cell.x, cell.y);
       if (terrainCell?.discovered === false
         || !terrainCellIsPassable(this.runtimeTerrain, cell.x, cell.y)
         || BUILDING_BY_ID[blockingBuilding?.cardId]?.solid) {
@@ -7632,7 +7921,9 @@ export class SlimeGame {
     if (!this.isBuildPhase()) return;
     if (card.type === 'building') {
       this.selection = { kind: 'place-building', cardId: card.id, rotation: 0 };
-      this.showToast(`选择格子放置${card.shortName}`);
+      this.showToast(card.terrainProject
+        ? '选择已探索的资源格铺地；剩余未采资源会被覆盖'
+        : `选择格子放置${card.shortName}`);
     } else {
       const survivor = this.state.survivors.find((item) => item.cardId === card.id);
       if (!survivor) return;
@@ -7681,41 +7972,31 @@ export class SlimeGame {
     if (this.selection?.kind !== 'inspect-building') return;
     const index = this.state.buildings.findIndex((item) => item.uid === this.selection.uid);
     if (index < 0) return;
+    if (this.state.buildings[index].underConstruction) {
+      this.cancelConstructionBuilding(this.state.buildings[index], { persist: true, notify: true });
+      return;
+    }
     const [removed] = this.state.buildings.splice(index, 1);
-    this.showToast(`${BUILDING_BY_ID[removed.cardId].shortName}已收回，定形值全部返还`);
+    const refund = Object.fromEntries(Object.entries(buildingMaterialRecipe(removed.cardId))
+      .map(([resourceType, amount]) => [resourceType, Math.floor(amount * 0.5)])
+      .filter(([, amount]) => amount > 0));
+    for (const [resourceType, amount] of Object.entries(refund)) {
+      this.state.colony.resources[resourceType] += amount;
+    }
+    const refundText = Object.entries(refund)
+      .map(([resourceType, amount]) => `${COLONY_RESOURCE_LABEL[resourceType]}${amount}`)
+      .join(' ');
+    this.showToast(`${BUILDING_BY_ID[removed.cardId].shortName}已拆除${refundText ? `，回收 ${refundText}` : ''}`);
     this.selection = null;
     this.save();
   }
 
   cancelSelectedBlueprint() {
     if (this.selection?.kind !== 'inspect-building' || !this.state.colony) return;
-    const index = this.state.buildings.findIndex((item) => (
+    const building = this.state.buildings.find((item) => (
       item.uid === this.selection.uid && item.underConstruction
     ));
-    if (index < 0) return;
-    const building = this.state.buildings[index];
-    const blueprint = this.state.colony.blueprints.find((item) => item.uid === building.blueprintUid);
-    if (blueprint) {
-      for (const resourceType of Object.keys(this.state.colony.resources)) {
-        this.state.colony.resources[resourceType] += blueprint.delivered[resourceType] || 0;
-      }
-      blueprint.cancelled = true;
-      blueprint.reservedBy = null;
-      for (const slime of this.state.colony.slimes) {
-        if (slime.job?.targetUid !== blueprint.uid) continue;
-        if (slime.carrying?.destination === 'blueprint') {
-          this.state.colony.resources[slime.carrying.resourceType] += slime.carrying.amount;
-        }
-        slime.carrying = null;
-        slime.job = null;
-        slime.path = [];
-        slime.aiState = 'idle';
-      }
-    }
-    this.state.buildings.splice(index, 1);
-    this.selection = null;
-    this.showToast('蓝图已取消，已送达和搬运中的材料已退回');
-    this.save();
+    if (building) this.cancelConstructionBuilding(building, { persist: true, notify: true });
   }
 
   openIntel() {
@@ -7766,6 +8047,7 @@ export class SlimeGame {
   startWave(index) {
     const wave = WAVES[index];
     if (!wave) return;
+    this.reconcileConstructionBlueprints({ persist: false, notify: false });
     this.state.phase = 'battle';
     this.state.paused = false;
     this.state.waveIndex = index;
@@ -7784,6 +8066,7 @@ export class SlimeGame {
     this.selection = null;
 
     this.state.buildings.forEach((building) => {
+      if (building.underConstruction) return;
       const card = BUILDING_BY_ID[building.cardId];
       building.destroyed = false;
       building.hp = Math.max(building.hp, card.hp * 0.4);
@@ -7803,7 +8086,7 @@ export class SlimeGame {
       survivor.hitCount = 0;
       survivor.attackCount = 0;
       if (card.id === 'survivor-shell-shell') survivor.shield = card.ability.shield;
-      const home = buildingAt(this.state.buildings, survivor.x, survivor.y);
+      const home = operationalBuildingAt(this.state.buildings, survivor.x, survivor.y);
       if (home?.cardId === 'building-mushroom-home') survivor.shield += BUILDING_BY_ID[home.cardId].effect.shieldPerWave;
     });
     this.showToast(`第 ${index + 1} 波 · ${wave.name}`);
@@ -7843,6 +8126,7 @@ export class SlimeGame {
     this.state.paused = true;
     this.selection = null;
     this.state.buildings.forEach((building) => {
+      if (building.underConstruction) return;
       const card = BUILDING_BY_ID[building.cardId];
       building.destroyed = false;
       building.hp = clamp(building.hp + card.hp * 0.22, card.hp * 0.32, card.hp);
@@ -7864,7 +8148,7 @@ export class SlimeGame {
       reward: participation,
       coreRatio,
       kills: this.state.kills,
-      buildingsLeft: this.state.buildings.filter((building) => !building.destroyed).length,
+      buildingsLeft: this.state.buildings.filter(buildingIsOperational).length,
     };
     this.state.softCrystals += participation;
     this.state.phase = 'result';

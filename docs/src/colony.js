@@ -222,9 +222,23 @@ function footprintCells(spec) {
 
 export function canPlaceBlueprint(state, spec = {}) {
   const cells = footprintCells(spec);
-  if (!cells.every(({ x, y }) => isInsideColonyWorld(state, x, y) && terrainAt(state, x, y).buildable)) return false;
-  if (state.resourceNodes.some((node) => node.amount > 0 && cells.some((cell) => cell.x === node.x && cell.y === node.y))) return false;
-  return !state.blueprints.some((blueprint) => !blueprint.cancelled
+  const terrainProject = spec.terrainProject && typeof spec.terrainProject === 'object'
+    ? spec.terrainProject
+    : null;
+  const terrainIsEligible = ({ x, y }) => {
+    if (!isInsideColonyWorld(state, x, y)) return false;
+    const terrain = terrainAt(state, x, y);
+    if (!terrainProject) return terrain.buildable;
+    if (cells.length !== 1 || terrain.outside || terrain.unexplored || !terrain.passable) return false;
+    if (terrain.buildable) return terrainProject.allowBuildableGround !== false;
+    if (terrain.harvestable) return terrainProject.allowHarvestableTerrain === true;
+    return terrainProject.allowPassableTerrain === true;
+  };
+  if (!cells.every(terrainIsEligible)) return false;
+  if (!terrainProject && state.resourceNodes.some((node) => (
+    node.amount > 0 && cells.some((cell) => cell.x === node.x && cell.y === node.y)
+  ))) return false;
+  return !state.blueprints.some((blueprint) => !blueprint.complete && !blueprint.cancelled
     && footprintCells(blueprint).some((occupied) => cells.some((cell) => cell.x === occupied.x && cell.y === occupied.y)));
 }
 
@@ -243,6 +257,9 @@ export function addBlueprint(state, spec = {}) {
     delivered: resourceRecord(spec.delivered),
     buildSeconds: Math.max(0.05, Number(spec.buildSeconds) || 6),
     buildProgress: Math.max(0, Number(spec.buildProgress) || 0),
+    terrainProject: spec.terrainProject && typeof spec.terrainProject === 'object'
+      ? { ...spec.terrainProject }
+      : null,
     complete: false,
     cancelled: false,
     reservedBy: null,

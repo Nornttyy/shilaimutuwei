@@ -63,6 +63,19 @@ test('terrain capabilities govern paths and blueprint placement', () => {
   assert.equal(canPlaceBlueprint(state, { x: 4, y: 2 }), false);
   assert.equal(canPlaceBlueprint(state, { x: 5, y: 2 }), false);
   assert.equal(canPlaceBlueprint(state, { x: 6, y: 2 }), false);
+  const terrainProject = {
+    replacementTerrainId: 'ground',
+    allowBuildableGround: false,
+    allowHarvestableTerrain: true,
+  };
+  assert.equal(canPlaceBlueprint(state, { x: 2, y: 2, terrainProject }), false, 'paving clear ground would waste materials');
+  assert.equal(canPlaceBlueprint(state, { x: 6, y: 2, terrainProject }), true, 'a passable resource cell can be paved');
+  assert.equal(canPlaceBlueprint(state, { x: 3, y: 2, terrainProject }), false, 'permanent blockers cannot be paved');
+  addResourceNode(state, { uid: 'paving-node', x: 7, y: 2, resourceType: 'gel', amount: 2 });
+  assert.equal(canPlaceBlueprint(state, { x: 7, y: 2, terrainProject }), true, 'the terrain project owns resource cleanup');
+  const completed = addBlueprint(state, { uid: 'old-plan', x: 8, y: 2 });
+  completed.complete = true;
+  assert.equal(canPlaceBlueprint(state, { x: 8, y: 2 }), true, 'completed blueprints never reserve a cell');
   const path = findColonyPath(state, { x: 2, y: 2 }, { x: 7, y: 2 });
   assert.ok(path.length > 5, 'path must route around blocked terrain');
   assert.ok(!path.some(({ x, y }) => y === 2 && [3, 4, 5].includes(x)));

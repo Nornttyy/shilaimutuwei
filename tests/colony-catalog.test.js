@@ -252,9 +252,14 @@ test('base, entrances, and nests derive their coordinate checks from WORLD bound
   }
 });
 
-test('five building recipes are complete and the starting resource budget has progression', () => {
-  assert.equal(BUILDING_RECIPES.length, 5);
-  assert.equal(new Set(BUILDING_RECIPES.map(({ id }) => id)).size, 5);
+test('all building and terrain-project recipes are complete and the starting resource budget has progression', () => {
+  assert.equal(BUILDING_RECIPES.length, 6);
+  assert.equal(new Set(BUILDING_RECIPES.map(({ id }) => id)).size, 6);
+  assert.deepEqual(
+    BUILDING_RECIPES.map(({ id }) => id).sort(),
+    Object.values(CARD_BY_ID).filter(({ type }) => type === 'building').map(({ id }) => id).sort(),
+    'every placeable construction card must have a material recipe',
+  );
   const resourceIds = new Set(
     Object.values(TERRAIN_TYPES)
       .filter(({ kind }) => kind === 'resource')
@@ -263,6 +268,11 @@ test('five building recipes are complete and the starting resource budget has pr
 
   for (const building of BUILDING_RECIPES) {
     assert.equal(CARD_BY_ID[building.id]?.type, 'building', `${building.id} is unknown`);
+    assert.deepEqual(
+      building.footprint,
+      CARD_BY_ID[building.id].footprint,
+      `${building.id} recipe footprint must match its placement card`,
+    );
     assert.ok(building.footprint.width > 0 && building.footprint.width <= WORLD.width);
     assert.ok(building.footprint.height > 0 && building.footprint.height <= WORLD.height);
     assert.ok(building.constructionSeconds > 0);

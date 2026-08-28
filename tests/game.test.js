@@ -59,7 +59,12 @@ function createContext() {
   });
 }
 
-function createHarness({ context = createContext(), assetStore = null } = {}) {
+function createHarness({
+  context = createContext(),
+  assetStore = null,
+  viewportWidth = 1280,
+  viewportHeight = 720,
+} = {}) {
   const storage = new Map();
   globalThis.localStorage = {
     getItem: (key) => storage.get(key) ?? null,
@@ -74,10 +79,15 @@ function createHarness({ context = createContext(), assetStore = null } = {}) {
   };
   const ctx = context;
   const canvas = {
-    width: 1280,
-    height: 720,
+    width: viewportWidth,
+    height: viewportHeight,
     getContext: () => ctx,
-    getBoundingClientRect: () => ({ left: 0, top: 0, width: 1280, height: 720 }),
+    getBoundingClientRect: () => ({
+      left: 0,
+      top: 0,
+      width: viewportWidth,
+      height: viewportHeight,
+    }),
     addEventListener() {},
   };
   const game = new SlimeGame(canvas, { assetStore });
@@ -219,6 +229,79 @@ test('renders all top-level screens with the zero-dependency canvas renderer', (
   game.finishDefense(true);
   assert.equal(game.state.phase, 'result');
   assert.doesNotThrow(() => game.render());
+});
+
+test('the infinite map fills the authored canvas and replaces the decorative background layers', () => {
+  const recording = createRecordingContext();
+  const { game } = createHarness({ context: recording.ctx });
+  let backgroundDraws = 0;
+  let foregroundDraws = 0;
+  game.drawBackground = () => { backgroundDraws += 1; };
+  game.drawForeground = () => { foregroundDraws += 1; };
+
+  game.render();
+
+  assert.equal(backgroundDraws, 0);
+  assert.equal(foregroundDraws, 0);
+  assert.ok(
+    recording.calls.some(([name, x, y, width, height]) => (
+      name === 'fillRect' && x === 0 && y === 0 && width === 1280 && height === 720
+    )),
+    'the terrain layer should cover the complete logical canvas',
+  );
+  assert.ok(game.pointToCell({ x: 0, y: 0 }));
+  assert.ok(game.pointToCell({ x: 1279, y: 719 }));
+});
+
+test('wide landscape screens reveal more world instead of leaving letterbox background', () => {
+  const recording = createRecordingContext();
+  const { game } = createHarness({
+    context: recording.ctx,
+    viewportWidth: 1920,
+    viewportHeight: 720,
+  });
+
+  game.render();
+
+  assert.equal(game.scale, 1);
+  assert.equal(game.offsetX, 320);
+  assert.ok(
+    recording.calls.some(([name, x, y, width, height]) => (
+      name === 'fillRect' && x === -320 && y === 0 && width === 1920 && height === 720
+    )),
+    'the world layer should expand through both wide-screen side areas',
+  );
+  const leftEdge = game.toGamePoint({ clientX: 1, clientY: 360 });
+  const rightEdge = game.toGamePoint({ clientX: 1919, clientY: 360 });
+  assert.ok(game.pointToCell(leftEdge), 'left physical edge stays interactive world');
+  assert.ok(game.pointToCell(rightEdge), 'right physical edge stays interactive world');
+});
+
+test('HUD overlays block map dragging while uncovered terrain remains draggable', () => {
+  const { game } = createHarness();
+  game.render();
+  const pointer = (clientX, clientY, pointerId = 1) => ({
+    clientX,
+    clientY,
+    pointerId,
+    preventDefault() {},
+  });
+
+  game.onPointerDown(pointer(900, 200));
+  assert.equal(game.pointerDrag, null, 'the right-side overlay must capture pointer gestures');
+  game.onPointerCancel();
+
+  game.onPointerDown(pointer(500, 300, 2));
+  assert.deepEqual(game.pointerDrag?.start, { x: 500, y: 300 });
+  game.onPointerCancel();
+
+  game.onPointerDown(pointer(400, 40, 3));
+  assert.equal(game.pointerDrag, null, 'the top HUD must not initiate camera movement');
+  game.onPointerCancel();
+
+  game.onPointerDown(pointer(500, 650, 4));
+  assert.equal(game.pointerDrag, null, 'the bottom controls must not initiate camera movement');
+  game.onPointerCancel();
 });
 
 test('generated image drawing is preferred and drawImage failures atomically use fallback', () => {
@@ -551,8 +634,8 @@ test('rotated wide buildings keep generated PNG art upright and center world eff
 
   game.drawBuildings(recording.ctx, [building]);
 
-  assert.deepEqual(game.entityCanvasPosition(building), { x: 306, y: 352 });
-  assert.deepEqual(translations[0], [306, 352]);
+  assert.deepEqual(game.entityCanvasPosition(building), { x: 512, y: 377 });
+  assert.deepEqual(translations[0], [512, 377]);
   assert.deepEqual(
     rotations,
     [],
@@ -588,7 +671,7 @@ test('building placement preview paints every rotated footprint cell and keeps i
   ));
   assert.deepEqual(
     footprintCalls.map((call) => ({ x: call[2], y: call[3] })),
-    [{ x: 534, y: 51 }, { x: 534, y: 115 }],
+    [{ x: 740, y: 76 }, { x: 740, y: 140 }],
   );
   assert.ok(recording.calls.some((call) => call[0] === 'drawImage' && call[1] === art));
   assert.deepEqual(rotations, []);
@@ -619,7 +702,7 @@ test('moving a wide building previews rotation, cancels safely, rejects invalid 
   assert.equal(building.rotation, 0, 'previewing a move must leave the placed direction unchanged');
   assert.equal(game.selectionCellIsValid({ x: 14, y: 4 }), true);
   game.drawBuildSide(recording.ctx);
-  assert.ok(texts.some(([text]) => text === '1×2 · 定形值 2'));
+  assert.ok(texts.some(([text]) => text === '1×2 · 胶4 蜜2'));
 
   const cancel = game.hits.find(({ id }) => id === 'cancel-move');
   assert.ok(cancel);
@@ -678,7 +761,7 @@ test('one complete fence object occupies two cells and rotates without moving th
   ));
   assert.deepEqual(
     footprintCalls.map((call) => ({ x: call[2], y: call[3] })),
-    [{ x: 534, y: 51 }, { x: 534, y: 115 }],
+    [{ x: 740, y: 76 }, { x: 740, y: 140 }],
     'one complete fence object must preview both occupied cells',
   );
   assert.ok(

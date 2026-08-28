@@ -222,7 +222,7 @@ test('a complete site loop grants rewards, returns the squad, and never rolls ba
   assert.equal(game.infiniteWorld.getPoiState(site.id)?.cleared, true);
   assert.ok(game.state.expeditionProgress.outposts.some(({ id }) => id === site.id));
   assert.ok(game.state.colony.depots.some(({ x, y }) => x === site.x && y === site.y));
-  assert.ok(game.shapingLimit() >= 16);
+  assert.equal(game.shapingLimit, undefined, '建造不再受定形值上限限制');
   assert.ok(Object.keys(resourcesBefore).some((key) => game.state.colony.resources[key] > resourcesBefore[key]));
   assert.equal(game.state.phase, 'build');
 });
@@ -337,7 +337,7 @@ test('generated POIs and activated relays reserve their cell against constructio
   assert.equal(game.selectionCellIsValid(site), false);
 });
 
-test('hundreds of outposts retain unbounded shaping capacity and depot positions after reload', () => {
+test('hundreds of outposts retain depot positions without reintroducing a shaping cap', () => {
   const storage = new Map();
   const game = createGame(storage);
   game.state.expeditionProgress.outposts = Array.from({ length: 300 }, (_, index) => ({
@@ -347,12 +347,11 @@ test('hundreds of outposts retain unbounded shaping capacity and depot positions
     name: `前哨 ${index}`,
   }));
   game.syncColonyDepots();
-  const limit = game.shapingLimit();
   game.save();
 
   const restored = createGame(storage);
   assert.equal(restored.state.expeditionProgress.outposts.length, 300);
-  assert.equal(restored.shapingLimit(), limit);
+  assert.equal(restored.shapingLimit, undefined);
   assert.equal(restored.state.colony.depots.length, 301);
 });
 

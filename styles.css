@@ -1,7 +1,7 @@
 :root {
   color-scheme: light;
   font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
-  background: #ddefe5;
+  background: #a7cf83;
   color: #263642;
   overscroll-behavior: none;
 }
@@ -19,9 +19,7 @@ body {
   min-height: 100dvh;
   margin: 0;
   overflow: hidden;
-  background:
-    radial-gradient(circle at 22% 12%, rgba(255, 255, 255, 0.72), transparent 28%),
-    linear-gradient(160deg, #ddefe5, #b6d9c4);
+  background: #a7cf83;
 }
 
 #app {
@@ -31,7 +29,7 @@ body {
   height: 100%;
   place-items: center;
   overflow: hidden;
-  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  background: #a7cf83;
 }
 
 #game {
@@ -64,7 +62,7 @@ body {
   align-items: center;
   justify-content: center;
   gap: 14px;
-  background: #ddefe5;
+  background: #a7cf83;
   color: #49625c;
   font-weight: 700;
   letter-spacing: 0.05em;
@@ -92,7 +90,7 @@ body {
   display: none;
   place-items: center;
   padding: 24px;
-  background: linear-gradient(160deg, #ddefe5, #b6d9c4);
+  background: #a7cf83;
 }
 
 .rotate-card {

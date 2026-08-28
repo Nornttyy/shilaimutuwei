@@ -56,6 +56,7 @@ const PROJECT_ASSET_SPEC = JSON.parse(await readFile(
   'utf8',
 ));
 const PROJECT_ROOT = fileURLToPath(new URL('../', import.meta.url));
+const SHELL_SLIME_IMAGE_PATH = './assets/generated/survivor/survivor-moss-sprout.png';
 const REQUIRED_GAMEPLAY_MODULES = Object.freeze([
   'src/world.js',
   'src/colony-catalog.js',
@@ -69,7 +70,7 @@ const REQUIRED_GAMEPLAY_MODULES = Object.freeze([
   'src/platform/wechat-entry.js',
 ]);
 const REQUIRED_GAMEPLAY_ASSET_CATEGORIES = Object.freeze({
-  terrain: 7,
+  terrain: 10,
   'terrain-waste': 7,
   region: 5,
   nest: 2,
@@ -78,9 +79,34 @@ const REQUIRED_GAMEPLAY_ASSET_CATEGORIES = Object.freeze({
   resource: 3,
 });
 
-test('the project asset whitelist covers all 118 canonical nested PNG paths', () => {
+test('the browser shell loads formal loading and rotation art without JavaScript', async () => {
+  const [html, css] = await Promise.all([
+    readFile(new URL('../index.html', import.meta.url), 'utf8'),
+    readFile(new URL('../styles.css', import.meta.url), 'utf8'),
+  ]);
+
+  assert.match(
+    html,
+    new RegExp(`<link rel="preload" as="image" href="${escapeRegExp(SHELL_SLIME_IMAGE_PATH)}"`),
+  );
+  for (const className of ['loading-blob', 'rotate-slime']) {
+    const image = html.match(new RegExp(`<img\\s+class="${className}"[\\s\\S]*?\\/>`))?.[0] || '';
+    assert.match(image, new RegExp(`src="${escapeRegExp(SHELL_SLIME_IMAGE_PATH)}"`));
+    assert.match(image, /alt=""/);
+    assert.match(image, /aria-hidden="true"/);
+    assert.doesNotMatch(html, new RegExp(`<span class="${className}"`));
+
+    const declarations = css.match(new RegExp(`\\.${className}\\s*\\{([^}]*)\\}`))?.[1] || '';
+    assert.match(declarations, /object-fit:\s*contain/);
+    assert.doesNotMatch(declarations, /(?:background|border-radius|box-shadow)\s*:/);
+  }
+  assert.match(css, /\.loading-blob\s*\{[^}]*animation:\s*bob/s);
+  assert.match(css, /@media \(orientation:\s*portrait\) and \(max-width:\s*900px\)/);
+});
+
+test('the project asset whitelist covers all 122 canonical nested PNG paths', () => {
   const paths = collectDeclaredAssetPaths(PROJECT_ASSET_SPEC);
-  assert.equal(paths.length, 118);
+  assert.equal(paths.length, 122);
   assert.equal(new Set(paths).size, paths.length);
   assert.equal(paths.every((assetPath) => (
     /^assets\/generated\/[a-z][a-z0-9-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*\.png$/.test(assetPath)

@@ -2,9 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  drawAuthoredDiscoveryFog,
   drawTerrainAsset,
   drawOrganicGround,
   drawOrganicTerrainProps,
+  drawWorldAnchoredTerrainTexture,
   isWastelandCell,
   LANDMARK_ASSET_KEYS,
   POI_ASSET_KEYS,
@@ -12,7 +14,10 @@ import {
   landmarkAssetKeyForZone,
   regionAssetKeyForZone,
   TERRAIN_ASSET_KEYS,
+  TERRAIN_ASSET_PROFILES,
+  TERRAIN_LAYER_ASSET_KEYS,
   WASTELAND_TERRAIN_ASSET_KEYS,
+  WORLD_GROUND_TEXTURE_PERIOD_CELLS,
   terrainAssetKey,
   terrainAssetKeyForCell,
   terrainRenderLayer,
@@ -49,6 +54,9 @@ function readyAssetStore(keys) {
   }]));
   return {
     requested,
+    get(key, fallback = null) {
+      return assets.get(key) ?? fallback;
+    },
     useOrFallback(key, drawAsset, drawFallback) {
       requested.push(key);
       const asset = assets.get(key);
@@ -72,6 +80,20 @@ function optionsFor(tiles, pixelsPerCell = 48) {
   };
 }
 
+function texturePlacements(ctx, assetKey) {
+  const placements = [];
+  let translate = null;
+  let scale = null;
+  for (const call of ctx.calls) {
+    if (call.method === 'translate') translate = call.args;
+    if (call.method === 'scale') scale = call.args;
+    if (call.method === 'drawImage' && call.args[0]?.key === assetKey) {
+      placements.push({ translate, scale, draw: call.args.slice(1) });
+    }
+  }
+  return placements;
+}
+
 test('continuous ground never emits square grid outlines', () => {
   const ctx = createContextSpy();
   const result = drawOrganicGround(ctx, optionsFor([
@@ -83,6 +105,112 @@ test('continuous ground never emits square grid outlines', () => {
   assert.equal(ctx.calls.filter((call) => call.method === 'strokeRect').length, 0);
   assert.equal(ctx.calls.filter((call) => call.method === 'fillRect').length, 1,
     'the grass is painted as one continuous field rather than tile rectangles');
+});
+
+test('authored ground is a viewport-stable 12-cell mirror tile across negative coordinates', () => {
+  const asset = { key: TERRAIN_LAYER_ASSET_KEYS.ground, width: 1024, height: 1024 };
+  const worldToScreen = ({ x, y }) => ({ x: 100 + x * 10, y: 200 + y * 10 });
+  const wideContext = createContextSpy();
+  const wide = drawWorldAnchoredTerrainTexture(wideContext, asset, {
+    visibleBounds: { minX: -13, minY: -13, maxX: 13, maxY: 13 },
+    pixelsPerCell: 10,
+    worldToScreen,
+  });
+  const narrowContext = createContextSpy();
+  drawWorldAnchoredTerrainTexture(narrowContext, asset, {
+    visibleBounds: { minX: -1, minY: -1, maxX: 1, maxY: 1 },
+    pixelsPerCell: 10,
+    worldToScreen,
+  });
+
+  assert.equal(WORLD_GROUND_TEXTURE_PERIOD_CELLS, 12);
+  assert.deepEqual(
+    { minX: wide.minTileX, maxX: wide.maxTileX, minY: wide.minTileY, maxY: wide.maxTileY },
+    { minX: -2, maxX: 1, minY: -2, maxY: 1 },
+  );
+  const widePlacements = texturePlacements(wideContext, asset.key);
+  const narrowPlacements = texturePlacements(narrowContext, asset.key);
+  assert.equal(widePlacements.length, 16);
+  assert.equal(narrowPlacements.length, 4);
+  assert.deepEqual(
+    narrowPlacements,
+    widePlacements.filter(({ translate }) => (
+      [-6, 6].includes((translate[0] - 100) / 10)
+      && [-6, 6].includes((translate[1] - 200) / 10)
+    )),
+    'changing visible bounds keeps the same world macro tiles at the same phase',
+  );
+  assert.deepEqual(
+    narrowPlacements.map(({ scale }) => scale),
+    [[-1, -1], [1, -1], [-1, 1], [1, 1]],
+    'negative and positive neighbors alternate horizontal and vertical mirroring',
+  );
+  assert.ok(narrowPlacements.every(({ draw }) => draw[2] === 121 && draw[3] === 121),
+    'each 12-cell tile receives a one-pixel overlap against sampling cracks');
+});
+
+test('ready authored ground has no viewport-relative fill or square base', () => {
+  const ctx = createContextSpy();
+  const store = readyAssetStore([TERRAIN_LAYER_ASSET_KEYS.ground]);
+  const result = drawOrganicGround(ctx, {
+    ...optionsFor([
+      ['ground', 'ground', 'ground'],
+      ['ground', 'ground', 'ground'],
+    ]),
+    assetStore: store,
+  });
+
+  assert.equal(result.authoredGround, true);
+  assert.ok(result.groundTextureTiles > 0);
+  assert.equal(store.requested[0], TERRAIN_LAYER_ASSET_KEYS.ground);
+  assert.equal(ctx.calls.filter(({ method }) => method === 'fillRect').length, 0);
+});
+
+test('authored discovery fog overlaps deterministically without per-cell square fills', () => {
+  const unknown = new Set(['-1,0', '0,0', '1,1']);
+  const render = (keys) => {
+    const ctx = createContextSpy();
+    const store = readyAssetStore(keys);
+    const result = drawAuthoredDiscoveryFog(ctx, {
+      visibleBounds: { minX: -1, minY: 0, maxX: 1, maxY: 1 },
+      pixelsPerCell: 50,
+      worldToScreen: ({ x, y }) => ({ x: 12 + x * 50, y: 18 + y * 50 }),
+      assetStore: store,
+      isUndiscovered: (x, y) => unknown.has(`${x},${y}`),
+    });
+    return { ctx, store, result };
+  };
+  const first = render([TERRAIN_LAYER_ASSET_KEYS.fog]);
+  const second = render([TERRAIN_LAYER_ASSET_KEYS.fog]);
+
+  assert.deepEqual(first.result, {
+    cells: 3,
+    assetCells: 3,
+    fallbackCells: 0,
+    usedAsset: true,
+  });
+  assert.deepEqual(first.store.requested, [TERRAIN_LAYER_ASSET_KEYS.fog]);
+  assert.equal(first.ctx.calls.filter(({ method }) => method === 'fillRect').length, 0);
+  const imageCalls = first.ctx.calls.filter(({ method }) => method === 'drawImage');
+  assert.equal(imageCalls.length, 3);
+  assert.ok(imageCalls.every(({ args }) => args[3] > 50 && args[4] > 50),
+    'fog cutouts overlap beyond every logical cell in both axes');
+  assert.deepEqual(
+    texturePlacements(first.ctx, TERRAIN_LAYER_ASSET_KEYS.fog),
+    texturePlacements(second.ctx, TERRAIN_LAYER_ASSET_KEYS.fog),
+    'the same world fog cells keep their positions and mirrors',
+  );
+
+  const fallback = render([]);
+  assert.deepEqual(fallback.result, {
+    cells: 3,
+    assetCells: 0,
+    fallbackCells: 3,
+    usedAsset: false,
+  });
+  assert.equal(fallback.ctx.calls.filter(({ method }) => method === 'drawImage').length, 0);
+  assert.equal(fallback.ctx.calls.filter(({ method }) => method === 'fillRect').length, 3,
+    'square safety fog is emitted only when the authored PNG is unavailable');
 });
 
 test('resource, obstacle, destructible and permanent terrain each use their own prop renderer', () => {
@@ -107,6 +235,63 @@ test('resource, obstacle, destructible and permanent terrain each use their own 
   assert.ok(ctx.calls.filter((call) => call.method === 'fill').length >= 12,
     'multi-layer, rounded props should be painted instead of placeholder squares');
   assert.equal(ctx.calls.filter((call) => call.method === 'strokeRect').length, 0);
+});
+
+test('shared authored contact shadows form one pass before every ready terrain prop PNG', () => {
+  const terrainIds = [
+    'soft-gel',
+    'dew-honey',
+    'crystal-shard',
+    'thorn-thicket',
+    'brittle-boulder',
+  ];
+  const ctx = createContextSpy();
+  const store = readyAssetStore([
+    TERRAIN_LAYER_ASSET_KEYS.shadow,
+    ...terrainIds.map((id) => TERRAIN_ASSET_KEYS[id]),
+  ]);
+  const result = drawOrganicTerrainProps(ctx, {
+    ...optionsFor([terrainIds.map((terrainId) => ({ terrainId }))], 100),
+    assetStore: store,
+  });
+  const imageKeys = ctx.calls
+    .filter(({ method }) => method === 'drawImage')
+    .map(({ args }) => args[0]?.key);
+  const shadowCalls = ctx.calls.filter(({ method, args }) => (
+    method === 'drawImage' && args[0]?.key === TERRAIN_LAYER_ASSET_KEYS.shadow
+  ));
+  const propKeys = terrainIds.map((id) => TERRAIN_ASSET_KEYS[id]);
+
+  assert.equal(result.shadowAssetDraws, terrainIds.length);
+  assert.equal(result.shadowFallbackDraws, 0);
+  assert.deepEqual(imageKeys.slice(0, terrainIds.length),
+    Array(terrainIds.length).fill(TERRAIN_LAYER_ASSET_KEYS.shadow));
+  assert.deepEqual(imageKeys.slice(terrainIds.length), propKeys,
+    'all contact shadows are composited before the first y-sorted prop image');
+  assert.deepEqual(
+    shadowCalls.map(({ args }) => [args[2], args[3], args[4]]),
+    terrainIds.map((id) => [
+      26 + 50
+        + TERRAIN_ASSET_PROFILES[id].shadowOffset * 100
+        - TERRAIN_ASSET_PROFILES[id].shadowHeight * 50,
+      TERRAIN_ASSET_PROFILES[id].shadowWidth * 100,
+      TERRAIN_ASSET_PROFILES[id].shadowHeight * 100,
+    ]),
+  );
+
+  const surfaceContext = createContextSpy();
+  const surfaceStore = readyAssetStore([
+    TERRAIN_LAYER_ASSET_KEYS.shadow,
+    TERRAIN_ASSET_KEYS['deep-water'],
+  ]);
+  const surface = drawOrganicTerrainProps(surfaceContext, {
+    ...optionsFor([['ground', 'deep-water']]),
+    assetStore: surfaceStore,
+  });
+  assert.equal(surface.shadowAssetDraws, 0);
+  assert.equal(surface.shadowFallbackDraws, 0);
+  assert.equal(surfaceStore.requested.includes(TERRAIN_LAYER_ASSET_KEYS.shadow), false,
+    'ground and deep water never request a contact shadow');
 });
 
 test('joined water cells omit their shared boundary', () => {
@@ -165,6 +350,11 @@ test('terrain PNG contract uses authored ids and the shared helper keeps a botto
     'thorn-thicket': 'terrain-thorn-thicket-a',
     'brittle-boulder': 'terrain-brittle-boulder-a',
     'deep-water': 'terrain-deep-water-patch-a',
+  });
+  assert.deepEqual(TERRAIN_LAYER_ASSET_KEYS, {
+    ground: 'terrain-ground-field-v1',
+    fog: 'terrain-discovery-fog-cell-v1',
+    shadow: 'terrain-prop-contact-shadow-v1',
   });
   assert.equal(terrainAssetKey({ terrainId: 'crystal-shard' }), 'terrain-crystal-shard-node-a');
   assert.equal(terrainAssetKey({ variant: 'honey-flower' }), 'terrain-dew-honey-node-a');
@@ -307,7 +497,10 @@ test('ground detail and all authored props request only bright terrain PNGs', ()
     assetStore: propStore,
   });
 
-  assert.deepEqual(new Set(propStore.requested), new Set(propKeys));
+  assert.deepEqual(
+    new Set(propStore.requested),
+    new Set([...propKeys, TERRAIN_LAYER_ASSET_KEYS.shadow]),
+  );
   assert.equal(props.assetDraws, propKeys.length);
   assert.equal(props.wastelandAssetDraws, 0);
   assert.equal(propStore.requested.some((key) => key.startsWith('terrain-waste-')), false);
@@ -361,6 +554,7 @@ test('authored prop PNGs are preferred while an unavailable key keeps the vector
   });
 
   assert.deepEqual(store.requested, [
+    'terrain-prop-contact-shadow-v1',
     'terrain-soft-gel-node-a',
     'terrain-dew-honey-node-a',
     'terrain-crystal-shard-node-a',

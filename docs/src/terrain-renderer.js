@@ -45,6 +45,16 @@ export const TERRAIN_ASSET_KEYS = Object.freeze({
   'deep-water': 'terrain-deep-water-patch-a',
 });
 
+/** Authored art used by whole-map rendering rather than one logical terrain cell. */
+export const TERRAIN_LAYER_ASSET_KEYS = Object.freeze({
+  ground: 'terrain-ground-field-v1',
+  fog: 'terrain-discovery-fog-cell-v1',
+  shadow: 'terrain-prop-contact-shadow-v1',
+});
+
+/** One authored ground field spans this many world cells on each axis. */
+export const WORLD_GROUND_TEXTURE_PERIOD_CELLS = 12;
+
 /** Large organic decals for the five deterministic infinite-world biomes. */
 export const REGION_ASSET_KEYS = Object.freeze({
   'gel-garden': 'region-gel-meadow-field-a',
@@ -88,11 +98,46 @@ const DEFAULT_WASTELAND_WORLD = Object.freeze({ width: 24, height: 16 });
 
 export const TERRAIN_ASSET_PROFILES = Object.freeze({
   ground: Object.freeze({ width: 0.72, height: 0.47, groundOffset: 0.16 }),
-  'soft-gel': Object.freeze({ width: 0.875, height: 0.75, groundOffset: 0.43 }),
-  'dew-honey': Object.freeze({ width: 0.906, height: 0.844, groundOffset: 0.43 }),
-  'crystal-shard': Object.freeze({ width: 0.813, height: 0.875, groundOffset: 0.43 }),
-  'thorn-thicket': Object.freeze({ width: 1.03, height: 0.78, groundOffset: 0.43 }),
-  'brittle-boulder': Object.freeze({ width: 0.906, height: 0.719, groundOffset: 0.43 }),
+  'soft-gel': Object.freeze({
+    width: 0.875,
+    height: 0.75,
+    groundOffset: 0.43,
+    shadowWidth: 0.84,
+    shadowHeight: 0.24,
+    shadowOffset: 0.31,
+  }),
+  'dew-honey': Object.freeze({
+    width: 0.906,
+    height: 0.844,
+    groundOffset: 0.43,
+    shadowWidth: 0.76,
+    shadowHeight: 0.22,
+    shadowOffset: 0.29,
+  }),
+  'crystal-shard': Object.freeze({
+    width: 0.813,
+    height: 0.875,
+    groundOffset: 0.43,
+    shadowWidth: 0.92,
+    shadowHeight: 0.26,
+    shadowOffset: 0.29,
+  }),
+  'thorn-thicket': Object.freeze({
+    width: 1.03,
+    height: 0.78,
+    groundOffset: 0.43,
+    shadowWidth: 0.9,
+    shadowHeight: 0.24,
+    shadowOffset: 0.3,
+  }),
+  'brittle-boulder': Object.freeze({
+    width: 0.906,
+    height: 0.719,
+    groundOffset: 0.43,
+    shadowWidth: 0.96,
+    shadowHeight: 0.28,
+    shadowOffset: 0.29,
+  }),
   'deep-water': Object.freeze({ width: 1, height: 1, groundOffset: 0.5 }),
 });
 
@@ -251,6 +296,15 @@ function useTerrainAsset(ctx, assetStore, key, drawAsset, drawFallback = () => {
   }, fallback);
 }
 
+function getReadyAsset(assetStore, key) {
+  if (!key || typeof assetStore?.get !== 'function') return null;
+  try {
+    return assetStore.get(key) || null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Draw one terrain cutout using a bottom-centre ground anchor. This helper is
  * intentionally usable outside the map renderer (for example in the right
@@ -394,6 +448,81 @@ function createProjector(options) {
     ? (x, y) => supplied({ x, y })
     : (x, y) => ({ x: originX + x * pixelsPerCell, y: originY + y * pixelsPerCell });
   return { project, pixelsPerCell };
+}
+
+function isOddInteger(value) {
+  return Math.abs(Math.trunc(value) % 2) === 1;
+}
+
+function clipProjectedBounds(ctx, bounds, project) {
+  if (typeof ctx.clip !== 'function') return;
+  const first = project(bounds.minX, bounds.minY);
+  const second = project(bounds.maxX + 1, bounds.maxY + 1);
+  const left = Math.min(first.x, second.x);
+  const right = Math.max(first.x, second.x);
+  const top = Math.min(first.y, second.y);
+  const bottom = Math.max(first.y, second.y);
+  ctx.beginPath();
+  ctx.moveTo(left, top);
+  ctx.lineTo(right, top);
+  ctx.lineTo(right, bottom);
+  ctx.lineTo(left, bottom);
+  ctx.closePath();
+  ctx.clip();
+}
+
+/**
+ * Tiles one authored image in absolute world space. Adjacent macro tiles mirror
+ * over their shared axis, so even a source whose opposite edges differ joins
+ * continuously. Tile identity depends only on world coordinates, never on the
+ * current viewport, including west/north of the origin.
+ */
+export function drawWorldAnchoredTerrainTexture(ctx, asset, options = {}) {
+  if (!ctx) throw new TypeError('drawWorldAnchoredTerrainTexture requires a Canvas 2D context');
+  if (!asset) return { tiles: 0 };
+  const bounds = normalizeBounds(options);
+  const { project } = createProjector(options);
+  const periodCells = Math.max(1, finite(
+    options.periodCells,
+    WORLD_GROUND_TEXTURE_PERIOD_CELLS,
+  ));
+  const overlapPixels = Math.max(0, finite(options.overlapPixels, 1));
+  const minTileX = Math.floor(bounds.minX / periodCells);
+  const minTileY = Math.floor(bounds.minY / periodCells);
+  const maxTileX = Math.ceil((bounds.maxX + 1) / periodCells) - 1;
+  const maxTileY = Math.ceil((bounds.maxY + 1) / periodCells) - 1;
+  let tiles = 0;
+
+  ctx.save();
+  clipProjectedBounds(ctx, bounds, project);
+  for (let tileY = minTileY; tileY <= maxTileY; tileY += 1) {
+    for (let tileX = minTileX; tileX <= maxTileX; tileX += 1) {
+      const worldX = tileX * periodCells;
+      const worldY = tileY * periodCells;
+      const first = project(worldX, worldY);
+      const second = project(worldX + periodCells, worldY + periodCells);
+      const width = Math.abs(second.x - first.x) + overlapPixels;
+      const height = Math.abs(second.y - first.y) + overlapPixels;
+      const centerX = (first.x + second.x) / 2;
+      const centerY = (first.y + second.y) / 2;
+
+      ctx.save();
+      ctx.translate(centerX, centerY);
+      ctx.scale(isOddInteger(tileX) ? -1 : 1, isOddInteger(tileY) ? -1 : 1);
+      ctx.drawImage(asset, -width / 2, -height / 2, width, height);
+      ctx.restore();
+      tiles += 1;
+    }
+  }
+  ctx.restore();
+  return {
+    tiles,
+    minTileX,
+    minTileY,
+    maxTileX,
+    maxTileY,
+    periodCells,
+  };
 }
 
 function ellipsePath(ctx, x, y, rx, ry) {
@@ -967,23 +1096,39 @@ export function drawOrganicGround(ctx, options = {}) {
   const height = bottomRight.y - topLeft.y;
 
   ctx.save();
-  ctx.fillStyle = options.groundColor || COLORS.grass;
-  ctx.fillRect(topLeft.x, topLeft.y, width, height);
+  let groundTextureTiles = 0;
+  const authoredGround = useTerrainAsset(
+    ctx,
+    options.assetStore,
+    TERRAIN_LAYER_ASSET_KEYS.ground,
+    (asset) => {
+      const texture = drawWorldAnchoredTerrainTexture(ctx, asset, {
+        ...options,
+        visibleBounds: bounds,
+        periodCells: WORLD_GROUND_TEXTURE_PERIOD_CELLS,
+      });
+      groundTextureTiles = texture.tiles;
+    },
+    () => {
+      ctx.fillStyle = options.groundColor || COLORS.grass;
+      ctx.fillRect(topLeft.x, topLeft.y, width, height);
 
-  ctx.globalAlpha = 0.2;
-  ctx.fillStyle = COLORS.grassLight;
-  ctx.beginPath();
-  ctx.moveTo(topLeft.x, topLeft.y + height * 0.18);
-  ctx.bezierCurveTo(topLeft.x + width * 0.26, topLeft.y - height * 0.03,
-    topLeft.x + width * 0.54, topLeft.y + height * 0.37,
-    bottomRight.x, topLeft.y + height * 0.16);
-  ctx.lineTo(bottomRight.x, topLeft.y + height * 0.42);
-  ctx.bezierCurveTo(topLeft.x + width * 0.64, topLeft.y + height * 0.58,
-    topLeft.x + width * 0.3, topLeft.y + height * 0.28,
-    topLeft.x, topLeft.y + height * 0.5);
-  ctx.closePath();
-  ctx.fill();
-  ctx.globalAlpha = 1;
+      ctx.globalAlpha = 0.2;
+      ctx.fillStyle = COLORS.grassLight;
+      ctx.beginPath();
+      ctx.moveTo(topLeft.x, topLeft.y + height * 0.18);
+      ctx.bezierCurveTo(topLeft.x + width * 0.26, topLeft.y - height * 0.03,
+        topLeft.x + width * 0.54, topLeft.y + height * 0.37,
+        bottomRight.x, topLeft.y + height * 0.16);
+      ctx.lineTo(bottomRight.x, topLeft.y + height * 0.42);
+      ctx.bezierCurveTo(topLeft.x + width * 0.64, topLeft.y + height * 0.58,
+        topLeft.x + width * 0.3, topLeft.y + height * 0.28,
+        topLeft.x, topLeft.y + height * 0.5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    },
+  );
 
   // A connected translucent wash makes the biome read as one soft, irregular
   // frontier instead of a row of recoloured square tiles. It remains useful
@@ -1057,6 +1202,104 @@ export function drawOrganicGround(ctx, options = {}) {
     wastelandCells,
     details,
     assetDetails,
+    authoredGround,
+    groundTextureTiles,
+  };
+}
+
+function discoveryPredicate(options) {
+  if (typeof options.isUndiscovered === 'function') {
+    return (x, y) => options.isUndiscovered(x, y) === true;
+  }
+  if (typeof options.discoveryAt === 'function') {
+    return (x, y) => {
+      const discovery = options.discoveryAt(x, y);
+      return typeof discovery === 'boolean'
+        ? discovery === false
+        : discovery?.discovered === false;
+    };
+  }
+  if (typeof options.terrainAt === 'function') {
+    return (x, y) => options.terrainAt(x, y)?.discovered === false;
+  }
+  return () => false;
+}
+
+function drawSafeDiscoveryFog(ctx, cells, project, cell) {
+  for (const { x, y } of cells) {
+    const corner = project(x, y);
+    ctx.fillStyle = 'rgba(52, 92, 83, 0.50)';
+    ctx.fillRect(corner.x, corner.y, cell + 1, cell + 1);
+    ctx.fillStyle = 'rgba(218, 244, 211, 0.10)';
+    ellipsePath(
+      ctx,
+      corner.x + cell * 0.34,
+      corner.y + cell * 0.38,
+      cell * 0.15,
+      cell * 0.15,
+    );
+    ctx.fill();
+  }
+}
+
+/**
+ * Draws discovery fog as deterministic, overlapping authored cutouts. The
+ * square fill is deliberately fallback-only so a ready PNG never reveals the
+ * underlying logical grid. `isUndiscovered(x, y)` is the preferred predicate;
+ * `discoveryAt` and a cell-returning `terrainAt` are accepted for adapters.
+ */
+export function drawAuthoredDiscoveryFog(ctx, options = {}) {
+  if (!ctx) throw new TypeError('drawAuthoredDiscoveryFog requires a Canvas 2D context');
+  const bounds = normalizeBounds(options);
+  const { project, pixelsPerCell: cell } = createProjector(options);
+  const isUndiscovered = discoveryPredicate(options);
+  const cells = [];
+  for (let y = bounds.minY; y <= bounds.maxY; y += 1) {
+    for (let x = bounds.minX; x <= bounds.maxX; x += 1) {
+      if (isUndiscovered(x, y)) cells.push({ x, y });
+    }
+  }
+  if (!cells.length) {
+    return {
+      cells: 0,
+      assetCells: 0,
+      fallbackCells: 0,
+      usedAsset: false,
+    };
+  }
+
+  let assetCells = 0;
+  let fallbackCells = 0;
+  const fogWidth = cell * Math.max(1.01, finite(options.fogWidthCells, 1.6));
+  const fogHeight = cell * Math.max(1.01, finite(options.fogHeightCells, 1.2));
+  const fogAlpha = clamp(finite(options.fogAlpha, 0.9), 0, 1);
+  const usedAsset = useTerrainAsset(
+    ctx,
+    options.assetStore,
+    TERRAIN_LAYER_ASSET_KEYS.fog,
+    (asset) => {
+      ctx.globalAlpha *= fogAlpha;
+      for (const { x, y } of cells) {
+        const center = project(x + 0.5, y + 0.5);
+        ctx.save();
+        ctx.translate(center.x, center.y);
+        ctx.scale(isOddInteger(x + y) ? -1 : 1, 1);
+        ctx.drawImage(asset, -fogWidth / 2, -fogHeight / 2, fogWidth, fogHeight);
+        ctx.restore();
+        assetCells += 1;
+      }
+    },
+    () => {
+      drawSafeDiscoveryFog(ctx, cells, project, cell);
+      fallbackCells = cells.length;
+    },
+  );
+
+  return {
+    cells: cells.length,
+    assetCells,
+    fallbackCells,
+    usedAsset,
   };
 }
 
@@ -1082,6 +1325,8 @@ export function drawOrganicTerrainProps(ctx, options = {}) {
     assetDraws: 0,
     waterTextureComponents: 0,
     wastelandAssetDraws: 0,
+    shadowAssetDraws: 0,
+    shadowFallbackDraws: 0,
   };
   const tiles = [];
   for (let y = bounds.minY; y <= bounds.maxY; y += 1) {
@@ -1159,6 +1404,45 @@ export function drawOrganicTerrainProps(ctx, options = {}) {
   const props = tiles
     .filter((tile) => tile.kind !== 'ground' && !isWater(tile) && !isCliff(tile))
     .sort((left, right) => (left.y - right.y) || (left.x - right.x));
+  const authoredPropShadows = props.flatMap((tile) => {
+    const terrainId = canonicalTerrainId(tile);
+    const profile = TERRAIN_ASSET_PROFILES[terrainId];
+    if (!profile?.shadowWidth || !profile?.shadowHeight
+      || !getReadyAsset(options.assetStore, terrainAssetKeyForCell(tile))) return [];
+    return [{
+      center: projection.project(tile.x + 0.5, tile.y + 0.5),
+      profile,
+    }];
+  });
+  if (authoredPropShadows.length) {
+    const usedShadowAsset = useTerrainAsset(
+      ctx,
+      options.assetStore,
+      TERRAIN_LAYER_ASSET_KEYS.shadow,
+      (asset) => {
+        ctx.globalAlpha *= clamp(finite(options.propShadowAlpha, 1), 0, 1);
+        for (const { center, profile } of authoredPropShadows) {
+          const width = projection.pixelsPerCell * profile.shadowWidth;
+          const height = projection.pixelsPerCell * profile.shadowHeight;
+          const y = center.y + projection.pixelsPerCell * profile.shadowOffset;
+          ctx.drawImage(asset, center.x - width / 2, y - height / 2, width, height);
+        }
+      },
+      () => {
+        for (const { center, profile } of authoredPropShadows) {
+          paintShadow(
+            ctx,
+            center.x,
+            center.y + projection.pixelsPerCell * profile.shadowOffset,
+            projection.pixelsPerCell * profile.shadowWidth / 2,
+            projection.pixelsPerCell * profile.shadowHeight / 2,
+          );
+        }
+      },
+    );
+    if (usedShadowAsset) stats.shadowAssetDraws = authoredPropShadows.length;
+    else stats.shadowFallbackDraws = authoredPropShadows.length;
+  }
   for (const tile of props) {
     const center = projection.project(tile.x + 0.5, tile.y + 0.5);
     const terrainId = canonicalTerrainId(tile);

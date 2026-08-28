@@ -75,11 +75,10 @@ body {
 }
 
 .loading-blob {
-  width: 34px;
-  height: 28px;
-  border-radius: 48% 52% 42% 46%;
-  background: #61d6a2;
-  box-shadow: inset -6px -7px 0 rgba(47, 155, 120, 0.22), 0 5px 0 rgba(51, 71, 80, 0.12);
+  display: block;
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
   animation: bob 0.85s ease-in-out infinite alternate;
 }
 
@@ -116,13 +115,11 @@ body {
 }
 
 .rotate-slime {
-  width: 70px;
-  height: 54px;
+  display: block;
+  width: 88px;
+  height: 88px;
   margin-bottom: 8px;
-  border: 3px solid #334750;
-  border-radius: 48% 52% 38% 42%;
-  background: #61d6a2;
-  box-shadow: inset -10px -10px 0 rgba(47, 155, 120, 0.24);
+  object-fit: contain;
   transform: rotate(-8deg);
 }
 

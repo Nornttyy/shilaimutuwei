@@ -64,6 +64,7 @@ import {
   terrainAt as catalogTerrainAt,
 } from './colony-catalog.js';
 import {
+  drawAuthoredDiscoveryFog,
   drawOrganicGround,
   drawOrganicTerrainProps,
   drawTerrainAsset,
@@ -220,6 +221,8 @@ const DYNAMIC_EFFECT_DURATION = Object.freeze({
   impact: 0.3,
   push: 0.46,
   'enemy-pop': 0.58,
+  'building-destruction': 0.58,
+  'shield-break': 0.56,
   heal: 0.72,
   spawn: 0.56,
   trail: 0.68,
@@ -238,6 +241,8 @@ const DYNAMIC_EFFECT_COMPONENT_PRIORITY = Object.freeze({
   spawn: 1,
   push: 1,
   'enemy-pop': 1,
+  'building-destruction': 1,
+  'shield-break': 2,
   place: 2,
   heal: 2,
   trail: 2,
@@ -261,6 +266,16 @@ const DYNAMIC_EFFECT_COMPONENTS = Object.freeze({
   confetti: Object.freeze({ column: 1, row: 3 }),
   sparkle: Object.freeze({ column: 2, row: 3 }),
   'place-splash': Object.freeze({ column: 3, row: 3 }),
+});
+
+const AUTHORED_DYNAMIC_EFFECT_ASSET_BY_KIND = Object.freeze({
+  push: 'effect-jelly-bounce-wave',
+  heal: 'effect-heal-burst',
+  spawn: 'effect-spawn-rift-burst',
+  trail: 'effect-honey-draw-trail',
+  swap: 'effect-soft-swap-arc',
+  'building-destruction': 'effect-building-destruction-puff',
+  'shield-break': 'effect-shield-break-v1',
 });
 
 const ANIMATION_CLIPS_BY_CARD_ID = Object.freeze({
@@ -3996,9 +4011,24 @@ export class SlimeGame {
     if (kind === 'building' && !buildingIsOperational(target)) return;
     let damage = amount;
     if ((target.shield || 0) > 0) {
+      const shieldBefore = target.shield;
       const absorbed = Math.min(target.shield, damage);
       target.shield -= absorbed;
       damage -= absorbed;
+      if (shieldBefore > 0 && target.shield <= 0) {
+        target.shield = 0;
+        const shieldPosition = this.entityCanvasPosition(target);
+        this.spawnDynamicEffect(
+          'shield-break',
+          shieldPosition.x,
+          shieldPosition.y - (kind === 'building' ? 38 : 30),
+          {
+            color: PALETTE.shield,
+            accent: '#E8FFFF',
+            intensity: kind === 'building' ? 1.2 : 1,
+          },
+        );
+      }
       if (target.shield <= 0 && kind === 'survivor' && target.expeditionShieldBreakDamage > 0) {
         const nearby = this.activeEnemyPool(target)
           .filter((enemy) => !enemy.dead)
@@ -4036,7 +4066,7 @@ export class SlimeGame {
     if (kind === 'building') {
       target.destroyed = true;
       target.hp = 0;
-      this.spawnDynamicEffect('enemy-pop', position.x, position.y - 26, {
+      this.spawnDynamicEffect('building-destruction', position.x, position.y - 26, {
         color: BUILDING_BY_ID[target.cardId]?.color || '#B48768',
         accent: '#FFF0C4',
         intensity: 1.25,
@@ -4814,21 +4844,13 @@ export class SlimeGame {
 
   drawDiscoveryFog(ctx, bounds) {
     const size = this.worldPixelsPerCell();
-    ctx.save();
-    for (let y = bounds.minY; y <= bounds.maxY; y += 1) {
-      for (let x = bounds.minX; x <= bounds.maxX; x += 1) {
-        const cell = this.worldCellAt(x, y);
-        if (!cell || cell.discovered !== false) continue;
-        const corner = worldToScreen({ x, y }, this.camera, BOARD);
-        ctx.fillStyle = 'rgba(52, 92, 83, 0.50)';
-        ctx.fillRect(corner.x, corner.y, size + 1, size + 1);
-        ctx.fillStyle = 'rgba(218, 244, 211, 0.10)';
-        ctx.beginPath();
-        ctx.arc(corner.x + size * 0.34, corner.y + size * 0.38, size * 0.15, 0, TAU);
-        ctx.fill();
-      }
-    }
-    ctx.restore();
+    return drawAuthoredDiscoveryFog(ctx, {
+      visibleBounds: bounds,
+      worldToScreen: (point) => worldToScreen(point, this.camera, BOARD),
+      pixelsPerCell: size,
+      assetStore: this.assetStore,
+      isUndiscovered: (x, y) => this.worldCellAt(x, y)?.discovered === false,
+    });
   }
 
   drawWorldRegionDecals(ctx, chunks, bounds) {
@@ -4927,10 +4949,32 @@ export class SlimeGame {
     const pulse = 1 + Math.sin(this.time * 3.4 + site.x * 0.3) * 0.08;
     const radius = (site.kind === 'boss' ? 28 : 22) * zoom * pulse;
     const assetKeys = this.worldPoiAssetLayers(site).filter((key) => !key.includes('energy'));
+    const baseSize = site.cleared ? 78 : site.kind === 'boss' ? 112 : site.kind === 'landmark' ? 96 : 88;
+    const drawSize = baseSize * zoom;
+    if (selected) {
+      const ringPulse = 1 + Math.sin(this.time * 5) * 0.035;
+      const ringWidth = drawSize * 0.96 * ringPulse;
+      const ringHeight = ringWidth * 0.5;
+      const ringY = position.y + 14 * zoom;
+      drawAssetOrFallback(ctx, this.assetStore, 'effect-selection-ring-friendly', (asset) => {
+        ctx.globalAlpha *= 0.82 + Math.sin(this.time * 5) * 0.08;
+        ctx.drawImage(
+          asset,
+          position.x - ringWidth / 2,
+          ringY - ringHeight / 2,
+          ringWidth,
+          ringHeight,
+        );
+      }, () => {
+        ctx.strokeStyle = '#FFF0A8';
+        ctx.lineWidth = Math.max(2, 3 * zoom);
+        ctx.beginPath();
+        ctx.ellipse(position.x, ringY, ringWidth / 2, ringHeight / 2, 0, 0, TAU);
+        ctx.stroke();
+      });
+    }
     let authoredDrawn = false;
     for (const assetKey of assetKeys) {
-      const baseSize = site.cleared ? 78 : site.kind === 'boss' ? 112 : site.kind === 'landmark' ? 96 : 88;
-      const drawSize = baseSize * zoom;
       authoredDrawn = drawAssetOrFallback(ctx, this.assetStore, assetKey, (asset) => {
         ctx.globalAlpha *= selected ? 1 : site.cleared ? 0.82 : 0.94;
         drawImageContained(
@@ -4964,13 +5008,6 @@ export class SlimeGame {
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(site.cleared ? '站' : site.kind === 'boss' ? '王' : site.kind === 'nest' ? '巢' : '礼', position.x, position.y - 18 * zoom);
-    }
-    if (selected) {
-      ctx.strokeStyle = '#FFF0A8';
-      ctx.lineWidth = Math.max(2, 3 * zoom);
-      ctx.beginPath();
-      ctx.arc(position.x, position.y - 18 * zoom, radius + 6 * zoom, 0, TAU);
-      ctx.stroke();
     }
     if (selected || site.cleared || zoom >= 0.82) {
       ctx.font = `800 ${Math.max(10, 12 * zoom)}px "PingFang SC", sans-serif`;
@@ -5465,6 +5502,25 @@ export class SlimeGame {
     }
   }
 
+  drawAuthoredDynamicEffect(ctx, effect, progress, options = {}) {
+    const assetKey = AUTHORED_DYNAMIC_EFFECT_ASSET_BY_KIND[effect.kind];
+    if (!assetKey) return false;
+    const reveal = easeOutBack(effectPhase(progress, 0, options.revealEnd ?? 0.72));
+    const fadeIn = effectPhase(progress, 0, options.fadeInEnd ?? 0.08);
+    const fadeOut = 1 - effectPhase(progress, options.fadeOutStart ?? 0.62, 1);
+    const scaleX = lerp(options.scaleFromX ?? 0.5, options.scaleToX ?? 1.06, reveal);
+    const scaleY = lerp(options.scaleFromY ?? 0.5, options.scaleToY ?? 1.06, reveal);
+    const width = Math.max(1, Number(options.width) || 96);
+    const height = Math.max(1, Number(options.height) || width);
+    return drawAssetOrFallback(ctx, this.assetStore, assetKey, (asset) => {
+      ctx.globalAlpha *= fadeIn * fadeOut * clamp(options.alpha ?? 1, 0, 1);
+      ctx.translate(Number(options.x) || 0, Number(options.y) || 0);
+      ctx.rotate((Number(options.rotation) || 0) + progress * (Number(options.rotationTravel) || 0));
+      ctx.scale(scaleX, scaleY);
+      ctx.drawImage(asset, -width / 2, -height / 2, width, height);
+    }, () => {});
+  }
+
   resetDynamicComponentBudget() {
     this.dynamicComponentGeneralRemaining = DYNAMIC_EFFECT_COMPONENT_GENERAL_BUDGET;
     this.dynamicComponentAbilityReserveRemaining = DYNAMIC_EFFECT_COMPONENT_ABILITY_RESERVE;
@@ -5542,6 +5598,8 @@ export class SlimeGame {
       if (effect.kind === 'impact') this.drawDynamicImpact(ctx, effect, progress, impactCount > 6);
       else if (effect.kind === 'push') this.drawDynamicPush(ctx, effect, progress, pushCount > 3);
       else if (effect.kind === 'enemy-pop') this.drawDynamicEnemyPop(ctx, effect, progress, enemyPopCount > 3);
+      else if (effect.kind === 'building-destruction') this.drawDynamicBuildingDestruction(ctx, effect, progress);
+      else if (effect.kind === 'shield-break') this.drawDynamicShieldBreak(ctx, effect, progress);
       else if (effect.kind === 'heal') this.drawDynamicHeal(ctx, effect, progress);
       else if (effect.kind === 'spawn') this.drawDynamicSpawn(ctx, effect, progress);
       else if (effect.kind === 'trail') this.drawDynamicTrail(ctx, effect, progress);
@@ -5622,6 +5680,17 @@ export class SlimeGame {
 
   drawDynamicPush(ctx, effect, progress, reducedIllustration = false) {
     const length = Math.max(1, Math.hypot(effect.dx, effect.dy));
+    if (this.drawAuthoredDynamicEffect(ctx, effect, progress, {
+      width: Math.max(118, length * 1.55) * effect.intensity,
+      height: Math.max(78, length * 0.82) * effect.intensity,
+      rotation: Math.atan2(effect.dy, effect.dx),
+      rotationTravel: 0.06,
+      scaleFromX: 0.34,
+      scaleFromY: 0.68,
+      scaleToX: 1.04,
+      scaleToY: 1.02,
+      fadeOutStart: 0.58,
+    })) return;
     const nx = effect.dx / length;
     const ny = effect.dy / length;
     const px = -ny;
@@ -5822,7 +5891,187 @@ export class SlimeGame {
     }
   }
 
+  drawDynamicBuildingDestruction(ctx, effect, progress) {
+    if (this.drawAuthoredDynamicEffect(ctx, effect, progress, {
+      width: 132 * effect.intensity,
+      height: 132 * effect.intensity,
+      y: 8,
+      rotation: -0.08,
+      rotationTravel: 0.2,
+      scaleFromX: 0.38,
+      scaleFromY: 0.3,
+      scaleToX: 1.12,
+      scaleToY: 1.08,
+      revealEnd: 0.68,
+      fadeOutStart: 0.6,
+    })) return;
+    const burst = easeOutCubic(effectPhase(progress, 0, 0.76));
+    const settle = effectPhase(progress, 0.22, 1);
+    const fade = 1 - effectPhase(progress, 0.62, 1);
+
+    ctx.save();
+    ctx.globalAlpha *= fade * 0.72;
+    ctx.strokeStyle = effect.accent;
+    ctx.lineWidth = Math.max(2, (6 - burst * 4) * effect.intensity);
+    ctx.beginPath();
+    ctx.ellipse(
+      0,
+      13 * effect.intensity,
+      (12 + burst * 52) * effect.intensity,
+      (5 + burst * 19) * effect.intensity,
+      0,
+      0,
+      TAU,
+    );
+    ctx.stroke();
+    ctx.restore();
+    this.drawDynamicComponent(ctx, 'shock-ring', {
+      y: 13 * effect.intensity,
+      width: (24 + burst * 104) * effect.intensity,
+      height: (12 + burst * 42) * effect.intensity,
+      rotation: progress * 0.14,
+      alpha: fade * 0.72,
+    });
+
+    for (let index = 0; index < 6; index += 1) {
+      const angle = Math.PI + (index / 5) * Math.PI;
+      const noise = effectNoise(effect.seed, index + 90);
+      const reach = (24 + noise * 34) * burst * effect.intensity;
+      const x = Math.cos(angle) * reach;
+      const y = 15 + Math.sin(angle) * reach * 0.42 - settle * (7 + noise * 9);
+      const size = (11 + noise * 9) * (1 - settle * 0.32) * effect.intensity;
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate((noise - 0.5) * 0.8 + progress * (index % 2 ? 0.45 : -0.45));
+      ctx.globalAlpha *= fade * (0.74 - index * 0.045);
+      ctx.fillStyle = index % 2 ? effect.accent : effect.color;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, size, size * 0.7, 0, 0, TAU);
+      ctx.fill();
+      ctx.restore();
+      this.drawDynamicComponent(ctx, 'dust', {
+        x,
+        y,
+        width: size * 2.8,
+        height: size * 2.1,
+        rotation: (noise - 0.5) * 0.8 + progress * (index % 2 ? 0.45 : -0.45),
+        alpha: fade * (0.74 - index * 0.045),
+      });
+    }
+
+    for (let index = 0; index < 5; index += 1) {
+      const angle = -Math.PI * (0.18 + index * 0.16);
+      const noise = effectNoise(effect.seed, index + 120);
+      const travel = burst * (30 + noise * 38) * effect.intensity;
+      const x = Math.cos(angle) * travel;
+      const y = Math.sin(angle) * travel + settle * settle * 42 * effect.intensity;
+      const size = (4 + noise * 4) * effect.intensity * (1 - settle * 0.28);
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(angle + progress * (index % 2 ? 4 : -4));
+      ctx.globalAlpha *= fade;
+      ctx.fillStyle = index % 2 ? effect.accent : effect.color;
+      ctx.beginPath();
+      ctx.moveTo(-size, -size * 0.65);
+      ctx.lineTo(size * 0.9, -size * 0.4);
+      ctx.lineTo(size * 0.7, size * 0.72);
+      ctx.lineTo(-size * 0.8, size * 0.5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  drawDynamicShieldBreak(ctx, effect, progress) {
+    const segmentedAlpha = progress < 0.12
+      ? effectPhase(progress, 0, 0.12)
+      : progress < 0.48
+        ? 1
+        : 1 - effectPhase(progress, 0.48, 1);
+    if (this.drawAuthoredDynamicEffect(ctx, effect, progress, {
+      width: 124 * effect.intensity,
+      height: 124 * effect.intensity,
+      rotation: -0.18,
+      rotationTravel: 0.62,
+      scaleFromX: 0.28,
+      scaleFromY: 0.28,
+      scaleToX: 1.1,
+      scaleToY: 1.1,
+      revealEnd: 0.7,
+      fadeInEnd: 0.001,
+      fadeOutStart: 0.999,
+      alpha: segmentedAlpha,
+    })) return;
+
+    const spread = easeOutBack(effectPhase(progress, 0, 0.72));
+    const fade = segmentedAlpha;
+    const ringRadius = (17 + spread * 39) * effect.intensity;
+    for (let segment = 0; segment < 3; segment += 1) {
+      const start = segment * (TAU / 3) + progress * 0.52 + 0.12;
+      ctx.save();
+      ctx.globalAlpha *= fade * (0.9 - segment * 0.09);
+      ctx.strokeStyle = segment === 1 ? effect.accent : effect.color;
+      ctx.lineWidth = Math.max(2, (6 - spread * 3.2) * effect.intensity);
+      ctx.beginPath();
+      ctx.arc(0, 0, ringRadius, start, start + 1.45);
+      ctx.stroke();
+      ctx.restore();
+    }
+    this.drawDynamicComponent(ctx, 'shock-ring', {
+      width: ringRadius * 2.15,
+      height: ringRadius * 2.15,
+      rotation: progress * 0.52,
+      alpha: fade * 0.72,
+    });
+
+    for (let index = 0; index < 6; index += 1) {
+      const angle = (index / 6) * TAU - Math.PI / 2 + progress * 0.62;
+      const noise = effectNoise(effect.seed, index + 150);
+      const distanceOut = (12 + spread * (31 + noise * 18)) * effect.intensity;
+      const width = (9 + noise * 6) * effect.intensity * (1 - progress * 0.18);
+      const height = width * (1.45 + noise * 0.35);
+      const x = Math.cos(angle) * distanceOut;
+      const y = Math.sin(angle) * distanceOut;
+      const shardAlpha = fade * (0.96 - index * 0.055);
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(angle + Math.PI / 2 + progress * (index % 2 ? 1.8 : -1.8));
+      ctx.globalAlpha *= shardAlpha;
+      ctx.fillStyle = index % 3 === 0 ? effect.accent : effect.color;
+      ctx.strokeStyle = '#31566E';
+      ctx.lineWidth = Math.max(1.4, 2.2 * effect.intensity);
+      ctx.beginPath();
+      ctx.moveTo(0, -height / 2);
+      ctx.lineTo(width / 2, height * 0.16);
+      ctx.quadraticCurveTo(0, height * 0.54, -width / 2, height * 0.16);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+      this.drawDynamicComponent(ctx, 'impact-streak', {
+        x,
+        y,
+        width: width * 2.5,
+        height: height * 1.75,
+        rotation: angle + Math.PI / 2 + progress * (index % 2 ? 1.8 : -1.8),
+        alpha: shardAlpha,
+      });
+    }
+  }
+
   drawDynamicHeal(ctx, effect, progress) {
+    if (this.drawAuthoredDynamicEffect(ctx, effect, progress, {
+      width: 116 * effect.intensity,
+      height: 116 * effect.intensity,
+      y: lerp(10, -8, easeOutCubic(progress)),
+      rotation: -0.12,
+      rotationTravel: 0.28,
+      scaleFromX: 0.4,
+      scaleFromY: 0.34,
+      scaleToX: 1.08,
+      scaleToY: 1.12,
+      fadeOutStart: 0.66,
+    })) return;
     const rise = easeOutCubic(progress);
     const fade = 1 - effectPhase(progress, 0.68, 1);
     ctx.save();
@@ -5887,6 +6136,18 @@ export class SlimeGame {
   }
 
   drawDynamicSpawn(ctx, effect, progress) {
+    if (this.drawAuthoredDynamicEffect(ctx, effect, progress, {
+      width: 142 * effect.intensity,
+      height: 142 * effect.intensity,
+      rotation: -0.16,
+      rotationTravel: 0.42,
+      scaleFromX: 0.28,
+      scaleFromY: 0.22,
+      scaleToX: 1.1,
+      scaleToY: 1.06,
+      revealEnd: 0.66,
+      fadeOutStart: 0.56,
+    })) return;
     const open = easeOutBack(effectPhase(progress, 0, 0.7));
     const fade = 1 - effectPhase(progress, 0.58, 1);
     for (let ring = 0; ring < 3; ring += 1) {
@@ -5948,9 +6209,21 @@ export class SlimeGame {
   }
 
   drawDynamicTrail(ctx, effect, progress) {
+    const length = Math.max(1, Math.hypot(effect.dx, effect.dy));
+    if (this.drawAuthoredDynamicEffect(ctx, effect, progress, {
+      width: Math.max(150, length * 1.16) * effect.intensity,
+      height: 54 * effect.intensity,
+      rotation: Math.atan2(effect.dy, effect.dx),
+      rotationTravel: 0.025,
+      scaleFromX: 0.06,
+      scaleFromY: 0.72,
+      scaleToX: 1.03,
+      scaleToY: 1.04,
+      revealEnd: 0.68,
+      fadeOutStart: 0.6,
+    })) return;
     const grow = easeOutCubic(effectPhase(progress, 0, 0.68));
     const fade = 1 - effectPhase(progress, 0.62, 1);
-    const length = Math.max(1, Math.hypot(effect.dx, effect.dy));
     const nx = effect.dx / length;
     const ny = effect.dy / length;
     const px = -ny;
@@ -5993,6 +6266,18 @@ export class SlimeGame {
   }
 
   drawDynamicSwap(ctx, effect, progress) {
+    const length = Math.max(1, Math.hypot(effect.dx, effect.dy));
+    if (this.drawAuthoredDynamicEffect(ctx, effect, progress, {
+      width: Math.max(132, length * 1.22) * effect.intensity,
+      height: Math.max(86, Math.min(126, length * 0.58)) * effect.intensity,
+      rotation: Math.atan2(effect.dy, effect.dx),
+      rotationTravel: -0.035,
+      scaleFromX: 0.42,
+      scaleFromY: 0.62,
+      scaleToX: 1.04,
+      scaleToY: 1.06,
+      fadeOutStart: 0.66,
+    })) return;
     const move = easeOutBack(effectPhase(progress, 0, 0.82));
     const fade = 1 - effectPhase(progress, 0.68, 1);
     for (let side = -1; side <= 1; side += 2) {
@@ -6797,13 +7082,10 @@ export class SlimeGame {
     const resourceEntries = Object.entries(COLONY_RESOURCE_LABEL);
     resourceEntries.forEach(([resourceType, label], index) => {
       const x = PANEL.x + 31 + index * 110;
-      ctx.fillStyle = RESOURCE_COLOR_BY_ID[resourceType];
-      ctx.beginPath();
-      ctx.arc(x + 7, PANEL.y + 392, 7, 0, TAU);
-      ctx.fill();
+      this.drawResourceToken(ctx, resourceType, x + 8, PANEL.y + 392, 22);
       ctx.fillStyle = PALETTE.inkSoft;
       ctx.font = '800 14px "PingFang SC", sans-serif';
-      ctx.fillText(`${label} ${Math.floor(this.state.colony?.resources?.[resourceType] || 0)}`, x + 19, PANEL.y + 397);
+      ctx.fillText(`${label} ${Math.floor(this.state.colony?.resources?.[resourceType] || 0)}`, x + 22, PANEL.y + 397);
     });
     ctx.restore();
 
@@ -7322,17 +7604,57 @@ export class SlimeGame {
         ['组队', '从四只史莱姆中恰好选择三只'],
         ['探索', '点选真实地标，行走开雾并挑战Boss栖息地'],
       ];
+      const tutorialArtLayers = [
+        [
+          { key: 'building-mushroom-home', dx: 10, dy: 0, width: 72, height: 72 },
+          { key: 'resource-soft-gel-token', dx: -38, dy: 14, width: 32, height: 32 },
+        ],
+        [
+          { key: 'survivor-shell-shell', dx: -34, dy: 3, width: 52, height: 52, portrait: true },
+          { key: 'survivor-crystal-pin', dx: 0, dy: -2, width: 54, height: 54, portrait: true },
+          { key: 'survivor-moss-sprout', dx: 34, dy: 3, width: 52, height: 52, portrait: true },
+        ],
+        [
+          { key: 'terrain-discovery-fog-cell-v1', dx: 0, dy: 8, width: 116, height: 66, alpha: 0.72 },
+          { key: 'survivor-moss-sprout', dx: -34, dy: 10, width: 44, height: 44, portrait: true },
+          { key: 'terrain-crystal-shard-node-a', dx: 30, dy: 1, width: 50, height: 58 },
+        ],
+      ];
       tips.forEach((tip, index) => {
         const x = rect.x + 44 + index * 196;
         drawRoundedRect(ctx, x, rect.y + 151, 180, 174, {
           radius: 24, fill: index === 0 ? '#EDF7E9' : index === 1 ? '#EAF3F8' : '#F2EAF4',
           stroke: index === 0 ? '#8DBA8A' : index === 1 ? '#83AEC2' : '#B49AC0', lineWidth: 2,
         });
+        const artCenterX = x + 90;
+        const artCenterY = rect.y + 201;
+        let authoredArtDrawn = false;
+        for (const layer of tutorialArtLayers[index]) {
+          authoredArtDrawn = drawAssetOrFallback(ctx, this.assetStore, layer.key, (asset) => {
+            ctx.globalAlpha *= layer.alpha ?? 1;
+            const dimensions = imageDimensions(asset, 512, 512);
+            const sourceRect = layer.portrait
+              ? characterPortraitCrop(layer.key, dimensions.width, dimensions.height)
+              : null;
+            drawImageContained(
+              ctx,
+              asset,
+              artCenterX + layer.dx - layer.width / 2,
+              artCenterY + layer.dy - layer.height / 2,
+              layer.width,
+              layer.height,
+              0.5,
+              sourceRect,
+            );
+          }, () => {}) || authoredArtDrawn;
+        }
         ctx.save();
         ctx.fillStyle = PALETTE.ink;
-        ctx.font = '900 24px "PingFang SC", sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText(`${index + 1}`, x + 90, rect.y + 201);
+        if (!authoredArtDrawn) {
+          ctx.font = '900 24px "PingFang SC", sans-serif';
+          ctx.fillText(`${index + 1}`, x + 90, rect.y + 201);
+        }
         ctx.font = '900 19px "PingFang SC", sans-serif';
         ctx.fillText(tip[0], x + 90, rect.y + 243);
         ctx.fillStyle = PALETTE.textMuted;

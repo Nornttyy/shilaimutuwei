@@ -28,12 +28,12 @@ const PROJECT_ASSET_SPEC = JSON.parse(await readFile(
   'utf8',
 ));
 
-test('the workspace asset manifest strictly validates all 118 finished PNGs', async () => {
+test('the workspace asset manifest strictly validates all 122 finished PNGs', async () => {
   const result = await verifyAssets({ cwd: PROJECT_ROOT, allowMissingSpec: false });
   assert.equal(result.ok, true, formatErrors(result));
   assert.equal(result.skipped, false);
-  assert.equal(result.summary.declaredAssets, 118);
-  assert.equal(result.summary.checkedAssets, 118);
+  assert.equal(result.summary.declaredAssets, 122);
+  assert.equal(result.summary.checkedAssets, 122);
   assert.deepEqual(result.errors, [], formatErrors(result));
   assert.deepEqual(result.warnings, [], formatErrors(result));
 });
@@ -187,8 +187,8 @@ test('missing asset-spec is skippable by default and an error in strict mode', a
   }, { writeAssetsDirectory: false });
 });
 
-test('runtime asset map covers all 118 canonical nested paths and three aliases', () => {
-  assert.equal(PROJECT_ASSET_SPEC.assets.length, 118);
+test('runtime asset map covers all 122 canonical nested paths and three aliases', () => {
+  assert.equal(PROJECT_ASSET_SPEC.assets.length, 122);
   for (const asset of PROJECT_ASSET_SPEC.assets) {
     assert.equal(typeof ASSET_PATHS[asset.id], 'string', `missing runtime asset: ${asset.id}`);
     assert.ok(
@@ -196,7 +196,7 @@ test('runtime asset map covers all 118 canonical nested paths and three aliases'
       `unexpected runtime path for ${asset.id}: ${ASSET_PATHS[asset.id]}`,
     );
   }
-  assert.equal(Object.keys(ASSET_PATHS).length, 121);
+  assert.equal(Object.keys(ASSET_PATHS).length, 125);
   assert.equal(ASSET_PATHS['scene-gel-garden'], ASSET_PATHS['background-garden-base']);
   assert.equal(ASSET_PATHS['town-core'], ASSET_PATHS['town-soft-core']);
   assert.equal(ASSET_PATHS['enemy-portal'], ASSET_PATHS['rift-entry-portal']);
@@ -367,6 +367,37 @@ test('bright soft-gel waste terrain variants preserve the seven terrain semantic
     wasteAssets.find(({ id }) => id === 'terrain-waste-soft-gel-cache-a').brief,
     /一小块.*半固体.*不外溢/,
   );
+});
+
+test('authored world surface, daylight fog, and prop shadow are critical runtime PNGs', () => {
+  const expected = [
+    ['terrain-ground-field-v1', false, 1024, 1024],
+    ['terrain-discovery-fog-cell-v1', true, 512, 384],
+    ['terrain-prop-contact-shadow-v1', true, 256, 128],
+  ];
+
+  for (const [id, transparent, width, height] of expected) {
+    const asset = PROJECT_ASSET_SPEC.assets.find((candidate) => candidate.id === id);
+    assert.ok(asset, id);
+    assert.equal(asset.category, 'terrain');
+    assert.equal(asset.transparent, transparent);
+    assert.equal(asset.width, width);
+    assert.equal(asset.height, height);
+    assert.equal(CRITICAL_STARTUP_ASSET_KEYS.includes(id), true);
+    assert.equal(WECHAT_CRITICAL_ASSET_KEYS.includes(id), true);
+    assert.equal(typeof ASSET_PATHS[id], 'string');
+  }
+});
+
+test('shield break has a generated critical effect asset', () => {
+  const asset = PROJECT_ASSET_SPEC.assets.find(({ id }) => id === 'effect-shield-break-v1');
+  assert.ok(asset);
+  assert.equal(asset.category, 'effect');
+  assert.equal(asset.transparent, true);
+  assert.deepEqual(asset.recommendedCanvas, { width: 512, height: 512 });
+  assert.equal(CRITICAL_STARTUP_ASSET_KEYS.includes(asset.id), true);
+  assert.equal(WECHAT_CRITICAL_ASSET_KEYS.includes(asset.id), true);
+  assert.equal(typeof ASSET_PATHS[asset.id], 'string');
 });
 
 test('organic terrain PNG contracts stay transparent and match the colony sources', () => {

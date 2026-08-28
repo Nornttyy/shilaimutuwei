@@ -134,18 +134,24 @@ function createDynamicEffectRecordingContext() {
 }
 
 const DYNAMIC_COMPONENT_ATLAS_KEY = 'effect-dynamic-components-v1';
-const LEGACY_DYNAMIC_COMPOSITE_KEYS = Object.freeze([
-  'effect-spawn-rift-burst',
-  'effect-heal-burst',
-  'effect-building-destruction-puff',
-  'effect-jelly-bounce-wave',
-  'effect-soft-swap-arc',
-  'effect-honey-draw-trail',
-]);
+const AUTHORED_DYNAMIC_EFFECT_ASSET_BY_KIND = Object.freeze({
+  push: 'effect-jelly-bounce-wave',
+  heal: 'effect-heal-burst',
+  spawn: 'effect-spawn-rift-burst',
+  trail: 'effect-honey-draw-trail',
+  swap: 'effect-soft-swap-arc',
+  'building-destruction': 'effect-building-destruction-puff',
+  'shield-break': 'effect-shield-break-v1',
+});
+const AUTHORED_DYNAMIC_EFFECT_KEYS = Object.freeze(
+  Object.values(AUTHORED_DYNAMIC_EFFECT_ASSET_BY_KIND),
+);
 const DYNAMIC_EFFECT_CASES = Object.freeze([
   ['impact', {}],
   ['push', { dx: 78, dy: -16 }],
   ['enemy-pop', {}],
+  ['building-destruction', {}],
+  ['shield-break', {}],
   ['heal', {}],
   ['spawn', { layer: 'back' }],
   ['trail', { dx: 150, dy: 0 }],
@@ -251,6 +257,77 @@ test('the infinite map fills the authored canvas and replaces the decorative bac
   );
   assert.ok(game.pointToCell({ x: 0, y: 0 }));
   assert.ok(game.pointToCell({ x: 1279, y: 719 }));
+});
+
+test('welcome tutorial step cards compose formal game art instead of number placeholders', () => {
+  const keys = [
+    'building-mushroom-home',
+    'resource-soft-gel-token',
+    'survivor-shell-shell',
+    'survivor-crystal-pin',
+    'survivor-moss-sprout',
+    'terrain-discovery-fog-cell-v1',
+    'terrain-crystal-shard-node-a',
+  ];
+  const assets = Object.fromEntries(keys.map((key) => [key, { key, width: 512, height: 512 }]));
+  const store = createReadyAssetStore(assets);
+  const recording = createRecordingContext();
+  recording.ctx.fillText = (...args) => recording.calls.push(['fillText', ...args]);
+  const { game } = createHarness({ context: recording.ctx, assetStore: store });
+  game.modal = { type: 'welcome', page: 1 };
+
+  game.drawWelcome(recording.ctx);
+
+  for (const key of keys) {
+    assert.ok(store.requests.includes(key), `tutorial should request ${key}`);
+    assert.ok(
+      recording.calls.some(([name, image]) => name === 'drawImage' && image === assets[key]),
+      `tutorial should draw ${key}`,
+    );
+  }
+  const text = recording.calls.filter(([name]) => name === 'fillText').map(([, value]) => value);
+  assert.equal(text.some((value) => ['1', '2', '3'].includes(value)), false);
+});
+
+test('discovery fog uses its authored world asset and keeps Canvas only as load fallback', () => {
+  const fogKey = 'terrain-discovery-fog-cell-v1';
+  const readyStore = createReadyAssetStore([fogKey]);
+  const authored = createRecordingContext();
+  const { game } = createHarness({ context: authored.ctx, assetStore: readyStore });
+  game.worldCellAt = (x, y) => ({ discovered: !(x === 4 && y === 7) });
+
+  const result = game.drawDiscoveryFog(authored.ctx, {
+    minX: 4,
+    minY: 7,
+    maxX: 5,
+    maxY: 7,
+  });
+
+  assert.equal(result.usedAsset, true);
+  assert.equal(result.assetCells, 1);
+  assert.ok(readyStore.requests.includes(fogKey));
+  assert.equal(authored.calls.filter(([name]) => name === 'drawImage').length, 1);
+  assert.equal(
+    authored.calls.some(([name]) => name === 'fillRect'),
+    false,
+    'ready authored fog must not reveal a square grid through Canvas fills',
+  );
+
+  const fallback = createRecordingContext();
+  const fallbackHarness = createHarness({
+    context: fallback.ctx,
+    assetStore: createReadyAssetStore([]),
+  });
+  fallbackHarness.game.worldCellAt = () => ({ discovered: false });
+  const fallbackResult = fallbackHarness.game.drawDiscoveryFog(fallback.ctx, {
+    minX: 4,
+    minY: 7,
+    maxX: 4,
+    maxY: 7,
+  });
+  assert.equal(fallbackResult.usedAsset, false);
+  assert.equal(fallbackResult.fallbackCells, 1);
+  assert.ok(fallback.calls.some(([name]) => name === 'fillRect'));
 });
 
 test('wide landscape screens reveal more world instead of leaving letterbox background', () => {
@@ -781,6 +858,71 @@ test('single-cell buildings ignore rotation and legacy saved directions normaliz
   assert.ok(resaved.buildings.every(({ rotation }) => rotation === 0));
 });
 
+test('warehouse material counters use the three authored resource tokens', () => {
+  const keys = [
+    'resource-soft-gel-token',
+    'resource-dew-honey-token',
+    'resource-crystal-shard-token',
+  ];
+  const assets = Object.fromEntries(keys.map((key) => [key, { key, width: 128, height: 128 }]));
+  const store = createReadyAssetStore(assets);
+  const recording = createRecordingContext();
+  const { game } = createHarness({ context: recording.ctx, assetStore: store });
+  game.state.phase = 'build';
+  game.selection = null;
+
+  game.drawBuildSide(recording.ctx);
+
+  for (const key of keys) {
+    assert.ok(store.requests.includes(key), `warehouse should request ${key}`);
+    assert.ok(
+      recording.calls.some(([name, asset]) => name === 'drawImage' && asset === assets[key]),
+      `warehouse should draw ${key}`,
+    );
+  }
+});
+
+test('selected world POIs reuse the friendly authored selection ring', () => {
+  const key = 'effect-selection-ring-friendly';
+  const ring = { key, width: 512, height: 256 };
+  const frameKey = 'nest-soft-rift-frame-a';
+  const frame = { key: frameKey, width: 512, height: 512 };
+  const store = createReadyAssetStore({ [key]: ring, [frameKey]: frame });
+  const recording = createRecordingContext();
+  const { game } = createHarness({ context: recording.ctx, assetStore: store });
+  const site = {
+    id: 'selected-nest',
+    kind: 'nest',
+    x: 8,
+    y: 6,
+    zoneKind: 'gel-garden',
+    cleared: false,
+  };
+  game.state.worldExpedition = {
+    status: 'choose-site',
+    targetPoiId: site.id,
+    sites: [site],
+  };
+
+  game.drawWorldPoiActor(recording.ctx, site);
+
+  assert.ok(store.requests.includes(key));
+  const ringIndex = recording.calls.findIndex(([name, asset]) => name === 'drawImage' && asset === ring);
+  const frameIndex = recording.calls.findIndex(([name, asset]) => name === 'drawImage' && asset === frame);
+  assert.ok(ringIndex >= 0);
+  assert.ok(frameIndex > ringIndex, 'the selection ring should render behind the POI artwork');
+  const ringCall = recording.calls[ringIndex];
+  const frameCall = recording.calls[frameIndex];
+  assert.ok(
+    ringCall[4] >= frameCall[4] * 0.9 && ringCall[4] <= frameCall[4],
+    'the ground ring should track the POI base width rather than its old centre radius',
+  );
+  assert.ok(
+    ringCall[3] + ringCall[5] / 2 > frameCall[3] + frameCall[5] / 2,
+    'the ring should sit at the POI base rather than across its centre',
+  );
+});
+
 test('placement, danger rings, and combat statuses request their dedicated PNG layers', () => {
   const keys = [
     'tile-placement-valid', 'tile-placement-invalid',
@@ -938,7 +1080,52 @@ test('dynamic effects advance on the animation clock, freeze while paused, and e
   assert.ok(!game.state.dynamicEffects.includes(effect));
 });
 
-test('all nine dynamic effect families animate multiple independent atlas components', () => {
+test('seven authored dynamic composites animate as the primary path without Canvas geometry', () => {
+  const cases = [
+    ['push', { dx: 78, dy: -16 }],
+    ['heal', {}],
+    ['spawn', { layer: 'back' }],
+    ['trail', { dx: 150, dy: 0 }],
+    ['swap', { dx: 130, dy: 55 }],
+    ['building-destruction', {}],
+    ['shield-break', {}],
+  ];
+  for (const [kind, options] of cases) {
+    const recording = createDynamicEffectRecordingContext();
+    const assetKey = AUTHORED_DYNAMIC_EFFECT_ASSET_BY_KIND[kind];
+    const asset = { key: assetKey, width: 768, height: 512 };
+    const store = createReadyAssetStore({ [assetKey]: asset });
+    const { game } = createHarness({ context: recording.ctx, assetStore: store });
+    const effect = game.spawnDynamicEffect(kind, 320, 240, {
+      ...options,
+      seed: 41,
+      intensity: 1.1,
+    });
+    effect.life = effect.maxLife * 0.66;
+
+    game.drawDynamicEffects(recording.ctx, effect.layer);
+    const firstMotion = normalizedCallTrace(recording.calls, DYNAMIC_MOTION_METHODS);
+    assert.equal(
+      recording.calls.filter(([name, image]) => name === 'drawImage' && image === asset).length,
+      1,
+      `${kind} should draw its authored composite once`,
+    );
+    assert.equal(
+      recording.calls.some(([name]) => DYNAMIC_GEOMETRY_METHODS.has(name)),
+      false,
+      `${kind} should not mix Canvas geometry into a successful authored draw`,
+    );
+    assert.equal(store.requests.includes(DYNAMIC_COMPONENT_ATLAS_KEY), false);
+
+    recording.calls.length = 0;
+    effect.life = effect.maxLife * 0.42;
+    game.drawDynamicEffects(recording.ctx, effect.layer);
+    const secondMotion = normalizedCallTrace(recording.calls, DYNAMIC_MOTION_METHODS);
+    assert.notDeepEqual(secondMotion, firstMotion, `${kind} should scale or rotate with progress`);
+  }
+});
+
+test('dynamic effects fall back to independently animated atlas components when authored composites fail', () => {
   DYNAMIC_EFFECT_CASES.forEach(([kind, options], index) => {
     const recording = createDynamicEffectRecordingContext();
     const store = createDynamicAtlasStore();
@@ -976,17 +1163,17 @@ test('all nine dynamic effect families animate multiple independent atlas compon
       firstMotion,
       `${kind} atlas cells should independently translate, rotate, scale, or resize between frames`,
     );
-    for (const legacyKey of LEGACY_DYNAMIC_COMPOSITE_KEYS) {
-      assert.equal(
-        store.requests.includes(legacyKey),
-        false,
-        `${kind} must not request legacy full-frame effect ${legacyKey}`,
+    const authoredKey = AUTHORED_DYNAMIC_EFFECT_ASSET_BY_KIND[kind];
+    if (authoredKey) {
+      assert.ok(
+        store.requests.includes(authoredKey),
+        `${kind} should try its authored composite before the component fallback`,
       );
     }
   });
 });
 
-test('all nine dynamic effect families retain changing procedural geometry without the atlas', () => {
+test('all dynamic effect families retain changing procedural geometry when authored art and atlas fail', () => {
   DYNAMIC_EFFECT_CASES.forEach(([kind, options], index) => {
     const recording = createDynamicEffectRecordingContext();
     const store = createReadyAssetStore([]);
@@ -1018,8 +1205,9 @@ test('all nine dynamic effect families retain changing procedural geometry witho
       store.requests.includes(DYNAMIC_COMPONENT_ATLAS_KEY),
       `${kind} should safely attempt the shared atlas before falling back`,
     );
-    for (const legacyKey of LEGACY_DYNAMIC_COMPOSITE_KEYS) {
-      assert.equal(store.requests.includes(legacyKey), false);
+    const authoredKey = AUTHORED_DYNAMIC_EFFECT_ASSET_BY_KIND[kind];
+    if (authoredKey) {
+      assert.ok(store.requests.includes(authoredKey));
     }
   });
 });
@@ -1042,8 +1230,8 @@ test('enemy-pop reveals fewer atlas components on its first frame than during th
     `enemy-pop should stagger atlas cells (${initialImages} initially, ${burstImages} during burst)`,
   );
   assert.ok(store.requests.includes(DYNAMIC_COMPONENT_ATLAS_KEY));
-  for (const legacyKey of LEGACY_DYNAMIC_COMPOSITE_KEYS) {
-    assert.equal(store.requests.includes(legacyKey), false);
+  for (const authoredKey of AUTHORED_DYNAMIC_EFFECT_KEYS) {
+    assert.equal(store.requests.includes(authoredKey), false);
   }
 });
 
@@ -1142,6 +1330,70 @@ test('enemy hits and deaths emit distinct procedural impact and pop effects', ()
   game.damageEnemy(enemy, enemy.hp, null);
   const deathEffects = game.state.dynamicEffects.slice(beforeDeath);
   assert.ok(deathEffects.some(({ kind }) => kind === 'enemy-pop'));
+});
+
+test('destroyed buildings use their authored destruction effect instead of enemy-pop', () => {
+  const assetKey = 'effect-building-destruction-puff';
+  const asset = { key: assetKey, width: 512, height: 512 };
+  const store = createReadyAssetStore({ [assetKey]: asset });
+  const recording = createDynamicEffectRecordingContext();
+  const { game } = createHarness({ context: recording.ctx, assetStore: store });
+  const building = game.state.buildings[0];
+  game.state.dynamicEffects = [];
+
+  assert.equal(game.damageBuilding(building, building.hp + 1), true);
+  const effect = game.state.dynamicEffects.find(({ kind }) => kind === 'building-destruction');
+  assert.ok(effect);
+  assert.equal(game.state.dynamicEffects.some(({ kind }) => kind === 'enemy-pop'), false);
+  effect.life = effect.maxLife * 0.55;
+  game.drawDynamicEffects(recording.ctx, effect.layer);
+
+  assert.ok(store.requests.includes(assetKey));
+  assert.ok(recording.calls.some(([name, image]) => name === 'drawImage' && image === asset));
+});
+
+test('shield depletion emits one authored break burst with segmented opacity', () => {
+  const assetKey = 'effect-shield-break-v1';
+  const asset = { key: assetKey, width: 512, height: 512 };
+  const store = createReadyAssetStore({ [assetKey]: asset });
+  const recording = createDynamicEffectRecordingContext();
+  const { game } = createHarness({ context: recording.ctx, assetStore: store });
+  const survivor = game.state.survivors.find(({ cardId }) => cardId !== 'survivor-shell-shell');
+  game.state.buildings = [];
+  game.state.dynamicEffects = [];
+  survivor.shield = 12;
+  const hpBefore = survivor.hp;
+
+  game.damageSurvivor(survivor, 5);
+  assert.equal(survivor.shield, 7);
+  assert.equal(game.state.dynamicEffects.some(({ kind }) => kind === 'shield-break'), false);
+
+  game.damageSurvivor(survivor, 7);
+  assert.equal(survivor.shield, 0);
+  assert.equal(survivor.hp, hpBefore, 'the breaking hit should remain fully absorbed');
+  const breakEffects = game.state.dynamicEffects.filter(({ kind }) => kind === 'shield-break');
+  assert.equal(breakEffects.length, 1);
+  const effect = breakEffects[0];
+
+  effect.life = effect.maxLife * 0.7;
+  recording.ctx.globalAlpha = 1;
+  game.drawDynamicEffects(recording.ctx, effect.layer);
+  const heldAlpha = recording.ctx.globalAlpha;
+  assert.ok(store.requests.includes(assetKey));
+  assert.ok(recording.calls.some(([name, image]) => name === 'drawImage' && image === asset));
+
+  recording.calls.length = 0;
+  effect.life = effect.maxLife * 0.1;
+  recording.ctx.globalAlpha = 1;
+  game.drawDynamicEffects(recording.ctx, effect.layer);
+  assert.ok(recording.ctx.globalAlpha < heldAlpha, 'the final opacity segment should fade out');
+
+  game.damageSurvivor(survivor, 1);
+  assert.equal(
+    game.state.dynamicEffects.filter(({ kind }) => kind === 'shield-break').length,
+    1,
+    'later health damage must not retrigger a depleted shield',
+  );
 });
 
 test('enemy pushes emit a directional trail and collisions add a stronger impact', () => {

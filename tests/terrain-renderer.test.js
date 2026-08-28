@@ -190,6 +190,23 @@ test('terrain PNG contract uses authored ids and the shared helper keeps a botto
     'the untransformed image bottom lands exactly on the anchor');
 });
 
+test('infinite-world coordinates deterministically vary authored terrain silhouettes', () => {
+  const store = readyAssetStore(['terrain-soft-gel-node-a']);
+  const drawAt = (x) => {
+    const ctx = createContextSpy();
+    drawTerrainAsset(ctx, store, { terrainId: 'soft-gel', x, y: 0 }, {
+      x: 80,
+      y: 96,
+      cellSize: 64,
+    });
+    return ctx.calls.find(({ method }) => method === 'scale').args;
+  };
+
+  assert.deepEqual(drawAt(0), [1, 1]);
+  assert.deepEqual(drawAt(2), [-1, 1]);
+  assert.deepEqual(drawAt(2), drawAt(2), 'the same world cell stays visually stable');
+});
+
 test('bright infinite-world biome and POI contracts resolve every generated layer', () => {
   assert.deepEqual(REGION_ASSET_KEYS, {
     'gel-garden': 'region-gel-meadow-field-a',

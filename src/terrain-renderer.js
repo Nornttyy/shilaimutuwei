@@ -216,7 +216,13 @@ export function terrainAssetKeyForCell(tileOrId) {
 }
 
 function normalizedVisualVariant(tileOrId, suppliedVariant) {
-  const raw = suppliedVariant ?? (typeof tileOrId === 'object' ? tileOrId?.visualVariant : 0);
+  const authoredVariant = typeof tileOrId === 'object' ? tileOrId?.visualVariant : null;
+  const coordinateVariant = typeof tileOrId === 'object'
+    && Number.isFinite(tileOrId?.x)
+    && Number.isFinite(tileOrId?.y)
+    ? Math.floor(hash2d(tileOrId.x, tileOrId.y, 79) * VISUAL_VARIANT_SCALE.length)
+    : 0;
+  const raw = suppliedVariant ?? authoredVariant ?? coordinateVariant;
   const numeric = Number.isFinite(Number(raw)) ? Math.floor(Number(raw)) : 0;
   return ((numeric % VISUAL_VARIANT_SCALE.length) + VISUAL_VARIANT_SCALE.length)
     % VISUAL_VARIANT_SCALE.length;

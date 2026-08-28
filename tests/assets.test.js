@@ -433,6 +433,11 @@ test('browser startup waits only for first-screen art and leaves the rest on dem
   assert.equal(source.includes('assetStore.preload()'), false, 'startup must not download every PNG');
   assert.ok(attachRigIndex >= 0 && attachRigIndex < preloadRigIndex);
   assert.ok(CRITICAL_STARTUP_ASSET_KEYS.length >= 20);
+  assert.deepEqual(
+    WECHAT_CRITICAL_ASSET_KEYS,
+    CRITICAL_STARTUP_ASSET_KEYS,
+    'browser and WeChat must preload the same authored gameplay art',
+  );
   CRITICAL_STARTUP_ASSET_KEYS.forEach((key) => {
     assert.equal(typeof ASSET_PATHS[key], 'string', `critical asset ${key}`);
   });

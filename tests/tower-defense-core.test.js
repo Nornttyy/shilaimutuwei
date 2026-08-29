@@ -6,14 +6,18 @@ import {
   TD_MAX_STAR,
   TD_STAGES,
   beginTowerDefenseRun,
+  canMergeCardIntoTower,
   canMergeTowers,
   createTowerDefenseState,
   drawCostForState,
   drawTowerCard,
   endlessScaleForWave,
+  mergeCardIntoTower,
   mergeTowers,
+  moveTowerToPad,
   normalizeTowerDefenseProgress,
   placeTowerFromHand,
+  reclaimTowerToHand,
   serializeTowerDefenseProgress,
   startNextTowerDefenseWave,
   tutorialTargetForState,
@@ -145,6 +149,137 @@ test('fusion reaches the declared maximum star and rejects further merging atomi
   assert.equal(TD_MAX_STAR, 4);
 });
 
+test('a placed tower can be reclaimed to a non-full hand without losing its star', () => {
+  const state = createBattleState();
+  state.hand = [{ uid: 'reclaim-source', type: 'sprout', star: 3 }];
+  const tower = placeTowerFromHand(state, 'reclaim-source', 2);
+  tower.cooldown = 0.7;
+  state.selectedTowerUid = tower.uid;
+
+  const card = reclaimTowerToHand(state, tower.uid);
+  assert.ok(card);
+  assert.notEqual(card.uid, tower.uid);
+  assert.deepEqual({ type: card.type, star: card.star }, { type: 'sprout', star: 3 });
+  assert.deepEqual(state.hand, [card]);
+  assert.equal(state.towers.length, 0);
+  assert.equal(state.selectedTowerUid, null);
+  assert.deepEqual(state.events.at(-1), {
+    type: 'reclaim',
+    towerUid: tower.uid,
+    cardUid: card.uid,
+    towerType: 'sprout',
+    star: 3,
+    fromPadIndex: 2,
+  });
+
+  const placedAgain = placeTowerFromHand(state, card.uid, 5);
+  assert.equal(placedAgain.type, 'sprout');
+  assert.equal(placedAgain.star, 3);
+
+  state.hand = Array.from({ length: TD_HAND_LIMIT }, (_, index) => ({
+    uid: `blocking-card-${index}`, type: 'bubble', star: 1,
+  }));
+  const fullHandSnapshot = clone(state);
+  assert.equal(reclaimTowerToHand(state, placedAgain.uid), null);
+  assert.deepEqual(state, fullHandSnapshot, 'a full hand must reject reclaim atomically');
+
+  state.hand = [];
+  assert.equal(startNextTowerDefenseWave(state), true);
+  placedAgain.cooldown = 0.1;
+  const combatCard = reclaimTowerToHand(state, placedAgain.uid);
+  assert.ok(combatCard, 'combat reclaim remains available');
+  assert.equal(combatCard.redeployCooldown, 0.65);
+  const redeployed = placeTowerFromHand(state, combatCard.uid, 6);
+  assert.equal(redeployed.star, 3);
+  assert.equal(redeployed.cooldown, 0.65, 'combat reclaim carries a short redeploy delay');
+});
+
+test('a compatible hand card can merge directly into a placed tower even on a full board', () => {
+  const state = createBattleState();
+  state.towers = TD_STAGES[0].pads.map((_, padIndex) => ({
+    uid: `board-tower-${padIndex}`,
+    type: padIndex === 0 ? 'needle' : 'shell',
+    star: padIndex === 0 ? 2 : TD_MAX_STAR,
+    padIndex,
+    cooldown: 0.8,
+    aimAngle: 0,
+    attackPulse: 0,
+  }));
+  const target = state.towers[0];
+  state.hand = [
+    { uid: 'direct-merge-card', type: 'needle', star: 2 },
+    { uid: 'incompatible-card', type: 'bubble', star: 2 },
+  ];
+
+  assert.equal(canMergeCardIntoTower(state.hand[0], target), true);
+  assert.equal(canMergeCardIntoTower(state.hand[1], target), false);
+  const merged = mergeCardIntoTower(state, 'direct-merge-card', target.uid);
+  assert.equal(merged, target);
+  assert.equal(merged.star, 3);
+  assert.equal(merged.cooldown, 0.12);
+  assert.equal(state.towers.length, TD_STAGES[0].pads.length);
+  assert.deepEqual(state.hand.map(({ uid }) => uid), ['incompatible-card']);
+  assert.deepEqual(state.events.at(-1), {
+    type: 'merge',
+    source: 'hand',
+    cardUid: 'direct-merge-card',
+    towerUid: target.uid,
+    star: 3,
+  });
+
+  const mismatchSnapshot = clone(state);
+  assert.equal(mergeCardIntoTower(state, 'incompatible-card', target.uid), null);
+  assert.deepEqual(state, mismatchSnapshot, 'a mismatched direct fusion must be atomic');
+
+  target.star = TD_MAX_STAR;
+  state.hand.push({ uid: 'maximum-card', type: target.type, star: TD_MAX_STAR });
+  const maximumSnapshot = clone(state);
+  assert.equal(mergeCardIntoTower(state, 'maximum-card', target.uid), null);
+  assert.deepEqual(state, maximumSnapshot, 'a maximum-star direct fusion must be atomic');
+});
+
+test('a placed tower moves only to a valid empty pad and preserves identity and aim', () => {
+  const state = createBattleState();
+  state.hand = [
+    { uid: 'moving-card', type: 'bubble', star: 2 },
+    { uid: 'blocking-card', type: 'shell', star: 1 },
+  ];
+  const moving = placeTowerFromHand(state, 'moving-card', 0);
+  const blocking = placeTowerFromHand(state, 'blocking-card', 1);
+  moving.cooldown = 0.73;
+  moving.aimAngle = 1.25;
+
+  assert.equal(moveTowerToPad(state, moving.uid, 4), moving);
+  assert.equal(moving.padIndex, 4);
+  assert.equal(moving.star, 2);
+  assert.equal(moving.cooldown, 0.73);
+  assert.equal(moving.aimAngle, 1.25);
+  assert.deepEqual(state.events.at(-1), {
+    type: 'tower-move',
+    towerUid: moving.uid,
+    fromPadIndex: 0,
+    toPadIndex: 4,
+  });
+
+  for (const [label, towerUid, padIndex] of [
+    ['same pad', moving.uid, 4],
+    ['occupied pad', moving.uid, blocking.padIndex],
+    ['missing tower', 'unknown-tower', 3],
+    ['invalid pad', moving.uid, 999],
+  ]) {
+    const snapshot = clone(state);
+    assert.equal(moveTowerToPad(state, towerUid, padIndex), null, label);
+    assert.deepEqual(state, snapshot, `${label} move must be atomic`);
+  }
+
+  assert.equal(startNextTowerDefenseWave(state), true);
+  moving.cooldown = 0.1;
+  assert.equal(moveTowerToPad(state, moving.uid, 3), moving);
+  assert.equal(moving.padIndex, 3);
+  assert.equal(moving.cooldown, 0.65, 'combat movement applies a short attack delay');
+  assert.equal(moving.aimAngle, 1.25);
+});
+
 test('stage waves use authored groups while endless waves grow and add periodic bosses', () => {
   const stageState = createBattleState();
   const firstWave = TD_STAGES[0].waves[0];
@@ -238,7 +373,7 @@ test('defeat ends the run without unlocking stages and records the endless best 
   assert.equal(state.progress.bestEndlessWave, 9);
 });
 
-test('tutorial targets follow completed actions and disappear only after combat starts', () => {
+test('tutorial targets draw, place, then fuse the second hand card directly into the first tower', () => {
   const state = createTowerDefenseState({ seed: 0xCAFEBABE });
   assert.deepEqual(tutorialTargetForState(state), { type: 'stage', stageIndex: 0, label: '1' });
 
@@ -251,11 +386,21 @@ test('tutorial targets follow completed actions and disappear only after combat 
   assert.deepEqual(tutorialTargetForState(state), { type: 'draw', label: '抽' });
 
   const secondCard = drawTowerCard(state);
-  assert.deepEqual(tutorialTargetForState(state), { type: 'pad', padIndex: 1, label: '放' });
-  const secondTower = placeTowerFromHand(state, secondCard.uid, 1);
   assert.deepEqual(tutorialTargetForState(state), { type: 'fusion', label: '融' });
+  assert.equal(state.towers.length, 1);
+  assert.deepEqual(state.hand, [secondCard]);
 
-  mergeTowers(state, firstTower.uid, secondTower.uid);
+  const tutorialSnapshot = clone(state);
+  assert.equal(placeTowerFromHand(state, secondCard.uid, 1), null);
+  assert.equal(reclaimTowerToHand(state, firstTower.uid), null);
+  assert.equal(moveTowerToPad(state, firstTower.uid, 1), null);
+  assert.deepEqual(state, tutorialSnapshot, 'new board-management commands must not bypass the tutorial');
+
+  const merged = mergeCardIntoTower(state, secondCard.uid, firstTower.uid);
+  assert.equal(merged.uid, firstTower.uid);
+  assert.equal(merged.star, 2);
+  assert.equal(state.towers.length, 1);
+  assert.equal(state.hand.length, 0);
   assert.deepEqual(tutorialTargetForState(state), { type: 'start', label: '战' });
   assert.equal(state.progress.tutorialSeen, false);
 

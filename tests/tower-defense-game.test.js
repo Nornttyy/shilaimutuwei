@@ -166,6 +166,12 @@ function drag(game, canvas, from, to) {
   canvas.dispatch('pointerup', pointerEvent(game, canvas, to));
 }
 
+function hitCenter(game, id) {
+  const hit = game.hits.find((candidate) => candidate.id === id);
+  assert.ok(hit, `expected rendered hit target ${id}`);
+  return { x: hit.x + hit.width / 2, y: hit.y + hit.height / 2 };
+}
+
 function transformHasMotion(transform = {}) {
   return Math.abs(Number(transform.x) || 0) > 1e-5
     || Math.abs(Number(transform.y) || 0) > 1e-5
@@ -348,35 +354,96 @@ test('spotlight tutorial completes draw, placement, fusion, and wave-start chain
   game.render();
   assert.equal(game.state.tutorial.step, 'draw-1');
 
-  click(game, canvas, { x: 1105, y: 571 });
+  click(game, canvas, hitCenter(game, 'draw'));
   game.render();
   assert.equal(game.state.tutorial.step, 'place-1');
   assert.equal(game.state.hand.length, 1);
 
-  click(game, canvas, { x: 132, y: 228 });
+  click(game, canvas, hitCenter(game, 'pad-0'));
   game.render();
   assert.equal(game.state.tutorial.step, 'draw-2');
   assert.equal(game.state.towers.length, 1);
 
-  click(game, canvas, { x: 1105, y: 571 });
-  game.render();
-  click(game, canvas, { x: 354, y: 234 });
+  click(game, canvas, hitCenter(game, 'draw'));
   game.render();
   assert.equal(game.state.tutorial.step, 'fuse');
-  assert.equal(game.state.towers.length, 2);
+  assert.equal(game.state.towers.length, 1);
+  assert.equal(game.state.hand.length, 1);
 
-  drag(game, canvas, { x: 132, y: 214 }, { x: 354, y: 220 });
+  drag(game, canvas, hitCenter(game, `card-${game.state.hand[0].uid}`),
+    hitCenter(game, `tower-${game.state.towers[0].uid}`));
   game.render();
   assert.equal(game.state.tutorial.step, 'start');
   assert.equal(game.state.towers.length, 1);
+  assert.equal(game.state.hand.length, 0);
   assert.equal(game.state.towers[0].star, 2);
 
-  click(game, canvas, { x: 1105, y: 661 });
+  click(game, canvas, hitCenter(game, 'start-wave'));
   assert.equal(game.state.wave, 1);
   assert.equal(game.state.waveActive, true);
   assert.equal(game.state.tutorial.active, false);
   assert.equal(game.state.progress.tutorialSeen, true);
   assert.equal(runtime.values.get(TD_STORAGE_KEY).tutorialSeen, true);
+  game.dispose();
+});
+
+test('battle dock supports direct hand fusion, tower movement, and reclaim without extra placement', () => {
+  const canvas = createCanvas();
+  const game = new TowerDefenseGame(canvas, {
+    runtime: createRuntime({ tutorialSeen: true }),
+    pixelRatio: 1,
+  });
+  const assets = createAssetStore();
+  game.setAssetStore(assets);
+  game.state.screen = 'battle';
+  game.state.stageId = 'stage-1';
+  game.state.tutorial = { active: false, step: 'done', forcedDraws: 0 };
+  game.state.hand = [{ uid: 'direct-card', type: 'shell', star: 1 }];
+  game.state.towers = [{
+    uid: 'direct-tower',
+    type: 'shell',
+    star: 1,
+    padIndex: 0,
+    cooldown: 0.44,
+    aimAngle: 0.3,
+    attackPulse: 0,
+  }];
+  game.render();
+
+  const cardHit = game.hits.find(({ id }) => id === 'card-direct-card');
+  assert.ok(cardHit.width < 200 && cardHit.height > 120, 'hand uses a large 2x2 portrait card');
+  assert.ok(assets.requests.includes('ui-soft-crystal'));
+  assert.ok(assets.requests.includes('ui-card-frame-common'));
+  assert.equal(canvas.context.calls.some(([kind, text]) => kind === 'fillText' && text === '拖到塔位'), false);
+
+  drag(game, canvas, hitCenter(game, 'card-direct-card'), hitCenter(game, 'tower-direct-tower'));
+  assert.equal(game.state.hand.length, 0);
+  assert.equal(game.state.towers[0].star, 2);
+
+  game.render();
+  drag(game, canvas, hitCenter(game, 'tower-direct-tower'), hitCenter(game, 'pad-1'));
+  assert.equal(game.state.towers[0].padIndex, 1);
+  assert.equal(game.state.towers[0].cooldown, 0.12, 'fusion cooldown remains stable through movement');
+
+  game.render();
+  const reclaimHit = game.hits.find(({ id }) => id === 'reclaim');
+  assert.equal(reclaimHit.enabled, true);
+  click(game, canvas, hitCenter(game, 'reclaim'));
+  assert.equal(game.state.towers.length, 0);
+  assert.equal(game.state.hand.length, 1);
+  assert.equal(game.state.hand[0].star, 2);
+
+  const returnedCard = game.state.hand[0];
+  assert.equal(game.placeCard(returnedCard.uid, 2), true);
+  game.state.waveActive = true;
+  game.render();
+  drag(game, canvas, hitCenter(game, `tower-${game.state.towers[0].uid}`),
+    hitCenter(game, 'reclaim'));
+  assert.equal(game.state.towers.length, 0);
+  assert.equal(game.state.hand.length, 1);
+  assert.equal(game.state.hand[0].star, 2);
+  assert.ok(game.state.hand[0].redeployCooldown >= 0.65,
+    'combat drag-to-reclaim carries a redeploy delay');
   game.dispose();
 });
 

@@ -314,14 +314,14 @@ export function drawTowerCard(state) {
   state.events.push({ type: 'draw', towerType: type });
   if (state.tutorial.active) {
     if (state.tutorial.step === 'draw-1') state.tutorial.step = 'place-1';
-    else if (state.tutorial.step === 'draw-2') state.tutorial.step = 'place-2';
+    else if (state.tutorial.step === 'draw-2') state.tutorial.step = 'fuse';
   }
   return card;
 }
 
 export function placeTowerFromHand(state, cardUid, padIndex) {
   if (state.screen !== 'battle' || state.result) return null;
-  if (state.tutorial.active && !['place-1', 'place-2'].includes(state.tutorial.step)) return null;
+  if (state.tutorial.active && state.tutorial.step !== 'place-1') return null;
   const stage = stageForState(state);
   const index = Math.floor(Number(padIndex));
   if (!stage.pads[index] || state.towers.some((tower) => tower.padIndex === index)) return null;
@@ -333,7 +333,7 @@ export function placeTowerFromHand(state, cardUid, padIndex) {
     type: card.type,
     star: card.star,
     padIndex: index,
-    cooldown: 0.16,
+    cooldown: Math.max(0.16, Number(card.redeployCooldown) || 0),
     aimAngle: 0,
     attackPulse: 0,
   };
@@ -345,7 +345,6 @@ export function placeTowerFromHand(state, cardUid, padIndex) {
   state.events.push({ type: 'place', towerUid: tower.uid });
   if (state.tutorial.active) {
     if (state.tutorial.step === 'place-1') state.tutorial.step = 'draw-2';
-    else if (state.tutorial.step === 'place-2') state.tutorial.step = 'fuse';
   }
   return tower;
 }
@@ -377,6 +376,116 @@ export function mergeTowers(state, sourceUid, targetUid) {
   state.events.push({ type: 'merge', towerUid: target.uid, star: target.star });
   if (state.tutorial.active && state.tutorial.step === 'fuse') state.tutorial.step = 'start';
   return target;
+}
+
+export function canMergeCardIntoTower(card, tower) {
+  return Boolean(
+    card && tower && card.uid !== tower.uid
+    && card.type === tower.type
+    && card.star === tower.star
+    && tower.star < TD_MAX_STAR,
+  );
+}
+
+/**
+ * Consumes one compatible hand card and upgrades an already placed tower.
+ * This remains available during a wave, matching placed-tower fusion, and is
+ * the fusion command used by the shortened first-run tutorial.
+ */
+export function mergeCardIntoTower(state, cardUid, targetUid) {
+  if (state.screen !== 'battle' || state.result) return null;
+  if (state.tutorial.active && state.tutorial.step !== 'fuse') return null;
+  const cardIndex = state.hand.findIndex((card) => card.uid === cardUid);
+  if (cardIndex < 0) return null;
+  const card = state.hand[cardIndex];
+  const target = state.towers.find((tower) => tower.uid === targetUid);
+  if (!canMergeCardIntoTower(card, target)) return null;
+
+  state.hand.splice(cardIndex, 1);
+  target.star += 1;
+  target.cooldown = Math.min(target.cooldown, 0.12);
+  state.selectedTowerUid = null;
+  const pad = stageForState(state).pads[target.padIndex];
+  state.effects.push({
+    uid: nextUid(state, 'fx'), type: 'merge', age: 0, duration: 0.9, x: pad.x, y: pad.y,
+  });
+  state.events.push({
+    type: 'merge',
+    source: 'hand',
+    cardUid: card.uid,
+    towerUid: target.uid,
+    star: target.star,
+  });
+  if (state.tutorial.active && state.tutorial.step === 'fuse') state.tutorial.step = 'start';
+  return target;
+}
+
+/** Returns a placed tower to the hand without changing its type or star. */
+export function reclaimTowerToHand(state, towerUid) {
+  if (
+    state.screen !== 'battle'
+    || state.result
+    || state.tutorial.active
+    || state.hand.length >= TD_HAND_LIMIT
+  ) return null;
+  const towerIndex = state.towers.findIndex((tower) => tower.uid === towerUid);
+  if (towerIndex < 0) return null;
+  const tower = state.towers[towerIndex];
+  const sourcePad = stageForState(state).pads[tower.padIndex];
+  const card = {
+    uid: nextUid(state, 'card'),
+    type: tower.type,
+    star: tower.star,
+    ...(state.waveActive ? { redeployCooldown: Math.max(0.65, tower.cooldown) } : {}),
+  };
+
+  state.towers.splice(towerIndex, 1);
+  state.hand.push(card);
+  state.effects.push({
+    uid: nextUid(state, 'fx'), type: 'reclaim', age: 0, duration: 0.55,
+    x: sourcePad.x, y: sourcePad.y,
+  });
+  if (state.selectedTowerUid === tower.uid) state.selectedTowerUid = null;
+  state.events.push({
+    type: 'reclaim',
+    towerUid: tower.uid,
+    cardUid: card.uid,
+    towerType: tower.type,
+    star: tower.star,
+    fromPadIndex: tower.padIndex,
+  });
+  return card;
+}
+
+/** Moves one placed tower to a valid empty pad, preserving identity, star and aim. */
+export function moveTowerToPad(state, towerUid, padIndex) {
+  if (state.screen !== 'battle' || state.result || state.tutorial.active) return null;
+  const stage = stageForState(state);
+  const targetPadIndex = Math.floor(Number(padIndex));
+  if (!stage.pads[targetPadIndex]) return null;
+  const tower = state.towers.find((candidate) => candidate.uid === towerUid);
+  if (!tower || tower.padIndex === targetPadIndex) return null;
+  if (state.towers.some((candidate) => candidate.padIndex === targetPadIndex)) return null;
+
+  const fromPadIndex = tower.padIndex;
+  const sourcePad = stage.pads[fromPadIndex];
+  tower.padIndex = targetPadIndex;
+  if (state.waveActive) tower.cooldown = Math.max(tower.cooldown, 0.65);
+  const pad = stage.pads[targetPadIndex];
+  state.effects.push({
+    uid: nextUid(state, 'fx'), type: 'move-out', age: 0, duration: 0.4,
+    x: sourcePad.x, y: sourcePad.y,
+  });
+  state.effects.push({
+    uid: nextUid(state, 'fx'), type: 'place', age: 0, duration: 0.45, x: pad.x, y: pad.y,
+  });
+  state.events.push({
+    type: 'tower-move',
+    towerUid: tower.uid,
+    fromPadIndex,
+    toPadIndex: targetPadIndex,
+  });
+  return tower;
 }
 
 export function pathMetrics(points) {
@@ -808,8 +917,7 @@ export function tutorialTargetForState(state) {
     case 'stage': return Object.freeze({ type: 'stage', stageIndex: 0, label: '1' });
     case 'draw-1':
     case 'draw-2': return Object.freeze({ type: 'draw', label: '抽' });
-    case 'place-1':
-    case 'place-2': {
+    case 'place-1': {
       const openPad = stageForState(state).pads.findIndex((_, index) => !towerByPad(state, index));
       return Object.freeze({ type: 'pad', padIndex: openPad, label: '放' });
     }

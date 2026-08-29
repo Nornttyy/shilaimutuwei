@@ -27,15 +27,19 @@ import {
   TD_VIEW,
   TOWER_TYPES,
   beginTowerDefenseRun,
+  canMergeCardIntoTower,
   canMergeTowers,
   createTowerDefenseState,
   drawCostForState,
   drawTowerCard,
   fusionOrbitPoint,
+  mergeCardIntoTower,
   mergeTowers,
+  moveTowerToPad,
   normalizeTowerDefenseProgress,
   placeTowerFromHand,
   replayTowerDefenseRun,
+  reclaimTowerToHand,
   returnToTowerDefenseMenu,
   serializeTowerDefenseProgress,
   skipTowerDefenseBreak,
@@ -51,9 +55,27 @@ const FONT = 'system-ui, -apple-system, BlinkMacSystemFont, "PingFang SC", "Micr
 const TAU = Math.PI * 2;
 const MAX_DPR = 2;
 const PANEL_X = TD_FIELD.width;
-const PANEL_WIDTH = TD_VIEW.width - PANEL_X;
 const PAD_RADIUS = 46;
-const DRAG_THRESHOLD = 8;
+const DRAG_THRESHOLD = 12;
+
+const COMMAND_DOCK = Object.freeze({
+  back: Object.freeze({ x: 946, y: 14, width: 50, height: 50 }),
+  wave: Object.freeze({ x: 1004, y: 14, width: 92, height: 50 }),
+  enemies: Object.freeze({ x: 1104, y: 14, width: 58, height: 50 }),
+  currency: Object.freeze({ x: 1170, y: 14, width: 94, height: 50 }),
+  core: Object.freeze({ x: 946, y: 74, width: 318, height: 34 }),
+  handZone: Object.freeze({ x: 946, y: 118, width: 318, height: 294 }),
+  cards: Object.freeze([
+    Object.freeze({ x: 946, y: 118, width: 154, height: 142 }),
+    Object.freeze({ x: 1110, y: 118, width: 154, height: 142 }),
+    Object.freeze({ x: 946, y: 270, width: 154, height: 142 }),
+    Object.freeze({ x: 1110, y: 270, width: 154, height: 142 }),
+  ]),
+  selection: Object.freeze({ x: 946, y: 424, width: 318, height: 88 }),
+  draw: Object.freeze({ x: 946, y: 524, width: 318, height: 70 }),
+  reclaim: Object.freeze({ x: 946, y: 608, width: 80, height: 80 }),
+  start: Object.freeze({ x: 1038, y: 608, width: 226, height: 80 }),
+});
 
 const COLORS = Object.freeze({
   ink: '#273844',
@@ -108,6 +130,35 @@ const insideRect = (point, rect) => (
   point.x >= rect.x && point.x <= rect.x + rect.width
   && point.y >= rect.y && point.y <= rect.y + rect.height
 );
+
+function drawDockShell(ctx, stage, time) {
+  const gradient = ctx.createLinearGradient(PANEL_X, 0, TD_VIEW.width, TD_VIEW.height);
+  gradient.addColorStop(0, '#234B50');
+  gradient.addColorStop(0.55, '#315E57');
+  gradient.addColorStop(1, '#203F4A');
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(PANEL_X + 18, 0);
+  ctx.bezierCurveTo(PANEL_X - 8, 112, PANEL_X + 8, 232, PANEL_X + 2, 348);
+  ctx.bezierCurveTo(PANEL_X - 5, 474, PANEL_X + 14, 602, PANEL_X + 8, TD_VIEW.height);
+  ctx.lineTo(TD_VIEW.width, TD_VIEW.height);
+  ctx.lineTo(TD_VIEW.width, 0);
+  ctx.closePath();
+  ctx.fillStyle = gradient;
+  ctx.fill();
+
+  ctx.globalAlpha = 0.13;
+  ctx.fillStyle = stage.accent;
+  for (let index = 0; index < 7; index += 1) {
+    const radius = 22 + (index % 3) * 13;
+    const x = 972 + (index * 73) % 290;
+    const y = 60 + (index * 137) % 640 + Math.sin(time * 0.55 + index) * 5;
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, TAU);
+    ctx.fill();
+  }
+  ctx.restore();
+}
 
 function animationPhaseForKey(key) {
   let hash = 2166136261;
@@ -696,7 +747,7 @@ export class TowerDefenseGame {
       return hit.action === 'card'
         || (hit.action === 'pad' && hit.data.padIndex === target.padIndex);
     }
-    if (target.type === 'fusion') return hit.action === 'tower';
+    if (target.type === 'fusion') return hit.action === 'card' || hit.action === 'tower';
     if (target.type === 'start') return hit.action === 'start-wave';
     return true;
   }
@@ -739,8 +790,11 @@ export class TowerDefenseGame {
     if (!drag) return;
 
     if (drag.kind === 'card') {
+      const towerHit = this.hitAt(point, (hit) => hit.action === 'tower');
       const padHit = this.hitAt(point, (hit) => hit.action === 'pad');
-      if (drag.moved && padHit && this.tutorialAllows(padHit)) {
+      if (drag.moved && towerHit && this.tutorialAllows(towerHit)) {
+        this.tryMergeCard(drag.uid, towerHit.data.towerUid);
+      } else if (drag.moved && padHit && this.tutorialAllows(padHit)) {
         this.placeCard(drag.uid, padHit.data.padIndex);
       } else {
         this.selectCard(drag.uid);
@@ -749,8 +803,13 @@ export class TowerDefenseGame {
     }
     if (drag.kind === 'tower') {
       const towerHit = this.hitAt(point, (hit) => hit.action === 'tower');
-      if (drag.moved && towerHit && towerHit.data.towerUid !== drag.uid) {
+      const padHit = this.hitAt(point, (hit) => hit.action === 'pad');
+      if (drag.moved && insideRect(point, COMMAND_DOCK.reclaim)) {
+        this.reclaimTower(drag.uid);
+      } else if (drag.moved && towerHit && towerHit.data.towerUid !== drag.uid) {
         this.tryMerge(drag.uid, towerHit.data.towerUid);
+      } else if (drag.moved && padHit) {
+        this.moveTower(drag.uid, padHit.data.padIndex);
       } else {
         this.selectOrMergeTower(drag.uid);
       }
@@ -780,17 +839,41 @@ export class TowerDefenseGame {
 
   tryMerge(sourceUid, targetUid) {
     const merged = mergeTowers(this.state, sourceUid, targetUid);
-    if (!merged) {
-      this.state.selectedTowerUid = targetUid;
-      return false;
-    }
+    if (!merged) return false;
     this.state.selectedTowerUid = merged.uid;
+    return true;
+  }
+
+  tryMergeCard(cardUid, targetUid) {
+    const merged = mergeCardIntoTower(this.state, cardUid, targetUid);
+    if (!merged) return false;
+    this.selectedCardUid = null;
+    this.state.selectedTowerUid = merged.uid;
+    return true;
+  }
+
+  moveTower(towerUid, padIndex) {
+    const moved = moveTowerToPad(this.state, towerUid, padIndex);
+    if (!moved) return false;
+    this.selectedCardUid = null;
+    this.state.selectedTowerUid = moved.uid;
+    return true;
+  }
+
+  reclaimTower(towerUid) {
+    const card = reclaimTowerToHand(this.state, towerUid);
+    if (!card) return false;
+    this.state.selectedTowerUid = null;
+    this.selectedCardUid = card.uid;
     return true;
   }
 
   selectOrMergeTower(towerUid) {
     const selected = this.state.selectedTowerUid;
-    this.selectedCardUid = null;
+    if (this.selectedCardUid) {
+      this.tryMergeCard(this.selectedCardUid, towerUid);
+      return;
+    }
     if (selected && selected !== towerUid) {
       const source = this.state.towers.find((tower) => tower.uid === selected);
       const target = this.state.towers.find((tower) => tower.uid === towerUid);
@@ -826,6 +909,9 @@ export class TowerDefenseGame {
       }
       case 'pad':
         if (this.selectedCardUid) this.placeCard(this.selectedCardUid, hit.data.padIndex);
+        else if (this.state.selectedTowerUid) {
+          this.moveTower(this.state.selectedTowerUid, hit.data.padIndex);
+        }
         else {
           const tower = towerByPad(this.state, hit.data.padIndex);
           if (tower) this.selectOrMergeTower(tower.uid);
@@ -833,6 +919,9 @@ export class TowerDefenseGame {
         break;
       case 'tower':
         this.selectOrMergeTower(hit.data.towerUid);
+        break;
+      case 'reclaim':
+        if (this.state.selectedTowerUid) this.reclaimTower(this.state.selectedTowerUid);
         break;
       case 'start-wave':
         if (this.state.waveBreak > 0) skipTowerDefenseBreak(this.state);
@@ -1135,15 +1224,58 @@ export class TowerDefenseGame {
     const tower = towerByPad(this.state, padIndex);
     const target = tutorialTargetForState(this.state);
     const tutorialPad = target?.type === 'pad' && target.padIndex === padIndex;
+    const activeCardUid = this.drag?.kind === 'card' ? this.drag.uid : this.selectedCardUid;
+    const activeCard = this.state.hand.find((card) => card.uid === activeCardUid);
+    const activeTowerUid = this.drag?.kind === 'tower'
+      ? this.drag.uid
+      : (!activeCard ? this.state.selectedTowerUid : null);
+    const activeTower = this.state.towers.find((candidate) => candidate.uid === activeTowerUid);
+    let dropIntent = null;
+    if (activeCard) {
+      if (!tower) dropIntent = 'place';
+      else if (canMergeCardIntoTower(activeCard, tower)) dropIntent = 'merge';
+    } else if (activeTower && activeTower.uid !== tower?.uid) {
+      if (!tower) dropIntent = 'move';
+      else if (canMergeTowers(activeTower, tower)) dropIntent = 'merge';
+    }
+    const hoverRect = {
+      x: pad.x - PAD_RADIUS,
+      y: pad.y - PAD_RADIUS,
+      width: PAD_RADIUS * 2,
+      height: PAD_RADIUS * 2,
+    };
+    const hot = Boolean(this.drag?.moved && this.hoverPoint && insideRect(this.hoverPoint, hoverRect));
+    const pulse = 1 + Math.sin(this.state.time * 6 + padIndex) * 0.055;
+    const visualRadius = dropIntent ? PAD_RADIUS * pulse : PAD_RADIUS;
     ctx.save();
-    ctx.globalAlpha = tower ? 0.34 : tutorialPad ? 0.72 : 0.48;
-    ctx.fillStyle = tower ? '#D8F2DC' : '#FFF8DA';
-    ctx.strokeStyle = tutorialPad ? COLORS.gold : '#668B78';
-    ctx.lineWidth = tutorialPad ? 5 : 2.5;
+    ctx.globalAlpha = dropIntent ? (hot ? 0.94 : 0.72) : tower ? 0.34 : tutorialPad ? 0.72 : 0.48;
+    ctx.fillStyle = dropIntent === 'merge'
+      ? '#FFE59A'
+      : dropIntent === 'move'
+        ? '#D8EFFF'
+        : dropIntent === 'place'
+          ? '#D8F6D9'
+          : tower ? '#D8F2DC' : '#FFF8DA';
+    ctx.strokeStyle = tutorialPad
+      ? COLORS.gold
+      : dropIntent === 'merge'
+        ? '#D79B26'
+        : dropIntent === 'move'
+          ? '#4E9CC9'
+          : dropIntent === 'place'
+            ? COLORS.mintDeep
+            : '#668B78';
+    ctx.lineWidth = tutorialPad || dropIntent ? (hot ? 7 : 5) : 2.5;
     ctx.beginPath();
-    ctx.ellipse(pad.x, pad.y + 4, PAD_RADIUS, PAD_RADIUS * 0.48, 0, 0, TAU);
+    ctx.ellipse(pad.x, pad.y + 4, visualRadius, visualRadius * 0.48, 0, 0, TAU);
     ctx.fill();
     ctx.stroke();
+    if (dropIntent === 'merge') {
+      ctx.globalAlpha *= 0.68;
+      ctx.beginPath();
+      ctx.ellipse(pad.x, pad.y + 4, visualRadius + 9, (visualRadius + 9) * 0.48, 0, 0, TAU);
+      ctx.stroke();
+    }
     ctx.restore();
 
     this.addHit(`pad-${padIndex}`, {
@@ -1169,6 +1301,14 @@ export class TowerDefenseGame {
       allowGeneratedStandalone: this.generatedCharacterArtEnabled,
     });
     this.drawStars(ctx, pad.x, pad.y - 78, tower.star, definition.color);
+    if (dropIntent === 'merge') {
+      panel(ctx, { x: pad.x - 24, y: pad.y - 116, width: 48, height: 28 }, {
+        fill: '#F4C94C', stroke: '#9B6E20', lineWidth: 2, radius: 14,
+      });
+      label(ctx, `★${tower.star + 1}`, pad.x, pad.y - 101, {
+        size: 13, color: COLORS.ink, weight: 950,
+      });
+    }
     this.addHit(`tower-${tower.uid}`, {
       x: pad.x - PAD_RADIUS, y: pad.y - 82,
       width: PAD_RADIUS * 2, height: 96,
@@ -1290,6 +1430,7 @@ export class TowerDefenseGame {
       }
       const type = {
         summon: 'goo', place: 'ring', spawn: 'ring', defeat: 'dust',
+        reclaim: 'bubble', 'move-out': 'ring',
         hit: 'spark', 'bubble-hit': 'bubble', 'leaf-hit': 'leaf', 'core-hit': 'spark',
       }[effect.type] || 'spark';
       const size = effect.type === 'defeat' ? 44 : effect.type === 'spawn' ? 36 : 27;
@@ -1303,116 +1444,256 @@ export class TowerDefenseGame {
   }
 
   drawSidebar(ctx, stage) {
-    ctx.save();
-    ctx.fillStyle = 'rgba(255, 249, 232, 0.96)';
-    ctx.fillRect(PANEL_X, 0, PANEL_WIDTH, TD_VIEW.height);
-    ctx.fillStyle = stage.accent;
-    ctx.fillRect(PANEL_X, 0, 8, TD_VIEW.height);
-    ctx.restore();
+    drawDockShell(ctx, stage, this.state.time);
+    drawAssetOrFallback(ctx, this.assetStore, 'ui-soft-crystal', (asset) => {
+      ctx.globalAlpha *= 0.12;
+      ctx.drawImage(asset, 1172, -20, 112, 112);
+    }, () => {});
 
-    const backRect = { x: 950, y: 18, width: 54, height: 48 };
-    button(ctx, backRect, '‹', {
-      fill: '#EEF2E9', color: COLORS.ink, accent: '#AAB8AE', size: 34,
+    button(ctx, COMMAND_DOCK.back, '‹', {
+      fill: '#F5F3DF', color: COLORS.ink, accent: '#8EB2A1', size: 32,
     });
-    this.addHit('battle-menu', backRect, 'battle-menu');
+    this.addHit('battle-menu', COMMAND_DOCK.back, 'battle-menu');
 
     const modeText = this.state.mode === 'endless'
-      ? `∞ ${this.state.wave}`
+      ? `∞${Math.max(1, this.state.wave)}`
       : `${this.state.wave}/${stage.waves.length}`;
-    label(ctx, modeText, 1068, 42, { size: 24, color: COLORS.ink, weight: 900 });
+    panel(ctx, COMMAND_DOCK.wave, {
+      fill: '#F8F2DA', stroke: stage.accent, lineWidth: 3, radius: 18,
+    });
+    label(ctx, modeText, COMMAND_DOCK.wave.x + COMMAND_DOCK.wave.width / 2,
+      COMMAND_DOCK.wave.y + COMMAND_DOCK.wave.height / 2, {
+        size: 21, color: COLORS.ink, weight: 900,
+      });
 
+    const enemyCount = this.state.enemies.length + this.state.spawnQueue.length;
+    panel(ctx, COMMAND_DOCK.enemies, {
+      fill: '#E8E7D8', stroke: 'rgba(255,255,255,0.32)', radius: 18,
+    });
+    label(ctx, `×${enemyCount}`, COMMAND_DOCK.enemies.x + COMMAND_DOCK.enemies.width / 2,
+      COMMAND_DOCK.enemies.y + COMMAND_DOCK.enemies.height / 2, {
+        size: 18, color: enemyCount ? COLORS.coral : COLORS.inkSoft, weight: 900,
+      });
+
+    panel(ctx, COMMAND_DOCK.currency, {
+      fill: '#EAF7DB', stroke: '#80B668', radius: 18,
+    });
     drawAssetOrFallback(ctx, this.assetStore, 'ui-gel-energy', (asset) => {
-      ctx.drawImage(asset, 1172, 18, 48, 48);
+      ctx.drawImage(asset, COMMAND_DOCK.currency.x + 4, COMMAND_DOCK.currency.y + 6, 38, 38);
     }, () => {
       ctx.fillStyle = COLORS.mint;
       ctx.beginPath();
-      ctx.arc(1196, 42, 18, 0, TAU);
+      ctx.arc(COMMAND_DOCK.currency.x + 23, COMMAND_DOCK.currency.y + 25, 14, 0, TAU);
       ctx.fill();
     });
-    label(ctx, this.state.currency, 1260, 43, {
-      size: 21, align: 'right', color: COLORS.ink, weight: 850,
-    });
+    label(ctx, this.state.currency, COMMAND_DOCK.currency.x + COMMAND_DOCK.currency.width - 9,
+      COMMAND_DOCK.currency.y + COMMAND_DOCK.currency.height / 2 + 1, {
+        size: 18, align: 'right', color: COLORS.ink, weight: 900,
+      });
 
     const hpRatio = clamp(this.state.coreHp / Math.max(1, this.state.coreMaxHp), 0, 1);
-    panel(ctx, { x: 952, y: 82, width: 306, height: 50 }, {
-      fill: '#E7E3D2', stroke: '#C9BEA4', radius: 16,
+    panel(ctx, COMMAND_DOCK.core, {
+      fill: '#182F37', stroke: 'rgba(255,255,255,0.22)', radius: 15,
     });
     ctx.save();
-    roundedPath(ctx, 958, 88, 294 * hpRatio, 38, 12);
+    roundedPath(ctx, COMMAND_DOCK.core.x + 4, COMMAND_DOCK.core.y + 4,
+      Math.max(0, (COMMAND_DOCK.core.width - 8) * hpRatio), COMMAND_DOCK.core.height - 8, 11);
     ctx.fillStyle = hpRatio < 0.3 ? COLORS.coral : COLORS.mint;
     ctx.fill();
     ctx.restore();
-    label(ctx, `核心 ${this.state.coreHp}`, 1105, 107, {
-      size: 18, color: COLORS.ink, weight: 850,
-    });
+    label(ctx, `♥  ${this.state.coreHp}`, COMMAND_DOCK.core.x + COMMAND_DOCK.core.width / 2,
+      COMMAND_DOCK.core.y + COMMAND_DOCK.core.height / 2 + 1, {
+        size: 17, color: COLORS.white, weight: 900,
+      });
 
-    label(ctx, '卡牌', 958, 158, {
-      size: 17, align: 'left', color: COLORS.inkSoft, weight: 800,
-    });
-    const cardRects = [];
-    for (let index = 0; index < 4; index += 1) {
-      const rect = { x: 950, y: 174 + index * 88, width: 310, height: 76 };
-      cardRects.push(rect);
+    for (let index = 0; index < COMMAND_DOCK.cards.length; index += 1) {
+      const rect = COMMAND_DOCK.cards[index];
       const card = this.state.hand[index];
       if (!card) {
         panel(ctx, rect, {
-          fill: 'rgba(232, 229, 213, 0.62)',
-          stroke: 'rgba(100, 115, 111, 0.22)', radius: 16,
+          fill: 'rgba(238, 240, 220, 0.16)',
+          stroke: 'rgba(220, 246, 226, 0.24)', radius: 24,
         });
+        drawAssetOrFallback(ctx, this.assetStore, 'ui-card-frame-common', (asset) => {
+          ctx.globalAlpha *= 0.12;
+          ctx.drawImage(asset, rect.x, rect.y, rect.width, rect.height);
+        }, () => {});
+        ctx.save();
+        ctx.globalAlpha = 0.2;
+        ctx.strokeStyle = '#DDF4DA';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.ellipse(rect.x + rect.width / 2, rect.y + rect.height / 2 + 12, 27, 14, 0, 0, TAU);
+        ctx.stroke();
+        ctx.restore();
         continue;
       }
-      this.drawHandCard(ctx, card, rect, card.uid === this.selectedCardUid);
+      const mergeReady = this.state.towers.some((tower) => canMergeCardIntoTower(card, tower));
+      this.drawHandCard(ctx, card, rect, {
+        selected: card.uid === this.selectedCardUid,
+        mergeReady,
+        dragging: this.drag?.kind === 'card' && this.drag.uid === card.uid && this.drag.moved,
+      });
       this.addHit(`card-${card.uid}`, rect, 'card', { cardUid: card.uid });
     }
 
-    const drawRect = { x: 950, y: 536, width: 310, height: 70 };
+    this.drawSelectionPanel(ctx);
+
     const drawCost = drawCostForState(this.state);
     const canDraw = !this.state.result
       && this.state.hand.length < 4
       && this.state.currency >= drawCost;
-    button(ctx, drawRect, `抽取  ${drawCost}`, {
+    button(ctx, COMMAND_DOCK.draw, `抽  ${drawCost}`, {
       enabled: canDraw,
       fill: COLORS.mint,
       accent: COLORS.mintDeep,
-      size: 24,
+      size: 25,
     });
-    this.addHit('draw', drawRect, 'draw', {}, canDraw);
+    drawAssetOrFallback(ctx, this.assetStore, 'ui-gel-energy', (asset) => {
+      ctx.globalAlpha *= canDraw ? 0.96 : 0.35;
+      ctx.drawImage(asset, COMMAND_DOCK.draw.x + 72, COMMAND_DOCK.draw.y + 15, 42, 42);
+    }, () => {});
+    this.addHit('draw', COMMAND_DOCK.draw, 'draw', {}, canDraw);
 
-    const startRect = { x: 950, y: 626, width: 310, height: 70 };
+    const reclaimableTower = this.state.towers.find((tower) => (
+      tower.uid === (this.drag?.kind === 'tower' ? this.drag.uid : this.state.selectedTowerUid)
+    ));
+    const canReclaim = Boolean(reclaimableTower)
+      && this.state.hand.length < 4;
+    const reclaimHot = this.drag?.kind === 'tower'
+      && this.drag.moved
+      && insideRect(this.drag.point, COMMAND_DOCK.reclaim);
+    button(ctx, COMMAND_DOCK.reclaim, canReclaim ? '↩' : '·', {
+      enabled: canReclaim,
+      selected: reclaimHot,
+      fill: '#E6DCA8',
+      color: COLORS.ink,
+      accent: '#B98C3A',
+      size: 32,
+    });
+    if (canReclaim) label(ctx, '收', COMMAND_DOCK.reclaim.x + COMMAND_DOCK.reclaim.width / 2,
+      COMMAND_DOCK.reclaim.y + COMMAND_DOCK.reclaim.height - 13, {
+        size: 12, color: reclaimHot ? COLORS.white : COLORS.inkSoft, weight: 900,
+      });
+    this.addHit('reclaim', COMMAND_DOCK.reclaim, 'reclaim', {}, canReclaim);
+
     const canStart = !this.state.waveActive
       && !(this.state.mode === 'stage' && this.state.wave >= stage.waves.length);
     const startText = this.state.waveActive
-      ? '战斗中'
+      ? `●  ${this.state.wave}`
       : this.state.waveBreak > 0
-        ? `下一波  ${Math.ceil(this.state.waveBreak)}`
-        : this.state.wave === 0 ? '开始' : '下一波';
-    button(ctx, startRect, startText, {
+        ? `≫  ${this.state.wave + 1}`
+        : this.state.wave === 0 ? '▶  1' : `▶  ${this.state.wave + 1}`;
+    button(ctx, COMMAND_DOCK.start, startText, {
       enabled: canStart,
       fill: '#F0B84E',
       accent: '#B87728',
-      size: 25,
+      size: 27,
     });
-    this.addHit('start-wave', startRect, 'start-wave', {}, canStart);
+    this.addHit('start-wave', COMMAND_DOCK.start, 'start-wave', {}, canStart);
   }
 
-  drawHandCard(ctx, card, rect, selected) {
+  drawSelectionPanel(ctx) {
+    const selectedTower = this.state.towers.find((tower) => tower.uid === this.state.selectedTowerUid);
+    const selectedCard = this.state.hand.find((card) => card.uid === this.selectedCardUid);
+    panel(ctx, COMMAND_DOCK.selection, {
+      fill: 'rgba(248, 246, 222, 0.94)',
+      stroke: selectedTower || selectedCard ? '#8ED7A7' : 'rgba(255,255,255,0.24)',
+      lineWidth: selectedTower || selectedCard ? 3 : 2,
+      radius: 24,
+    });
+
+    if (selectedTower) {
+      const definition = TOWER_TYPES[selectedTower.type];
+      const animation = this.characterAnimationSample(
+        `tower:${selectedTower.uid}`,
+        definition.ownerId,
+      );
+      drawSlime(ctx, COMMAND_DOCK.selection.x + 43, COMMAND_DOCK.selection.y + 76,
+        54, selectedTower.type, {
+          time: this.state.time,
+          assetStore: this.assetStore,
+          ...animation,
+          ...this.characterRigOptions(definition.ownerId),
+          allowGeneratedStandalone: this.generatedCharacterArtEnabled,
+        });
+      label(ctx, definition.name, COMMAND_DOCK.selection.x + 82,
+        COMMAND_DOCK.selection.y + 24, {
+          size: 20, align: 'left', color: COLORS.ink, weight: 900,
+        });
+      label(ctx, '★'.repeat(selectedTower.star), COMMAND_DOCK.selection.x + 82,
+        COMMAND_DOCK.selection.y + 49, {
+          size: 15, align: 'left', color: definition.color, weight: 900,
+        });
+      const effectName = { splash: '溅射', pierce: '穿透', slow: '减速', poison: '毒' }[definition.effect];
+      label(ctx, `${effectName}  ·  ↔`, COMMAND_DOCK.selection.x + COMMAND_DOCK.selection.width - 18,
+        COMMAND_DOCK.selection.y + 47, {
+          size: 15, align: 'right', color: COLORS.inkSoft, weight: 800,
+        });
+      return;
+    }
+
+    if (selectedCard) {
+      const definition = TOWER_TYPES[selectedCard.type];
+      const matches = this.state.towers.filter((tower) => canMergeCardIntoTower(selectedCard, tower));
+      label(ctx, definition.glyph, COMMAND_DOCK.selection.x + 34,
+        COMMAND_DOCK.selection.y + COMMAND_DOCK.selection.height / 2, {
+          size: 28, color: definition.color, weight: 950,
+        });
+      label(ctx, definition.name, COMMAND_DOCK.selection.x + 68,
+        COMMAND_DOCK.selection.y + 31, {
+          size: 20, align: 'left', color: COLORS.ink, weight: 900,
+        });
+      label(ctx, matches.length ? `融  ${matches.length}` : '放', COMMAND_DOCK.selection.x + 68,
+        COMMAND_DOCK.selection.y + 59, {
+          size: 16, align: 'left', color: matches.length ? COLORS.gold : COLORS.inkSoft, weight: 900,
+        });
+      label(ctx, '★'.repeat(selectedCard.star), COMMAND_DOCK.selection.x + COMMAND_DOCK.selection.width - 20,
+        COMMAND_DOCK.selection.y + 45, {
+          size: 17, align: 'right', color: definition.color, weight: 900,
+        });
+      return;
+    }
+
+    Object.values(TOWER_TYPES).forEach((tower, index) => {
+      const x = COMMAND_DOCK.selection.x + 42 + index * 78;
+      ctx.save();
+      ctx.globalAlpha = 0.85;
+      ctx.fillStyle = tower.color;
+      ctx.beginPath();
+      ctx.arc(x, COMMAND_DOCK.selection.y + 34, 16, 0, TAU);
+      ctx.fill();
+      ctx.restore();
+      label(ctx, tower.glyph, x, COMMAND_DOCK.selection.y + 34, {
+        size: 15, color: COLORS.white, weight: 950,
+      });
+      const rate = { shell: 28, needle: 28, bubble: 24, sprout: 20 }[tower.id];
+      label(ctx, `${rate}%`, x, COMMAND_DOCK.selection.y + 65, {
+        size: 13, color: COLORS.inkSoft, weight: 800,
+      });
+    });
+  }
+
+  drawHandCard(ctx, card, rect, { selected = false, mergeReady = false, dragging = false } = {}) {
     const definition = TOWER_TYPES[card.type];
+    ctx.save();
+    if (dragging) ctx.globalAlpha *= 0.42;
     panel(ctx, rect, {
-      fill: selected ? '#ECFFF3' : '#FFF9E9',
-      stroke: selected ? COLORS.mintDeep : '#A8B7A8',
-      lineWidth: selected ? 4 : 2,
-      radius: 16,
+      fill: selected ? '#E9FFF1' : mergeReady ? '#FFF4C9' : '#FFF9E9',
+      stroke: selected ? COLORS.mintDeep : mergeReady ? COLORS.gold : '#A8B7A8',
+      lineWidth: selected || mergeReady ? 4 : 2,
+      radius: 24,
       shadow: selected,
     });
     drawAssetOrFallback(ctx, this.assetStore, 'ui-card-frame-common', (asset) => {
-      ctx.globalAlpha *= 0.5;
+      ctx.globalAlpha *= 0.38;
       ctx.drawImage(asset, rect.x, rect.y, rect.width, rect.height);
     }, () => {});
     const animation = this.characterAnimationSample(
       `card:${card.uid}`,
       definition.ownerId,
     );
-    drawSlime(ctx, rect.x + 48, rect.y + 65, 58, card.type, {
+    drawSlime(ctx, rect.x + rect.width / 2, rect.y + rect.height - 6, 82, card.type, {
       time: this.state.time,
       facing: 1,
       assetStore: this.assetStore,
@@ -1420,15 +1701,21 @@ export class TowerDefenseGame {
       ...this.characterRigOptions(definition.ownerId),
       allowGeneratedStandalone: this.generatedCharacterArtEnabled,
     });
-    label(ctx, definition.name, rect.x + 92, rect.y + 29, {
-      size: 21, align: 'left', color: COLORS.ink, weight: 850,
+    label(ctx, definition.name, rect.x + 13, rect.y + 20, {
+      size: 17, align: 'left', color: COLORS.ink, weight: 900,
     });
-    label(ctx, '★', rect.x + 94, rect.y + 55, {
-      size: 17, align: 'left', color: definition.color, weight: 900,
+    label(ctx, '★'.repeat(card.star), rect.x + rect.width - 12, rect.y + 20, {
+      size: 14, align: 'right', color: definition.color, weight: 900,
     });
-    label(ctx, '拖到塔位', rect.x + rect.width - 18, rect.y + 53, {
-      size: 14, align: 'right', color: COLORS.inkSoft, weight: 650,
-    });
+    if (mergeReady) {
+      panel(ctx, { x: rect.x + rect.width - 42, y: rect.y + rect.height - 41, width: 32, height: 32 }, {
+        fill: '#F4C94C', stroke: '#A87922', lineWidth: 2, radius: 16,
+      });
+      label(ctx, '融', rect.x + rect.width - 26, rect.y + rect.height - 24, {
+        size: 15, color: COLORS.ink, weight: 950,
+      });
+    }
+    ctx.restore();
   }
 
   drawDragPreview(ctx) {
@@ -1455,15 +1742,30 @@ export class TowerDefenseGame {
     if (this.drag.kind === 'tower') {
       const tower = this.state.towers.find((candidate) => candidate.uid === this.drag.uid);
       if (!tower) return;
+      const definition = TOWER_TYPES[tower.type];
+      const animation = this.characterAnimationSample(
+        `tower:${tower.uid}`,
+        definition.ownerId,
+      );
       ctx.save();
-      ctx.strokeStyle = TOWER_TYPES[tower.type].color;
-      ctx.lineWidth = 5;
+      ctx.strokeStyle = definition.color;
+      ctx.lineWidth = 4;
+      ctx.globalAlpha = 0.58;
       ctx.setLineDash?.([10, 8]);
       const pad = stageForState(this.state).pads[tower.padIndex];
       ctx.beginPath();
       ctx.moveTo(pad.x, pad.y - 24);
       ctx.lineTo(this.drag.point.x, this.drag.point.y);
       ctx.stroke();
+      ctx.setLineDash?.([]);
+      drawSlime(ctx, this.drag.point.x, this.drag.point.y + 30, 76, tower.type, {
+        time: this.state.time,
+        assetStore: this.assetStore,
+        ...animation,
+        ...this.characterRigOptions(definition.ownerId),
+        allowGeneratedStandalone: this.generatedCharacterArtEnabled,
+      });
+      this.drawStars(ctx, this.drag.point.x, this.drag.point.y - 42, tower.star, definition.color);
       ctx.restore();
     }
   }
@@ -1548,18 +1850,35 @@ export class TowerDefenseGame {
     if (target.type === 'stage') {
       return [{ x: 64 + target.stageIndex * 300 + 130, y: 458, radius: 156 }];
     }
-    if (target.type === 'draw') return [{ x: 1105, y: 571, radius: 180 }];
+    if (target.type === 'draw') return [{
+      x: COMMAND_DOCK.draw.x + COMMAND_DOCK.draw.width / 2,
+      y: COMMAND_DOCK.draw.y + COMMAND_DOCK.draw.height / 2,
+      radius: 92,
+    }];
     if (target.type === 'pad') {
       const pad = stageForState(this.state).pads[target.padIndex];
       return pad ? [{ x: pad.x, y: pad.y - 8, radius: 72 }] : [];
     }
     if (target.type === 'fusion') {
-      return this.state.towers.slice(0, 2).map((tower) => {
-        const pad = stageForState(this.state).pads[tower.padIndex];
-        return { x: pad.x, y: pad.y - 18, radius: 72 };
+      const card = this.state.hand[0];
+      const cardIndex = card ? this.state.hand.indexOf(card) : -1;
+      const cardRect = cardIndex >= 0 ? COMMAND_DOCK.cards[cardIndex] : null;
+      const tower = this.state.towers[0];
+      const pad = tower ? stageForState(this.state).pads[tower.padIndex] : null;
+      const holes = [];
+      if (cardRect) holes.push({
+        x: cardRect.x + cardRect.width / 2,
+        y: cardRect.y + cardRect.height / 2,
+        radius: 74,
       });
+      if (pad) holes.push({ x: pad.x, y: pad.y - 18, radius: 62 });
+      return holes;
     }
-    if (target.type === 'start') return [{ x: 1105, y: 661, radius: 180 }];
+    if (target.type === 'start') return [{
+      x: COMMAND_DOCK.start.x + COMMAND_DOCK.start.width / 2,
+      y: COMMAND_DOCK.start.y + COMMAND_DOCK.start.height / 2,
+      radius: 92,
+    }];
     return [];
   }
 

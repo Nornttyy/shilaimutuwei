@@ -177,6 +177,18 @@ function createRigSurface(ctx) {
   try {
     if (typeof globalThis.OffscreenCanvas === 'function') {
       canvas = new globalThis.OffscreenCanvas(RIG_SURFACE.width, RIG_SURFACE.height);
+    } else if (typeof globalThis.wx?.createOffscreenCanvas === 'function') {
+      canvas = globalThis.wx.createOffscreenCanvas({
+        type: '2d',
+        width: RIG_SURFACE.width,
+        height: RIG_SURFACE.height,
+      });
+    } else if (typeof globalThis.wx?.createCanvas === 'function') {
+      // The visible WeChat canvas is created by the platform bootstrap first;
+      // subsequent canvases are offscreen on older base libraries.
+      canvas = globalThis.wx.createCanvas();
+      canvas.width = RIG_SURFACE.width;
+      canvas.height = RIG_SURFACE.height;
     } else {
       const documentRef = ctx?.canvas?.ownerDocument ?? globalThis.document;
       if (typeof documentRef?.createElement === 'function') {
@@ -922,6 +934,10 @@ export function drawSlime(ctx, x, y, size, variantOrOptions = 'shell', maybeOpti
     );
     ctx.restore();
   }
+  if (options.requireLayeredRig === true && !renderedRig) {
+    ctx.restore();
+    throw new Error(`Required layered rig could not render: ${ownerId}`);
+  }
   const renderedStandalone = renderedRig || options.allowGeneratedStandalone === false
     ? false
     : drawGeneratedCharacterStandalone(ctx, options.assetStore, ownerId, size, requestedFacing);
@@ -1520,6 +1536,10 @@ export function drawMonster(ctx, x, y, size, typeOrOptions = 'bug', maybeOptions
         ?? (options.hit > 0.5 ? 'hurt' : null),
     );
     ctx.restore();
+  }
+  if (options.requireLayeredRig === true && !renderedRig) {
+    ctx.restore();
+    throw new Error(`Required layered rig could not render: ${ownerId}`);
   }
   const renderedStandalone = renderedRig || options.allowGeneratedStandalone === false
     ? false

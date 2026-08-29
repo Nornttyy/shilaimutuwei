@@ -436,6 +436,12 @@ function createExpressionSurface(ctx, width, height) {
   try {
     if (typeof globalThis.OffscreenCanvas === 'function') {
       canvas = new globalThis.OffscreenCanvas(width, height);
+    } else if (typeof globalThis.wx?.createOffscreenCanvas === 'function') {
+      canvas = globalThis.wx.createOffscreenCanvas({ type: '2d', width, height });
+    } else if (typeof globalThis.wx?.createCanvas === 'function') {
+      canvas = globalThis.wx.createCanvas();
+      canvas.width = width;
+      canvas.height = height;
     } else {
       const documentRef = ctx?.canvas?.ownerDocument ?? globalThis.document;
       if (typeof documentRef?.createElement === 'function') {

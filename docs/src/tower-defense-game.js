@@ -6,6 +6,18 @@ import {
   drawProjectile,
   drawSlime,
 } from './draw.js';
+import { AnimationController } from './animation/controller.js';
+import { ExpressionMixer } from './animation/expression-mixer.js';
+import {
+  BOSS_CLIPS,
+  BUBBLE_CLIPS,
+  BUG_CLIPS,
+  CRYSTAL_CLIPS,
+  SHELL_CLIPS,
+  SPROUT_CLIPS,
+  STONE_CLIPS,
+  WINDCAP_CLIPS,
+} from './animation/clips.js';
 import {
   TD_ENEMIES,
   TD_FIELD,
@@ -72,12 +84,39 @@ const MONSTER_DRAW_TYPE = Object.freeze({
   boss: 'boss',
 });
 
+const ANIMATION_CLIPS_BY_OWNER_ID = Object.freeze({
+  'survivor-shell-shell': SHELL_CLIPS,
+  'survivor-crystal-pin': CRYSTAL_CLIPS,
+  'survivor-bubble-float': BUBBLE_CLIPS,
+  'survivor-moss-sprout': SPROUT_CLIPS,
+  'enemy-soft-biter': BUG_CLIPS,
+  'enemy-windcap': WINDCAP_CLIPS,
+  'enemy-stone-lump': STONE_CLIPS,
+  'enemy-acid-shell-king': BOSS_CLIPS,
+});
+
+const ENEMY_DEATH_DURATION_BY_TYPE = Object.freeze({
+  bug: BUG_CLIPS.death.duration,
+  windcap: WINDCAP_CLIPS.death.duration,
+  stone: STONE_CLIPS.death.duration,
+  boss: BOSS_CLIPS.death.duration,
+});
+
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const pointDistance = (left, right) => Math.hypot(left.x - right.x, left.y - right.y);
 const insideRect = (point, rect) => (
   point.x >= rect.x && point.x <= rect.x + rect.width
   && point.y >= rect.y && point.y <= rect.y + rect.height
 );
+
+function animationPhaseForKey(key) {
+  let hash = 2166136261;
+  for (const character of String(key)) {
+    hash ^= character.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return ((hash >>> 0) % 1700) / 1000;
+}
 
 function roundedPath(ctx, x, y, width, height, radius = 16) {
   const r = Math.max(0, Math.min(radius, width / 2, height / 2));
@@ -280,6 +319,9 @@ export class TowerDefenseGame {
     this.hoverPoint = null;
     this.shake = 0;
     this.eventCursor = 0;
+    this.animationTime = 0;
+    this.characterAnimations = new Map();
+    this.defeatedActors = [];
     this.running = false;
     this.backgrounded = false;
     this.frameId = null;
@@ -315,6 +357,171 @@ export class TowerDefenseGame {
 
   rigAsset(ownerId) {
     return this.rigAssetStore?.get(ownerId, null) ?? null;
+  }
+
+  characterRigOptions(ownerId) {
+    const rigAsset = this.rigAsset(ownerId);
+    return {
+      rigAsset,
+      requireLayeredRig: Boolean(
+        rigAsset || this.rigAssetStore?.manifest?.rigs?.[ownerId],
+      ),
+    };
+  }
+
+  animationClipsForOwner(ownerId) {
+    return ANIMATION_CLIPS_BY_OWNER_ID[ownerId] || null;
+  }
+
+  characterAnimationFor(key, ownerId, base = 'idle') {
+    if (typeof key !== 'string' || !key || typeof ownerId !== 'string' || !ownerId) return null;
+    const clips = this.animationClipsForOwner(ownerId);
+    if (!clips || !Object.hasOwn(clips, base)) return null;
+    const current = this.characterAnimations.get(key);
+    if (current?.ownerId === ownerId) {
+      current.controller.setBase(base);
+      return current;
+    }
+
+    const controller = new AnimationController(clips, {
+      base,
+      transitionDuration: 0.06,
+    });
+    const phase = animationPhaseForKey(key);
+    controller.update(phase);
+    controller.drainEvents();
+    const entry = {
+      key,
+      ownerId,
+      phase,
+      controller,
+      expressionMixer: new ExpressionMixer({ ownerId }),
+    };
+    this.characterAnimations.set(key, entry);
+    return entry;
+  }
+
+  playCharacterAnimation(key, ownerId, action, {
+    base = 'idle',
+    restart = true,
+  } = {}) {
+    const entry = this.characterAnimationFor(key, ownerId, base);
+    if (!entry || !Object.hasOwn(this.animationClipsForOwner(ownerId), action)) return false;
+    return entry.controller.play(action, { restart });
+  }
+
+  characterAnimationSample(key, ownerId, base = 'idle') {
+    const entry = this.characterAnimationFor(key, ownerId, base);
+    if (!entry) return { pose: null, expressionSample: null };
+    return {
+      pose: entry.controller.sample(),
+      expressionSample: entry.expressionMixer.sample(),
+    };
+  }
+
+  processCharacterAnimationEvent(event) {
+    if (!event || typeof event.type !== 'string') return;
+    if (event.type === 'run-start') {
+      this.defeatedActors.length = 0;
+      return;
+    }
+    if (event.type === 'shot') {
+      const tower = this.state.towers.find(({ uid }) => uid === event.towerUid);
+      const ownerId = tower && TOWER_TYPES[tower.type]?.ownerId;
+      if (ownerId) this.playCharacterAnimation(`tower:${tower.uid}`, ownerId, 'attack');
+      return;
+    }
+    if (event.type === 'merge') {
+      const tower = this.state.towers.find(({ uid }) => uid === event.towerUid);
+      const ownerId = tower && TOWER_TYPES[tower.type]?.ownerId;
+      if (ownerId) this.playCharacterAnimation(`tower:${tower.uid}`, ownerId, 'attack');
+      return;
+    }
+    if (event.type === 'enemy-hit') {
+      const enemy = this.state.enemies.find(({ uid }) => uid === event.enemyUid);
+      const ownerId = enemy && TD_ENEMIES[enemy.type]?.ownerId;
+      if (ownerId) {
+        this.playCharacterAnimation(`enemy:${enemy.uid}`, ownerId, 'hurt', {
+          base: 'move',
+          restart: false,
+        });
+      }
+      return;
+    }
+    if (event.type !== 'enemy-defeat') return;
+    const definition = TD_ENEMIES[event.enemyType];
+    if (
+      !definition
+      || typeof event.enemyUid !== 'string'
+      || !Number.isFinite(event.x)
+      || !Number.isFinite(event.y)
+    ) return;
+    const key = `defeated:${event.enemyUid}`;
+    const actor = {
+      key,
+      type: definition.id,
+      ownerId: definition.ownerId,
+      x: event.x,
+      y: event.y,
+      facing: event.facing === -1 ? -1 : 1,
+      age: 0,
+      duration: ENEMY_DEATH_DURATION_BY_TYPE[definition.id] || 0.5,
+    };
+    this.defeatedActors = this.defeatedActors.filter(({ key: currentKey }) => currentKey !== key);
+    this.defeatedActors.push(actor);
+    this.playCharacterAnimation(key, actor.ownerId, 'death', { base: 'move' });
+  }
+
+  updateCharacterAnimations(dt) {
+    const delta = clamp(Number(dt) || 0, 0, 0.05);
+    this.animationTime += delta;
+    const liveKeys = new Set();
+    const advance = (key, ownerId, base = 'idle') => {
+      const entry = this.characterAnimationFor(key, ownerId, base);
+      if (!entry) return;
+      liveKeys.add(key);
+      entry.controller.update(delta);
+      const events = entry.controller.drainEvents();
+      entry.expressionMixer.setAnimationContext(entry.controller, {
+        events,
+        currentTime: this.animationTime + entry.phase,
+      });
+      entry.expressionMixer.tick(delta);
+    };
+
+    if (this.state.screen === 'menu') {
+      for (const tower of Object.values(TOWER_TYPES)) {
+        advance(`preview:menu:${tower.id}`, tower.ownerId, 'idle');
+      }
+    } else if (this.state.screen === 'battle') {
+      for (const tower of this.state.towers) {
+        advance(`tower:${tower.uid}`, TOWER_TYPES[tower.type].ownerId, 'idle');
+      }
+      for (const enemy of this.state.enemies) {
+        advance(`enemy:${enemy.uid}`, TD_ENEMIES[enemy.type].ownerId, 'move');
+      }
+      for (const card of this.state.hand) {
+        advance(`card:${card.uid}`, TOWER_TYPES[card.type].ownerId, 'idle');
+      }
+      for (const actor of this.defeatedActors) {
+        actor.age += delta;
+        advance(actor.key, actor.ownerId, 'move');
+      }
+      this.defeatedActors = this.defeatedActors.filter(({ age, duration }) => age < duration);
+    } else {
+      const victory = this.state.result === 'victory';
+      const definition = victory ? TOWER_TYPES.shell : TD_ENEMIES.boss;
+      advance(
+        victory ? 'preview:result:shell' : 'preview:result:boss',
+        definition.ownerId,
+        'idle',
+      );
+      this.defeatedActors.length = 0;
+    }
+
+    for (const key of this.characterAnimations.keys()) {
+      if (!liveKeys.has(key)) this.characterAnimations.delete(key);
+    }
   }
 
   loadProgress() {
@@ -395,6 +602,7 @@ export class TowerDefenseGame {
     this.lastTimestamp = now;
     updateTowerDefense(this.state, dt);
     this.processEvents();
+    this.updateCharacterAnimations(dt);
     this.shake = Math.max(0, this.shake - dt * 22);
     this.render();
     this.scheduleFrame();
@@ -404,9 +612,11 @@ export class TowerDefenseGame {
     const events = this.state.events.splice(0);
     this.eventCursor = 0;
     for (const event of events) {
+      this.processCharacterAnimationEvent(event);
       if (event.type === 'core-hit') this.shake = Math.min(10, this.shake + 5);
       if (event.type === 'run-end' || event.type === 'tutorial-complete') this.save();
     }
+    return events;
   }
 
   onBackground() {
@@ -443,6 +653,8 @@ export class TowerDefenseGame {
     this.canvas.removeEventListener?.('pointerup', this.boundPointerUp);
     this.canvas.removeEventListener?.('pointercancel', this.boundPointerCancel);
     this.cancelInteraction();
+    this.characterAnimations.clear();
+    this.defeatedActors.length = 0;
   }
 
   toGamePoint(eventOrPoint) {
@@ -730,11 +942,16 @@ export class TowerDefenseGame {
     const portraits = Object.values(TOWER_TYPES);
     portraits.forEach((tower, index) => {
       const x = 505 + index * 90;
+      const animation = this.characterAnimationSample(
+        `preview:menu:${tower.id}`,
+        tower.ownerId,
+      );
       drawSlime(ctx, x, 245, 78, tower.id, {
         time: this.state.time + index * 0.22,
         facing: index < 2 ? 1 : -1,
         assetStore: this.assetStore,
-        rigAsset: this.rigAsset(tower.ownerId),
+        ...animation,
+        ...this.characterRigOptions(tower.ownerId),
         allowGeneratedStandalone: this.generatedCharacterArtEnabled,
       });
     });
@@ -878,6 +1095,7 @@ export class TowerDefenseGame {
     [...this.state.enemies]
       .sort((left, right) => left.y - right.y || left.travelled - right.travelled)
       .forEach((enemy) => this.drawEnemy(ctx, enemy));
+    this.drawDefeatedActors(ctx);
     this.state.projectiles.forEach((projectile) => this.drawShot(ctx, projectile));
     this.drawEffects(ctx);
   }
@@ -936,15 +1154,18 @@ export class TowerDefenseGame {
     if (!tower) return;
     const definition = TOWER_TYPES[tower.type];
     const selected = tower.uid === this.state.selectedTowerUid;
+    const animation = this.characterAnimationSample(
+      `tower:${tower.uid}`,
+      definition.ownerId,
+    );
     drawSlime(ctx, pad.x, pad.y + 6, 88 + tower.star * 2, tower.type, {
       time: this.state.time,
       phase: padIndex * 0.41,
       facing: Math.cos(tower.aimAngle || 0) >= 0 ? 1 : -1,
-      hop: tower.attackPulse * 0.08,
-      squash: -tower.attackPulse * 0.08,
       selected,
       assetStore: this.assetStore,
-      rigAsset: this.rigAsset(definition.ownerId),
+      ...animation,
+      ...this.characterRigOptions(definition.ownerId),
       allowGeneratedStandalone: this.generatedCharacterArtEnabled,
     });
     this.drawStars(ctx, pad.x, pad.y - 78, tower.star, definition.color);
@@ -982,6 +1203,11 @@ export class TowerDefenseGame {
   drawEnemy(ctx, enemy) {
     const definition = TD_ENEMIES[enemy.type] || TD_ENEMIES.bug;
     const type = MONSTER_DRAW_TYPE[enemy.type] || 'bug';
+    const animation = this.characterAnimationSample(
+      `enemy:${enemy.uid}`,
+      definition.ownerId,
+      'move',
+    );
     drawMonster(ctx, enemy.x, enemy.y + definition.size * 0.33, definition.size, type, {
       time: this.state.time,
       phase: Number(enemy.uid.split('-').at(-1)) * 0.31 || 0,
@@ -989,7 +1215,8 @@ export class TowerDefenseGame {
       hit: enemy.hitPulse,
       expression: enemy.hitPulse > 0.35 ? 'hurt' : 'normal',
       assetStore: this.assetStore,
-      rigAsset: this.rigAsset(definition.ownerId),
+      ...animation,
+      ...this.characterRigOptions(definition.ownerId),
       allowGeneratedStandalone: this.generatedCharacterArtEnabled,
     });
     const width = definition.boss ? 82 : 52;
@@ -1005,6 +1232,31 @@ export class TowerDefenseGame {
       ctx.fill();
     }
     ctx.restore();
+  }
+
+  drawDefeatedActors(ctx) {
+    for (const actor of this.defeatedActors) {
+      const definition = TD_ENEMIES[actor.type] || TD_ENEMIES.bug;
+      const type = MONSTER_DRAW_TYPE[actor.type] || 'bug';
+      const animation = this.characterAnimationSample(
+        actor.key,
+        actor.ownerId,
+        'move',
+      );
+      const fadeStart = actor.duration * 0.72;
+      const alpha = actor.age <= fadeStart
+        ? 1
+        : clamp(1 - (actor.age - fadeStart) / Math.max(0.001, actor.duration - fadeStart), 0, 1);
+      drawMonster(ctx, actor.x, actor.y + definition.size * 0.33, definition.size, type, {
+        time: this.state.time,
+        facing: actor.facing,
+        alpha,
+        assetStore: this.assetStore,
+        ...animation,
+        ...this.characterRigOptions(actor.ownerId),
+        allowGeneratedStandalone: this.generatedCharacterArtEnabled,
+      });
+    }
   }
 
   drawShot(ctx, projectile) {
@@ -1156,11 +1408,16 @@ export class TowerDefenseGame {
       ctx.globalAlpha *= 0.5;
       ctx.drawImage(asset, rect.x, rect.y, rect.width, rect.height);
     }, () => {});
+    const animation = this.characterAnimationSample(
+      `card:${card.uid}`,
+      definition.ownerId,
+    );
     drawSlime(ctx, rect.x + 48, rect.y + 65, 58, card.type, {
       time: this.state.time,
       facing: 1,
       assetStore: this.assetStore,
-      rigAsset: this.rigAsset(definition.ownerId),
+      ...animation,
+      ...this.characterRigOptions(definition.ownerId),
       allowGeneratedStandalone: this.generatedCharacterArtEnabled,
     });
     label(ctx, definition.name, rect.x + 92, rect.y + 29, {
@@ -1180,12 +1437,17 @@ export class TowerDefenseGame {
       const card = this.state.hand.find((candidate) => candidate.uid === this.drag.uid);
       const definition = card && TOWER_TYPES[card.type];
       if (!card || !definition) return;
+      const animation = this.characterAnimationSample(
+        `card:${card.uid}`,
+        definition.ownerId,
+      );
       ctx.save();
       ctx.globalAlpha = 0.8;
       drawSlime(ctx, this.drag.point.x, this.drag.point.y + 28, 76, card.type, {
         time: this.state.time,
         assetStore: this.assetStore,
-        rigAsset: this.rigAsset(definition.ownerId),
+        ...animation,
+        ...this.characterRigOptions(definition.ownerId),
         allowGeneratedStandalone: this.generatedCharacterArtEnabled,
       });
       ctx.restore();
@@ -1231,20 +1493,29 @@ export class TowerDefenseGame {
 
     if (victory) {
       const definition = TOWER_TYPES.shell;
+      const animation = this.characterAnimationSample(
+        'preview:result:shell',
+        definition.ownerId,
+      );
       drawSlime(ctx, TD_VIEW.width / 2, 350, 142, 'shell', {
         time: this.state.time,
-        hop: 0.05,
         assetStore: this.assetStore,
-        rigAsset: this.rigAsset(definition.ownerId),
+        ...animation,
+        ...this.characterRigOptions(definition.ownerId),
         allowGeneratedStandalone: this.generatedCharacterArtEnabled,
       });
     } else {
       const definition = TD_ENEMIES.boss;
+      const animation = this.characterAnimationSample(
+        'preview:result:boss',
+        definition.ownerId,
+      );
       drawMonster(ctx, TD_VIEW.width / 2, 365, 142, 'boss', {
         time: this.state.time,
         facing: -1,
         assetStore: this.assetStore,
-        rigAsset: this.rigAsset(definition.ownerId),
+        ...animation,
+        ...this.characterRigOptions(definition.ownerId),
         allowGeneratedStandalone: this.generatedCharacterArtEnabled,
       });
     }

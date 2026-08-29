@@ -38,7 +38,7 @@ npm run test:playable
 核心模块：
 
 - `src/tower-defense-core.js`：确定性抽取、放置、融合、波次、敌人、胜负及进度。
-- `src/tower-defense-game.js`：Canvas 渲染、点击/拖动、聚光教程、存档和生命周期。
+- `src/tower-defense-game.js`：Canvas 渲染、点击/拖动、聚光教程、骨骼动画控制、存档和生命周期。
 - `src/draw.js`：正式 PNG、分层骨骼、弹丸与动态特效渲染。
 - `src/main.js`：浏览器素材门禁与启动。
 - `src/platform/wechat-entry.js`：微信 Canvas、触摸、加载和前后台适配。
@@ -56,6 +56,8 @@ assets/generated/ui/ui-tutorial-hand.png
 ```
 
 加载完成前不会创建游戏实例，避免正式贴图尚未到齐时短暂显示矢量兜底。
+
+四名史莱姆和四类敌人都使用运行时分层骨骼：身体、表情和配件按节点组合，待机、行走、攻击、受伤、死亡会采样独立关键帧；眼睛与嘴巴单独换层并自动眨眼。正式 rig 一旦声明就启用严格渲染，合成失败会停留在加载错误页，不会静默退回未分层整图。微信端通过 2D 离屏 Canvas 合成相同的骨骼与表情层。
 
 ## GitHub Pages
 

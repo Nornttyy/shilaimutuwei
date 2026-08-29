@@ -546,13 +546,28 @@ function fireTower(state, tower, target) {
   state.projectiles.push(projectile);
   tower.attackPulse = 1;
   tower.aimAngle = Math.atan2(target.y - origin.y, target.x - origin.x);
-  state.events.push({ type: 'shot', towerType: tower.type });
+  state.events.push({
+    type: 'shot',
+    towerUid: tower.uid,
+    towerType: tower.type,
+    targetUid: target.uid,
+  });
 }
 
-function damageEnemy(state, enemy, amount) {
+function damageEnemy(state, enemy, amount, { emitHit = true } = {}) {
   if (!enemy || enemy.hp <= 0) return false;
-  enemy.hp -= Math.max(0, Number(amount) || 0);
+  const damage = Math.max(0, Number(amount) || 0);
+  if (damage <= 0) return false;
+  enemy.hp -= damage;
   enemy.hitPulse = 1;
+  if (emitHit) {
+    state.events.push({
+      type: 'enemy-hit',
+      enemyUid: enemy.uid,
+      enemyType: enemy.type,
+      damage,
+    });
+  }
   if (enemy.hp > 0) return false;
   enemy.hp = 0;
   state.currency += enemy.reward;
@@ -561,7 +576,14 @@ function damageEnemy(state, enemy, amount) {
     uid: nextUid(state, 'fx'), type: 'defeat', age: 0, duration: 0.66,
     x: enemy.x, y: enemy.y,
   });
-  state.events.push({ type: 'enemy-defeat', enemyType: enemy.type });
+  state.events.push({
+    type: 'enemy-defeat',
+    enemyUid: enemy.uid,
+    enemyType: enemy.type,
+    x: enemy.x,
+    y: enemy.y,
+    facing: enemy.facing,
+  });
   return true;
 }
 
@@ -650,7 +672,7 @@ function updateEnemies(state, dt) {
     enemy.hitPulse = Math.max(0, enemy.hitPulse - dt * 6);
     if (enemy.poisonTime > 0) {
       enemy.poisonTime -= dt;
-      damageEnemy(state, enemy, enemy.poisonDps * dt);
+      damageEnemy(state, enemy, enemy.poisonDps * dt, { emitHit: false });
     } else {
       enemy.poisonDps = 0;
     }

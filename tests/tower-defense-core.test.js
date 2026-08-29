@@ -179,6 +179,31 @@ test('stage waves use authored groups while endless waves grow and add periodic 
   assert.equal(endlessState.spawnQueue.length, waveFive.count + waveFive.bossCount);
 });
 
+test('combat events carry stable entity ids and death snapshots for skeletal playback', () => {
+  const state = createBattleState();
+  state.hand = [{ uid: 'animated-needle-card', type: 'needle', star: TD_MAX_STAR }];
+  const tower = placeTowerFromHand(state, 'animated-needle-card', 0);
+  assert.ok(tower);
+  assert.equal(startNextTowerDefenseWave(state), true);
+
+  for (let index = 0; index < 40; index += 1) {
+    updateTowerDefense(state, 0.05);
+    if (state.events.some(({ type }) => type === 'enemy-defeat')) break;
+  }
+
+  const shot = state.events.find(({ type }) => type === 'shot');
+  const hit = state.events.find(({ type }) => type === 'enemy-hit');
+  const defeat = state.events.find(({ type }) => type === 'enemy-defeat');
+  assert.equal(shot.towerUid, tower.uid);
+  assert.equal(typeof shot.targetUid, 'string');
+  assert.equal(hit.enemyUid, shot.targetUid);
+  assert.equal(defeat.enemyUid, hit.enemyUid);
+  assert.equal(defeat.enemyType, 'bug');
+  assert.equal(Number.isFinite(defeat.x), true);
+  assert.equal(Number.isFinite(defeat.y), true);
+  assert.ok([-1, 1].includes(defeat.facing));
+});
+
 test('stage victory records the clear and unlocks only the next authored stage', () => {
   const locked = createTowerDefenseState({ progress: { tutorialSeen: true } });
   const lockedSnapshot = clone(locked);

@@ -166,6 +166,14 @@ function drag(game, canvas, from, to) {
   canvas.dispatch('pointerup', pointerEvent(game, canvas, to));
 }
 
+function transformHasMotion(transform = {}) {
+  return Math.abs(Number(transform.x) || 0) > 1e-5
+    || Math.abs(Number(transform.y) || 0) > 1e-5
+    || Math.abs(Number(transform.rotation) || 0) > 1e-5
+    || Math.abs((Number(transform.scaleX) || 1) - 1) > 1e-5
+    || Math.abs((Number(transform.scaleY) || 1) - 1) > 1e-5;
+}
+
 test('constructs and renders its first menu frame without DOM globals', () => {
   const canvas = createCanvas();
   const runtime = createRuntime({ tutorialSeen: true });
@@ -211,6 +219,101 @@ test('formal asset and rig stores can be replaced and are used during rendering'
   assert.equal(game.assetStore, null);
   assert.equal(game.setRigAssetStore({}), game);
   assert.equal(game.rigAssetStore, null);
+  game.dispose();
+});
+
+test('all four towers drive independent attack bones and replace facial layers', () => {
+  const canvas = createCanvas();
+  const game = new TowerDefenseGame(canvas, {
+    runtime: createRuntime({ tutorialSeen: true }),
+    pixelRatio: 1,
+  });
+  game.state.screen = 'battle';
+  game.state.hand = [];
+  const cases = [
+    ['shell', 'shellAssembly'],
+    ['needle', 'needleTall'],
+    ['bubble', 'bubbleSmall'],
+    ['sprout', 'leafLeft'],
+  ];
+  game.state.towers = cases.map(([type], index) => ({
+    uid: `animated-tower-${index}`,
+    type,
+    star: 1,
+    padIndex: index,
+    cooldown: 0,
+    attackPulse: 1,
+    aimAngle: 0,
+  }));
+
+  for (const tower of game.state.towers) {
+    game.processCharacterAnimationEvent({ type: 'shot', towerUid: tower.uid });
+  }
+  game.updateCharacterAnimations(0.18);
+
+  cases.forEach(([type, controlBone], index) => {
+    const tower = game.state.towers[index];
+    const entry = game.characterAnimations.get(`tower:${tower.uid}`);
+    assert.equal(entry.controller.actionName, 'attack', `${type} plays its attack clip`);
+    assert.equal(transformHasMotion(entry.controller.sample()[controlBone]), true,
+      `${type}.${controlBone} moves independently`);
+    assert.equal(entry.expressionMixer.sample().to, 'attack', `${type} swaps to attack face layers`);
+  });
+  game.dispose();
+});
+
+test('moving enemies play hurt bones and leave a temporary skeletal death actor', () => {
+  const canvas = createCanvas();
+  const game = new TowerDefenseGame(canvas, {
+    runtime: createRuntime({ tutorialSeen: true }),
+    pixelRatio: 1,
+  });
+  game.state.screen = 'battle';
+  game.state.hand = [];
+  game.state.towers = [];
+  game.state.enemies = [{
+    uid: 'animated-enemy',
+    type: 'windcap',
+    x: 320,
+    y: 260,
+    facing: -1,
+    hp: 10,
+    maxHp: 10,
+  }];
+
+  game.updateCharacterAnimations(0.12);
+  let entry = game.characterAnimations.get('enemy:animated-enemy');
+  assert.equal(entry.controller.baseName, 'move');
+  assert.equal(transformHasMotion(entry.controller.sample().cap), true);
+
+  game.processCharacterAnimationEvent({
+    type: 'enemy-hit', enemyUid: 'animated-enemy', enemyType: 'windcap',
+  });
+  game.updateCharacterAnimations(0.08);
+  entry = game.characterAnimations.get('enemy:animated-enemy');
+  assert.equal(entry.controller.actionName, 'hurt');
+  assert.equal(transformHasMotion(entry.controller.sample().cap), true);
+  assert.equal(entry.expressionMixer.sample().to, 'hurt');
+
+  game.processCharacterAnimationEvent({
+    type: 'enemy-defeat',
+    enemyUid: 'animated-enemy',
+    enemyType: 'windcap',
+    x: 320,
+    y: 260,
+    facing: -1,
+  });
+  game.state.enemies = [];
+  game.updateCharacterAnimations(0.1);
+  assert.equal(game.defeatedActors.length, 1);
+  const deathEntry = game.characterAnimations.get('defeated:animated-enemy');
+  assert.equal(deathEntry.controller.actionName, 'death');
+  assert.equal(transformHasMotion(deathEntry.controller.sample().cap), true);
+  assert.equal(deathEntry.expressionMixer.sample().to, 'hurt');
+
+  for (let index = 0; index < 12; index += 1) game.updateCharacterAnimations(0.05);
+  assert.equal(game.defeatedActors.length, 0);
+  assert.equal(game.characterAnimations.has('defeated:animated-enemy'), false);
   game.dispose();
 });
 

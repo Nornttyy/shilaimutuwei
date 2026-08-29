@@ -58,6 +58,7 @@ globalThis.OffscreenCanvas = FakeOffscreenCanvas;
 
 const { drawMonster, drawSlime } = await import('../src/draw.js');
 const { SlimeGame } = await import('../src/game.js');
+const { TowerDefenseGame } = await import('../src/tower-defense-game.js');
 const {
   CHARACTER_RENDER_PROFILES,
   characterWorldScale,
@@ -81,6 +82,13 @@ function readyBundle(ownerId, { missing = null, canonicalFacing = null, rigId = 
     parts: definition.parts.map((part) => ({
       ...part,
       image: part.id === missing ? null : { id: `${ownerId}:${part.id}` },
+      variants: Object.fromEntries(Object.entries(part.variants || {}).map(
+        ([variantName, variant]) => [variantName, {
+          ...variant,
+          bindRect: variant.bindRect ?? part.bindRect,
+          image: { id: `${ownerId}:${part.id}:${variantName}` },
+        }],
+      )),
     })),
   };
 }
@@ -472,6 +480,102 @@ test('a late layer drawImage failure cannot leave a partial PNG character on the
   assert.equal(ctx.compositeAttempts, 0, 'the failed offscreen character is never composited');
   assert.ok(ctx.gradientCount > 0, 'the complete vector character is drawn instead');
   assert.ok(offscreenState.clearCount >= 2, 'the failed offscreen buffer is discarded');
+});
+
+test('production strict mode rejects a failed layered rig instead of exposing standalone art', () => {
+  resetOffscreen();
+  const ownerId = 'survivor-shell-shell';
+  offscreenState.failLayerId = `${ownerId}:body`;
+  const ctx = createMainContext();
+  let standaloneRequests = 0;
+
+  assert.throws(() => drawSlime(ctx, 0, 0, 100, 'shell', {
+    animate: false,
+    rigAsset: readyBundle(ownerId),
+    requireLayeredRig: true,
+    assetStore: {
+      useOrFallback(_key, renderAsset) {
+        standaloneRequests += 1;
+        renderAsset({ width: 512, height: 512 });
+        return true;
+      },
+    },
+  }), /Required layered rig could not render/);
+
+  assert.equal(ctx.compositeDraws, 0);
+  assert.equal(standaloneRequests, 0);
+});
+
+test('tower-defense attack controllers reach the real layered rig pipeline for all four towers', () => {
+  resetOffscreen();
+  const ownerIds = [
+    'survivor-shell-shell',
+    'survivor-crystal-pin',
+    'survivor-bubble-float',
+    'survivor-moss-sprout',
+  ];
+  const bundles = new Map(ownerIds.map((ownerId) => [ownerId, readyBundle(ownerId)]));
+  const rigStore = {
+    manifest: MANIFEST,
+    get(ownerId, fallback = null) {
+      return bundles.get(ownerId) ?? fallback;
+    },
+  };
+  const context = createMainContext();
+  const canvas = {
+    width: 1280,
+    height: 720,
+    clientWidth: 1280,
+    clientHeight: 720,
+    getContext: () => context,
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 1280, height: 720 }),
+    addEventListener() {},
+    removeEventListener() {},
+  };
+  context.canvas = canvas;
+  const game = new TowerDefenseGame(canvas, {
+    pixelRatio: 1,
+    rigAssetStore: rigStore,
+    assetStore: {
+      get(_key, fallback = null) { return fallback; },
+      useOrFallback(_key, _drawAsset, drawFallback) {
+        drawFallback?.();
+        return false;
+      },
+    },
+    runtime: {
+      storage: {
+        get: () => ({ tutorialSeen: true }),
+        set: () => true,
+      },
+    },
+  });
+
+  game.state.screen = 'battle';
+  game.state.hand = [];
+  game.state.enemies = [];
+  game.state.towers = ['shell', 'needle', 'bubble', 'sprout'].map((type, index) => ({
+    uid: `pipeline-tower-${index}`,
+    type,
+    star: 1,
+    padIndex: index,
+    cooldown: 0,
+    attackPulse: 1,
+    aimAngle: 0,
+  }));
+  for (const tower of game.state.towers) {
+    game.processCharacterAnimationEvent({ type: 'shot', towerUid: tower.uid });
+  }
+  game.updateCharacterAnimations(0.18);
+  resetOffscreen();
+  assert.doesNotThrow(() => game.render());
+
+  for (const ownerId of ownerIds) {
+    assert.ok(offscreenState.layerDraws.includes(`${ownerId}:eyes:attack`));
+    assert.ok(offscreenState.layerDraws.includes(`${ownerId}:mouth:open`));
+  }
+  assert.ok(context.compositeDraws >= 8, 'menu and battle frames composite complete rig surfaces');
+  game.dispose();
 });
 
 test('the welcome screen resolves all four survivor bundles by card id', () => {

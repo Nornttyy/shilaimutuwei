@@ -1,0 +1,356 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+
+import { TowerDefenseGame } from '../src/tower-defense-game.js';
+import { TD_STORAGE_KEY } from '../src/tower-defense-core.js';
+
+function createContext() {
+  const gradient = () => ({ addColorStop() {} });
+  const calls = [];
+  const base = {
+    calls,
+    createLinearGradient: gradient,
+    createRadialGradient: gradient,
+    measureText: (text) => ({ width: String(text).length * 12 }),
+    drawImage: (...args) => calls.push(['drawImage', ...args]),
+    fillText: (text, x, y) => calls.push(['fillText', text, x, y]),
+  };
+  return new Proxy(base, {
+    get(target, property) {
+      if (property in target) return target[property];
+      return () => {};
+    },
+    set(target, property, value) {
+      target[property] = value;
+      return true;
+    },
+  });
+}
+
+function createCanvas({
+  left = 0,
+  top = 0,
+  width = 1280,
+  height = 720,
+} = {}) {
+  const context = createContext();
+  const listeners = new Map();
+  const frames = new Map();
+  const cancelledFrames = [];
+  let nextFrameId = 1;
+  const rect = { left, top, width, height };
+
+  const canvas = {
+    width,
+    height,
+    clientWidth: width,
+    clientHeight: height,
+    context,
+    rect,
+    cancelledFrames,
+    getContext: () => context,
+    getBoundingClientRect: () => ({
+      ...rect,
+      right: rect.left + rect.width,
+      bottom: rect.top + rect.height,
+    }),
+    addEventListener(name, listener) {
+      if (!listeners.has(name)) listeners.set(name, new Set());
+      listeners.get(name).add(listener);
+    },
+    removeEventListener(name, listener) {
+      listeners.get(name)?.delete(listener);
+    },
+    listenerCount(name) {
+      return listeners.get(name)?.size || 0;
+    },
+    dispatch(name, event = {}) {
+      for (const listener of [...(listeners.get(name) || [])]) listener(event);
+    },
+    setPointerCapture() {},
+    releasePointerCapture() {},
+    requestAnimationFrame(callback) {
+      const id = nextFrameId;
+      nextFrameId += 1;
+      frames.set(id, callback);
+      return id;
+    },
+    cancelAnimationFrame(id) {
+      cancelledFrames.push(id);
+      frames.delete(id);
+    },
+    pendingFrameCount() {
+      return frames.size;
+    },
+    flushFrame(timestamp = 16) {
+      const entry = frames.entries().next().value;
+      if (!entry) return false;
+      const [id, callback] = entry;
+      frames.delete(id);
+      callback(timestamp);
+      return true;
+    },
+  };
+  context.canvas = canvas;
+  return canvas;
+}
+
+function createRuntime(initialProgress = null) {
+  const values = new Map();
+  if (initialProgress) values.set(TD_STORAGE_KEY, initialProgress);
+  const writes = [];
+  return {
+    values,
+    writes,
+    storage: {
+      get: (key, fallback = null) => values.get(key) ?? fallback,
+      set(key, value) {
+        values.set(key, JSON.parse(JSON.stringify(value)));
+        writes.push({ key, value: JSON.parse(JSON.stringify(value)) });
+        return true;
+      },
+    },
+  };
+}
+
+function createAssetStore() {
+  const requests = [];
+  return {
+    requests,
+    get(_key, fallback = null) {
+      return fallback;
+    },
+    useOrFallback(key, _drawAsset, drawFallback) {
+      requests.push(key);
+      drawFallback?.();
+      return false;
+    },
+  };
+}
+
+function createRigStore() {
+  const requests = [];
+  return {
+    requests,
+    get(ownerId, fallback = null) {
+      requests.push(ownerId);
+      return fallback;
+    },
+  };
+}
+
+function clientPoint(game, canvas, logicalPoint) {
+  return {
+    clientX: canvas.rect.left + game.offsetX + logicalPoint.x * game.scale,
+    clientY: canvas.rect.top + game.offsetY + logicalPoint.y * game.scale,
+  };
+}
+
+function pointerEvent(game, canvas, logicalPoint, pointerId = 1) {
+  return {
+    ...clientPoint(game, canvas, logicalPoint),
+    pointerId,
+    preventDefault() {},
+  };
+}
+
+function click(game, canvas, logicalPoint) {
+  const event = pointerEvent(game, canvas, logicalPoint);
+  canvas.dispatch('pointerdown', event);
+  canvas.dispatch('pointerup', event);
+}
+
+function drag(game, canvas, from, to) {
+  canvas.dispatch('pointerdown', pointerEvent(game, canvas, from));
+  canvas.dispatch('pointermove', pointerEvent(game, canvas, to));
+  canvas.dispatch('pointerup', pointerEvent(game, canvas, to));
+}
+
+test('constructs and renders its first menu frame without DOM globals', () => {
+  const canvas = createCanvas();
+  const runtime = createRuntime({ tutorialSeen: true });
+  const game = new TowerDefenseGame(canvas, {
+    runtime,
+    pixelRatio: 1,
+    seed: 123,
+  });
+
+  assert.equal(game.state.screen, 'menu');
+  assert.doesNotThrow(() => game.render());
+  assert.equal(canvas.width, 1280);
+  assert.equal(canvas.height, 720);
+  assert.ok(game.hits.some(({ id }) => id === 'stage-1'));
+  assert.ok(canvas.context.calls.some(([kind, text]) => (
+    kind === 'fillText' && text === '史莱姆融合塔防'
+  )));
+  game.dispose();
+});
+
+test('formal asset and rig stores can be replaced and are used during rendering', () => {
+  const canvas = createCanvas();
+  const game = new TowerDefenseGame(canvas, {
+    runtime: createRuntime({ tutorialSeen: true }),
+    pixelRatio: 1,
+  });
+  const assets = createAssetStore();
+  const rigs = createRigStore();
+
+  assert.equal(game.setAssetStore(assets), game);
+  assert.equal(game.setRigAssetStore(rigs), game);
+  assert.equal(game.setGeneratedCharacterArtEnabled(false), game);
+  assert.equal(game.generatedCharacterArtEnabled, false);
+  game.render();
+
+  assert.ok(assets.requests.includes('region-gel-meadow-field-a'));
+  assert.ok(assets.requests.includes('expedition-route-combat'));
+  assert.ok(rigs.requests.includes('survivor-shell-shell'));
+  assert.ok(rigs.requests.includes('survivor-crystal-pin'));
+  assert.equal(game.setGeneratedCharacterArtEnabled(true), game);
+  assert.equal(game.generatedCharacterArtEnabled, true);
+  assert.equal(game.setAssetStore({}), game);
+  assert.equal(game.assetStore, null);
+  assert.equal(game.setRigAssetStore({}), game);
+  assert.equal(game.rigAssetStore, null);
+  game.dispose();
+});
+
+test('menu stage buttons use pointer events and respect saved unlock progress', () => {
+  const canvas = createCanvas();
+  const runtime = createRuntime({
+    unlockedStage: 2,
+    clearedStages: ['stage-1'],
+    tutorialSeen: true,
+  });
+  const game = new TowerDefenseGame(canvas, { runtime, pixelRatio: 1 });
+  game.render();
+
+  click(game, canvas, { x: 494, y: 458 });
+  assert.equal(game.state.screen, 'battle');
+  assert.equal(game.state.stageId, 'stage-2');
+  assert.equal(game.state.mode, 'stage');
+  game.dispose();
+});
+
+test('spotlight tutorial completes draw, placement, fusion, and wave-start chain', () => {
+  const canvas = createCanvas();
+  const runtime = createRuntime();
+  const game = new TowerDefenseGame(canvas, {
+    runtime,
+    pixelRatio: 1,
+    seed: 0xCAFE,
+  });
+  game.render();
+
+  click(game, canvas, { x: 194, y: 458 });
+  game.render();
+  assert.equal(game.state.tutorial.step, 'draw-1');
+
+  click(game, canvas, { x: 1105, y: 571 });
+  game.render();
+  assert.equal(game.state.tutorial.step, 'place-1');
+  assert.equal(game.state.hand.length, 1);
+
+  click(game, canvas, { x: 132, y: 228 });
+  game.render();
+  assert.equal(game.state.tutorial.step, 'draw-2');
+  assert.equal(game.state.towers.length, 1);
+
+  click(game, canvas, { x: 1105, y: 571 });
+  game.render();
+  click(game, canvas, { x: 354, y: 234 });
+  game.render();
+  assert.equal(game.state.tutorial.step, 'fuse');
+  assert.equal(game.state.towers.length, 2);
+
+  drag(game, canvas, { x: 132, y: 214 }, { x: 354, y: 220 });
+  game.render();
+  assert.equal(game.state.tutorial.step, 'start');
+  assert.equal(game.state.towers.length, 1);
+  assert.equal(game.state.towers[0].star, 2);
+
+  click(game, canvas, { x: 1105, y: 661 });
+  assert.equal(game.state.wave, 1);
+  assert.equal(game.state.waveActive, true);
+  assert.equal(game.state.tutorial.active, false);
+  assert.equal(game.state.progress.tutorialSeen, true);
+  assert.equal(runtime.values.get(TD_STORAGE_KEY).tutorialSeen, true);
+  game.dispose();
+});
+
+test('CSS coordinates map into the fixed view correctly at DPR 2 with letterboxing', () => {
+  const canvas = createCanvas({ left: 40, top: 30, width: 800, height: 360 });
+  const game = new TowerDefenseGame(canvas, {
+    runtime: createRuntime({ tutorialSeen: true }),
+    pixelRatio: 2,
+  });
+
+  assert.equal(game.scale, 0.5);
+  assert.equal(game.offsetX, 80);
+  assert.equal(game.offsetY, 0);
+  assert.equal(canvas.width, 1600);
+  assert.equal(canvas.height, 720);
+
+  const logical = { x: 194, y: 458 };
+  const mapped = game.toGamePoint(pointerEvent(game, canvas, logical));
+  assert.ok(Math.abs(mapped.x - logical.x) < 1e-9);
+  assert.ok(Math.abs(mapped.y - logical.y) < 1e-9);
+
+  game.render();
+  click(game, canvas, logical);
+  assert.equal(game.state.screen, 'battle');
+  assert.equal(game.state.stageId, 'stage-1');
+  game.dispose();
+});
+
+test('save, background, and foreground use runtime storage and frame scheduler safely', () => {
+  const canvas = createCanvas();
+  const runtime = createRuntime({ tutorialSeen: true });
+  const game = new TowerDefenseGame(canvas, { runtime, pixelRatio: 1 });
+  game.state.progress.unlockedStage = 2;
+  game.state.progress.clearedStages.push('stage-1');
+
+  assert.equal(game.save(), true);
+  assert.deepEqual(runtime.values.get(TD_STORAGE_KEY), {
+    unlockedStage: 2,
+    clearedStages: ['stage-1'],
+    bestEndlessWave: 0,
+    tutorialSeen: true,
+  });
+
+  game.start();
+  assert.equal(game.running, true);
+  assert.equal(canvas.pendingFrameCount(), 1);
+  game.onBackground();
+  assert.equal(game.backgrounded, true);
+  assert.equal(canvas.pendingFrameCount(), 0);
+  assert.ok(runtime.writes.length >= 2);
+
+  game.onForeground();
+  assert.equal(game.backgrounded, false);
+  assert.equal(canvas.pendingFrameCount(), 1);
+  assert.equal(canvas.flushFrame(100), true);
+  assert.equal(canvas.pendingFrameCount(), 1, 'a running frame schedules its successor');
+  game.dispose();
+});
+
+test('dispose is idempotent, saves, cancels animation, and removes pointer listeners', () => {
+  const canvas = createCanvas();
+  const runtime = createRuntime({ tutorialSeen: true });
+  const game = new TowerDefenseGame(canvas, { runtime, pixelRatio: 1 });
+  game.start();
+
+  for (const eventName of ['pointerdown', 'pointermove', 'pointerup', 'pointercancel']) {
+    assert.equal(canvas.listenerCount(eventName), 1);
+  }
+  assert.equal(canvas.pendingFrameCount(), 1);
+
+  assert.doesNotThrow(() => game.dispose());
+  assert.equal(game.running, false);
+  assert.equal(game.frameId, null);
+  assert.equal(canvas.pendingFrameCount(), 0);
+  for (const eventName of ['pointerdown', 'pointermove', 'pointerup', 'pointercancel']) {
+    assert.equal(canvas.listenerCount(eventName), 0);
+  }
+  assert.ok(runtime.writes.some(({ key }) => key === TD_STORAGE_KEY));
+  assert.doesNotThrow(() => game.dispose());
+});

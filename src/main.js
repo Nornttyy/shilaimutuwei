@@ -1,7 +1,8 @@
-import { SlimeGame } from './game.js';
+import { TowerDefenseGame } from './tower-defense-game.js';
 import {
   ALL_RUNTIME_ASSET_KEYS,
   ASSET_CACHE_VERSION,
+  TOWER_DEFENSE_ASSET_KEYS,
   createAssetStore,
 } from './assets.js';
 import { createRigAssetStoreFromUrl } from './animation/rig-assets.js';
@@ -117,7 +118,7 @@ export function createBrowserStartup({
   loadingView,
   assetStore = createAssetStore(),
   criticalKeys = ALL_RUNTIME_ASSET_KEYS,
-  createGame = (target, options) => new SlimeGame(target, options),
+  createGame = (target, options) => new TowerDefenseGame(target, options),
   useGeneratedCharacterArt = false,
   prepareRigStore = null,
   requestFrame = (callback) => globalThis.requestAnimationFrame(callback),
@@ -249,6 +250,7 @@ function installBrowserEntry() {
     canvas,
     loadingView: createDomLoadingView({ root: loadingRoot, canvas }),
     assetStore,
+    criticalKeys: TOWER_DEFENSE_ASSET_KEYS,
     useGeneratedCharacterArt,
     prepareRigStore: async () => {
       const store = await createRigAssetStoreFromUrl({

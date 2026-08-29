@@ -16,6 +16,7 @@ import {
   collectRigImagePaths,
 } from './build-pages.mjs';
 import { validateRigPartManifest } from '../src/animation/rig-assets.js';
+import { TOWER_DEFENSE_ASSET_KEYS } from '../src/assets.js';
 
 const SCRIPT_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
 export const DEFAULT_PROJECT_ROOT = path.resolve(SCRIPT_DIRECTORY, '..');
@@ -34,6 +35,8 @@ const ASSET_VERSION_LENGTH = 12;
 
 const REQUIRED_SOURCE_FILES = Object.freeze([
   'src/game.js',
+  'src/tower-defense-core.js',
+  'src/tower-defense-game.js',
   'src/platform/runtime.js',
   'src/platform/wechat.js',
   'src/platform/wechat-canvas.js',
@@ -153,6 +156,17 @@ export function packagedRigImagePaths(assets, assetBaseUrl) {
   return Object.freeze(Object.fromEntries(assets
     .filter((asset) => asset.kind === 'rig')
     .map((asset) => [asset.path, versionedRemoteUrl(assetBaseUrl, asset)])));
+}
+
+export function selectStartupAssetPaths(paths, requiredKeys) {
+  const selected = {};
+  for (const key of [...new Set(requiredKeys || [])]) {
+    if (!Object.prototype.hasOwnProperty.call(paths, key)) {
+      throw new Error(`WeChat startup asset is missing from asset-spec: ${key}`);
+    }
+    selected[key] = paths[key];
+  }
+  return Object.freeze(selected);
 }
 
 export function assertRigBuildContract(manifest, requiredOwnerIds) {
@@ -330,6 +344,7 @@ export async function buildWechatPackage({
   appId = process.env.WECHAT_APP_ID || '',
   projectName = 'slime-haven-wechat',
   requiredRigOwnerIds = PRODUCTION_RIG_OWNER_IDS,
+  startupAssetKeys = TOWER_DEFENSE_ASSET_KEYS,
 } = {}) {
   const root = path.resolve(projectRoot);
   const output = resolveOutput(root, outputDirectory);
@@ -347,8 +362,10 @@ export async function buildWechatPackage({
   const rigOwnerIds = Object.freeze([...new Set(requiredRigOwnerIds)]);
   const rigImagePathList = assertRigBuildContract(rigManifest, rigOwnerIds);
   const assets = await collectRemoteAssets(root, assetSpec, rigManifest);
-  const assetPaths = packagedAssetPaths(assets, normalizedBaseUrl);
-  const assetRelativePaths = packagedAssetPaths(assets, '');
+  const allAssetPaths = packagedAssetPaths(assets, normalizedBaseUrl);
+  const allAssetRelativePaths = packagedAssetPaths(assets, '');
+  const assetPaths = selectStartupAssetPaths(allAssetPaths, startupAssetKeys);
+  const assetRelativePaths = selectStartupAssetPaths(allAssetRelativePaths, startupAssetKeys);
   const rigImagePaths = packagedRigImagePaths(assets, normalizedBaseUrl);
   if (
     Object.keys(rigImagePaths).length !== rigImagePathList.length
@@ -422,7 +439,8 @@ export async function buildWechatPackage({
       files: outputFiles.length,
       pngs: 0,
       remoteAssets: assets.length,
-      ordinaryAssets: Object.keys(assetPaths).length,
+      ordinaryAssets: Object.keys(allAssetPaths).length,
+      startupOrdinaryAssets: Object.keys(assetPaths).length,
       rigAssets: Object.keys(rigImagePaths).length,
       remoteBytes: assets.reduce((total, asset) => total + asset.bytes, 0),
       remoteConfigured: Boolean(normalizedBaseUrl),

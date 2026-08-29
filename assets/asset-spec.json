@@ -6,6 +6,8 @@
     "src/expedition-catalog.js",
     "src/draw.js",
     "src/game.js",
+    "src/tower-defense-core.js",
+    "src/tower-defense-game.js",
     "src/terrain-renderer.js"
   ],
   "styleReference": "assets/style/soft-gel-style-anchor-v5.png",
@@ -1435,6 +1437,22 @@
       "transparent": true,
       "priority": "P2",
       "maxBytes": 45000
+    },
+    {
+      "id": "ui-tutorial-hand",
+      "category": "ui",
+      "sourceId": "tower-defense:tutorial:pointer",
+      "filename": "ui-tutorial-hand.png",
+      "path": "assets/generated/ui/ui-tutorial-hand.png",
+      "recommendedCanvas": { "width": 256, "height": 256 },
+      "width": 256,
+      "height": 256,
+      "runtimeDisplaySize": "聚光教程内56–82逻辑像素，可平移、旋转和缩放",
+      "view": "略俯视的单指点击手势，触点位于指尖上方",
+      "brief": "奶油色圆润软胶手势指针，指尖触碰单颗水蓝胶质触点，深蓝灰粗圆描边、左上高光、三段明暗；低细节、透明背景、无文字，用运动表达点击、拖放和融合。",
+      "transparent": true,
+      "priority": "P0",
+      "maxBytes": 90000
     },
     {
       "id": "expedition-route-combat",

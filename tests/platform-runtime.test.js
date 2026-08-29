@@ -901,7 +901,7 @@ async function listTree(root, relative = '') {
   return files.sort();
 }
 
-test('WeChat production remote gate contains 125 canonical images and all 16 versioned rig PNGs', async () => {
+test('WeChat production remote gate contains 126 canonical images and all 16 versioned rig PNGs', async () => {
   const assetSpec = JSON.parse(await readFile(path.join(PROJECT_ROOT, 'assets', 'asset-spec.json'), 'utf8'));
   const rigManifest = JSON.parse(await readFile(path.join(PROJECT_ROOT, 'assets', 'rig-parts.json'), 'utf8'));
   const declaredRigPaths = assertRigBuildContract(rigManifest, PRODUCTION_RIG_OWNER_IDS);
@@ -909,15 +909,15 @@ test('WeChat production remote gate contains 125 canonical images and all 16 ver
   const ordinary = packagedAssetPaths(assets, 'https://cdn.example.com/game');
   const rigs = packagedRigImagePaths(assets, 'https://cdn.example.com/game');
 
-  assert.equal(Object.keys(ordinary).length, 125);
-  assert.equal(new Set(Object.values(ordinary)).size, 125);
+  assert.equal(Object.keys(ordinary).length, 126);
+  assert.equal(new Set(Object.values(ordinary)).size, 126);
   assert.equal(Object.hasOwn(ordinary, 'scene-gel-garden'), false);
   assert.equal(Object.hasOwn(ordinary, 'town-core'), false);
   assert.equal(Object.hasOwn(ordinary, 'enemy-portal'), false);
   assert.equal(declaredRigPaths.length, 16);
   assert.equal(Object.keys(rigs).length, 16);
   assert.equal(new Set(Object.values(rigs)).size, 16);
-  assert.equal(new Set([...Object.values(ordinary), ...Object.values(rigs)]).size, 141);
+  assert.equal(new Set([...Object.values(ordinary), ...Object.values(rigs)]).size, 142);
   for (const url of [...Object.values(ordinary), ...Object.values(rigs)]) {
     assert.match(url, /\?v=[a-f0-9]{12}$/);
   }
@@ -964,6 +964,15 @@ test('WeChat build emits and executes a playable canvas bootstrap with zero pack
   onBackground() { globalThis.__WX_FIXTURE_BACKGROUNDED__ = true; }
 }
 `);
+  const fixtureGameSource = await readFile(path.join(root, 'src', 'game.js'), 'utf8');
+  await writeFile(
+    path.join(root, 'src', 'tower-defense-game.js'),
+    fixtureGameSource.replace('SlimeGame', 'TowerDefenseGame'),
+  );
+  await writeFile(
+    path.join(root, 'src', 'tower-defense-core.js'),
+    'export const fixtureTowerDefenseCore = true;\n',
+  );
   await writeFile(path.join(root, 'src', 'main.js'), 'throw new Error("web only");\n');
 
   const ordinaryPath = 'assets/generated/effect/effect-test.png';
@@ -1045,10 +1054,12 @@ test('WeChat build emits and executes a playable canvas bootstrap with zero pack
     assetBaseUrl: 'https://cdn.example.com/game',
     appId: 'wx-test-app',
     requiredRigOwnerIds: ['survivor-test'],
+    startupAssetKeys: ['effect-test'],
   });
   assert.equal(result.pngs, 0);
   assert.equal(result.remoteAssets, 3);
   assert.equal(result.ordinaryAssets, 1);
+  assert.equal(result.startupOrdinaryAssets, 1);
   assert.equal(result.rigAssets, 2);
   const output = path.join(root, '_wxgame');
   const files = await listTree(output);
@@ -1061,6 +1072,8 @@ test('WeChat build emits and executes a playable canvas bootstrap with zero pack
   assert.ok(files.includes('src/platform/wechat-entry.js'));
   assert.ok(files.includes('src/animation/rig-assets.js'));
   assert.ok(files.includes('src/game.js'));
+  assert.ok(files.includes('src/tower-defense-core.js'));
+  assert.ok(files.includes('src/tower-defense-game.js'));
   assert.equal(files.includes('src/main.js'), false);
   assert.equal(files.some((filename) => filename.endsWith('.png')), false);
 

@@ -59,6 +59,8 @@ const PROJECT_ASSET_SPEC = JSON.parse(await readFile(
 const PROJECT_ROOT = fileURLToPath(new URL('../', import.meta.url));
 const SHELL_SLIME_IMAGE_PATH = `./assets/generated/survivor/survivor-moss-sprout.png?v=${ASSET_CACHE_VERSION}`;
 const REQUIRED_GAMEPLAY_MODULES = Object.freeze([
+  'src/tower-defense-core.js',
+  'src/tower-defense-game.js',
   'src/world.js',
   'src/colony-catalog.js',
   'src/colony.js',
@@ -117,9 +119,9 @@ test('the browser shell loads formal loading and rotation art without JavaScript
   assert.match(css, /@media \(orientation:\s*portrait\) and \(max-width:\s*900px\)/);
 });
 
-test('the project asset whitelist covers all 125 canonical nested PNG paths', () => {
+test('the project asset whitelist covers all 126 canonical nested PNG paths', () => {
   const paths = collectDeclaredAssetPaths(PROJECT_ASSET_SPEC);
-  assert.equal(paths.length, 125);
+  assert.equal(paths.length, 126);
   assert.equal(new Set(paths).size, paths.length);
   assert.equal(paths.every((assetPath) => (
     /^assets\/generated\/[a-z][a-z0-9-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*\.png$/.test(assetPath)

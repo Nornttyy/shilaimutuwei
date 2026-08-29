@@ -6,7 +6,7 @@
  * useful to platform builds and isolated tests.
  */
 
-export const ASSET_CACHE_VERSION = 'soft-gel-20260829-v2';
+export const ASSET_CACHE_VERSION = 'soft-gel-20260829-v3';
 
 const generatedAssetUrl = (relativePath) => {
   const url = new URL(`../assets/generated/${relativePath}`, import.meta.url);
@@ -105,6 +105,7 @@ export const CRITICAL_STARTUP_ASSET_KEYS = Object.freeze([
   'ui-card-frame-item',
   'ui-audio-on',
   'ui-audio-off',
+  'ui-tutorial-hand',
   'expedition-route-combat',
   'expedition-route-resource',
   'expedition-route-event',
@@ -139,6 +140,56 @@ export const INFINITE_WORLD_ASSET_KEYS = Object.freeze([
   'landmark-dew-canopy-a',
   'landmark-bubble-arch-a',
   'landmark-boss-shell-grotto-a',
+]);
+
+/** Formal art used by the standalone fusion tower-defense entry. */
+export const TOWER_DEFENSE_ASSET_KEYS = Object.freeze([
+  'survivor-shell-shell',
+  'survivor-crystal-pin',
+  'survivor-bubble-float',
+  'survivor-moss-sprout',
+  'enemy-soft-biter',
+  'enemy-windcap',
+  'enemy-stone-lump',
+  'enemy-acid-shell-king',
+  'town-soft-core',
+  'rift-entry-portal',
+  'building-gel-foundation',
+  'background-garden-base',
+  'region-gel-meadow-field-a',
+  'region-bubble-heath-field-a',
+  'region-crystal-bloom-field-a',
+  'tile-build-light',
+  'tile-build-dark',
+  'tile-placement-valid',
+  'tile-placement-invalid',
+  'tile-route-open',
+  'tile-route-breach',
+  'effect-projectile-goo',
+  'effect-projectile-needle',
+  'effect-projectile-bubble',
+  'effect-projectile-seed',
+  'effect-particle-impact-spark',
+  'effect-particle-goo-drop',
+  'effect-particle-expanding-ring',
+  'effect-particle-healing-leaf',
+  'effect-particle-bubble',
+  'effect-particle-dust-puff',
+  'effect-dynamic-components-v1',
+  'effect-selection-ring-friendly',
+  'effect-target-ring-danger',
+  'effect-spawn-rift-burst',
+  'effect-soft-swap-arc',
+  'effect-damage-cracks-overlay',
+  'ui-gel-energy',
+  'ui-card-frame-common',
+  'ui-audio-on',
+  'ui-audio-off',
+  'ui-tutorial-hand',
+  'expedition-beacon',
+  'expedition-route-combat',
+  'expedition-route-boss',
+  'upgrade-shared-sparkle',
 ]);
 
 const DECLARED_ASSET_PATHS = {
@@ -267,6 +318,7 @@ const DECLARED_ASSET_PATHS = {
   'ui-card-frame-item': generatedAssetUrl('ui/ui-card-frame-item.png'),
   'ui-audio-on': generatedAssetUrl('ui/ui-audio-on.png'),
   'ui-audio-off': generatedAssetUrl('ui/ui-audio-off.png'),
+  'ui-tutorial-hand': generatedAssetUrl('ui/ui-tutorial-hand.png'),
 };
 
 /**

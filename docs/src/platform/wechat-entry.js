@@ -1,4 +1,4 @@
-import { SlimeGame } from '../game.js';
+import { TowerDefenseGame } from '../tower-defense-game.js';
 import { createPlatformRuntime } from './runtime.js';
 import {
   createWechatCanvasSurface,
@@ -93,6 +93,7 @@ export const WECHAT_CRITICAL_ASSET_KEYS = Object.freeze([
   'ui-card-frame-item',
   'ui-audio-on',
   'ui-audio-off',
+  'ui-tutorial-hand',
   'expedition-route-combat',
   'expedition-route-resource',
   'expedition-route-event',
@@ -452,7 +453,7 @@ function roundedRect(ctx, x, y, width, height, radius, fill, stroke = null, line
   }
 }
 
-/** Canvas-only loading UI used before SlimeGame is allowed to exist. */
+/** Canvas-only loading UI used before the game is allowed to exist. */
 export function createWechatCanvasLoadingView({ surface }) {
   const canvas = surface?.canvas;
   const nativeCanvas = surface?.nativeCanvas;
@@ -781,12 +782,12 @@ export function createWechatCanvasLoadingView({ surface }) {
 
 /**
  * Creates the actual Mini Game canvas, installs the narrow compatibility
- * surface required by SlimeGame, then starts its requestAnimationFrame loop.
+ * surface required by the game, then starts its requestAnimationFrame loop.
  */
 export function startWechatGame({
   wxApi = globalThis.wx,
   config = {},
-  GameClass = SlimeGame,
+  GameClass = TowerDefenseGame,
   createRuntime = createPlatformRuntime,
   createAssetStoreImpl = createWechatImageAssetStore,
   assetPaths = {},
@@ -914,6 +915,7 @@ export function startWechatGame({
         assetStore,
         rigAssetStore,
         generatedCharacterArtEnabled: true,
+        runtime,
       });
       attachAssetStore(candidate, assetStore);
       if (rigAssetStore) {

@@ -6,7 +6,7 @@
  * useful to platform builds and isolated tests.
  */
 
-export const ASSET_CACHE_VERSION = 'soft-gel-20260829-v1';
+export const ASSET_CACHE_VERSION = 'soft-gel-20260829-v2';
 
 const generatedAssetUrl = (relativePath) => {
   const url = new URL(`../assets/generated/${relativePath}`, import.meta.url);
@@ -189,14 +189,14 @@ const DECLARED_ASSET_PATHS = {
   'tile-route-open': generatedAssetUrl('tile/tile-route-open.png'),
   'tile-route-breach': generatedAssetUrl('tile/tile-route-breach.png'),
   'terrain-ground-field-v1': generatedAssetUrl('terrain/terrain-ground-field-v1.png'),
-  'terrain-discovery-fog-cell-v1': generatedAssetUrl('terrain/terrain-discovery-fog-cell-v1.png'),
+  'terrain-discovery-fog-cell-v1': generatedAssetUrl('terrain/terrain-discovery-cloud-field-v2.png'),
   'terrain-prop-contact-shadow-v1': generatedAssetUrl('terrain/terrain-prop-contact-shadow-v1.png'),
   'terrain-soft-gel-node-a': generatedAssetUrl('terrain/terrain-soft-gel-node-v2.png'),
   'terrain-dew-honey-node-a': generatedAssetUrl('terrain/terrain-dew-honey-node-v2.png'),
   'terrain-crystal-shard-node-a': generatedAssetUrl('terrain/terrain-crystal-shard-node-v2.png'),
   'terrain-thorn-thicket-a': generatedAssetUrl('terrain/terrain-thorn-thicket-v2.png'),
   'terrain-brittle-boulder-a': generatedAssetUrl('terrain/terrain-brittle-boulder-v2.png'),
-  'terrain-deep-water-patch-a': generatedAssetUrl('terrain/terrain-deep-water-patch-v2.png'),
+  'terrain-deep-water-patch-a': generatedAssetUrl('terrain/terrain-deep-water-surface-overlay-v3.png'),
   'terrain-ground-detail-a': generatedAssetUrl('terrain/terrain-ground-detail-v2.png'),
   'terrain-waste-ground-detail-a': generatedAssetUrl('terrain-waste/terrain-waste-ground-detail-a.png'),
   'terrain-waste-soft-gel-cache-a': generatedAssetUrl('terrain-waste/terrain-waste-soft-gel-cache-a.png'),

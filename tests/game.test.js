@@ -408,10 +408,11 @@ test('welcome tutorial step cards compose formal game art instead of number plac
   assert.equal(text.some((value) => ['1', '2', '3'].includes(value)), false);
 });
 
-test('discovery fog uses its authored world asset and keeps Canvas only as load fallback', () => {
+test('discovery fog combines authored macro clouds with continuous Canvas concealment', () => {
   const fogKey = 'terrain-discovery-fog-cell-v1';
   const readyStore = createReadyAssetStore([fogKey]);
   const authored = createRecordingContext();
+  authored.ctx.fill = (...args) => authored.calls.push(['fill', ...args]);
   const { game } = createHarness({ context: authored.ctx, assetStore: readyStore });
   game.worldCellAt = (x, y) => ({ discovered: !(x === 4 && y === 7) });
 
@@ -426,6 +427,8 @@ test('discovery fog uses its authored world asset and keeps Canvas only as load 
   assert.equal(result.assetCells, 1);
   assert.ok(readyStore.requests.includes(fogKey));
   assert.equal(authored.calls.filter(([name]) => name === 'drawImage').length, 1);
+  assert.equal(authored.calls.filter(([name]) => name === 'fill').length, 2,
+    'the organic edge and solid joined base remain present beneath transparent cloud art');
   assert.equal(
     authored.calls.some(([name]) => name === 'fillRect'),
     false,
@@ -433,6 +436,7 @@ test('discovery fog uses its authored world asset and keeps Canvas only as load 
   );
 
   const fallback = createRecordingContext();
+  fallback.ctx.fill = (...args) => fallback.calls.push(['fill', ...args]);
   const fallbackHarness = createHarness({
     context: fallback.ctx,
     assetStore: createReadyAssetStore([]),
@@ -446,7 +450,10 @@ test('discovery fog uses its authored world asset and keeps Canvas only as load 
   });
   assert.equal(fallbackResult.usedAsset, false);
   assert.equal(fallbackResult.fallbackCells, 1);
-  assert.ok(fallback.calls.some(([name]) => name === 'fillRect'));
+  assert.equal(fallback.calls.some(([name]) => name === 'drawImage'), false);
+  assert.equal(fallback.calls.some(([name]) => name === 'fillRect'), false);
+  assert.equal(fallback.calls.filter(([name]) => name === 'fill').length, 2,
+    'a missing PNG still emits one continuous organic edge and concealment base');
 });
 
 test('wide landscape screens reveal more world instead of leaving letterbox background', () => {
@@ -836,6 +843,7 @@ test('battlefield keeps the portal and moving-bubble shell behind depth-sorted a
   game.drawMovingBubblePreview = () => events.push('moving-bubble-preview');
   game.drawWorldActors = () => events.push('actors');
   game.drawProjectilesAndParticles = () => events.push('projectiles');
+  game.drawDiscoveryFog = () => events.push('fog');
   game.drawSelectionOverlay = () => events.push('selection');
 
   game.drawBattlefield(game.ctx);
@@ -851,6 +859,7 @@ test('battlefield keeps the portal and moving-bubble shell behind depth-sorted a
     'actors',
     'effects:front',
     'projectiles',
+    'fog',
     'selection',
   ].includes(event)), [
     'effects:back',
@@ -858,6 +867,7 @@ test('battlefield keeps the portal and moving-bubble shell behind depth-sorted a
     'actors',
     'effects:front',
     'projectiles',
+    'fog',
     'selection',
   ]);
   assert.ok(
@@ -868,6 +878,12 @@ test('battlefield keeps the portal and moving-bubble shell behind depth-sorted a
     events.indexOf('dynamic:front') > events.indexOf('actors')
       && events.indexOf('dynamic:front') < events.indexOf('projectiles'),
     'front-layer procedural effects must overlay actors without covering projectiles',
+  );
+  assert.ok(
+    events.indexOf('fog') > events.indexOf('actors')
+      && events.indexOf('fog') > events.indexOf('projectiles')
+      && events.indexOf('fog') < events.indexOf('selection'),
+    'discovery clouds conceal every unknown world layer without covering selection UI',
   );
 
   const order = [];

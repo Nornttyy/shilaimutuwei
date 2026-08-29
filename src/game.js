@@ -5341,7 +5341,6 @@ export class SlimeGame {
 
     this.drawRoutes(ctx);
     drawOrganicTerrainProps(ctx, terrainOptions);
-    this.drawDiscoveryFog(ctx, bounds);
     this.drawTerrain(ctx);
     this.drawWorldPoiBackEffects(ctx, visiblePois);
     const expeditionBattle = this.state.phase === 'battle' && this.isExpeditionSession();
@@ -5399,6 +5398,10 @@ export class SlimeGame {
     this.drawDynamicEffects(ctx, 'front');
     this.drawWorldEffects(ctx, 'front');
     this.drawProjectilesAndParticles(ctx);
+    // Discovery clouds are the final world-space concealment layer. Drawing
+    // them after terrain, actors, and effects prevents unknown content from
+    // leaking above the fog while the HUD remains fully readable.
+    this.drawDiscoveryFog(ctx, bounds);
     this.drawSelectionOverlay(ctx);
 
     ctx.save();

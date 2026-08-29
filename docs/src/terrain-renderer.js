@@ -55,14 +55,41 @@ export const TERRAIN_LAYER_ASSET_KEYS = Object.freeze({
 /** One authored ground field spans this many world cells on each axis. */
 export const WORLD_GROUND_TEXTURE_PERIOD_CELLS = 12;
 
+/**
+ * The transparent authored water detail is a world-space macro texture, not a
+ * pond sprite. Integer periods keep every placement stable across camera pans,
+ * visible-bounds changes, negative coordinates, and zoom levels.
+ */
+export const WATER_TEXTURE_PERIOD_X_CELLS = 4;
+export const WATER_TEXTURE_PERIOD_Y_CELLS = 4;
+export const WATER_RIPPLE_DENSITY = 0.09;
+
+// A 3x3 local-minimum selector gives every ripple an empty one-cell moat. The
+// cutoff below keeps the expected retained density at WATER_RIPPLE_DENSITY
+// instead of the unbounded clusters produced by independent per-cell hashes.
+const WATER_RIPPLE_NEIGHBORHOOD_CELLS = 9;
+const WATER_RIPPLE_PRIORITY_CUTOFF = 1 - Math.pow(
+  1 - WATER_RIPPLE_DENSITY * WATER_RIPPLE_NEIGHBORHOOD_CELLS,
+  1 / WATER_RIPPLE_NEIGHBORHOOD_CELLS,
+);
+
+// Cell blobs/connectors stop short of a three/four-way vertex. A quadrant
+// patch of this radius overlaps both while preserving an L-shaped shoreline's
+// missing quadrant.
+const WATER_JUNCTION_PATCH_RADIUS_CELLS = 0.24;
+
 /** Discovery fog is rasterized once per adaptive infinite-world chunk, then reused. */
 export const DISCOVERY_FOG_CHUNK_CELLS = 16;
 export const DISCOVERY_FOG_CACHE_CAPACITY = 12;
 export const DISCOVERY_FOG_CACHE_TARGET_PIXELS = 768;
 export const DISCOVERY_FOG_CACHE_MAX_PIXELS = 1024;
+export const DISCOVERY_FOG_CACHE_MARGIN_CELLS = 0.15;
+export const DISCOVERY_CLOUD_TEXTURE_PERIOD_X_CELLS = 8;
+export const DISCOVERY_CLOUD_TEXTURE_PERIOD_Y_CELLS = 6;
 
-const DISCOVERY_FOG_WIDTH_CELLS = 1.6;
-const DISCOVERY_FOG_HEIGHT_CELLS = 1.2;
+const DISCOVERY_FOG_BASE_COLOR = '#D7EBE5';
+const DISCOVERY_FOG_EDGE_COLOR = 'rgba(239, 248, 238, 0.66)';
+const DISCOVERY_FOG_SEAM_OVERDRAW_CELLS = 0.025;
 const discoveryFogChunkCache = new Map();
 const discoveryFogIdentityIds = new WeakMap();
 let nextDiscoveryFogIdentityId = 1;
@@ -707,18 +734,7 @@ function drawConnectedSurfaceOutline(ctx, tile, options, neighbors, matcher, pal
     boundarySegments += 1;
   }
 
-  if (matcher === isWater) {
-    const wave = Math.sin(time * 1.7 + tile.x * 0.8 + tile.y * 0.43);
-    ctx.strokeStyle = palette.light;
-    ctx.globalAlpha = 0.55;
-    ctx.lineWidth = Math.max(1, cell * 0.028);
-    ctx.beginPath();
-    ctx.moveTo(center.x - cell * 0.23, center.y + wave * cell * 0.035);
-    ctx.quadraticCurveTo(center.x, center.y - cell * 0.075 + wave * cell * 0.02,
-      center.x + cell * 0.2, center.y - cell * 0.015);
-    ctx.stroke();
-    ctx.globalAlpha = 1;
-  } else {
+  if (matcher !== isWater) {
     ctx.strokeStyle = palette.light;
     ctx.lineWidth = Math.max(1, cell * 0.035);
     ctx.globalAlpha = 0.55;
@@ -767,6 +783,130 @@ function appendConnectorSubpath(ctx, start, end, cell) {
   ctx.closePath();
 }
 
+const WATER_VERTEX_QUADRANTS = Object.freeze([
+  Object.freeze({ dx: -1, dy: -1, minX: -1, minY: -1, maxX: 0, maxY: 0 }),
+  Object.freeze({ dx: 0, dy: -1, minX: 0, minY: -1, maxX: 1, maxY: 0 }),
+  Object.freeze({ dx: -1, dy: 0, minX: -1, minY: 0, maxX: 0, maxY: 1 }),
+  Object.freeze({ dx: 0, dy: 0, minX: 0, minY: 0, maxX: 1, maxY: 1 }),
+]);
+
+function waterJunctionsForTiles(visibleTiles, topologyKeys, interiorKeys) {
+  const visibleKeys = new Set(visibleTiles.map((tile) => `${tile.x},${tile.y}`));
+  const vertices = new Map();
+  for (const tile of visibleTiles) {
+    for (const [x, y] of [
+      [tile.x, tile.y],
+      [tile.x + 1, tile.y],
+      [tile.x, tile.y + 1],
+      [tile.x + 1, tile.y + 1],
+    ]) {
+      vertices.set(`${x},${y}`, { x, y });
+    }
+  }
+  const junctions = [];
+  for (const vertex of vertices.values()) {
+    const quadrants = WATER_VERTEX_QUADRANTS.filter(({ dx, dy }) => (
+      topologyKeys.has(`${vertex.x + dx},${vertex.y + dy}`)
+    ));
+    if (quadrants.length < 3) continue;
+    const visibleQuadrants = quadrants.filter(({ dx, dy }) => (
+      visibleKeys.has(`${vertex.x + dx},${vertex.y + dy}`)
+    ));
+    // A full-cell interior rectangle already seals its own corners. Retain a
+    // junction only when at least one visible organic boundary cell needs the
+    // small patch; halo cells inform topology but never create drawing work.
+    if (!visibleQuadrants.some(({ dx, dy }) => (
+      !interiorKeys.has(`${vertex.x + dx},${vertex.y + dy}`)
+    ))) continue;
+    junctions.push({ ...vertex, quadrants });
+  }
+  return junctions.sort((left, right) => left.y - right.y || left.x - right.x);
+}
+
+function appendProjectedRect(ctx, first, second) {
+  const left = Math.min(first.x, second.x);
+  const right = Math.max(first.x, second.x);
+  const top = Math.min(first.y, second.y);
+  const bottom = Math.max(first.y, second.y);
+  if (typeof ctx.rect === 'function') {
+    ctx.rect(left, top, right - left, bottom - top);
+    return;
+  }
+  ctx.moveTo(left, top);
+  ctx.lineTo(right, top);
+  ctx.lineTo(right, bottom);
+  ctx.lineTo(left, bottom);
+  ctx.closePath();
+}
+
+function appendProjectedCellRuns(ctx, tiles, projection) {
+  if (!tiles.length) return 0;
+  const sorted = [...tiles].sort((left, right) => left.y - right.y || left.x - right.x);
+  let runY = sorted[0].y;
+  let runStartX = sorted[0].x;
+  let runEndX = sorted[0].x;
+  let runs = 0;
+  const flush = () => {
+    appendProjectedRect(
+      ctx,
+      projection.project(runStartX, runY),
+      projection.project(runEndX + 1, runY + 1),
+    );
+    runs += 1;
+  };
+  for (let index = 1; index < sorted.length; index += 1) {
+    const tile = sorted[index];
+    if (tile.y === runY && tile.x === runEndX + 1) {
+      runEndX = tile.x;
+      continue;
+    }
+    flush();
+    runY = tile.y;
+    runStartX = tile.x;
+    runEndX = tile.x;
+  }
+  flush();
+  return runs;
+}
+
+function appendWaterJunctionSubpaths(ctx, junctions, projection) {
+  const radius = WATER_JUNCTION_PATCH_RADIUS_CELLS;
+  for (const junction of junctions) {
+    const patches = junction.quadrants.length === 4
+      ? [{ minX: -1, minY: -1, maxX: 1, maxY: 1 }]
+      : junction.quadrants;
+    for (const quadrant of patches) {
+      const first = projection.project(
+        junction.x + quadrant.minX * radius,
+        junction.y + quadrant.minY * radius,
+      );
+      const second = projection.project(
+        junction.x + quadrant.maxX * radius,
+        junction.y + quadrant.maxY * radius,
+      );
+      appendProjectedRect(ctx, first, second);
+    }
+  }
+}
+
+function drawWaterInteriorFills(ctx, interiorTiles, projection, palette) {
+  if (!interiorTiles.length) return 0;
+  ctx.beginPath();
+  const runs = appendProjectedCellRuns(ctx, interiorTiles, projection);
+  ctx.fillStyle = palette.fill;
+  ctx.fill();
+  return runs;
+}
+
+function drawWaterJunctionFills(ctx, junctions, projection, palette) {
+  if (!junctions.length) return 0;
+  ctx.beginPath();
+  appendWaterJunctionSubpaths(ctx, junctions, projection);
+  ctx.fillStyle = palette.fill;
+  ctx.fill();
+  return junctions.length;
+}
+
 function connectedComponents(tiles, matcher) {
   const matching = new Map(
     tiles.filter(matcher).map((tile) => [`${tile.x},${tile.y}`, tile]),
@@ -795,71 +935,140 @@ function connectedComponents(tiles, matcher) {
   return result;
 }
 
-function drawImageCover(ctx, asset, x, y, width, height) {
-  const sourceWidth = finite(asset?.naturalWidth || asset?.width, 0);
-  const sourceHeight = finite(asset?.naturalHeight || asset?.height, 0);
-  if (sourceWidth <= 0 || sourceHeight <= 0) {
-    ctx.drawImage(asset, x, y, width, height);
-    return;
+function waterTextureMacroTiles(tiles) {
+  const macroTiles = new Map();
+  for (const tile of tiles) {
+    const macroX = Math.floor(tile.x / WATER_TEXTURE_PERIOD_X_CELLS);
+    const macroY = Math.floor(tile.y / WATER_TEXTURE_PERIOD_Y_CELLS);
+    macroTiles.set(`${macroX},${macroY}`, { macroX, macroY });
   }
-  const sourceRatio = sourceWidth / sourceHeight;
-  const targetRatio = width / height;
-  let sx = 0;
-  let sy = 0;
-  let sw = sourceWidth;
-  let sh = sourceHeight;
-  if (sourceRatio > targetRatio) {
-    sw = sourceHeight * targetRatio;
-    sx = (sourceWidth - sw) / 2;
-  } else {
-    sh = sourceWidth / targetRatio;
-    sy = (sourceHeight - sh) / 2;
+  return [...macroTiles.values()].sort((left, right) => (
+    left.macroY - right.macroY || left.macroX - right.macroX
+  ));
+}
+
+function appendConnectedWaterMaskPath(ctx, topology, projection) {
+  const { project, pixelsPerCell: cell } = projection;
+  ctx.beginPath();
+  appendProjectedCellRuns(ctx, topology.interiorTiles, projection);
+  for (const tile of topology.boundaryTiles) {
+    const center = project(tile.x + 0.5, tile.y + 0.5);
+    appendEllipseSubpath(ctx, center.x, center.y, cell * 0.5, cell * 0.48);
+    for (const direction of CARDINAL_DIRECTIONS) {
+      const neighborKey = `${tile.x + direction.dx},${tile.y + direction.dy}`;
+      if (!topology.topologyKeys.has(neighborKey)) continue;
+      // Two organic boundary cells have one canonical owner. Interior and
+      // halo neighbors have no organic path of their own, so this boundary
+      // cell owns that connector in any direction; the viewport clip trims an
+      // offscreen half.
+      if (topology.boundaryKeys.has(neighborKey)
+        && direction.name !== 'right' && direction.name !== 'bottom') continue;
+      const neighbor = project(tile.x + direction.dx + 0.5, tile.y + direction.dy + 0.5);
+      appendConnectorSubpath(ctx, center, neighbor, cell);
+    }
   }
-  ctx.drawImage(asset, sx, sy, sw, sh, x, y, width, height);
+  appendWaterJunctionSubpaths(ctx, topology.junctions, projection);
 }
 
 function drawConnectedWaterTexture(
   ctx,
-  component,
+  topology,
   projection,
   assetStore,
   assetKey = TERRAIN_ASSET_KEYS['deep-water'],
   alpha = 0.34,
 ) {
-  if (!component.length) return false;
-  const { project, pixelsPerCell: cell } = projection;
-  const xs = component.map((tile) => tile.x);
-  const ys = component.map((tile) => tile.y);
-  const topLeft = project(Math.min(...xs), Math.min(...ys));
-  const bottomRight = project(Math.max(...xs) + 1, Math.max(...ys) + 1);
-  const padding = cell * 0.08;
-  const left = Math.min(topLeft.x, bottomRight.x) - padding;
-  const top = Math.min(topLeft.y, bottomRight.y) - padding;
-  const width = Math.abs(bottomRight.x - topLeft.x) + padding * 2;
-  const height = Math.abs(bottomRight.y - topLeft.y) + padding * 2;
-  const componentKeys = new Set(component.map((tile) => `${tile.x},${tile.y}`));
-  const visualVariant = normalizedVisualVariant(component[0]);
-  const mirror = visualVariant % 2 === 1 ? -1 : 1;
-  const variantScale = VISUAL_VARIANT_SCALE[visualVariant];
-
-  return useTerrainAsset(ctx, assetStore, assetKey, (asset) => {
-    ctx.beginPath();
-    for (const tile of component) {
-      const center = project(tile.x + 0.5, tile.y + 0.5);
-      appendEllipseSubpath(ctx, center.x, center.y, cell * 0.5, cell * 0.48);
-      for (const direction of CARDINAL_DIRECTIONS) {
-        if (direction.name !== 'right' && direction.name !== 'bottom') continue;
-        if (!componentKeys.has(`${tile.x + direction.dx},${tile.y + direction.dy}`)) continue;
-        const neighbor = project(tile.x + direction.dx + 0.5, tile.y + direction.dy + 0.5);
-        appendConnectorSubpath(ctx, center, neighbor, cell);
-      }
-    }
+  if (!topology.visibleTiles.length) {
+    return { usedAsset: false, textureTiles: 0, junctionPatches: 0 };
+  }
+  const { project } = projection;
+  // Macro sampling is strictly a function of visible water. The one-cell halo
+  // participates only in topology and can never request an extra PNG tile.
+  const macroTiles = waterTextureMacroTiles(topology.visibleTiles);
+  let textureTiles = 0;
+  const usedAsset = useTerrainAsset(ctx, assetStore, assetKey, (asset) => {
+    appendConnectedWaterMaskPath(ctx, topology, projection);
     ctx.clip?.();
     ctx.globalAlpha *= clamp(finite(alpha, 0.34), 0, 0.75);
-    ctx.translate(left + width / 2, top + height / 2);
-    ctx.scale(mirror * variantScale, variantScale);
-    drawImageCover(ctx, asset, -width / 2, -height / 2, width, height);
+    for (const { macroX, macroY } of macroTiles) {
+      const first = project(
+        macroX * WATER_TEXTURE_PERIOD_X_CELLS,
+        macroY * WATER_TEXTURE_PERIOD_Y_CELLS,
+      );
+      const second = project(
+        (macroX + 1) * WATER_TEXTURE_PERIOD_X_CELLS,
+        (macroY + 1) * WATER_TEXTURE_PERIOD_Y_CELLS,
+      );
+      const width = Math.abs(second.x - first.x);
+      const height = Math.abs(second.y - first.y);
+      const centerX = (first.x + second.x) / 2;
+      const centerY = (first.y + second.y) / 2;
+      // Alternating both axes makes arbitrary transparent edge pixels meet
+      // their own mirrored counterparts. Placements stay deterministic at
+      // signed world coordinates and never depend on component iteration.
+      const mirrorX = isOddInteger(macroX) ? -1 : 1;
+      const mirrorY = isOddInteger(macroY) ? -1 : 1;
+      ctx.save();
+      ctx.translate(centerX, centerY);
+      ctx.scale(mirrorX, mirrorY);
+      // Transparent overlays must meet exactly, not overlap: source-over on a
+      // duplicated edge would create a one-pixel bright seam.
+      ctx.drawImage(asset, -width / 2, -height / 2, width, height);
+      ctx.restore();
+      textureTiles += 1;
+    }
   });
+  return {
+    usedAsset,
+    textureTiles: usedAsset ? textureTiles : 0,
+    junctionPatches: usedAsset ? topology.junctions.length : 0,
+  };
+}
+
+function waterRipplePriority(x, y) {
+  return hash2d(x, y, 137);
+}
+
+function shouldDrawWaterRipple(x, y) {
+  const priority = waterRipplePriority(x, y);
+  if (priority >= WATER_RIPPLE_PRIORITY_CUTOFF) return false;
+  for (let dy = -1; dy <= 1; dy += 1) {
+    for (let dx = -1; dx <= 1; dx += 1) {
+      if (dx === 0 && dy === 0) continue;
+      const neighborPriority = waterRipplePriority(x + dx, y + dy);
+      if (neighborPriority < priority) return false;
+      if (neighborPriority === priority
+        && (y + dy < y || (y + dy === y && x + dx < x))) return false;
+    }
+  }
+  return true;
+}
+
+function drawSparseWaterRipples(ctx, waterSurfaces, projection, time) {
+  const { project, pixelsPerCell: cell } = projection;
+  let ripples = 0;
+  for (const { tile, palette } of waterSurfaces) {
+    if (!shouldDrawWaterRipple(tile.x, tile.y)) continue;
+    const center = project(tile.x + 0.5, tile.y + 0.5);
+    const jitterX = (hash2d(tile.x, tile.y, 139) - 0.5) * cell * 0.36;
+    const jitterY = (hash2d(tile.x, tile.y, 149) - 0.5) * cell * 0.3;
+    const phase = time * 1.7 + hash2d(tile.x, tile.y, 151) * TAU;
+    const wave = Math.sin(phase);
+    const halfWidth = cell * (0.13 + hash2d(tile.x, tile.y, 157) * 0.1);
+    ctx.save();
+    ctx.translate(center.x + jitterX, center.y + jitterY);
+    ctx.globalAlpha *= 0.38 + (wave + 1) * 0.07;
+    ctx.strokeStyle = palette.light;
+    ctx.lineWidth = Math.max(1, cell * 0.028);
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(-halfWidth, wave * cell * 0.018);
+    ctx.quadraticCurveTo(0, -cell * (0.045 + wave * 0.012), halfWidth, 0);
+    ctx.stroke();
+    ctx.restore();
+    ripples += 1;
+  }
+  return ripples;
 }
 
 function drawCrystalResource(ctx, tile, center, cell, time) {
@@ -1237,21 +1446,190 @@ function discoveryPredicate(options) {
   return () => false;
 }
 
-function drawSafeDiscoveryFog(ctx, cells, project, cell) {
-  for (const { x, y } of cells) {
-    const corner = project(x, y);
-    ctx.fillStyle = 'rgba(52, 92, 83, 0.50)';
-    ctx.fillRect(corner.x, corner.y, cell + 1, cell + 1);
-    ctx.fillStyle = 'rgba(218, 244, 211, 0.10)';
-    ellipsePath(
-      ctx,
-      corner.x + cell * 0.34,
-      corner.y + cell * 0.38,
-      cell * 0.15,
-      cell * 0.15,
-    );
-    ctx.fill();
+function appendDiscoveryRectSubpath(ctx, project, minX, minY, maxX, maxY) {
+  const first = project(minX, minY);
+  const second = project(maxX, maxY);
+  const left = Math.min(first.x, second.x);
+  const right = Math.max(first.x, second.x);
+  const top = Math.min(first.y, second.y);
+  const bottom = Math.max(first.y, second.y);
+  ctx.moveTo(left, top);
+  ctx.lineTo(right, top);
+  ctx.lineTo(right, bottom);
+  ctx.lineTo(left, bottom);
+  ctx.closePath();
+}
+
+function discoveryFogMaskTopology(cells) {
+  const keys = new Set(cells.map(({ x, y }) => `${x},${y}`));
+  const horizontalLinks = [];
+  const verticalLinks = [];
+  const junctions = new Map();
+  for (const cell of cells) {
+    if (keys.has(`${cell.x + 1},${cell.y}`)) horizontalLinks.push(cell);
+    if (keys.has(`${cell.x},${cell.y + 1}`)) verticalLinks.push(cell);
+    for (const [x, y] of [
+      [cell.x, cell.y],
+      [cell.x + 1, cell.y],
+      [cell.x, cell.y + 1],
+      [cell.x + 1, cell.y + 1],
+    ]) {
+      junctions.set(`${x},${y}`, { x, y });
+    }
   }
+  const fourWayJunctions = [...junctions.values()].filter(({ x, y }) => (
+    keys.has(`${x - 1},${y - 1}`)
+      && keys.has(`${x},${y - 1}`)
+      && keys.has(`${x - 1},${y}`)
+      && keys.has(`${x},${y}`)
+  ));
+  return { keys, horizontalLinks, verticalLinks, fourWayJunctions };
+}
+
+function appendDiscoveryHardMaskPath(ctx, cells, topology, project) {
+  const seal = DISCOVERY_FOG_SEAM_OVERDRAW_CELLS;
+  ctx.beginPath();
+  for (const { x, y } of cells) {
+    appendDiscoveryRectSubpath(ctx, project, x, y, x + 1, y + 1);
+  }
+  // Shared-edge strips and four-way patches are inside undiscovered space.
+  // They eliminate antialias seams and the single-pixel pinhole that otherwise
+  // appears where four independently authored cells meet.
+  for (const { x, y } of topology.horizontalLinks) {
+    appendDiscoveryRectSubpath(ctx, project, x + 1 - seal, y, x + 1 + seal, y + 1);
+  }
+  for (const { x, y } of topology.verticalLinks) {
+    appendDiscoveryRectSubpath(ctx, project, x, y + 1 - seal, x + 1, y + 1 + seal);
+  }
+  for (const { x, y } of topology.fourWayJunctions) {
+    appendDiscoveryRectSubpath(ctx, project, x - seal, y - seal, x + seal, y + seal);
+  }
+}
+
+function appendDiscoveryOrganicMaskPath(ctx, cells, topology, project, cell) {
+  ctx.beginPath();
+  for (const { x, y } of cells) {
+    const center = project(
+      x + 0.5 + (hash2d(x, y, 307) - 0.5) * 0.035,
+      y + 0.5 + (hash2d(x, y, 311) - 0.5) * 0.025,
+    );
+    appendEllipseSubpath(
+      ctx,
+      center.x,
+      center.y,
+      cell * (0.59 + hash2d(x, y, 313) * 0.025),
+      cell * (0.56 + hash2d(x, y, 317) * 0.025),
+    );
+  }
+  for (const { x, y } of topology.horizontalLinks) {
+    appendConnectorSubpath(
+      ctx,
+      project(x + 0.5, y + 0.5),
+      project(x + 1.5, y + 0.5),
+      cell,
+    );
+  }
+  for (const { x, y } of topology.verticalLinks) {
+    appendConnectorSubpath(
+      ctx,
+      project(x + 0.5, y + 0.5),
+      project(x + 0.5, y + 1.5),
+      cell,
+    );
+  }
+  for (const { x, y } of topology.fourWayJunctions) {
+    appendDiscoveryRectSubpath(ctx, project, x - 0.18, y - 0.18, x + 0.18, y + 0.18);
+  }
+}
+
+function discoveryFogCellBounds(cells) {
+  const xs = cells.map(({ x }) => x);
+  const ys = cells.map(({ y }) => y);
+  return {
+    minX: Math.min(...xs),
+    minY: Math.min(...ys),
+    maxXExclusive: Math.max(...xs) + 1,
+    maxYExclusive: Math.max(...ys) + 1,
+  };
+}
+
+function discoveryCloudMacroTiles(bounds) {
+  const minMacroX = Math.floor(bounds.minX / DISCOVERY_CLOUD_TEXTURE_PERIOD_X_CELLS);
+  const maxMacroX = Math.ceil(
+    bounds.maxXExclusive / DISCOVERY_CLOUD_TEXTURE_PERIOD_X_CELLS,
+  ) - 1;
+  const minMacroY = Math.floor(bounds.minY / DISCOVERY_CLOUD_TEXTURE_PERIOD_Y_CELLS);
+  const maxMacroY = Math.ceil(
+    bounds.maxYExclusive / DISCOVERY_CLOUD_TEXTURE_PERIOD_Y_CELLS,
+  ) - 1;
+  const tiles = [];
+  for (let macroY = minMacroY; macroY <= maxMacroY; macroY += 1) {
+    for (let macroX = minMacroX; macroX <= maxMacroX; macroX += 1) {
+      tiles.push({ macroX, macroY });
+    }
+  }
+  return tiles;
+}
+
+function drawWorldAnchoredDiscoveryCloudTexture(ctx, asset, bounds, project) {
+  let textureTiles = 0;
+  for (const { macroX, macroY } of discoveryCloudMacroTiles(bounds)) {
+    const first = project(
+      macroX * DISCOVERY_CLOUD_TEXTURE_PERIOD_X_CELLS,
+      macroY * DISCOVERY_CLOUD_TEXTURE_PERIOD_Y_CELLS,
+    );
+    const second = project(
+      (macroX + 1) * DISCOVERY_CLOUD_TEXTURE_PERIOD_X_CELLS,
+      (macroY + 1) * DISCOVERY_CLOUD_TEXTURE_PERIOD_Y_CELLS,
+    );
+    const width = Math.abs(second.x - first.x);
+    const height = Math.abs(second.y - first.y);
+    ctx.save();
+    ctx.translate((first.x + second.x) / 2, (first.y + second.y) / 2);
+    ctx.scale(isOddInteger(macroX) ? -1 : 1, isOddInteger(macroY) ? -1 : 1);
+    // Adjacent macro blocks meet their own mirrored edge. They remain anchored
+    // to signed world coordinates and never derive placement from the camera.
+    ctx.drawImage(asset, -width / 2, -height / 2, width, height);
+    ctx.restore();
+    textureTiles += 1;
+  }
+  return textureTiles;
+}
+
+function drawDiscoveryFogGroup(ctx, asset, cells, project, cell, fogAlpha) {
+  if (!cells.length) return { usedAsset: false, textureTiles: 0, sealedJunctions: 0 };
+  const topology = discoveryFogMaskTopology(cells);
+  ctx.save();
+  // Alpha belongs to this joined group, never to individual cells or cloud
+  // fragments. Dense unknown areas therefore retain one clean opacity.
+  ctx.globalAlpha *= fogAlpha;
+  appendDiscoveryOrganicMaskPath(ctx, cells, topology, project, cell);
+  ctx.fillStyle = DISCOVERY_FOG_EDGE_COLOR;
+  ctx.fill();
+  appendDiscoveryHardMaskPath(ctx, cells, topology, project);
+  ctx.fillStyle = DISCOVERY_FOG_BASE_COLOR;
+  ctx.fill();
+
+  let textureTiles = 0;
+  if (asset) {
+    ctx.save();
+    // `fill()` keeps the joined hard-mask path current, so the texture can use
+    // that exact union as its clip without rebuilding thousands of segments.
+    ctx.clip?.();
+    textureTiles = drawWorldAnchoredDiscoveryCloudTexture(
+      ctx,
+      asset,
+      discoveryFogCellBounds(cells),
+      project,
+    );
+    ctx.restore();
+  }
+  ctx.restore();
+  return {
+    usedAsset: Boolean(asset && textureTiles),
+    textureTiles,
+    sealedJunctions: topology.fourWayJunctions.length,
+  };
 }
 
 /** Drop every cached fog chunk, for example after replacing the authored asset. */
@@ -1364,20 +1742,22 @@ function discoveryFogChunkCount(bounds, chunkCells) {
   return columns * rows;
 }
 
-function discoveryFogCachePlan(cell, pixelRatio, widthCells, heightCells, bounds) {
+function discoveryFogCachePlan(cell, pixelRatio, bounds) {
   // Canvas destinations are expressed in logical pixels while the backing
   // store may contain several physical pixels per logical pixel. Never
   // rasterize below that final physical resolution: high-DPR output must be
-  // indistinguishable from drawing every authored sprite on the main canvas.
+  // indistinguishable from drawing the authored macro texture on the main canvas.
   const cacheCellPixels = Math.max(1, Math.ceil(cell * pixelRatio));
-  const marginXCells = (widthCells - 1) / 2;
-  const marginYCells = (heightCells - 1) / 2;
-  const horizontalOverflowCells = marginXCells * 2;
-  const verticalOverflowCells = marginYCells * 2;
+  // Keep enough physical-pixel gutter for the organic mask to escape a chunk
+  // core. Rounding upward avoids losing the soft edge at fractional DPR while
+  // worldMarginCells keeps the final composite at the same pixels-per-cell.
+  const cacheMarginPixels = Math.max(
+    1,
+    Math.ceil(DISCOVERY_FOG_CACHE_MARGIN_CELLS * cacheCellPixels - 1e-7),
+  );
   const chunkLimitForSurface = (surfacePixels) => Math.min(
     DISCOVERY_FOG_CHUNK_CELLS,
-    Math.floor(surfacePixels / cacheCellPixels - horizontalOverflowCells),
-    Math.floor(surfacePixels / cacheCellPixels - verticalOverflowCells),
+    Math.floor((surfacePixels - cacheMarginPixels * 2) / cacheCellPixels),
   );
   const maximumChunkCells = chunkLimitForSurface(DISCOVERY_FOG_CACHE_MAX_PIXELS);
   if (maximumChunkCells < 1) {
@@ -1396,21 +1776,16 @@ function discoveryFogCachePlan(cell, pixelRatio, widthCells, heightCells, bounds
     && discoveryFogChunkCount(bounds, chunkCells) > DISCOVERY_FOG_CACHE_CAPACITY) {
     chunkCells += 1;
   }
-  const worldWidthCells = chunkCells + horizontalOverflowCells;
-  const worldHeightCells = chunkCells + verticalOverflowCells;
-  const pixelWidth = Math.max(
-    1,
-    Math.ceil(worldWidthCells * cacheCellPixels - 1e-7),
-  );
-  const pixelHeight = Math.max(
-    1,
-    Math.ceil(worldHeightCells * cacheCellPixels - 1e-7),
-  );
+  const worldMarginCells = cacheMarginPixels / cacheCellPixels;
+  const worldWidthCells = chunkCells + worldMarginCells * 2;
+  const worldHeightCells = chunkCells + worldMarginCells * 2;
+  const pixelWidth = chunkCells * cacheCellPixels + cacheMarginPixels * 2;
+  const pixelHeight = chunkCells * cacheCellPixels + cacheMarginPixels * 2;
   return {
     cacheCellPixels,
+    cacheMarginPixels,
     chunkCells,
-    marginXCells,
-    marginYCells,
+    worldMarginCells,
     worldWidthCells,
     worldHeightCells,
     pixelWidth,
@@ -1424,17 +1799,14 @@ function discoveryFogCacheKey(
   chunk,
   plan,
   fogAlpha,
-  widthCells,
-  heightCells,
 ) {
   return [
     discoveryFogIdentity(asset),
     discoveryFogIdentity(provider.identity),
     plan.cacheCellPixels,
+    plan.cacheMarginPixels,
     plan.chunkCells,
     fogAlpha,
-    widthCells.toFixed(4),
-    heightCells.toFixed(4),
     chunk.chunkX,
     chunk.chunkY,
   ].join(':');
@@ -1467,8 +1839,6 @@ function renderDiscoveryFogChunk(
   chunk,
   plan,
   fogAlpha,
-  widthCells,
-  heightCells,
 ) {
   const surface = createDiscoveryFogSurface(
     provider,
@@ -1477,65 +1847,61 @@ function renderDiscoveryFogChunk(
   );
   if (!surface) return null;
   const cacheCell = plan.cacheCellPixels;
-  const fogWidth = cacheCell * widthCells;
-  const fogHeight = cacheCell * heightCells;
-  for (const { localX, localY } of chunk.hiddenCells) {
-    // Each authored sprite keeps one 1.6 x 1.2-cell destination. Adjacent cells
-    // overlap naturally; no row, run, or chunk ever stretches the source PNG.
-    const worldX = chunk.originX + localX;
-    const worldY = chunk.originY + localY;
-    surface.context.save();
-    surface.context.globalAlpha *= fogAlpha;
-    surface.context.translate(
-      (localX + widthCells / 2) * cacheCell,
-      (localY + heightCells / 2) * cacheCell,
-    );
-    surface.context.scale(isOddInteger(worldX + worldY) ? -1 : 1, 1);
-    surface.context.drawImage(
-      asset,
-      -fogWidth / 2,
-      -fogHeight / 2,
-      fogWidth,
-      fogHeight,
-    );
-    surface.context.restore();
-  }
-  return { canvas: surface.canvas, signature: chunk.signature };
+  const project = (x, y) => ({
+    x: (x - chunk.originX) * cacheCell + plan.cacheMarginPixels,
+    y: (y - chunk.originY) * cacheCell + plan.cacheMarginPixels,
+  });
+  const group = drawDiscoveryFogGroup(
+    surface.context,
+    asset,
+    chunk.hiddenCells.map(({ localX, localY }) => ({
+      x: chunk.originX + localX,
+      y: chunk.originY + localY,
+    })),
+    project,
+    cacheCell,
+    fogAlpha,
+  );
+  return { canvas: surface.canvas, signature: chunk.signature, ...group };
 }
 
 function drawDirectDiscoveryFog(
   ctx,
   asset,
-  cells,
+  chunk,
   project,
   cell,
   fogAlpha,
-  widthCells,
-  heightCells,
 ) {
-  const fogWidth = cell * widthCells;
-  const fogHeight = cell * heightCells;
-  for (const { x, y } of cells) {
-    const center = project(x + 0.5, y + 0.5);
-    ctx.save();
-    ctx.globalAlpha *= fogAlpha;
-    ctx.translate(center.x, center.y);
-    ctx.scale(isOddInteger(x + y) ? -1 : 1, 1);
-    ctx.drawImage(
-      asset,
-      -fogWidth / 2,
-      -fogHeight / 2,
-      fogWidth,
-      fogHeight,
+  ctx.save();
+  if (typeof ctx.clip === 'function') {
+    ctx.beginPath();
+    appendDiscoveryRectSubpath(
+      ctx,
+      project,
+      chunk.originX,
+      chunk.originY,
+      chunk.originX + chunk.chunkSize,
+      chunk.originY + chunk.chunkSize,
     );
-    ctx.restore();
+    ctx.clip();
   }
+  const group = drawDiscoveryFogGroup(
+    ctx,
+    asset,
+    chunk.visibleHiddenCells,
+    project,
+    cell,
+    fogAlpha,
+  );
+  ctx.restore();
+  return group;
 }
 
 /**
- * Draws discovery fog as deterministic, overlapping authored cutouts. The
- * square fill is deliberately fallback-only so a ready PNG never reveals the
- * underlying logical grid. `isUndiscovered(x, y)` is the preferred predicate;
+ * Draws discovery fog as a joined concealment mask plus an authored 8x6-cell
+ * world texture. The base never depends on the PNG, so transparent art and
+ * failed loads cannot reveal unknown content. `isUndiscovered(x, y)` is the preferred predicate;
  * `discoveryAt` and a cell-returning `terrainAt` are accepted for adapters.
  * `pixelRatio` is the main canvas backing-store-to-logical-pixel ratio and
  * defaults to 1; it determines cache resolution without changing world size.
@@ -1545,25 +1911,9 @@ export function drawAuthoredDiscoveryFog(ctx, options = {}) {
   const bounds = normalizeBounds(options);
   const { project, pixelsPerCell: cell } = createProjector(options);
   const isUndiscovered = discoveryPredicate(options);
-  const widthCells = clamp(
-    finite(options.fogWidthCells, DISCOVERY_FOG_WIDTH_CELLS),
-    1.01,
-    2.5,
-  );
-  const heightCells = clamp(
-    finite(options.fogHeightCells, DISCOVERY_FOG_HEIGHT_CELLS),
-    1.01,
-    2.5,
-  );
   const requestedPixelRatio = finite(options.pixelRatio, 1);
   const pixelRatio = requestedPixelRatio > 0 ? requestedPixelRatio : 1;
-  const cachePlan = discoveryFogCachePlan(
-    cell,
-    pixelRatio,
-    widthCells,
-    heightCells,
-    bounds,
-  );
+  const cachePlan = discoveryFogCachePlan(cell, pixelRatio, bounds);
   const chunkSize = cachePlan?.chunkCells ?? DISCOVERY_FOG_CHUNK_CELLS;
   const { chunks, visibleCells } = discoveryFogChunkStates(
     bounds,
@@ -1580,6 +1930,9 @@ export function drawAuthoredDiscoveryFog(ctx, options = {}) {
       directAssetCells: 0,
       cacheHits: 0,
       cacheMisses: 0,
+      maskChunks: 0,
+      textureTiles: 0,
+      sealedJunctions: 0,
     };
   }
 
@@ -1589,84 +1942,99 @@ export function drawAuthoredDiscoveryFog(ctx, options = {}) {
   let directAssetCells = 0;
   let cacheHits = 0;
   let cacheMisses = 0;
+  let maskChunks = 0;
+  let textureTiles = 0;
+  let sealedJunctions = 0;
   const fogAlpha = clamp(finite(options.fogAlpha, 0.9), 0, 1);
-  const usedAsset = useTerrainAsset(
-    ctx,
-    options.assetStore,
-    TERRAIN_LAYER_ASSET_KEYS.fog,
-    (asset) => {
-      const provider = discoveryFogCanvasProvider(options);
-      let cacheAvailable = Boolean(provider && cachePlan);
-      for (const chunk of chunks) {
-        if (!chunk.visibleHiddenCells.length) continue;
-        let entry = null;
-        if (cacheAvailable) {
-          const key = discoveryFogCacheKey(
-            asset,
-            provider,
-            chunk,
-            cachePlan,
-            fogAlpha,
-            widthCells,
-            heightCells,
-          );
-          entry = cachedDiscoveryFogChunk(key, chunk.signature);
-          if (entry) {
-            cacheHits += 1;
-          } else {
-            entry = renderDiscoveryFogChunk(
-              provider,
-              asset,
-              chunk,
-              cachePlan,
-              fogAlpha,
-              widthCells,
-              heightCells,
-            );
-            if (entry) {
-              cacheMisses += 1;
-              storeDiscoveryFogChunk(key, entry);
-            } else {
-              cacheAvailable = false;
-            }
-          }
-        }
-        if (!entry) {
-          drawDirectDiscoveryFog(
-            ctx,
-            asset,
-            chunk.visibleHiddenCells,
-            project,
-            cell,
-            fogAlpha,
-            widthCells,
-            heightCells,
-          );
-          directAssetCells += chunk.visibleHiddenCells.length;
-          assetCells += chunk.visibleHiddenCells.length;
-          continue;
-        }
-        const corner = project(
-          chunk.originX - cachePlan.marginXCells,
-          chunk.originY - cachePlan.marginYCells,
+  let asset = null;
+  if (options.assetStore && typeof options.assetStore.useOrFallback === 'function') {
+    try {
+      options.assetStore.useOrFallback(
+        TERRAIN_LAYER_ASSET_KEYS.fog,
+        (candidate) => { asset = candidate; },
+        () => {},
+      );
+    } catch {
+      asset = null;
+    }
+  }
+  let usedAsset = false;
+  const provider = discoveryFogCanvasProvider(options);
+  let cacheAvailable = Boolean(provider && cachePlan);
+  for (const chunk of chunks) {
+    if (!chunk.visibleHiddenCells.length) continue;
+    const chunkWithSize = { ...chunk, chunkSize };
+    let entry = null;
+    if (cacheAvailable) {
+      const key = discoveryFogCacheKey(
+        asset,
+        provider,
+        chunk,
+        cachePlan,
+        fogAlpha,
+      );
+      entry = cachedDiscoveryFogChunk(key, chunk.signature);
+      if (entry) {
+        cacheHits += 1;
+      } else {
+        entry = renderDiscoveryFogChunk(
+          provider,
+          asset,
+          chunk,
+          cachePlan,
+          fogAlpha,
         );
-        ctx.drawImage(
-          entry.canvas,
-          corner.x,
-          corner.y,
-          cachePlan.worldWidthCells * cell,
-          cachePlan.worldHeightCells * cell,
-        );
-        cachedChunks += 1;
-        assetCells += 1;
+        if (entry) {
+          cacheMisses += 1;
+          storeDiscoveryFogChunk(key, entry);
+        } else {
+          cacheAvailable = false;
+        }
       }
-    },
-    () => {
-      const cells = chunks.flatMap((chunk) => chunk.visibleHiddenCells);
-      drawSafeDiscoveryFog(ctx, cells, project, cell);
-      fallbackCells = cells.length;
-    },
-  );
+    }
+    if (!entry) {
+      const group = drawDirectDiscoveryFog(
+        ctx,
+        asset,
+        chunkWithSize,
+        project,
+        cell,
+        fogAlpha,
+      );
+      maskChunks += 1;
+      textureTiles += group.textureTiles;
+      sealedJunctions += group.sealedJunctions;
+      if (group.usedAsset) {
+        usedAsset = true;
+        directAssetCells += chunk.visibleHiddenCells.length;
+        assetCells += chunk.visibleHiddenCells.length;
+      } else {
+        fallbackCells += chunk.visibleHiddenCells.length;
+      }
+      continue;
+    }
+    const corner = project(
+      chunk.originX - cachePlan.worldMarginCells,
+      chunk.originY - cachePlan.worldMarginCells,
+    );
+    ctx.drawImage(
+      entry.canvas,
+      corner.x,
+      corner.y,
+      cachePlan.worldWidthCells * cell,
+      cachePlan.worldHeightCells * cell,
+    );
+    cachedChunks += 1;
+    maskChunks += 1;
+    textureTiles += entry.textureTiles;
+    sealedJunctions += entry.sealedJunctions;
+    if (entry.usedAsset) {
+      usedAsset = true;
+      assetCells += chunk.visibleHiddenCells.length;
+    } else {
+      fallbackCells += chunk.visibleHiddenCells.length;
+    }
+  }
 
   return {
     cells: visibleCells,
@@ -1677,6 +2045,9 @@ export function drawAuthoredDiscoveryFog(ctx, options = {}) {
     directAssetCells,
     cacheHits,
     cacheMisses,
+    maskChunks,
+    textureTiles,
+    sealedJunctions,
   };
 }
 
@@ -1700,7 +2071,17 @@ export function drawOrganicTerrainProps(ctx, options = {}) {
     cliff: 0,
     boundarySegments: 0,
     assetDraws: 0,
+    waterAssetDraws: 0,
     waterTextureComponents: 0,
+    waterTextureTiles: 0,
+    waterJunctionPatches: 0,
+    waterTextureJunctionPatches: 0,
+    waterInteriorCells: 0,
+    waterInteriorRuns: 0,
+    waterOrganicCells: 0,
+    waterMaskInteriorCells: 0,
+    waterMaskOrganicCells: 0,
+    waterRipples: 0,
     wastelandAssetDraws: 0,
     shadowAssetDraws: 0,
     shadowFallbackDraws: 0,
@@ -1729,42 +2110,115 @@ export function drawOrganicTerrainProps(ctx, options = {}) {
           light: COLORS.waterLight,
           ink: COLORS.waterInk,
         };
-      drawConnectedSurfaceFill(ctx, tile, projection, neighbors, palette);
       waterSurfaces.push({ tile, neighbors, palette });
     }
   }
   const waterTiles = tiles.filter(isWater);
-  for (const wasteland of [false, true]) {
-    const regionTiles = waterTiles.filter((tile) => (
-      isWastelandCell(tile.x, tile.y, world) === wasteland
-    ));
-    for (const component of connectedComponents(regionTiles, () => true)) {
-      const assetKey = terrainAssetKeyForCell(component[0], { world });
-      const usedAsset = drawConnectedWaterTexture(
+  // Keep one signed-cell halo for stable shoreline topology across camera
+  // bounds. Halo cells are never appended to a fill/mask and never select a
+  // macro texture; all actual water drawing remains visible-cell scoped.
+  const waterMaskTiles = [];
+  for (let y = bounds.minY - 1; y <= bounds.maxY + 1; y += 1) {
+    for (let x = bounds.minX - 1; x <= bounds.maxX + 1; x += 1) {
+      const tile = lookup(x, y);
+      if (isWater(tile)) waterMaskTiles.push(tile);
+    }
+  }
+  if (waterTiles.length) {
+    // Organic water may extend a few pixels beyond a logical cell. Clip the
+    // complete layer once so neither it nor a macro PNG leaks past the current
+    // visible projection while panning.
+    ctx.save();
+    clipProjectedBounds(ctx, bounds, projection.project);
+    for (const wasteland of [false, true]) {
+      const regionSurfaces = waterSurfaces.filter(({ tile }) => (
+        isWastelandCell(tile.x, tile.y, world) === wasteland
+      ));
+      const regionTiles = regionSurfaces.map(({ tile }) => tile);
+      if (!regionTiles.length) continue;
+      const regionMaskTiles = waterMaskTiles.filter((tile) => (
+        isWastelandCell(tile.x, tile.y, world) === wasteland
+      ));
+      const visibleKeys = new Set(regionTiles.map((tile) => `${tile.x},${tile.y}`));
+      const topologyKeys = new Set(regionMaskTiles.map((tile) => `${tile.x},${tile.y}`));
+      const interiorTiles = regionTiles.filter((tile) => CARDINAL_DIRECTIONS.every(
+        ({ dx, dy }) => topologyKeys.has(`${tile.x + dx},${tile.y + dy}`),
+      ));
+      const interiorKeys = new Set(interiorTiles.map((tile) => `${tile.x},${tile.y}`));
+      const boundaryTiles = regionTiles.filter((tile) => !interiorKeys.has(`${tile.x},${tile.y}`));
+      const junctions = waterJunctionsForTiles(regionTiles, topologyKeys, interiorKeys);
+      const palette = regionSurfaces[0].palette;
+      stats.waterInteriorCells += interiorTiles.length;
+      stats.waterOrganicCells += boundaryTiles.length;
+      stats.waterMaskInteriorCells += interiorTiles.length;
+      stats.waterMaskOrganicCells += boundaryTiles.length;
+      stats.waterInteriorRuns += drawWaterInteriorFills(
         ctx,
-        component,
+        interiorTiles,
+        projection,
+        palette,
+      );
+      const boundaryKeys = new Set(boundaryTiles.map((tile) => `${tile.x},${tile.y}`));
+      for (const surface of regionSurfaces) {
+        if (!boundaryKeys.has(`${surface.tile.x},${surface.tile.y}`)) continue;
+        drawConnectedSurfaceFill(
+          ctx,
+          surface.tile,
+          projection,
+          surface.neighbors,
+          surface.palette,
+        );
+      }
+      stats.waterJunctionPatches += drawWaterJunctionFills(
+        ctx,
+        junctions,
+        projection,
+        palette,
+      );
+      const topology = {
+        visibleTiles: regionTiles,
+        visibleKeys,
+        topologyKeys,
+        interiorTiles,
+        interiorKeys,
+        boundaryTiles,
+        boundaryKeys,
+        junctions,
+      };
+      const assetKey = terrainAssetKeyForCell(regionTiles[0], { world });
+      const texture = drawConnectedWaterTexture(
+        ctx,
+        topology,
         projection,
         options.assetStore,
         assetKey,
         options.waterTextureAlpha,
       );
-      if (usedAsset) {
-        stats.assetDraws += 1;
-        stats.waterTextureComponents += 1;
-        if (wasteland) stats.wastelandAssetDraws += 1;
+      if (texture.usedAsset) {
+        // `assetDraws` counts actual authored terrain drawImage calls, not
+        // asset-store lookups or logical components. Shadow PNGs retain their
+        // dedicated counter below.
+        stats.assetDraws += texture.textureTiles;
+        stats.waterAssetDraws += texture.textureTiles;
+        stats.waterTextureComponents += connectedComponents(regionTiles, () => true).length;
+        stats.waterTextureTiles += texture.textureTiles;
+        stats.waterTextureJunctionPatches += texture.junctionPatches;
+        if (wasteland) stats.wastelandAssetDraws += texture.textureTiles;
       }
     }
-  }
-  for (const { tile, neighbors, palette } of waterSurfaces) {
-    stats.boundarySegments += drawConnectedSurfaceOutline(
-      ctx,
-      tile,
-      projection,
-      neighbors,
-      isWater,
-      palette,
-      time,
-    );
+    stats.waterRipples = drawSparseWaterRipples(ctx, waterSurfaces, projection, time);
+    for (const { tile, neighbors, palette } of waterSurfaces) {
+      stats.boundarySegments += drawConnectedSurfaceOutline(
+        ctx,
+        tile,
+        projection,
+        neighbors,
+        isWater,
+        palette,
+        time,
+      );
+    }
+    ctx.restore();
   }
   for (const tile of tiles) {
     if (isCliff(tile)) {

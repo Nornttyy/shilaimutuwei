@@ -4,9 +4,12 @@ import assert from 'node:assert/strict';
 import {
   clearDiscoveryFogChunkCache,
   DISCOVERY_FOG_CACHE_CAPACITY,
+  DISCOVERY_FOG_CACHE_MARGIN_CELLS,
   DISCOVERY_FOG_CACHE_MAX_PIXELS,
   DISCOVERY_FOG_CACHE_TARGET_PIXELS,
   DISCOVERY_FOG_CHUNK_CELLS,
+  DISCOVERY_CLOUD_TEXTURE_PERIOD_X_CELLS,
+  DISCOVERY_CLOUD_TEXTURE_PERIOD_Y_CELLS,
   drawAuthoredDiscoveryFog,
   drawTerrainAsset,
   drawOrganicGround,
@@ -21,6 +24,9 @@ import {
   TERRAIN_ASSET_KEYS,
   TERRAIN_ASSET_PROFILES,
   TERRAIN_LAYER_ASSET_KEYS,
+  WATER_RIPPLE_DENSITY,
+  WATER_TEXTURE_PERIOD_X_CELLS,
+  WATER_TEXTURE_PERIOD_Y_CELLS,
   WASTELAND_TERRAIN_ASSET_KEYS,
   WORLD_GROUND_TEXTURE_PERIOD_CELLS,
   terrainAssetKey,
@@ -43,7 +49,7 @@ function createContextSpy() {
   };
   for (const method of [
     'beginPath', 'bezierCurveTo', 'clearRect', 'closePath', 'fill', 'fillRect', 'lineTo', 'moveTo',
-    'clip', 'drawImage', 'quadraticCurveTo', 'rotate', 'scale',
+    'clip', 'drawImage', 'quadraticCurveTo', 'rect', 'rotate', 'scale',
     'stroke', 'strokeRect', 'translate',
   ]) {
     context[method] = (...args) => calls.push({ method, args, globalAlpha: context.globalAlpha });
@@ -124,6 +130,27 @@ function texturePlacements(ctx, assetKey) {
   return placements;
 }
 
+function waterRippleRecords(ctx) {
+  const records = [];
+  for (let index = 4; index < ctx.calls.length; index += 1) {
+    if (ctx.calls[index].method !== 'stroke') continue;
+    const translate = ctx.calls[index - 4];
+    const begin = ctx.calls[index - 3];
+    const move = ctx.calls[index - 2];
+    const curve = ctx.calls[index - 1];
+    if (translate?.method !== 'translate'
+      || begin?.method !== 'beginPath'
+      || move?.method !== 'moveTo'
+      || curve?.method !== 'quadraticCurveTo') continue;
+    records.push({
+      translate: translate.args,
+      move: move.args,
+      curve: curve.args,
+    });
+  }
+  return records;
+}
+
 test('continuous ground never emits square grid outlines', () => {
   const ctx = createContextSpy();
   const result = drawOrganicGround(ctx, optionsFor([
@@ -196,42 +223,48 @@ test('ready authored ground has no viewport-relative fill or square base', () =>
   assert.equal(ctx.calls.filter(({ method }) => method === 'fillRect').length, 0);
 });
 
-test('authored discovery fog caches fixed-ratio sprites without stretching a continuous row', () => {
+test('discovery fog caches one joined mask with sparse world-scale cloud texture', () => {
   clearDiscoveryFogChunkCache();
   const unknown = new Set(['-1,0', '0,0', '1,1']);
   const cacheSurfaces = createCanvasFactorySpy();
   const readyStore = readyAssetStore([TERRAIN_LAYER_ASSET_KEYS.fog]);
-  const render = (store, canvasFactory = cacheSurfaces.factory) => {
+  const render = (offsetX = 12, offsetY = 18) => {
     const ctx = createContextSpy();
     const result = drawAuthoredDiscoveryFog(ctx, {
       visibleBounds: { minX: -1, minY: 0, maxX: 1, maxY: 1 },
       pixelsPerCell: 50,
-      worldToScreen: ({ x, y }) => ({ x: 12 + x * 50, y: 18 + y * 50 }),
-      assetStore: store,
+      worldToScreen: ({ x, y }) => ({ x: offsetX + x * 50, y: offsetY + y * 50 }),
+      assetStore: readyStore,
       isUndiscovered: (x, y) => unknown.has(`${x},${y}`),
-      canvasFactory,
+      canvasFactory: cacheSurfaces.factory,
     });
-    return { ctx, store, result };
+    return { ctx, result };
   };
-  const first = render(readyStore);
-  const second = render(readyStore);
+  const first = render();
+  const second = render();
+  const panned = render(37, -9);
 
   assert.deepEqual(first.result, {
     cells: 3,
-    assetCells: 2,
+    assetCells: 3,
     fallbackCells: 0,
     usedAsset: true,
     cachedChunks: 2,
     directAssetCells: 0,
     cacheHits: 0,
     cacheMisses: 2,
+    maskChunks: 2,
+    textureTiles: 2,
+    sealedJunctions: 0,
   });
   assert.deepEqual(second.result, {
     ...first.result,
     cacheHits: 2,
     cacheMisses: 0,
   });
-  assert.deepEqual(first.store.requested, [
+  assert.deepEqual(panned.result, second.result);
+  assert.deepEqual(readyStore.requested, [
+    TERRAIN_LAYER_ASSET_KEYS.fog,
     TERRAIN_LAYER_ASSET_KEYS.fog,
     TERRAIN_LAYER_ASSET_KEYS.fog,
   ]);
@@ -239,51 +272,120 @@ test('authored discovery fog caches fixed-ratio sprites without stretching a con
   const imageCalls = first.ctx.calls.filter(({ method }) => method === 'drawImage');
   assert.equal(imageCalls.length, 2);
   assert.equal(cacheSurfaces.canvases.length, 2,
-    'two signed world chunks are built once and reused on the stable frame');
+    'two signed world chunks are built once and reused while the camera pans');
+  assert.ok(cacheSurfaces.canvases.every(({ context }) => (
+    context.calls.filter(({ method }) => method === 'fill').length === 2
+  )), 'each chunk receives one organic edge fill and one joined concealment fill');
+  assert.ok(cacheSurfaces.canvases.every(({ context }) => (
+    context.calls.filter(({ method }) => method === 'fillRect').length === 0
+  )), 'the cache never paints one rectangle operation per hidden cell');
   const internalFogDraws = cacheSurfaces.canvases.flatMap(({ context }) => (
     context.calls.filter(({ method, args }) => (
       method === 'drawImage' && args[0]?.key === TERRAIN_LAYER_ASSET_KEYS.fog
     ))
   ));
-  assert.equal(internalFogDraws.length, 3);
+  assert.equal(internalFogDraws.length, 2);
   assert.ok(internalFogDraws.every(({ args }) => (
-    args[3] === 50 * 1.6
-    && args[4] === 50 * 1.2
-  )), 'every cache-internal authored sprite keeps its 1.6 x 1.2-cell destination');
+    args[3] === 50 * DISCOVERY_CLOUD_TEXTURE_PERIOD_X_CELLS
+    && args[4] === 50 * DISCOVERY_CLOUD_TEXTURE_PERIOD_Y_CELLS
+  )), 'the authored image is an 8x6-cell macro texture rather than a cell sprite');
   assert.equal(first.ctx.calls.some(({ method, args }) => (
     method === 'drawImage' && args[0]?.key === TERRAIN_LAYER_ASSET_KEYS.fog
-  )), false, 'the main canvas composites chunk caches rather than a stretched fog source');
+  )), false, 'the main canvas composites joined chunk caches, not repeated cell clouds');
   assert.deepEqual(
     imageCalls.map(({ args }) => args.slice(1)),
     second.ctx.calls.filter(({ method }) => method === 'drawImage').map(({ args }) => args.slice(1)),
     'the same world chunks keep stable screen placement',
   );
-
-  const fallback = render(readyAssetStore([]));
-  assert.deepEqual(fallback.result, {
-    cells: 3,
-    assetCells: 0,
-    fallbackCells: 3,
-    usedAsset: false,
-    cachedChunks: 0,
-    directAssetCells: 0,
-    cacheHits: 0,
-    cacheMisses: 0,
-  });
-  assert.equal(fallback.ctx.calls.filter(({ method }) => method === 'drawImage').length, 0);
-  assert.equal(fallback.ctx.calls.filter(({ method }) => method === 'fillRect').length, 3,
-    'square safety fog is emitted only when the authored PNG is unavailable');
+  const firstPlacements = imageCalls.map(({ args }) => args.slice(1));
+  const pannedPlacements = panned.ctx.calls
+    .filter(({ method }) => method === 'drawImage')
+    .map(({ args }) => args.slice(1));
+  assert.deepEqual(
+    pannedPlacements.map(([, , width, height], index) => [
+      pannedPlacements[index][0] - firstPlacements[index][0],
+      pannedPlacements[index][1] - firstPlacements[index][1],
+      width,
+      height,
+    ]),
+    firstPlacements.map(([, , width, height]) => [25, -27, width, height]),
+    'camera movement only translates cached chunks; it never slides their internal cloud field',
+  );
 });
 
-test('cached and direct fog preserve absolute parity mirrors and per-fragment alpha overlap', () => {
+test('fog cache gutters preserve organic edges at signed chunk boundaries and reuse stably', () => {
   clearDiscoveryFogChunkCache();
-  const unknown = new Set(['5,0', '6,0']);
+  const pixelsPerCell = 40;
+  const hidden = new Set(['-16,0', '15,0']);
+  const cacheSurfaces = createCanvasFactorySpy();
+  const options = {
+    // Keep the explored neighbor beyond each signed chunk edge visible so the
+    // preserved halo is exercised inside the viewport, not outside its crop.
+    visibleBounds: { minX: -17, minY: 0, maxX: 16, maxY: 0 },
+    pixelsPerCell,
+    worldToScreen: ({ x, y }) => ({ x: x * pixelsPerCell, y: y * pixelsPerCell }),
+    assetStore: readyAssetStore([TERRAIN_LAYER_ASSET_KEYS.fog]),
+    isUndiscovered: (x, y) => hidden.has(`${x},${y}`),
+    canvasFactory: cacheSurfaces.factory,
+  };
+  const context = createContextSpy();
+  const first = drawAuthoredDiscoveryFog(context, options);
+  const callsAfterBuild = cacheSurfaces.canvases.map(({ context: cached }) => cached.calls.length);
+  const stable = drawAuthoredDiscoveryFog(createContextSpy(), options);
+
+  assert.equal(DISCOVERY_FOG_CACHE_MARGIN_CELLS, 0.15);
+  assert.equal(first.cacheMisses, 2);
+  assert.equal(stable.cacheHits, 2);
+  assert.equal(stable.cacheMisses, 0);
+  assert.equal(cacheSurfaces.canvases.length, 2);
+  assert.deepEqual(
+    cacheSurfaces.canvases.map(({ context: cached }) => cached.calls.length),
+    callsAfterBuild,
+    'a stable frame performs no new gutter rasterization',
+  );
+
+  const cacheCellPixels = pixelsPerCell;
+  const marginPixels = Math.ceil(DISCOVERY_FOG_CACHE_MARGIN_CELLS * cacheCellPixels - 1e-7);
+  const corePixels = DISCOVERY_FOG_CHUNK_CELLS * cacheCellPixels;
+  const organicXExtents = ({ context: cached }) => {
+    const start = cached.calls.findIndex(({ method }) => method === 'beginPath');
+    const end = cached.calls.findIndex((call, index) => index > start && call.method === 'fill');
+    const xs = [];
+    for (const { method, args } of cached.calls.slice(start + 1, end)) {
+      if (method === 'moveTo' || method === 'lineTo') xs.push(args[0]);
+      if (method === 'quadraticCurveTo') xs.push(args[0], args[2]);
+      if (method === 'bezierCurveTo') xs.push(args[0], args[2], args[4]);
+    }
+    return { min: Math.min(...xs), max: Math.max(...xs) };
+  };
+  const [negativeBoundary, positiveBoundary] = cacheSurfaces.canvases.map(organicXExtents);
+  assert.ok(negativeBoundary.min >= 0 && negativeBoundary.min < marginPixels,
+    'the lone negative-chunk boundary cell keeps its organic halo left of the core');
+  assert.ok(positiveBoundary.max > marginPixels + corePixels
+    && positiveBoundary.max <= cacheSurfaces.canvases[1].canvas.width,
+    'the lone positive-chunk boundary cell keeps its organic halo right of the core');
+
+  const composites = context.calls
+    .filter(({ method, args }) => method === 'drawImage'
+      && args[0]?.key?.startsWith('discovery-fog-cache-'))
+    .map(({ args }) => args.slice(1));
+  assert.equal(composites.length, 2);
+  assert.ok(Math.abs((composites[1][0] - composites[0][0]) - corePixels) < 1e-7,
+    'neighboring signed chunks remain anchored one core width apart');
+  assert.ok(Math.abs((composites[0][0] + composites[0][2]) - composites[1][0]
+    - marginPixels * 2) < 1e-7,
+    'neighboring cache gutters overlap continuously without a straight cut or gap');
+});
+
+test('cached and direct fog share one group alpha, joined seams, and 2x2 junction sealing', () => {
+  clearDiscoveryFogChunkCache();
+  const unknown = new Set(['0,0', '1,0', '0,1', '1,1']);
   const cacheSurfaces = createCanvasFactorySpy();
   const store = readyAssetStore([TERRAIN_LAYER_ASSET_KEYS.fog]);
   const baseOptions = {
-    visibleBounds: { minX: 5, minY: 0, maxX: 6, maxY: 0 },
+    visibleBounds: { minX: 0, minY: 0, maxX: 1, maxY: 1 },
     pixelsPerCell: 64,
-    pixelRatio: 2,
+    pixelRatio: 1,
     fogAlpha: 0.4,
     worldToScreen: ({ x, y }) => ({ x: x * 64, y: y * 64 }),
     assetStore: store,
@@ -298,23 +400,19 @@ test('cached and direct fog preserve absolute parity mirrors and per-fragment al
   assert.equal(cached.cacheMisses, 1);
   assert.equal(cacheSurfaces.canvases.length, 1);
   const internalContext = cacheSurfaces.canvases[0].context;
+  const internalDraws = internalContext.calls.filter(({ method, args }) => (
+    method === 'drawImage' && args[0]?.key === TERRAIN_LAYER_ASSET_KEYS.fog
+  ));
+  assert.equal(internalContext.calls.filter(({ method }) => method === 'fill').length, 2);
+  assert.deepEqual(internalDraws.map(({ globalAlpha }) => globalAlpha), [0.4],
+    'one group alpha reaches one macro texture instead of compounding four cell clouds');
   assert.deepEqual(
     internalContext.calls.filter(({ method }) => method === 'scale').map(({ args }) => args),
-    [[-1, 1], [1, 1]],
-    'world x=5 is mirrored and x=6 is not, even though the adaptive chunk starts at x=5',
+    [[1, 1]],
+    'the macro block owns one world-coordinate transform, not an AB cell pattern',
   );
-  const internalDraws = internalContext.calls.filter(({ method }) => method === 'drawImage');
-  assert.deepEqual(internalDraws.map(({ globalAlpha }) => globalAlpha), [0.4, 0.4],
-    'fogAlpha is applied to every authored fragment before overlap compositing');
-  const fragmentCenters = internalContext.calls
-    .filter(({ method }) => method === 'translate')
-    .map(({ args }) => args[0]);
-  assert.ok(internalDraws[0].args[3] > fragmentCenters[1] - fragmentCenters[0],
-    'the two independently translucent fragments physically overlap');
-  const overlapAlpha = 1 - ((1 - internalDraws[0].globalAlpha)
-    * (1 - internalDraws[1].globalAlpha));
-  assert.ok(Math.abs(overlapAlpha - 0.64) < 1e-9,
-    'two 0.4-alpha fragments compound to 0.64 instead of one 0.4-alpha group');
+  assert.equal(cached.sealedJunctions, 1,
+    'the central four-way crossing receives an explicit anti-pinhole patch');
   const cachedComposite = cachedContext.calls.find(({ method }) => method === 'drawImage');
   assert.equal(cachedComposite.globalAlpha, 1,
     'the main canvas does not apply fogAlpha to the already-composited chunk');
@@ -324,17 +422,27 @@ test('cached and direct fog preserve absolute parity mirrors and per-fragment al
     ...baseOptions,
     canvasFactory: () => null,
   });
-  assert.equal(direct.directAssetCells, 2);
-  assert.deepEqual(
-    directContext.calls.filter(({ method }) => method === 'scale').map(({ args }) => args),
-    [[-1, 1], [1, 1]],
-    'the no-offscreen path uses the same absolute-coordinate mirrors',
+  assert.equal(direct.directAssetCells, 4);
+  assert.equal(direct.sealedJunctions, 1);
+  assert.equal(directContext.calls.filter(({ method }) => method === 'fill').length, 2);
+  const directDraws = directContext.calls.filter(({ method, args }) => (
+    method === 'drawImage' && args[0]?.key === TERRAIN_LAYER_ASSET_KEYS.fog
+  ));
+  assert.deepEqual(directDraws.map(({ globalAlpha }) => globalAlpha), [0.4]);
+  const cacheMarginPixels = Math.ceil(
+    DISCOVERY_FOG_CACHE_MARGIN_CELLS * baseOptions.pixelsPerCell - 1e-7,
   );
+  const normalizedCachedPlacements = texturePlacements(
+    internalContext,
+    TERRAIN_LAYER_ASSET_KEYS.fog,
+  ).map((placement) => ({
+    ...placement,
+    translate: placement.translate.map((coordinate) => coordinate - cacheMarginPixels),
+  }));
   assert.deepEqual(
-    directContext.calls.filter(({ method }) => method === 'drawImage')
-      .map(({ globalAlpha }) => globalAlpha),
-    [0.4, 0.4],
-    'the no-offscreen path also applies alpha once per fragment',
+    texturePlacements(directContext, TERRAIN_LAYER_ASSET_KEYS.fog),
+    normalizedCachedPlacements,
+    'after removing the cache gutter, cached and direct paths share one world anchor and 8x6 rectangle',
   );
 
   const changedAlpha = drawAuthoredDiscoveryFog(createContextSpy(), {
@@ -353,36 +461,71 @@ test('cached and direct fog preserve absolute parity mirrors and per-fragment al
   assert.equal(cacheSurfaces.canvases.length, 2);
 });
 
-test('authored fog falls back per cell at 1.6 x 1.2 when offscreen canvas is unavailable', () => {
+test('missing-art no-offscreen fog remains a continuous joined mask without grid operations', () => {
   clearDiscoveryFogChunkCache();
   const ctx = createContextSpy();
-  const store = readyAssetStore([TERRAIN_LAYER_ASSET_KEYS.fog]);
   const result = drawAuthoredDiscoveryFog(ctx, {
-    visibleBounds: { minX: 0, minY: 0, maxX: 7, maxY: 0 },
+    visibleBounds: { minX: 0, minY: 0, maxX: 7, maxY: 1 },
     pixelsPerCell: 50,
     worldToScreen: ({ x, y }) => ({ x: x * 50, y: y * 50 }),
-    assetStore: store,
+    assetStore: readyAssetStore([]),
     isUndiscovered: () => true,
     canvasFactory: () => null,
   });
-  const fogDraws = ctx.calls.filter(({ method, args }) => (
-    method === 'drawImage' && args[0]?.key === TERRAIN_LAYER_ASSET_KEYS.fog
-  ));
 
   assert.deepEqual(result, {
-    cells: 8,
-    assetCells: 8,
-    fallbackCells: 0,
-    usedAsset: true,
+    cells: 16,
+    assetCells: 0,
+    fallbackCells: 16,
+    usedAsset: false,
     cachedChunks: 0,
-    directAssetCells: 8,
+    directAssetCells: 0,
     cacheHits: 0,
     cacheMisses: 0,
+    maskChunks: 1,
+    textureTiles: 0,
+    sealedJunctions: 7,
   });
-  assert.equal(fogDraws.length, 8, 'a continuous row remains eight overlapping sprites');
-  assert.ok(fogDraws.every(({ args }) => args[3] === 80 && args[4] === 60));
-  assert.equal(fogDraws.some(({ args }) => args[3] > 80), false,
-    'no source sprite is widened to the length of the undiscovered row');
+  assert.equal(ctx.calls.filter(({ method }) => method === 'drawImage').length, 0);
+  assert.equal(ctx.calls.filter(({ method }) => method === 'fillRect').length, 0);
+  assert.equal(ctx.calls.filter(({ method }) => method === 'fill').length, 2,
+    'sixteen hidden cells become one organic edge fill and one sealed concealment fill');
+  assert.ok(ctx.calls.filter(({ method }) => method === 'lineTo').length > 16 * 4,
+    'shared-edge strips and four-way patches explicitly close seams and crossing pinholes');
+});
+
+test('discovery cloud macro blocks stay absolutely anchored across negative coordinates and crops', () => {
+  const store = readyAssetStore([TERRAIN_LAYER_ASSET_KEYS.fog]);
+  const render = (visibleBounds) => {
+    const ctx = createContextSpy();
+    drawAuthoredDiscoveryFog(ctx, {
+      visibleBounds,
+      pixelsPerCell: 10,
+      worldToScreen: ({ x, y }) => ({ x: 100 + x * 10, y: 200 + y * 10 }),
+      assetStore: store,
+      isUndiscovered: () => true,
+      canvasFactory: () => null,
+    });
+    return texturePlacements(ctx, TERRAIN_LAYER_ASSET_KEYS.fog);
+  };
+  const wide = render({ minX: -17, minY: -13, maxX: 17, maxY: 13 });
+  const cropped = render({ minX: -9, minY: -7, maxX: 9, maxY: 7 });
+  const placementKey = ({ translate, scale, draw }) => JSON.stringify({ translate, scale, draw });
+  const wideKeys = new Set(wide.map(placementKey));
+
+  assert.equal(DISCOVERY_CLOUD_TEXTURE_PERIOD_X_CELLS, 8);
+  assert.equal(DISCOVERY_CLOUD_TEXTURE_PERIOD_Y_CELLS, 6);
+  assert.ok(cropped.every((placement) => wideKeys.has(placementKey(placement))),
+    'cropping visible bounds may remove macro blocks but cannot reposition shared ones');
+  for (const { translate, scale, draw } of wide) {
+    const macroX = (translate[0] - 100) / 10 / 8 - 0.5;
+    const macroY = (translate[1] - 200) / 10 / 6 - 0.5;
+    assert.ok(Number.isInteger(macroX));
+    assert.ok(Number.isInteger(macroY));
+    assert.deepEqual(scale, [Math.abs(macroX % 2) === 1 ? -1 : 1,
+      Math.abs(macroY % 2) === 1 ? -1 : 1]);
+    assert.deepEqual(draw.slice(2), [80, 60]);
+  }
 });
 
 test('minimum-zoom 1280x720 terrain keeps macro texture and dense fog draw calls bounded', () => {
@@ -417,6 +560,56 @@ test('minimum-zoom 1280x720 terrain keeps macro texture and dense fog draw calls
   );
   assert.equal(ground.groundTextureTiles, macroTextureDraws);
 
+  const waterContext = createContextSpy();
+  const water = drawOrganicTerrainProps(waterContext, {
+    visibleBounds: bounds,
+    pixelsPerCell,
+    worldToScreen,
+    assetStore: readyAssetStore([TERRAIN_ASSET_KEYS['deep-water']]),
+    terrainAt: (x, y) => ({
+      kind: 'indestructible',
+      terrainId: 'deep-water',
+      x,
+      y,
+    }),
+  });
+  const waterTextureDraws = waterContext.calls.filter(({ method, args }) => (
+    method === 'drawImage' && args[0]?.key === TERRAIN_ASSET_KEYS['deep-water']
+  )).length;
+  assert.equal(water.waterTextureTiles, waterTextureDraws);
+  assert.equal(water.waterAssetDraws, waterTextureDraws);
+  assert.equal(water.assetDraws, waterTextureDraws,
+    'water assetDraws counts actual authored PNG draws, not one asset-store lookup');
+  assert.equal(
+    waterTextureDraws,
+    70,
+    'only visible water selects the ten-by-seven anchored macro blocks; halo selects none',
+  );
+  assert.equal(water.waterInteriorCells, water.water);
+  assert.equal(water.waterOrganicCells, 0,
+    'a fully flooded screen never rebuilds an organic Bezier blob per cell');
+  assert.equal(water.waterInteriorRuns, 23,
+    'the 851 interior cells collapse into one batched rectangle per visible row');
+  assert.equal(water.waterMaskInteriorCells, water.water);
+  assert.equal(water.waterMaskOrganicCells, 0);
+  const waterPathMethods = new Set([
+    'beginPath', 'bezierCurveTo', 'clip', 'closePath', 'fill', 'lineTo', 'moveTo',
+    'quadraticCurveTo', 'rect', 'stroke',
+  ]);
+  const waterPathCalls = waterContext.calls.filter(({ method }) => (
+    waterPathMethods.has(method)
+  )).length;
+  assert.ok(
+    waterContext.calls.length <= 1500,
+    `one fully flooded screen stays under 1,500 Canvas API calls, got ${waterContext.calls.length}`,
+  );
+  assert.ok(
+    waterPathCalls <= 500,
+    `batched base and mask paths stay under 500 path calls, got ${waterPathCalls}`,
+  );
+  assert.ok(water.waterRipples <= Math.ceil(water.water * 0.12),
+    'sparse ripple decoration stays bounded even on a fully flooded screen');
+
   clearDiscoveryFogChunkCache();
   const cacheSurfaces = createCanvasFactorySpy();
   const fogOptions = {
@@ -445,9 +638,13 @@ test('minimum-zoom 1280x720 terrain keeps macro texture and dense fog draw calls
     fogDraws <= 12,
     `dense discovery fog may composite at most 12 visible chunks per screen, got ${fogDraws}`,
   );
-  assert.equal(fog.assetCells, fogDraws);
+  assert.equal(fog.assetCells, fog.cells);
   assert.equal(fog.cachedChunks, fogDraws);
+  assert.equal(fog.maskChunks, fogDraws);
   assert.equal(fog.cacheMisses, fogDraws);
+  assert.equal(fog.textureTiles, internalDrawsAfterBuild);
+  assert.ok(fog.textureTiles < fog.cells / 4,
+    '8x6 cloud blocks stay dramatically sparser than the hidden-cell count');
   assert.equal(stableFog.cacheHits, fogDraws);
   assert.equal(stableFog.cacheMisses, 0);
   assert.equal(stableContext.calls.filter(({ method }) => method === 'drawImage').length, fogDraws);
@@ -458,7 +655,7 @@ test('minimum-zoom 1280x720 terrain keeps macro texture and dense fog draw calls
   assert.ok(cacheSurfaces.canvases.every(({ canvas }) => (
     canvas.width <= DISCOVERY_FOG_CACHE_TARGET_PIXELS
       && canvas.height <= DISCOVERY_FOG_CACHE_TARGET_PIXELS
-  )), 'normal margin-inclusive fog caches stay within the adaptive surface target');
+  )), 'normal full-resolution fog caches stay within the adaptive surface target');
 });
 
 test('fog cache adapts chunk size while matching zoom and DPR physical resolution', () => {
@@ -490,21 +687,29 @@ test('fog cache adapts chunk size while matching zoom and DPR physical resolutio
     assert.equal(cacheSurfaces.canvases.length, 1);
 
     const { canvas, context } = cacheSurfaces.canvases[0];
-    const internalDraws = context.calls.filter(({ method }) => method === 'drawImage');
-    const chunkCells = Math.sqrt(internalDraws.length);
+    const internalDraws = context.calls.filter(({ method, args }) => (
+      method === 'drawImage' && args[0]?.key === TERRAIN_LAYER_ASSET_KEYS.fog
+    ));
     const physicalCellPixels = Math.ceil(
       renderCase.pixelsPerCell * renderCase.pixelRatio,
     );
+    const marginPixels = Math.max(
+      1,
+      Math.ceil(DISCOVERY_FOG_CACHE_MARGIN_CELLS * physicalCellPixels - 1e-7),
+    );
+    const chunkCells = (canvas.width - marginPixels * 2) / physicalCellPixels;
     assert.ok(Number.isInteger(chunkCells));
     assert.ok(chunkCells <= previousChunkCells,
       'higher physical resolution never grows the cached world chunk');
     assert.ok(physicalCellPixels >= renderCase.pixelsPerCell * renderCase.pixelRatio);
     assert.ok(internalDraws.every(({ args }) => (
-      args[3] === physicalCellPixels * 1.6
-        && args[4] === physicalCellPixels * 1.2
-    )), 'cache rasterization is at least as sharp as final direct physical drawing');
-    assert.equal(canvas.width, Math.ceil((chunkCells + 0.6) * physicalCellPixels));
-    assert.equal(canvas.height, Math.ceil((chunkCells + 0.2) * physicalCellPixels));
+      args[3] === physicalCellPixels * DISCOVERY_CLOUD_TEXTURE_PERIOD_X_CELLS
+        && args[4] === physicalCellPixels * DISCOVERY_CLOUD_TEXTURE_PERIOD_Y_CELLS
+    )), 'cache rasterizes each macro texture at the final physical world scale');
+    assert.equal(canvas.width, chunkCells * physicalCellPixels + marginPixels * 2);
+    assert.equal(canvas.height, chunkCells * physicalCellPixels + marginPixels * 2);
+    assert.ok(marginPixels / physicalCellPixels >= DISCOVERY_FOG_CACHE_MARGIN_CELLS,
+      'the physical gutter never rounds below the required organic-mask margin');
     assert.ok(canvas.width <= DISCOVERY_FOG_CACHE_TARGET_PIXELS);
     assert.ok(canvas.height <= DISCOVERY_FOG_CACHE_TARGET_PIXELS);
     previousChunkCells = chunkCells;
@@ -561,14 +766,19 @@ test('fog cache keys include raster resolution even when adaptive chunk size is 
   assert.equal(render(2).cacheHits, 1);
   assert.equal(cacheSurfaces.canvases.length, 2);
   assert.equal(
-    Math.sqrt(cacheSurfaces.canvases[0].context.calls
-      .filter(({ method }) => method === 'drawImage').length),
-    DISCOVERY_FOG_CHUNK_CELLS,
+    cacheSurfaces.canvases[0].canvas.width,
+    20 * DISCOVERY_FOG_CHUNK_CELLS
+      + Math.ceil(20 * DISCOVERY_FOG_CACHE_MARGIN_CELLS - 1e-7) * 2,
   );
   assert.equal(
-    Math.sqrt(cacheSurfaces.canvases[1].context.calls
-      .filter(({ method }) => method === 'drawImage').length),
-    DISCOVERY_FOG_CHUNK_CELLS,
+    cacheSurfaces.canvases[1].canvas.width,
+    40 * DISCOVERY_FOG_CHUNK_CELLS
+      + Math.ceil(40 * DISCOVERY_FOG_CACHE_MARGIN_CELLS - 1e-7) * 2,
+  );
+  assert.equal(
+    cacheSurfaces.canvases[1].context.calls.filter(({ method }) => method === 'drawImage').length,
+    cacheSurfaces.canvases[0].context.calls.filter(({ method }) => method === 'drawImage').length,
+    'DPR changes cache resolution without changing absolute macro-cloud density',
   );
 });
 
@@ -579,7 +789,7 @@ test('fog cache never downsamples when one high-DPR cell exceeds its surface bud
   const oneCellCache = createCanvasFactorySpy();
   const withinHardLimit = drawAuthoredDiscoveryFog(createContextSpy(), {
     visibleBounds: { minX: 0, minY: 0, maxX: 0, maxY: 0 },
-    pixelsPerCell: 250,
+    pixelsPerCell: 390,
     pixelRatio: 2,
     assetStore: store,
     isUndiscovered: () => true,
@@ -592,7 +802,8 @@ test('fog cache never downsamples when one high-DPR cell exceeds its surface bud
   assert.deepEqual(
     oneCellCache.canvases[0].context.calls
       .find(({ method }) => method === 'drawImage').args.slice(3, 5),
-    [500 * 1.6, 500 * 1.2],
+    [780 * DISCOVERY_CLOUD_TEXTURE_PERIOD_X_CELLS,
+      780 * DISCOVERY_CLOUD_TEXTURE_PERIOD_Y_CELLS],
   );
 
   clearDiscoveryFogChunkCache();
@@ -600,7 +811,7 @@ test('fog cache never downsamples when one high-DPR cell exceeds its surface bud
   const directContext = createContextSpy();
   const aboveHardLimit = drawAuthoredDiscoveryFog(directContext, {
     visibleBounds: { minX: 0, minY: 0, maxX: 0, maxY: 0 },
-    pixelsPerCell: 350,
+    pixelsPerCell: 600,
     pixelRatio: 2,
     assetStore: store,
     isUndiscovered: () => true,
@@ -611,7 +822,10 @@ test('fog cache never downsamples when one high-DPR cell exceeds its surface bud
   assert.equal(tooLargeCache.canvases.length, 0,
     'a too-large cache is skipped rather than allocating or lowering resolution');
   const directDraw = directContext.calls.find(({ method }) => method === 'drawImage');
-  assert.deepEqual(directDraw.args.slice(3, 5), [350 * 1.6, 350 * 1.2]);
+  assert.deepEqual(directDraw.args.slice(3, 5), [
+    600 * DISCOVERY_CLOUD_TEXTURE_PERIOD_X_CELLS,
+    600 * DISCOVERY_CLOUD_TEXTURE_PERIOD_Y_CELLS,
+  ]);
   assert.ok(directDraw.args[3] * 2 > DISCOVERY_FOG_CACHE_MAX_PIXELS,
     'the main canvas retains the full final physical sprite width');
 });
@@ -645,8 +859,11 @@ test('revealing one cell invalidates only its signed fog chunk', () => {
     'the changed content signature replaces that chunk cache exactly once');
   assert.equal(
     cacheSurfaces.canvases[1].context.calls.filter(({ method }) => method === 'drawImage').length,
-    255,
+    Math.ceil(DISCOVERY_FOG_CHUNK_CELLS / DISCOVERY_CLOUD_TEXTURE_PERIOD_X_CELLS)
+      * Math.ceil(DISCOVERY_FOG_CHUNK_CELLS / DISCOVERY_CLOUD_TEXTURE_PERIOD_Y_CELLS),
+    'revealing a cell rebuilds the same sparse macro texture, never 255 cell clouds',
   );
+  assert.equal(cacheSurfaces.canvases[1].context.calls.filter(({ method }) => method === 'fill').length, 2);
 });
 
 test('discovery fog cache is a fixed-capacity LRU', () => {
@@ -1029,26 +1246,285 @@ test('authored prop PNGs are preferred while an unavailable key keeps the vector
     'the missing boulder PNG is still rendered by its multi-layer Canvas fallback');
 });
 
-test('joined deep water uses one clipped PNG texture per component, never one pond sprite per cell', () => {
-  const ctx = createContextSpy();
-  const store = readyAssetStore(['terrain-deep-water-patch-a']);
-  const result = drawOrganicTerrainProps(ctx, {
-    ...optionsFor([[
-      { kind: 'indestructible', terrainId: 'deep-water', visualVariant: 2 },
-      { kind: 'indestructible', terrainId: 'deep-water', visualVariant: 1 },
-      'ground',
-      { kind: 'indestructible', terrainId: 'deep-water', visualVariant: 3 },
-    ]]),
-    assetStore: store,
-  });
+test('deep-water macro texture is fixed to absolute world coordinates across visible bounds', () => {
+  const waterCells = new Set();
+  for (let y = 5; y <= 10; y += 1) {
+    for (let x = 9; x <= 14; x += 1) waterCells.add(`${x},${y}`);
+  }
+  const terrainAt = (x, y) => waterCells.has(`${x},${y}`)
+    ? { kind: 'indestructible', terrainId: 'deep-water', x, y }
+    : { kind: 'ground', x, y };
+  const worldToScreen = ({ x, y }) => ({ x: 17 + x * 50, y: 23 + y * 50 });
+  const render = (visibleBounds) => {
+    const ctx = createContextSpy();
+    const store = readyAssetStore([TERRAIN_ASSET_KEYS['deep-water']]);
+    const result = drawOrganicTerrainProps(ctx, {
+      visibleBounds,
+      pixelsPerCell: 50,
+      worldToScreen,
+      terrainAt,
+      assetStore: store,
+    });
+    return { ctx, store, result };
+  };
+  const wide = render({ minX: 9, minY: 5, maxX: 14, maxY: 10 });
+  const cropped = render({ minX: 10, minY: 6, maxX: 13, maxY: 9 });
+  const widePlacements = texturePlacements(wide.ctx, TERRAIN_ASSET_KEYS['deep-water']);
+  const croppedPlacements = texturePlacements(cropped.ctx, TERRAIN_ASSET_KEYS['deep-water']);
 
-  assert.equal(result.water, 3);
-  assert.equal(result.waterTextureComponents, 2);
-  assert.deepEqual(store.requested, ['terrain-deep-water-patch-a', 'terrain-deep-water-patch-a']);
-  assert.equal(ctx.calls.filter(({ method }) => method === 'drawImage').length, 2);
-  assert.equal(ctx.calls.filter(({ method }) => method === 'clip').length, 2);
-  assert.equal(result.boundarySegments, 10,
-    'the two joined cells omit their shared edge while the isolated pool keeps four edges');
+  assert.equal(WATER_TEXTURE_PERIOD_X_CELLS, 4);
+  assert.equal(WATER_TEXTURE_PERIOD_Y_CELLS, 4);
+  assert.deepEqual(croppedPlacements, widePlacements,
+    'cropping the same lake cannot recenter, rescale, or re-mirror its macro water detail');
+  assert.equal(widePlacements.length, 4);
+  assert.ok(widePlacements.every(({ draw }) => (
+    draw.length === 4 && draw[2] === 200 && draw[3] === 200
+  )), 'every authored water draw keeps one exact, non-overlapping 4x4-cell destination');
+  assert.deepEqual(
+    new Set(widePlacements.map(({ scale }) => scale.join(','))),
+    new Set(['1,-1', '-1,-1', '1,1', '-1,1']),
+    'signed macro parity mirrors both axes so adjoining transparent edge pixels meet',
+  );
+  assert.deepEqual(wide.store.requested, [TERRAIN_ASSET_KEYS['deep-water']],
+    'all visible water components share one authored texture pass');
+  assert.deepEqual(cropped.store.requested, [TERRAIN_ASSET_KEYS['deep-water']]);
+  assert.equal(wide.result.waterTextureComponents, 1);
+  assert.equal(wide.result.waterTextureTiles, 4);
+  assert.equal(wide.result.waterAssetDraws, 4);
+  assert.equal(wide.result.assetDraws, 4);
+  assert.equal(wide.ctx.calls.filter(({ method }) => method === 'clip').length, 2,
+    'water is clipped to both the visible projection and its connected shoreline mask');
+
+  const negativeContext = createContextSpy();
+  drawOrganicTerrainProps(negativeContext, {
+    visibleBounds: { minX: -1, minY: -1, maxX: -1, maxY: -1 },
+    pixelsPerCell: 50,
+    worldToScreen,
+    terrainAt: (x, y) => ({
+      kind: x === -1 && y === -1 ? 'indestructible' : 'ground',
+      terrainId: x === -1 && y === -1 ? 'deep-water' : 'ground',
+      x,
+      y,
+    }),
+    assetStore: readyAssetStore([TERRAIN_ASSET_KEYS['deep-water']]),
+  });
+  assert.deepEqual(
+    texturePlacements(negativeContext, TERRAIN_ASSET_KEYS['deep-water']),
+    [{ translate: [-83, -77], scale: [-1, -1], draw: [-100, -100, 200, 200] }],
+    'floor-based signed macro coordinates keep the -1,-1 water cell in the anchored -1,-1 tile',
+  );
+});
+
+test('three-way and four-way water vertices receive matching base and texture-mask patches', () => {
+  const configurations = [
+    {
+      name: 'four-way',
+      tiles: [
+        ['deep-water', 'deep-water'],
+        ['deep-water', 'deep-water'],
+      ],
+    },
+    {
+      name: 'three-way',
+      tiles: [
+        ['deep-water', 'deep-water'],
+        ['deep-water', 'ground'],
+      ],
+    },
+  ];
+
+  for (const configuration of configurations) {
+    const ctx = createContextSpy();
+    const result = drawOrganicTerrainProps(ctx, {
+      ...optionsFor(configuration.tiles, 100),
+      assetStore: readyAssetStore([TERRAIN_ASSET_KEYS['deep-water']]),
+    });
+    assert.equal(result.waterJunctionPatches, 1, `${configuration.name} base fill`);
+    assert.equal(result.waterTextureJunctionPatches, 1, `${configuration.name} texture mask`);
+    assert.equal(ctx.calls.filter(({ method }) => method === 'clip').length, 2);
+    assert.ok(ctx.calls.filter(({ method }) => method === 'rect').length >= 2,
+      `${configuration.name} seals the base and texture mask without a vertex pinhole`);
+  }
+
+  const croppedContext = createContextSpy();
+  const cropped = drawOrganicTerrainProps(croppedContext, {
+    visibleBounds: { minX: 0, minY: 0, maxX: 0, maxY: 0 },
+    pixelsPerCell: 100,
+    worldToScreen: ({ x, y }) => ({ x: x * 100, y: y * 100 }),
+    terrainAt: (x, y) => ({ kind: 'indestructible', terrainId: 'deep-water', x, y }),
+    assetStore: readyAssetStore([TERRAIN_ASSET_KEYS['deep-water']]),
+  });
+  assert.equal(cropped.water, 1, 'public terrain work remains scoped to the visible bounds');
+  assert.equal(cropped.waterInteriorCells, 1,
+    'the halo preserves four-neighbor topology for the one visible water cell');
+  assert.equal(cropped.waterOrganicCells, 0);
+  assert.equal(cropped.waterJunctionPatches, 0,
+    'halo topology cannot add an offscreen junction patch to the visible workload');
+  assert.equal(cropped.waterTextureJunctionPatches, 0);
+  assert.equal(cropped.waterTextureTiles, 1,
+    'halo cells around world origin cannot request negative macro blocks');
+  assert.deepEqual(
+    texturePlacements(croppedContext, TERRAIN_ASSET_KEYS['deep-water']),
+    [{ translate: [200, 200], scale: [1, 1], draw: [-200, -200, 400, 400] }],
+  );
+});
+
+test('water texture mask joins an organic boundary cell to an interior cell in every direction', () => {
+  const interior = { x: 0, y: 0 };
+  const waterCells = new Set([
+    '0,0', '-1,0', '1,0', '0,-1', '0,1',
+  ]);
+  const configurations = [
+    {
+      name: 'boundary right of interior',
+      boundary: { x: 1, y: 0 },
+      connector: [
+        ['moveTo', [50, 15]],
+        ['lineTo', [150, 15]],
+        ['lineTo', [150, 85]],
+        ['lineTo', [50, 85]],
+        ['closePath', []],
+      ],
+    },
+    {
+      name: 'boundary left of interior',
+      boundary: { x: -1, y: 0 },
+      connector: [
+        ['moveTo', [-50, 15]],
+        ['lineTo', [50, 15]],
+        ['lineTo', [50, 85]],
+        ['lineTo', [-50, 85]],
+        ['closePath', []],
+      ],
+    },
+    {
+      name: 'boundary below interior',
+      boundary: { x: 0, y: 1 },
+      connector: [
+        ['moveTo', [15, 50]],
+        ['lineTo', [15, 150]],
+        ['lineTo', [85, 150]],
+        ['lineTo', [85, 50]],
+        ['closePath', []],
+      ],
+    },
+    {
+      name: 'boundary above interior',
+      boundary: { x: 0, y: -1 },
+      connector: [
+        ['moveTo', [15, -50]],
+        ['lineTo', [15, 50]],
+        ['lineTo', [85, 50]],
+        ['lineTo', [85, -50]],
+        ['closePath', []],
+      ],
+    },
+  ];
+
+  for (const configuration of configurations) {
+    const ctx = createContextSpy();
+    const result = drawOrganicTerrainProps(ctx, {
+      visibleBounds: {
+        minX: Math.min(interior.x, configuration.boundary.x),
+        minY: Math.min(interior.y, configuration.boundary.y),
+        maxX: Math.max(interior.x, configuration.boundary.x),
+        maxY: Math.max(interior.y, configuration.boundary.y),
+      },
+      pixelsPerCell: 100,
+      worldToScreen: ({ x, y }) => ({ x: x * 100, y: y * 100 }),
+      terrainAt: (x, y) => ({
+        kind: waterCells.has(`${x},${y}`) ? 'indestructible' : 'ground',
+        terrainId: waterCells.has(`${x},${y}`) ? 'deep-water' : 'ground',
+        x,
+        y,
+      }),
+      assetStore: readyAssetStore([TERRAIN_ASSET_KEYS['deep-water']]),
+    });
+    assert.equal(result.waterInteriorCells, 1, configuration.name);
+    assert.equal(result.waterOrganicCells, 1, configuration.name);
+    const clipIndices = ctx.calls.flatMap(({ method }, index) => (
+      method === 'clip' ? [index] : []
+    ));
+    assert.equal(clipIndices.length, 2, configuration.name);
+    const maskClipIndex = clipIndices[1];
+    let maskStartIndex = maskClipIndex - 1;
+    while (maskStartIndex >= 0 && ctx.calls[maskStartIndex].method !== 'beginPath') {
+      maskStartIndex -= 1;
+    }
+    const maskCalls = ctx.calls.slice(maskStartIndex + 1, maskClipIndex);
+    const connectorFound = maskCalls.some((_, startIndex) => (
+      configuration.connector.every(([method, args], offset) => {
+        const call = maskCalls[startIndex + offset];
+        return call?.method === method && JSON.stringify(call.args) === JSON.stringify(args);
+      })
+    ));
+    assert.equal(connectorFound, true,
+      `${configuration.name} retains a full-width texture connector instead of exposing flat fill`);
+  }
+});
+
+test('water ripples are sparse, world-stable, and animated instead of repeating once per cell', () => {
+  const size = 20;
+  const tiles = Array.from({ length: size }, () => Array(size).fill('deep-water'));
+  const render = (time) => {
+    const ctx = createContextSpy();
+    const result = drawOrganicTerrainProps(ctx, {
+      ...optionsFor(tiles, 48),
+      time,
+    });
+    return { ctx, result, ripples: waterRippleRecords(ctx) };
+  };
+  const first = render(0.25);
+  const later = render(1.25);
+
+  assert.equal(WATER_RIPPLE_DENSITY, 0.09);
+  assert.ok(first.result.waterRipples > 0);
+  assert.ok(first.result.waterRipples <= first.result.water * 0.12,
+    'roughly nine percent of water cells receive a ripple');
+  assert.equal(first.ripples.length, first.result.waterRipples);
+  assert.equal(later.ripples.length, first.result.waterRipples);
+  assert.deepEqual(
+    later.ripples.map(({ translate }) => translate),
+    first.ripples.map(({ translate }) => translate),
+    'hash-selected ripple cells and offsets remain fixed in world space',
+  );
+  assert.notDeepEqual(
+    later.ripples.map(({ curve }) => curve),
+    first.ripples.map(({ curve }) => curve),
+    'the retained sparse ripples still animate over time',
+  );
+  const rippleCells = first.ripples.map(({ translate }) => ({
+    x: Math.floor((translate[0] - 18) / 48),
+    y: Math.floor((translate[1] - 26) / 48),
+  }));
+  for (let left = 0; left < rippleCells.length; left += 1) {
+    for (let right = left + 1; right < rippleCells.length; right += 1) {
+      const dx = Math.abs(rippleCells[left].x - rippleCells[right].x);
+      const dy = Math.abs(rippleCells[left].y - rippleCells[right].y);
+      assert.ok(Math.max(dx, dy) > 1,
+        `ripples at ${JSON.stringify(rippleCells[left])} and ${JSON.stringify(rippleCells[right])} need a one-cell moat`);
+    }
+  }
+  const countInWindow = (startX, startY, width, height) => rippleCells.filter(({ x, y }) => (
+    x >= startX && x < startX + width && y >= startY && y < startY + height
+  )).length;
+  for (let y = 0; y < size - 1; y += 1) {
+    for (let x = 0; x < size - 1; x += 1) {
+      assert.ok(countInWindow(x, y, 2, 2) <= 1,
+        `2x2 water window at ${x},${y} cannot contain a four-ripple cluster`);
+    }
+  }
+  for (let y = 0; y < size - 3; y += 1) {
+    for (let x = 0; x < size - 3; x += 1) {
+      assert.ok(countInWindow(x, y, 4, 4) <= 4,
+        `4x4 water window at ${x},${y} cannot contain an eleven-ripple cluster`);
+    }
+  }
+  assert.equal(
+    first.ctx.calls.filter(({ method }) => method === 'stroke').length,
+    first.result.boundarySegments + first.result.waterRipples,
+    'no hidden per-cell wave stroke remains after the sparse ripple pass',
+  );
 });
 
 test('ground-detail PNG scatter is sparse and deterministic at the same world coordinates', () => {

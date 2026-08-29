@@ -400,6 +400,13 @@ test('authored world surface, daylight fog, and prop shadow are critical runtime
     assert.equal(WECHAT_CRITICAL_ASSET_KEYS.includes(id), true);
     assert.equal(typeof ASSET_PATHS[id], 'string');
   }
+
+  const fog = PROJECT_ASSET_SPEC.assets.find(({ id }) => id === 'terrain-discovery-fog-cell-v1');
+  assert.equal(fog.filename, 'terrain-discovery-cloud-field-v2.png');
+  assert.match(fog.runtimeDisplaySize, /8×6世界格.*绝对世界坐标/);
+  assert.match(fog.brief, /连续云带/);
+  assert.match(fog.brief, /不出现液体色带/);
+  assert.match(ASSET_PATHS[fog.id], /terrain-discovery-cloud-field-v2\.png/);
 });
 
 test('shield break has a generated critical effect asset', () => {
@@ -430,6 +437,19 @@ test('organic terrain PNG contracts stay transparent and match the colony source
     assert.equal(asset.category, 'terrain');
     assert.equal(asset.transparent, true);
     assert.deepEqual(asset.recommendedCanvas, { width: 512, height: 512 });
+  }
+
+  const water = terrainAssets.find(({ id }) => id === 'terrain-deep-water-patch-a');
+  assert.equal(water.width, 512);
+  assert.equal(water.height, 512);
+  assert.equal(water.filename, 'terrain-deep-water-surface-overlay-v3.png');
+  assert.match(water.runtimeDisplaySize, /4×4世界格.*绝对世界坐标/);
+  assert.match(water.view, /内部材质层/);
+  assert.match(water.brief, /不包含完整水洼/);
+  assert.match(water.brief, /闭合外轮廓/);
+  assert.match(ASSET_PATHS[water.id], /terrain-deep-water-surface-overlay-v3\.png/);
+
+  for (const asset of terrainAssets.filter(({ id }) => id !== water.id)) {
     assert.match(asset.runtimeDisplaySize, /逻辑像素/);
     assert.match(asset.view, /对齐地面格中心/);
     assert.match(asset.brief, /方块/);

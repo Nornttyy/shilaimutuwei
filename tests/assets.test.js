@@ -14,6 +14,8 @@ import {
   verifyAssets,
 } from '../scripts/verify-assets.mjs';
 import {
+  ALL_RUNTIME_ASSET_KEYS,
+  ASSET_CACHE_VERSION,
   ASSET_LOAD_TIMEOUT_MS,
   ASSET_PATHS,
   ASSET_PRELOAD_CONCURRENCY,
@@ -22,6 +24,13 @@ import {
   INFINITE_WORLD_ASSET_KEYS,
   createAssetStore,
 } from '../src/assets.js';
+import {
+  createBrowserStartup,
+  createDomLoadingView,
+  criticalPreloadSucceeded,
+  REQUIRED_RIG_OWNER_IDS,
+  rigPreloadSucceeded,
+} from '../src/main.js';
 import { WECHAT_CRITICAL_ASSET_KEYS } from '../src/platform/wechat-entry.js';
 
 const PROJECT_ROOT = fileURLToPath(new URL('../', import.meta.url));
@@ -198,6 +207,7 @@ test('runtime asset map covers all 125 canonical nested paths and three aliases'
       new URL(ASSET_PATHS[asset.id]).pathname.endsWith(`/${asset.path}`),
       `unexpected runtime path for ${asset.id}: ${ASSET_PATHS[asset.id]}`,
     );
+    assert.equal(new URL(ASSET_PATHS[asset.id]).searchParams.get('v'), ASSET_CACHE_VERSION);
   }
   assert.equal(Object.keys(ASSET_PATHS).length, 128);
   assert.equal(ASSET_PATHS['scene-gel-garden'], ASSET_PATHS['background-garden-base']);
@@ -500,22 +510,19 @@ test('every generated autotile frame has only its declared cardinal edge connect
   }
 });
 
-test('browser startup waits only for first-screen art and leaves the rest on demand', async () => {
+test('browser startup gates game construction on every critical PNG and retries failures', async () => {
   const source = await readFile(path.join(PROJECT_ROOT, 'src/main.js'), 'utf8');
   assert.match(source, /import \{[\s\S]*createAssetStore,[\s\S]*\} from '\.\/assets\.js';/);
-  assert.match(source, /game\.setAssetStore\(assetStore\)|game\.assetStore = assetStore/);
+  assert.match(source, /ALL_RUNTIME_ASSET_KEYS/);
+  assert.match(source, /url: versionedBrowserUrl\('\.\.\/assets\/rig-parts\.json'\)/);
+  assert.match(source, /resolvePath: \(assetPath\) => versionedBrowserUrl\(`\.\.\/\$\{assetPath\}`\)/);
   assert.match(source, /hostname: window\.location\.hostname/);
-  assert.match(source, /const STARTUP_WAIT_MS = 8000/);
-  assert.match(source, /game\.setGeneratedCharacterArtEnabled\(useGeneratedCharacterArt\)/);
-  assert.match(source, /Promise\.race\(\[criticalAssets, startupBudget\]\)/);
-  assert.match(source, /keys: CRITICAL_STARTUP_ASSET_KEYS/);
-  const criticalPreloadIndex = source.indexOf('assetStore.preload({');
-  const attachRigIndex = source.indexOf('game.setRigAssetStore(store)');
-  const preloadRigIndex = source.indexOf('await store.preload()');
-  const startIndex = source.indexOf('game.start()');
-  assert.ok(criticalPreloadIndex >= 0 && criticalPreloadIndex < startIndex);
-  assert.equal(source.includes('assetStore.preload()'), false, 'startup must not download every PNG');
-  assert.ok(attachRigIndex >= 0 && attachRigIndex < preloadRigIndex);
+  assert.doesNotMatch(source, /Promise\.race/);
+  assert.equal(ALL_RUNTIME_ASSET_KEYS.length, 125);
+  assert.equal(new Set(ALL_RUNTIME_ASSET_KEYS).size, ALL_RUNTIME_ASSET_KEYS.length);
+  ALL_RUNTIME_ASSET_KEYS.forEach((key) => {
+    assert.equal(typeof ASSET_PATHS[key], 'string', `runtime asset ${key}`);
+  });
   assert.ok(CRITICAL_STARTUP_ASSET_KEYS.length >= 20);
   assert.deepEqual(
     WECHAT_CRITICAL_ASSET_KEYS,
@@ -525,6 +532,249 @@ test('browser startup waits only for first-screen art and leaves the rest on dem
   CRITICAL_STARTUP_ASSET_KEYS.forEach((key) => {
     assert.equal(typeof ASSET_PATHS[key], 'string', `critical asset ${key}`);
   });
+
+  const attempts = new Map();
+  const criticalKeys = ['critical-a', 'critical-b'];
+  const assetStore = createAssetStore(
+    { 'critical-a': 'a.png', 'critical-b': 'b.png' },
+    {
+      resolvePath: (value) => value,
+      imageFactory: (key) => {
+        const attempt = (attempts.get(key) || 0) + 1;
+        attempts.set(key, attempt);
+        return fakeImage({ fails: key === 'critical-b' && attempt <= 2 });
+      },
+    },
+  );
+  const viewEvents = [];
+  const progressEvents = [];
+  let retry = null;
+  const loadingView = {
+    onRetry(handler) { retry = handler; },
+    showLoading(total) { viewEvents.push(['loading', total]); },
+    setProgress(progress) {
+      progressEvents.push(progress);
+      viewEvents.push(['progress', progress.completed, progress.total]);
+    },
+    showFailure(details) { viewEvents.push(['failure', details]); },
+    showReady(total) { viewEvents.push(['ready', total]); },
+    hide() { viewEvents.push(['hidden']); },
+  };
+  let gameCreations = 0;
+  let gameStarts = 0;
+  let exposedGame = null;
+  const controller = createBrowserStartup({
+    canvas: { id: 'game' },
+    loadingView,
+    assetStore,
+    criticalKeys,
+    createGame: (_canvas, options) => {
+      gameCreations += 1;
+      assert.equal(options.assetStore, assetStore);
+      assert.equal(assetStore.status('critical-a').status, 'loaded');
+      assert.equal(assetStore.status('critical-b').status, 'loaded');
+      return {
+        setAssetStore(store) { assert.equal(store, assetStore); },
+        setGeneratedCharacterArtEnabled() {},
+        start() { gameStarts += 1; },
+      };
+    },
+    requestFrame: (callback) => callback(),
+    exposeGame: (game) => { exposedGame = game; },
+  });
+
+  assert.equal(await controller.start(), null);
+  assert.equal(gameCreations, 0, 'a failed critical PNG must prevent even game construction');
+  assert.equal(gameStarts, 0);
+  assert.equal(typeof retry, 'function', 'the loading view receives a real retry action');
+  assert.ok(viewEvents.some(([kind]) => kind === 'failure'));
+  assert.equal(
+    criticalPreloadSucceeded(
+      { total: 2, loaded: 2, failed: 0, unsupported: 0 },
+      assetStore,
+      criticalKeys,
+    ),
+    false,
+    'a summary cannot lie past the key-by-key loaded-status gate',
+  );
+
+  const startedGame = await retry();
+  assert.ok(startedGame);
+  assert.equal(gameCreations, 1);
+  assert.equal(gameStarts, 1);
+  assert.equal(exposedGame, startedGame);
+  assert.equal(controller.getGame(), startedGame);
+  assert.deepEqual(viewEvents.slice(-2), [['ready', 2], ['hidden']]);
+  assert.ok(progressEvents.length >= 4, 'both the failed attempt and retry report live progress');
+  assert.equal(progressEvents.at(-1).completed, 2);
+  assert.equal(progressEvents.at(-1).loaded, 2);
+});
+
+test('generated character rigs are a required startup stage and cannot attach after game start', async () => {
+  const assetStore = createAssetStore(
+    { character: 'character.png' },
+    {
+      resolvePath: (value) => value,
+      imageFactory: () => fakeImage(),
+    },
+  );
+  const loadingEvents = [];
+  let releaseRig = null;
+  const completeRigManifest = Object.fromEntries(
+    REQUIRED_RIG_OWNER_IDS.map((id) => [id, {}]),
+  );
+  const rigStore = {
+    manifest: { rigs: completeRigManifest },
+    status: () => ({ ready: true }),
+  };
+  const rigPromise = new Promise((resolve) => { releaseRig = () => resolve(rigStore); });
+  let gameCreations = 0;
+  let attachedRigStore = null;
+  const controller = createBrowserStartup({
+    canvas: { id: 'game' },
+    loadingView: {
+      onRetry() {},
+      showLoading(total) { loadingEvents.push(['loading', total]); },
+      setProgress({ completed, total }) { loadingEvents.push(['progress', completed, total]); },
+      showFailure(details) { loadingEvents.push(['failure', details]); },
+      showReady(total) { loadingEvents.push(['ready', total]); },
+      hide() { loadingEvents.push(['hidden']); },
+    },
+    assetStore,
+    criticalKeys: ['character'],
+    useGeneratedCharacterArt: true,
+    prepareRigStore: () => rigPromise,
+    createGame: (_canvas, options) => {
+      gameCreations += 1;
+      assert.equal(options.rigAssetStore, rigStore);
+      return {
+        setAssetStore() {},
+        setRigAssetStore(store) { attachedRigStore = store; },
+        setGeneratedCharacterArtEnabled() {},
+        start() {},
+      };
+    },
+    requestFrame: (callback) => callback(),
+  });
+
+  const startPromise = controller.start();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(gameCreations, 0, 'game construction must wait for the layered character art');
+  assert.deepEqual(loadingEvents[0], ['loading', 2]);
+  releaseRig();
+  const game = await startPromise;
+  assert.ok(game);
+  assert.equal(gameCreations, 1);
+  assert.equal(attachedRigStore, rigStore);
+  assert.deepEqual(loadingEvents.slice(-2), [['ready', 2], ['hidden']]);
+  assert.equal(rigPreloadSucceeded(rigStore), true);
+  assert.equal(
+    rigPreloadSucceeded({ manifest: { rigs: { shell: {} } }, status: () => ({ ready: true }) }),
+    false,
+    'a stale manifest that omits seven characters must never pass startup',
+  );
+  assert.equal(
+    rigPreloadSucceeded({ manifest: { rigs: completeRigManifest }, status: () => ({ ready: false }) }),
+    false,
+  );
+});
+
+test('loading cover stays up when the first fully authored frame cannot render', async () => {
+  const assetStore = createAssetStore(
+    { terrain: 'terrain.png' },
+    { resolvePath: (value) => value, imageFactory: () => fakeImage() },
+  );
+  const events = [];
+  let starts = 0;
+  const controller = createBrowserStartup({
+    canvas: { id: 'game' },
+    assetStore,
+    criticalKeys: ['terrain'],
+    loadingView: {
+      onRetry() {},
+      showLoading() { events.push('loading'); },
+      setProgress() {},
+      showFailure() { events.push('failure'); },
+      showReady() { events.push('ready'); },
+      hide() { events.push('hidden'); },
+    },
+    createGame: () => ({
+      setAssetStore() {},
+      setGeneratedCharacterArtEnabled() {},
+      render() { throw new Error('first frame failed'); },
+      start() { starts += 1; },
+    }),
+    requestFrame: (callback) => callback(),
+  });
+
+  assert.equal(await controller.start(), null);
+  assert.equal(starts, 0);
+  assert.deepEqual(events, ['loading', 'failure']);
+});
+
+test('browser loading view exposes progress, failure retry, and ready transition states', () => {
+  const makeElement = () => {
+    const classes = new Set();
+    const attributes = new Map();
+    const listeners = new Map();
+    return {
+      hidden: false,
+      disabled: false,
+      textContent: '',
+      style: {},
+      classList: {
+        add: (...names) => names.forEach((name) => classes.add(name)),
+        remove: (...names) => names.forEach((name) => classes.delete(name)),
+        contains: (name) => classes.has(name),
+      },
+      setAttribute: (name, value) => attributes.set(name, String(value)),
+      getAttribute: (name) => attributes.get(name),
+      addEventListener: (name, listener) => listeners.set(name, listener),
+      focus() { this.focused = true; },
+      trigger(name) { return listeners.get(name)?.(); },
+    };
+  };
+  const title = makeElement();
+  const status = makeElement();
+  const progress = makeElement();
+  const fill = makeElement();
+  const retry = makeElement();
+  const root = makeElement();
+  const canvas = makeElement();
+  const elements = new Map([
+    ['[data-loading-title]', title],
+    ['[data-loading-status]', status],
+    ['[data-loading-progress]', progress],
+    ['[data-loading-progress-fill]', fill],
+    ['[data-loading-retry]', retry],
+  ]);
+  root.querySelector = (selector) => elements.get(selector) || null;
+  const view = createDomLoadingView({ root, canvas });
+  let retries = 0;
+  view.onRetry(() => { retries += 1; });
+
+  view.showLoading(10);
+  view.setProgress({ completed: 3, total: 10 });
+  assert.equal(fill.style.width, '30%');
+  assert.equal(progress.getAttribute('aria-valuenow'), '3');
+  assert.match(status.textContent, /3\/10/);
+  assert.equal(retry.hidden, true);
+
+  view.showFailure({ failed: 2, firstFailedKey: 'critical-b' });
+  assert.equal(root.classList.contains('is-error'), true);
+  assert.equal(retry.hidden, false);
+  assert.equal(retry.disabled, false);
+  assert.equal(retry.focused, true);
+  retry.trigger('click');
+  assert.equal(retries, 1);
+
+  view.showReady(10);
+  assert.equal(fill.style.width, '100%');
+  assert.equal(title.textContent, '基地准备完毕');
+  assert.equal(status.textContent, '史莱姆们已经就位');
+  view.hide();
+  assert.equal(root.classList.contains('hidden'), true);
+  assert.equal(canvas.classList.contains('is-ready'), true);
 });
 
 test('ordinary preload uses patient defaults, bounded concurrency, and one transient retry', async () => {
@@ -554,7 +804,12 @@ test('ordinary preload uses patient defaults, bounded concurrency, and one trans
     },
   });
 
-  const summary = await store.preload({ timeoutMs: 100, concurrency: 2 });
+  const progress = [];
+  const summary = await store.preload({
+    timeoutMs: 100,
+    concurrency: 2,
+    onProgress: (event) => progress.push(event),
+  });
   assert.deepEqual(
     selectSummary(summary),
     { total: 6, loaded: 6, failed: 0, unsupported: 0 },
@@ -563,6 +818,9 @@ test('ordinary preload uses patient defaults, bounded concurrency, and one trans
   assert.equal([...attempts.values()].filter((attempt) => attempt === 2).length, 1);
   assert.ok(peakActive > 1, 'the worker pool should load independent images in parallel');
   assert.ok(peakActive <= 2, `expected at most two active images, observed ${peakActive}`);
+  assert.deepEqual(progress.map(({ completed }) => completed), [1, 2, 3, 4, 5, 6]);
+  assert.equal(progress.at(-1).loaded, 6);
+  assert.equal(progress.every(Object.isFrozen), true);
 });
 
 test('isolated asset store loads in parallel and keeps failures recoverable', async () => {

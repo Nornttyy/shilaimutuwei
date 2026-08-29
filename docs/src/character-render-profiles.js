@@ -4,7 +4,9 @@
  * Rig-local bounds keep battlefield art inside the nominal `size` square.
  * Portrait crops remove the deliberately large transparent canvas margins so
  * the same characters remain legible and consistently sized in cards/lists.
- * Both paths preserve each character's authored aspect ratio.
+ * Both paths preserve each character's authored aspect ratio. `gameplayFacing`
+ * is also the facing baked into the generated standalone PNG; layered rig
+ * atlases instead retain the manifest's per-owner `canonicalFacing`.
  */
 
 function deepFreeze(value) {
@@ -66,6 +68,34 @@ export const CHARACTER_RENDER_PROFILES = deepFreeze({
 
 export function characterRenderProfile(ownerId) {
   return CHARACTER_RENDER_PROFILES[ownerId] ?? null;
+}
+
+function facingSign(value, fallback = 1) {
+  return value === -1 ? -1 : value === 1 ? 1 : fallback;
+}
+
+/** Resolve an omitted gameplay direction to the character's presentation default. */
+export function resolveCharacterGameplayFacing(ownerId, requestedFacing) {
+  return facingSign(
+    requestedFacing,
+    facingSign(characterRenderProfile(ownerId)?.gameplayFacing, 1),
+  );
+}
+
+/** The generated card/list standalone has already been exported to this direction. */
+export function characterExportedFacing(ownerId) {
+  return facingSign(characterRenderProfile(ownerId)?.gameplayFacing, 1);
+}
+
+/**
+ * Return the one horizontal transform needed to turn source pixels toward the
+ * requested gameplay direction. Facing signs are self-inverse, so the exact
+ * transform is `requestedFacing * sourceFacing`; applying either term twice
+ * would reintroduce the left/right bug this contract is designed to prevent.
+ */
+export function characterFacingMultiplier(ownerId, sourceFacing, requestedFacing) {
+  return resolveCharacterGameplayFacing(ownerId, requestedFacing)
+    * facingSign(sourceFacing, 1);
 }
 
 /** Scale a rig's widest logical span to its nominal 100-unit display box. */

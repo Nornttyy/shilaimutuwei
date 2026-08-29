@@ -15,10 +15,22 @@ import {
   collectDeclaredAssetPaths,
   collectRigImagePaths,
 } from './build-pages.mjs';
+import { validateRigPartManifest } from '../src/animation/rig-assets.js';
 
 const SCRIPT_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
 export const DEFAULT_PROJECT_ROOT = path.resolve(SCRIPT_DIRECTORY, '..');
 export const WECHAT_OUTPUT_DIRECTORY = '_wxgame';
+export const PRODUCTION_RIG_OWNER_IDS = Object.freeze([
+  'survivor-shell-shell',
+  'survivor-crystal-pin',
+  'survivor-bubble-float',
+  'survivor-moss-sprout',
+  'enemy-soft-biter',
+  'enemy-windcap',
+  'enemy-stone-lump',
+  'enemy-acid-shell-king',
+]);
+const ASSET_VERSION_LENGTH = 12;
 
 const REQUIRED_SOURCE_FILES = Object.freeze([
   'src/game.js',
@@ -26,6 +38,7 @@ const REQUIRED_SOURCE_FILES = Object.freeze([
   'src/platform/wechat.js',
   'src/platform/wechat-canvas.js',
   'src/platform/wechat-entry.js',
+  'src/animation/rig-assets.js',
   'assets/asset-spec.json',
   'assets/rig-parts.json',
 ]);
@@ -125,20 +138,68 @@ async function copyRuntimeSources(projectRoot, stagingRoot) {
   return sourceFiles.map((filename) => `src/${filename}`);
 }
 
-function packagedAssetPaths(assets, assetBaseUrl) {
-  const paths = Object.fromEntries(assets
-    .filter((asset) => asset.kind === 'ordinary' && asset.id)
-    .map((asset) => [asset.id, assetBaseUrl ? `${assetBaseUrl}/${asset.path}` : asset.path]));
-  if (paths['background-garden-base']) paths['scene-gel-garden'] = paths['background-garden-base'];
-  if (paths['town-soft-core']) paths['town-core'] = paths['town-soft-core'];
-  if (paths['rift-entry-portal']) paths['enemy-portal'] = paths['rift-entry-portal'];
-  return paths;
+function versionedRemoteUrl(assetBaseUrl, asset) {
+  if (!assetBaseUrl) return asset.path;
+  return `${assetBaseUrl}/${asset.path}?v=${asset.sha256.slice(0, ASSET_VERSION_LENGTH)}`;
 }
 
-function gameEntrySource({ assetPaths = {}, assetRelativePaths = {}, assetBaseUrl = '' } = {}) {
+export function packagedAssetPaths(assets, assetBaseUrl) {
+  return Object.fromEntries(assets
+    .filter((asset) => asset.kind === 'ordinary' && asset.id)
+    .map((asset) => [asset.id, versionedRemoteUrl(assetBaseUrl, asset)]));
+}
+
+export function packagedRigImagePaths(assets, assetBaseUrl) {
+  return Object.freeze(Object.fromEntries(assets
+    .filter((asset) => asset.kind === 'rig')
+    .map((asset) => [asset.path, versionedRemoteUrl(assetBaseUrl, asset)])));
+}
+
+export function assertRigBuildContract(manifest, requiredOwnerIds) {
+  const expected = [...new Set(requiredOwnerIds || [])];
+  if (!expected.length) throw new Error('WeChat rig build must declare required owner ids.');
+  const actual = Object.keys(manifest?.rigs || {});
+  if (
+    actual.length !== expected.length
+    || expected.some((ownerId) => !actual.includes(ownerId))
+  ) {
+    throw new Error(
+      `WeChat rig manifest owner mismatch: expected ${expected.join(', ')}, got ${actual.join(', ')}.`,
+    );
+  }
+  const paths = collectRigImagePaths(manifest);
+  for (const ownerId of expected) {
+    const prefix = `assets/generated-v2/rig/${ownerId}/`;
+    const ownedPaths = paths.filter((assetPath) => assetPath.startsWith(prefix));
+    if (ownedPaths.length !== 2) {
+      throw new Error(`WeChat rig ${ownerId} must resolve exactly one atlas and one expression PNG.`);
+    }
+  }
+  if (paths.length !== expected.length * 2) {
+    throw new Error(`WeChat rig build expected ${expected.length * 2} unique PNGs, got ${paths.length}.`);
+  }
+  return Object.freeze(paths);
+}
+
+function gameEntrySource({
+  assetPaths = {},
+  assetRelativePaths = {},
+  assetBaseUrl = '',
+  rigManifest = null,
+  rigOwnerIds = [],
+  rigImagePaths = {},
+} = {}) {
   return `import { startWechatGame } from './src/platform/wechat-entry.js';
 
-const buildConfig = ${JSON.stringify({ assetPaths, assetRelativePaths, assetBaseUrl }, null, 2)};
+const buildConfig = ${JSON.stringify({
+    assetPaths,
+    assetRelativePaths,
+    assetBaseUrl,
+    rigRequired: true,
+    rigManifest,
+    rigOwnerIds,
+    rigImagePaths,
+  }, null, 2)};
 const runtimeConfig = {
   ...buildConfig,
   ...(globalThis.__SLIME_WECHAT_CONFIG__ || {}),
@@ -202,7 +263,7 @@ function remoteManifest(assets, assetBaseUrl, copiedSources) {
       mainPackagePngCount: 0,
       downloadDomainMustBeWhitelisted: true,
       cacheRecommendation: 'Download on demand, verify sha256, then cache under wx.env.USER_DATA_PATH.',
-      fallbackPolicy: 'Missing remote art must keep gameplay available through existing procedural fallbacks.',
+      fallbackPolicy: 'Missing ordinary or rig art must block startup until a successful retry.',
       notes: [
         'The main package contains JavaScript and manifests only; canonical PNG files are not copied.',
         'Set WECHAT_ASSET_BASE_URL to an HTTPS CDN origin before a production build.',
@@ -218,7 +279,7 @@ function remoteManifest(assets, assetBaseUrl, copiedSources) {
     },
     assets: assets.map((asset) => ({
       ...asset,
-      url: assetBaseUrl ? `${assetBaseUrl}/${asset.path}` : null,
+      url: assetBaseUrl ? versionedRemoteUrl(assetBaseUrl, asset) : null,
     })),
   };
 }
@@ -229,7 +290,8 @@ function runtimeConfigExample() {
     assetBaseUrl: 'https://cdn.example.com/slime-haven',
     assetLoadTimeoutMs: 12000,
     assetLoadConcurrency: 6,
-    criticalStartupWaitMs: 7000,
+    rigLoadTimeoutMs: 15000,
+    rigLoadConcurrency: 3,
     ads: {
       rewardedVideoAdUnitId: '',
       interstitialAdUnitId: '',
@@ -267,18 +329,37 @@ export async function buildWechatPackage({
   assetBaseUrl = process.env.WECHAT_ASSET_BASE_URL || '',
   appId = process.env.WECHAT_APP_ID || '',
   projectName = 'slime-haven-wechat',
+  requiredRigOwnerIds = PRODUCTION_RIG_OWNER_IDS,
 } = {}) {
   const root = path.resolve(projectRoot);
   const output = resolveOutput(root, outputDirectory);
   const staging = path.join(root, `.wxgame-staging-${process.pid}-${Date.now()}`);
   const normalizedBaseUrl = normalizeAssetBaseUrl(assetBaseUrl);
+  if (!normalizedBaseUrl) {
+    throw new Error('WECHAT_ASSET_BASE_URL is required for the strict remote-art startup gate.');
+  }
   await assertRequiredSources(root);
 
   const assetSpec = await readJson(path.join(root, 'assets', 'asset-spec.json'));
-  const rigManifest = await readJson(path.join(root, 'assets', 'rig-parts.json'));
+  const rigManifest = validateRigPartManifest(
+    await readJson(path.join(root, 'assets', 'rig-parts.json')),
+  );
+  const rigOwnerIds = Object.freeze([...new Set(requiredRigOwnerIds)]);
+  const rigImagePathList = assertRigBuildContract(rigManifest, rigOwnerIds);
   const assets = await collectRemoteAssets(root, assetSpec, rigManifest);
   const assetPaths = packagedAssetPaths(assets, normalizedBaseUrl);
   const assetRelativePaths = packagedAssetPaths(assets, '');
+  const rigImagePaths = packagedRigImagePaths(assets, normalizedBaseUrl);
+  if (
+    Object.keys(rigImagePaths).length !== rigImagePathList.length
+    || rigImagePathList.some((assetPath) => !rigImagePaths[assetPath])
+  ) {
+    throw new Error('WeChat rig remote path map does not cover the complete manifest.');
+  }
+  const startupUrls = [...Object.values(assetPaths), ...Object.values(rigImagePaths)];
+  if (new Set(startupUrls).size !== startupUrls.length) {
+    throw new Error('WeChat strict startup gate cannot request duplicate remote image URLs.');
+  }
 
   await rm(staging, { recursive: true, force: true });
   try {
@@ -291,6 +372,9 @@ export async function buildWechatPackage({
       assetPaths: normalizedBaseUrl ? assetPaths : {},
       assetRelativePaths,
       assetBaseUrl: normalizedBaseUrl,
+      rigManifest,
+      rigOwnerIds,
+      rigImagePaths,
     }), 'utf8');
     await writeFile(path.join(staging, 'game.json'), `${JSON.stringify(gameConfiguration(), null, 2)}\n`, 'utf8');
     await writeFile(
@@ -320,6 +404,7 @@ export async function buildWechatPackage({
       'project.config.json',
       'remote-assets.json',
       'src/game.js',
+      'src/animation/rig-assets.js',
       'src/platform/wechat-canvas.js',
       'src/platform/wechat-entry.js',
     ]) {
@@ -337,6 +422,8 @@ export async function buildWechatPackage({
       files: outputFiles.length,
       pngs: 0,
       remoteAssets: assets.length,
+      ordinaryAssets: Object.keys(assetPaths).length,
+      rigAssets: Object.keys(rigImagePaths).length,
       remoteBytes: assets.reduce((total, asset) => total + asset.bytes, 0),
       remoteConfigured: Boolean(normalizedBaseUrl),
     };

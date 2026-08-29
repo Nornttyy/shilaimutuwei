@@ -680,7 +680,11 @@ test('preload reports readiness per whole rig across all eight contracts', async
     }),
   });
 
-  const summary = await store.preload({ timeoutMs: 100 });
+  const progress = [];
+  const summary = await store.preload({
+    timeoutMs: 100,
+    onProgress: (event) => progress.push(event),
+  });
   assert.deepEqual(
     {
       total: summary.total,
@@ -689,6 +693,15 @@ test('preload reports readiness per whole rig across all eight contracts', async
       unknown: summary.unknown,
     },
     { total: 8, ready: 7, fallback: 1, unknown: 0 },
+  );
+  assert.equal(progress.length, 8);
+  assert.deepEqual(progress.map(({ completed }) => completed), [1, 2, 3, 4, 5, 6, 7, 8]);
+  assert.equal(progress.every(Object.isFrozen), true);
+  assert.deepEqual(
+    (({ total, completed, ready, fallback, unknown }) => ({
+      total, completed, ready, fallback, unknown,
+    }))(progress.at(-1)),
+    { total: 8, completed: 8, ready: 7, fallback: 1, unknown: 0 },
   );
   assert.equal(store.get('enemy-acid-shell-king'), null);
   assert.equal(store.status('enemy-acid-shell-king').loaded, 0);

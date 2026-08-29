@@ -58,7 +58,10 @@ globalThis.OffscreenCanvas = FakeOffscreenCanvas;
 
 const { drawMonster, drawSlime } = await import('../src/draw.js');
 const { SlimeGame } = await import('../src/game.js');
-const { characterWorldScale } = await import('../src/character-render-profiles.js');
+const {
+  CHARACTER_RENDER_PROFILES,
+  characterWorldScale,
+} = await import('../src/character-render-profiles.js');
 
 function resetOffscreen() {
   offscreenState.clearCount = 0;
@@ -151,6 +154,92 @@ function createMainContext() {
 
   return ctx;
 }
+
+const CHARACTER_DIRECTION_CASES = [
+  ['survivor-shell-shell', (ctx, options) => drawSlime(ctx, 0, 0, 100, 'shell', options)],
+  ['survivor-crystal-pin', (ctx, options) => drawSlime(ctx, 0, 0, 100, 'needle', options)],
+  ['survivor-bubble-float', (ctx, options) => drawSlime(ctx, 0, 0, 100, 'bubble', options)],
+  ['survivor-moss-sprout', (ctx, options) => drawSlime(ctx, 0, 0, 100, 'sprout', options)],
+  ['enemy-soft-biter', (ctx, options) => drawMonster(ctx, 0, 0, 100, 'bug', options)],
+  ['enemy-windcap', (ctx, options) => drawMonster(ctx, 0, 0, 100, 'mushroom', options)],
+  ['enemy-stone-lump', (ctx, options) => drawMonster(ctx, 0, 0, 100, 'stone', options)],
+  ['enemy-acid-shell-king', (ctx, options) => drawMonster(ctx, 0, 0, 100, 'boss', options)],
+];
+
+test('all eight layered rigs and standalones obey the requested-by-source facing matrix', async (t) => {
+  for (const [ownerId, renderCharacter] of CHARACTER_DIRECTION_CASES) {
+    await t.test(ownerId, () => {
+      const profile = CHARACTER_RENDER_PROFILES[ownerId];
+      const canonicalFacing = MANIFEST.rigs[ownerId].canonicalFacing;
+      const requestedCases = [-1, 1, undefined];
+
+      for (const suppliedFacing of requestedCases) {
+        const requestedFacing = suppliedFacing ?? profile.gameplayFacing;
+        const caseLabel = suppliedFacing == null ? 'default' : `${suppliedFacing}`;
+
+        resetOffscreen();
+        const rigContext = createMainContext();
+        renderCharacter(rigContext, {
+          animate: false,
+          facing: suppliedFacing,
+          rigAsset: readyBundle(ownerId),
+        });
+        const rigScales = rigContext.calls.filter(([name]) => name === 'scale');
+        assert.equal(rigScales.length, 1, `${ownerId} ${caseLabel}: rig pixels transform once`);
+        const expectedRigX = characterWorldScale(ownerId)
+          * requestedFacing * canonicalFacing;
+        assert.ok(
+          Math.abs(rigScales[0][1] - expectedRigX) < 1e-10,
+          `${ownerId} ${caseLabel}: rig multiplier is requested * canonical`,
+        );
+        assert.equal(
+          Math.sign(rigScales[0][1]) * canonicalFacing,
+          requestedFacing,
+          `${ownerId} ${caseLabel}: rig finishes in the requested gameplay direction`,
+        );
+        assert.equal(rigContext.compositeDraws, 1);
+
+        const standalone = {
+          kind: `${ownerId}:standalone`,
+          naturalWidth: profile.portraitCanvas.width,
+          naturalHeight: profile.portraitCanvas.height,
+        };
+        const standaloneStore = {
+          useOrFallback(key, renderAsset) {
+            assert.equal(key, ownerId);
+            renderAsset(standalone);
+            return true;
+          },
+        };
+        const standaloneContext = createMainContext();
+        renderCharacter(standaloneContext, {
+          animate: false,
+          facing: suppliedFacing,
+          rigAsset: null,
+          assetStore: standaloneStore,
+        });
+        const standaloneScales = standaloneContext.calls
+          .filter(([name]) => name === 'scale');
+        assert.deepEqual(
+          standaloneScales,
+          [['scale', requestedFacing * profile.gameplayFacing, 1]],
+          `${ownerId} ${caseLabel}: standalone pixels transform once from exported facing`,
+        );
+        assert.equal(
+          Math.sign(standaloneScales[0][1]) * profile.gameplayFacing,
+          requestedFacing,
+          `${ownerId} ${caseLabel}: standalone finishes in the requested gameplay direction`,
+        );
+        assert.equal(standaloneContext.compositeDraws, 1);
+
+        if (suppliedFacing == null) {
+          assert.equal(standaloneScales[0][1], 1,
+            `${ownerId}: world default matches the unmirrored card/list standalone`);
+        }
+      }
+    });
+  }
+});
 
 test('slime composites one complete card bundle after the outer size and facing transform', () => {
   resetOffscreen();

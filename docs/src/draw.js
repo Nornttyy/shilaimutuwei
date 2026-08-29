@@ -10,9 +10,11 @@ import {
   WINDCAP_RIG,
 } from './animation/rigs.js';
 import {
+  characterExportedFacing,
+  characterFacingMultiplier,
   characterPortraitCrop,
-  characterRenderProfile,
   characterWorldScale,
+  resolveCharacterGameplayFacing,
 } from './character-render-profiles.js';
 
 /**
@@ -110,15 +112,6 @@ const MONSTER_OWNER_BY_TYPE = Object.freeze({
 
 const clamp = (value, min = 0, max = 1) => Math.max(min, Math.min(max, value));
 const safeNumber = (value, fallback = 0) => Number.isFinite(value) ? value : fallback;
-const facingSign = (value, fallback = 1) => (value === -1 ? -1 : value === 1 ? 1 : fallback);
-
-function requestedCharacterFacing(options, ownerId) {
-  return facingSign(options?.facing, characterRenderProfile(ownerId)?.gameplayFacing ?? 1);
-}
-
-function authoredRigFacing(rigAsset) {
-  return facingSign(rigAsset?.canonicalFacing, 1);
-}
 
 /**
  * Draw one optional generated image atomically. Missing assets, unsupported
@@ -160,8 +153,11 @@ function drawGeneratedCharacterStandalone(ctx, assetStore, ownerId, size, reques
     const fit = size / Math.max(crop.width, crop.height);
     const width = crop.width * fit;
     const height = crop.height * fit;
-    const exportedFacing = characterRenderProfile(ownerId)?.gameplayFacing ?? 1;
-    ctx.scale(requestedFacing * exportedFacing, 1);
+    ctx.scale(characterFacingMultiplier(
+      ownerId,
+      characterExportedFacing(ownerId),
+      requestedFacing,
+    ), 1);
     ctx.drawImage(
       asset,
       crop.x,
@@ -231,12 +227,16 @@ function clearRigSurface(surface) {
   ctx.clearRect(0, 0, RIG_SURFACE.width, RIG_SURFACE.height);
 }
 
+function isCompatibleRigAsset(rig, rigAsset) {
+  return Boolean(
+    rigAsset
+    && rigAsset.rigId === rig.id
+    && [-1, 1].includes(rigAsset.canonicalFacing),
+  );
+}
+
 function renderCompatibleRigAsset(ctx, rig, pose, rigAsset, expression = null) {
-  if (
-    !rigAsset
-    || rigAsset.rigId !== rig.id
-    || ![-1, 1].includes(rigAsset.canonicalFacing)
-  ) return false;
+  if (!isCompatibleRigAsset(rig, rigAsset)) return false;
 
   const surface = rigSurfaceFor(ctx);
   if (!surface) return false;
@@ -897,30 +897,37 @@ export function drawSlime(ctx, x, y, size, variantOrOptions = 'shell', maybeOpti
   ctx.translate(x, y - hop);
   const unit = size / 100;
   const ownerId = SLIME_OWNER_BY_VARIANT[variant];
-  const facing = requestedCharacterFacing(options, ownerId);
+  const requestedFacing = resolveCharacterGameplayFacing(ownerId, options.facing);
   const rigScale = characterWorldScale(ownerId);
   let renderedRig = false;
-  ctx.save();
-  ctx.scale(
-    unit * rigScale * facing * authoredRigFacing(options.rigAsset) * (1 + squash * 0.55),
-    unit * rigScale * (1 - squash),
-  );
-  renderedRig = renderCompatibleRigAsset(
-    ctx,
-    SLIME_RIG_BY_VARIANT[variant],
-    options.pose,
-    options.rigAsset,
-    options.expressionSample
-      ?? options.expression
-      ?? (options.hit > 0.5 ? 'hurt' : null),
-  );
-  ctx.restore();
+  const rig = SLIME_RIG_BY_VARIANT[variant];
+  if (isCompatibleRigAsset(rig, options.rigAsset)) {
+    ctx.save();
+    ctx.scale(
+      unit * rigScale * characterFacingMultiplier(
+        ownerId,
+        options.rigAsset.canonicalFacing,
+        requestedFacing,
+      ) * (1 + squash * 0.55),
+      unit * rigScale * (1 - squash),
+    );
+    renderedRig = renderCompatibleRigAsset(
+      ctx,
+      rig,
+      options.pose,
+      options.rigAsset,
+      options.expressionSample
+        ?? options.expression
+        ?? (options.hit > 0.5 ? 'hurt' : null),
+    );
+    ctx.restore();
+  }
   const renderedStandalone = renderedRig || options.allowGeneratedStandalone === false
     ? false
-    : drawGeneratedCharacterStandalone(ctx, options.assetStore, ownerId, size, facing);
+    : drawGeneratedCharacterStandalone(ctx, options.assetStore, ownerId, size, requestedFacing);
   if (!renderedRig && !renderedStandalone) {
     ctx.save();
-    ctx.scale(unit * facing * (1 + squash * 0.55), unit * (1 - squash));
+    ctx.scale(unit * requestedFacing * (1 + squash * 0.55), unit * (1 - squash));
     if (options.pose) {
       if (variant === 'shell') drawShellSlimePosedLocal(ctx, options, colors[variant]);
       if (variant === 'needle') drawCrystalSlimePosedLocal(ctx, options, colors[variant]);
@@ -1487,32 +1494,48 @@ export function drawMonster(ctx, x, y, size, typeOrOptions = 'bug', maybeOptions
   ctx.globalAlpha *= options.disabled ? 0.5 : clamp(options.alpha ?? 1);
   ctx.translate(x, y - hop);
   const ownerId = MONSTER_OWNER_BY_TYPE[type];
-  const facing = requestedCharacterFacing(options, ownerId);
+  const requestedFacing = resolveCharacterGameplayFacing(ownerId, options.facing);
   const rigUnit = size / 100;
   const rigScale = characterWorldScale(ownerId);
   const fallbackUnit = visualSize / 100;
   let renderedRig = false;
-  ctx.save();
-  ctx.scale(
-    rigUnit * rigScale * facing * authoredRigFacing(options.rigAsset) * (1 + squash * 0.5),
-    rigUnit * rigScale * (1 - squash),
-  );
-  renderedRig = renderCompatibleRigAsset(
-    ctx,
-    MONSTER_RIG_BY_TYPE[type],
-    options.pose,
-    options.rigAsset,
-    options.expressionSample
-      ?? options.expression
-      ?? (options.hit > 0.5 ? 'hurt' : null),
-  );
-  ctx.restore();
+  const rig = MONSTER_RIG_BY_TYPE[type];
+  if (isCompatibleRigAsset(rig, options.rigAsset)) {
+    ctx.save();
+    ctx.scale(
+      rigUnit * rigScale * characterFacingMultiplier(
+        ownerId,
+        options.rigAsset.canonicalFacing,
+        requestedFacing,
+      ) * (1 + squash * 0.5),
+      rigUnit * rigScale * (1 - squash),
+    );
+    renderedRig = renderCompatibleRigAsset(
+      ctx,
+      rig,
+      options.pose,
+      options.rigAsset,
+      options.expressionSample
+        ?? options.expression
+        ?? (options.hit > 0.5 ? 'hurt' : null),
+    );
+    ctx.restore();
+  }
   const renderedStandalone = renderedRig || options.allowGeneratedStandalone === false
     ? false
-    : drawGeneratedCharacterStandalone(ctx, options.assetStore, ownerId, visualSize, facing);
+    : drawGeneratedCharacterStandalone(
+      ctx,
+      options.assetStore,
+      ownerId,
+      visualSize,
+      requestedFacing,
+    );
   if (!renderedRig && !renderedStandalone) {
     ctx.save();
-    ctx.scale(fallbackUnit * facing * (1 + squash * 0.5), fallbackUnit * (1 - squash));
+    ctx.scale(
+      fallbackUnit * requestedFacing * (1 + squash * 0.5),
+      fallbackUnit * (1 - squash),
+    );
     if (type === 'bug') drawBugMonsterLocal(ctx, options);
     if (type === 'mushroom') drawMushroomMonsterLocal(ctx, options);
     if (type === 'stone') drawStoneMonsterLocal(ctx, options);
@@ -1523,7 +1546,7 @@ export function drawMonster(ctx, x, y, size, typeOrOptions = 'bug', maybeOptions
   if ((options.hit || 0) > 0 && !renderedStandalone) {
     ctx.save();
     const hitUnit = renderedRig ? rigUnit * rigScale : fallbackUnit;
-    ctx.scale(hitUnit * facing * (1 + squash * 0.5), hitUnit * (1 - squash));
+    ctx.scale(hitUnit * requestedFacing * (1 + squash * 0.5), hitUnit * (1 - squash));
     ctx.globalAlpha *= clamp(options.hit) * 0.5;
     ctx.fillStyle = PALETTE.white;
     if (options.pose) {

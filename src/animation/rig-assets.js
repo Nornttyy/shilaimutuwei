@@ -609,6 +609,7 @@ export function createRigAssetStore(
     retryFailed = true,
     retryAttempts = RIG_PRELOAD_RETRIES,
     concurrency = RIG_PRELOAD_CONCURRENCY,
+    onProgress = null,
   } = {}) {
     const uniqueIds = [...new Set(ids)];
     const results = new Array(uniqueIds.length);
@@ -620,6 +621,30 @@ export function createRigAssetStore(
       ? Math.max(0, Math.floor(retryAttempts))
       : 0;
     let nextIndex = 0;
+    let completed = 0;
+    let ready = 0;
+    let fallback = 0;
+    let unknown = 0;
+
+    const reportProgress = (result) => {
+      completed += 1;
+      if (result.status === RIG_STATUS.READY) ready += 1;
+      else if (result.status === RIG_STATUS.FALLBACK) fallback += 1;
+      else if (result.status === RIG_STATUS.UNKNOWN) unknown += 1;
+      if (typeof onProgress !== 'function') return;
+      try {
+        onProgress(Object.freeze({
+          total: uniqueIds.length,
+          completed,
+          ready,
+          fallback,
+          unknown,
+          current: result,
+        }));
+      } catch {
+        // Loading observers cannot change the atomic readiness result.
+      }
+    };
 
     const worker = async () => {
       while (nextIndex < uniqueIds.length) {
@@ -631,6 +656,7 @@ export function createRigAssetStore(
           result = await load(id, { timeoutMs, retryFailed: true });
         }
         results[index] = result;
+        reportProgress(result);
       }
     };
 

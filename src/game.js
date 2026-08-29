@@ -1560,6 +1560,7 @@ export class SlimeGame {
       const card = SURVIVOR_BY_ID[cardId];
       return {
         uid: uid('survivor'), cardId, x, y,
+        facing: 1,
         hp: card.hp, maxHp: card.hp, shield: 0, seed: 0,
         cooldown: Math.random() * 0.4, actionCount: 0, hitCount: 0,
         attackCount: 0, downed: false, hitFlash: 0, placedAt: -10,
@@ -1734,6 +1735,7 @@ export class SlimeGame {
       const survivor = this.state.survivors.find((item) => item.uid === slime.uid);
       if (!survivor) continue;
       if (this.isWorldExpeditionMember(survivor.uid)) continue;
+      this.faceEntityToward(survivor, slime, 1);
       survivor.x = slime.x;
       survivor.y = slime.y;
       survivor.aiState = slime.aiState;
@@ -2604,6 +2606,7 @@ export class SlimeGame {
         cardId,
         x: site.x + Math.cos(angle) * radius,
         y: site.y + Math.sin(angle) * radius,
+        facing: -1,
         hp: maxHp,
         maxHp,
         damageMultiplier: 1 + Math.min(0.8, (stage - 1) * 0.035),
@@ -2650,6 +2653,7 @@ export class SlimeGame {
     for (const formation of expedition.formation) {
       const survivor = this.state.survivors.find((member) => member.uid === formation.uid);
       if (!survivor) continue;
+      this.faceEntityToward(survivor, next, 1);
       survivor.x = expedition.leader.x + formation.dx;
       survivor.y = expedition.leader.y + formation.dy;
       survivor.visualMoving = length > 0.04;
@@ -2679,6 +2683,7 @@ export class SlimeGame {
         .filter((enemy) => !enemy.dead && enemy.hp > 0)
         .sort((a, b) => distance(survivor, a) - distance(survivor, b))[0];
       if (!target) break;
+      this.faceEntityToward(survivor, target, 1);
       const gap = distance(survivor, target);
       if (gap <= card.attack.rangeTiles) {
         survivor.visualMoving = false;
@@ -2708,6 +2713,7 @@ export class SlimeGame {
         .filter((member) => !member.downed && member.hp > 0)
         .sort((a, b) => distance(enemy, a) - distance(enemy, b))[0];
       if (!target) break;
+      this.faceEntityToward(enemy, target, -1);
       const card = ENEMY_BY_ID[enemy.cardId];
       const gap = distance(enemy, target);
       if (gap <= 0.85) {
@@ -3498,6 +3504,24 @@ export class SlimeGame {
     return ANIMATION_CLIPS_BY_CARD_ID[cardId] || null;
   }
 
+  entityFacing(entity, fallback = 1) {
+    const defaultFacing = Number(fallback) < 0 ? -1 : 1;
+    return entity?.facing === -1 || entity?.facing === 1
+      ? entity.facing
+      : defaultFacing;
+  }
+
+  faceEntityToward(entity, target, fallback = 1) {
+    if (!entity) return Number(fallback) < 0 ? -1 : 1;
+    const dx = Number(target?.x) - Number(entity.x);
+    if (Number.isFinite(dx) && Math.abs(dx) > 0.001) {
+      entity.facing = dx < 0 ? -1 : 1;
+    } else if (entity.facing !== -1 && entity.facing !== 1) {
+      entity.facing = Number(fallback) < 0 ? -1 : 1;
+    }
+    return entity.facing;
+  }
+
   enemyDeathDuration(enemyOrCardId) {
     const cardId = typeof enemyOrCardId === 'string' ? enemyOrCardId : enemyOrCardId?.cardId;
     return ENEMY_DEATH_DURATION_BY_ID[cardId] ?? ENEMY_DEATH_DURATION_BY_ID['enemy-soft-biter'];
@@ -3723,6 +3747,7 @@ export class SlimeGame {
 
       const nextCell = survivor.expeditionPath?.[1];
       const moveTarget = nextCell || destination;
+      this.faceEntityToward(survivor, moveTarget, 1);
       const dx = moveTarget.x - survivor.x;
       const dy = moveTarget.y - survivor.y;
       const length = Math.hypot(dx, dy);
@@ -3753,6 +3778,7 @@ export class SlimeGame {
       uid: uid('enemy'), cardId: enemyId,
       x: clamp(Number(position?.x) || 0, 0, WORLD.width - 0.01),
       y: clamp(Number(position?.y) || 0, 0, WORLD.height - 0.01),
+      facing: -1,
       hp: maxHp, maxHp,
       speed: card.speed, dead: false,
       damageMultiplier: clamp(Number(options.damageMultiplier) || 1, 0.1, 3),
@@ -3837,6 +3863,7 @@ export class SlimeGame {
       1 + (survivor.expeditionBubbleChainTargets || 0),
     );
     const attackTargets = targets.slice(0, maxTargets);
+    this.faceEntityToward(survivor, attackTargets[0], 1);
     const nextAttackCount = survivor.attackCount + 1;
     const nextHitCount = survivor.hitCount + 1;
     const crystalCell = card.id === 'survivor-crystal-pin'
@@ -3893,6 +3920,7 @@ export class SlimeGame {
       .map((target) => ({ kind: 'building', target, ratio: target.hp / target.maxHp }));
     const choice = [...allies, ...structures].sort((a, b) => a.ratio - b.ratio)[0];
     if (!choice) return false;
+    this.faceEntityToward(survivor, choice.target, 1);
     const healAmount = card.ability.heal * (survivor.expeditionHealMultiplier || 1);
     if (choice.ratio >= 0.995) choice.target.seed = Math.max(choice.target.seed || 0, card.ability.fullHealthShield);
     else choice.target.hp = Math.min(choice.target.maxHp, choice.target.hp + healAmount);
@@ -3985,6 +4013,7 @@ export class SlimeGame {
       const reachedCore = distance(enemy, CORE_CELL) < 0.68
         || (!next && current.x === CORE_CELL.x && current.y === CORE_CELL.y);
       if (reachedCore) {
+        this.faceEntityToward(enemy, CORE_CELL, -1);
         if (enemy.attackTimer <= 0) {
           const started = this.startEntityAttack(enemy, () => {
             if (this.state.coreHp > 0) this.damageCore(this.enemyDamage(enemy, card.damage));
@@ -4000,6 +4029,7 @@ export class SlimeGame {
 
       const blocker = operationalBuildingAt(this.state.buildings, next.x, next.y);
       if (blocker && BUILDING_BY_ID[blocker.cardId].solid) {
+        this.faceEntityToward(enemy, blocker, -1);
         if (blocker.cardId === 'building-bouncy-fence' && blocker.fenceTrigger > 0) {
           blocker.fenceTrigger -= 1;
           this.pushEnemy(enemy, BUILDING_BY_ID[blocker.cardId].effect.knockbackTiles, 0, BUILDING_BY_ID[blocker.cardId].effect);
@@ -4020,6 +4050,7 @@ export class SlimeGame {
         !survivor.downed && distance(survivor, next) < 0.58
       ));
       if (defender && (SURVIVOR_BY_ID[defender.cardId].blockCount > 0 || Math.abs(enemy.x - next.x) < 0.7)) {
+        this.faceEntityToward(enemy, defender, -1);
         if (enemy.attackTimer <= 0) {
           const started = this.startEntityAttack(enemy, () => {
             if (!defender.downed) this.damageSurvivor(defender, this.enemyDamage(enemy, card.damage));
@@ -4099,6 +4130,7 @@ export class SlimeGame {
         : this.state.buildings.filter(buildingIsOperational);
       const target = candidates.sort((a, b) => distance(enemy, a) - distance(enemy, b))[0];
       if (target) {
+        this.faceEntityToward(enemy, target, -1);
         enemy.telegraph = card.ability.telegraphSeconds;
         enemy.telegraphTarget = target.uid;
         this.showToast(
@@ -4171,6 +4203,7 @@ export class SlimeGame {
   }
 
   moveEnemyToward(enemy, target, dt, speed) {
+    this.faceEntityToward(enemy, target, -1);
     const dx = target.x - enemy.x;
     const dy = target.y - enemy.y;
     const length = Math.hypot(dx, dy);
@@ -5081,6 +5114,7 @@ export class SlimeGame {
           return;
         }
         sourceStartPosition = this.entityCanvasPosition(source);
+        this.faceEntityToward(source, cell, 1);
         source.x = cell.x;
         source.y = cell.y;
       } else {
@@ -5960,6 +5994,7 @@ export class SlimeGame {
           expressionSample: this.entityExpressionSample(survivor),
           rigAsset: this.rigAssetFor(survivor.cardId),
           allowGeneratedStandalone: this.generatedCharacterArtEnabled,
+          facing: this.entityFacing(survivor, 1),
           selected,
           disabled: survivor.downed,
           hit: survivor.hitFlash,
@@ -6013,6 +6048,7 @@ export class SlimeGame {
           expressionSample: this.entityExpressionSample(enemy),
           rigAsset: this.rigAssetFor(enemy.cardId),
           allowGeneratedStandalone: this.generatedCharacterArtEnabled,
+          facing: this.entityFacing(enemy, -1),
           alpha,
           hit: enemy.hitFlash,
           targeted: enemy.marked,
@@ -8855,6 +8891,7 @@ export class SlimeGame {
         return;
       }
       this.ensureColonyBounds([{ x: cell.x, y: cell.y }]);
+      this.faceEntityToward(survivor, cell, 1);
       const colonySlime = this.state.colony?.slimes.find((item) => item.uid === survivor.uid);
       if (colonySlime) {
         cancelColonySlimeWork(this.state.colony, colonySlime);

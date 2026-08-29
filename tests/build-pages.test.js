@@ -23,6 +23,7 @@ import {
   verifyPublishedModules,
   verifyPagesOutput,
 } from '../scripts/build-pages.mjs';
+import { ASSET_CACHE_VERSION } from '../src/assets.js';
 
 const MINIMAL_RGBA_PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR42mMAAQAABQABDQottAAAAABJRU5ErkJggg==',
@@ -56,7 +57,7 @@ const PROJECT_ASSET_SPEC = JSON.parse(await readFile(
   'utf8',
 ));
 const PROJECT_ROOT = fileURLToPath(new URL('../', import.meta.url));
-const SHELL_SLIME_IMAGE_PATH = './assets/generated/survivor/survivor-moss-sprout.png';
+const SHELL_SLIME_IMAGE_PATH = `./assets/generated/survivor/survivor-moss-sprout.png?v=${ASSET_CACHE_VERSION}`;
 const REQUIRED_GAMEPLAY_MODULES = Object.freeze([
   'src/world.js',
   'src/colony-catalog.js',
@@ -101,6 +102,18 @@ test('the browser shell loads formal loading and rotation art without JavaScript
     assert.doesNotMatch(declarations, /(?:background|border-radius|box-shadow)\s*:/);
   }
   assert.match(css, /\.loading-blob\s*\{[^}]*animation:\s*bob/s);
+  assert.match(html, /data-loading-progress[\s\S]*role="progressbar"/);
+  assert.match(html, /data-loading-progress-fill/);
+  assert.match(html, /data-loading-retry[\s\S]*hidden[\s\S]*disabled/);
+  assert.match(html, /data-loading-title/);
+  assert.match(html, /data-loading-status/);
+  assert.match(css, /\.loading-progress\s*>\s*span\s*\{[^}]*transition:\s*width/s);
+  assert.match(css, /@keyframes loading-orbit/);
+  assert.match(css, /@keyframes loading-shimmer/);
+  assert.match(css, /#loading\.is-error/);
+  assert.match(css, /#game\.is-ready/);
+  assert.match(css, /#loading\s*\{[^}]*z-index:\s*6/s,
+    'loading failures and retry must stay above the portrait rotation hint');
   assert.match(css, /@media \(orientation:\s*portrait\) and \(max-width:\s*900px\)/);
 });
 

@@ -19,9 +19,19 @@ import {
 import { createWechatRuntime } from '../src/platform/wechat.js';
 import {
   WECHAT_CRITICAL_ASSET_KEYS,
+  createWechatImageAssetStore,
   startWechatGame,
+  wechatPreloadSucceeded,
+  wechatRigPreloadSucceeded,
 } from '../src/platform/wechat-entry.js';
-import { buildWechatPackage } from '../scripts/build-wechat.mjs';
+import {
+  PRODUCTION_RIG_OWNER_IDS,
+  assertRigBuildContract,
+  buildWechatPackage,
+  collectRemoteAssets,
+  packagedAssetPaths,
+  packagedRigImagePaths,
+} from '../scripts/build-wechat.mjs';
 
 const TEST_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(TEST_DIRECTORY, '..');
@@ -125,6 +135,19 @@ function createFakeWechatHost() {
       return true;
     },
   };
+}
+
+function instrumentFake2dContext(context) {
+  const calls = [];
+  for (const name of [
+    'save', 'restore', 'setTransform', 'scale', 'clearRect', 'fillRect',
+    'beginPath', 'moveTo', 'lineTo', 'quadraticCurveTo', 'bezierCurveTo',
+    'closePath', 'fill', 'stroke', 'arc', 'fillText',
+  ]) {
+    context[name] = (...args) => calls.push([name, ...args]);
+  }
+  context.calls = calls;
+  return calls;
 }
 
 test('web runtime unifies structured local storage, lifecycle, audio, and disabled commerce', async () => {
@@ -322,6 +345,7 @@ test('WeChat game bootstrap creates a canvas, starts frames, bridges touch, and 
 test('WeChat waits for critical generated art before exposing the first game frame', async () => {
   const host = createFakeWechatHost();
   const previousWindow = globalThis.window;
+  let constructions = 0;
   let starts = 0;
   host.wxApi.createImage = () => {
     const image = { onload: null, onerror: null, width: 512, height: 512 };
@@ -331,7 +355,7 @@ test('WeChat waits for critical generated art before exposing the first game fra
     return image;
   };
   class FakeGame {
-    constructor(canvas) { this.canvas = canvas; }
+    constructor(canvas) { constructions += 1; this.canvas = canvas; }
     setAssetStore(store) { this.assetStore = store; }
     setGeneratedCharacterArtEnabled(enabled) { this.generated = enabled; }
     start() { starts += 1; }
@@ -348,13 +372,232 @@ test('WeChat waits for critical generated art before exposing the first game fra
       criticalStartupWaitMs: 1000,
     },
   });
+  assert.equal(constructions, 0, 'SlimeGame must not be constructed while formal PNGs load');
+  assert.equal(boot.game, null);
   assert.equal(starts, 0, 'the game must not expose procedural character art while PNGs load');
   await boot.ready;
+  assert.equal(constructions, 1);
   assert.equal(starts, 1);
   assert.equal(boot.assetStore.status(criticalKey).status, 'loaded');
   assert.equal(boot.game.generated, true);
   boot.dispose();
   assert.equal(globalThis.window, previousWindow);
+});
+
+test('WeChat requires every configured formal asset and retries a failed PNG from the canvas button', async () => {
+  const source = await readFile(path.join(PROJECT_ROOT, 'src/platform/wechat-entry.js'), 'utf8');
+  assert.doesNotMatch(source, /Promise\.race/,
+    'a startup time budget must never bypass formal asset readiness');
+  assert.doesNotMatch(source, /criticalStartupWaitMs/);
+  const host = createFakeWechatHost();
+  instrumentFake2dContext(host.context);
+  const attempts = new Map();
+  host.wxApi.createImage = () => {
+    const image = { onload: null, onerror: null, width: 512, height: 512 };
+    Object.defineProperty(image, 'src', {
+      set(url) {
+        const key = String(url).includes('formal-b') ? 'formal-b' : 'formal-a';
+        const attempt = (attempts.get(key) || 0) + 1;
+        attempts.set(key, attempt);
+        queueMicrotask(() => {
+          if (key === 'formal-b' && attempt === 1) image.onerror?.(new Error('offline'));
+          else image.onload?.();
+        });
+      },
+    });
+    return image;
+  };
+  let constructions = 0;
+  let starts = 0;
+  class FakeGame {
+    constructor(canvas) { constructions += 1; this.canvas = canvas; }
+    setAssetStore(store) { this.assetStore = store; }
+    setGeneratedCharacterArtEnabled(enabled) { this.generated = enabled; }
+    start() { starts += 1; }
+    onBackground() {}
+  }
+
+  const boot = startWechatGame({
+    wxApi: host.wxApi,
+    GameClass: FakeGame,
+    config: {
+      assetBaseUrl: 'https://cdn.example.com/game',
+      assetPaths: {
+        'formal-a': 'https://override.example.com/formal-a.png',
+      },
+      assetRelativePaths: {
+        'formal-a': 'assets/formal-a.png',
+        'formal-b': 'assets/formal-b.png',
+      },
+      // A runtime override may no longer shrink the build's formal asset gate.
+      criticalAssetKeys: ['formal-a'],
+    },
+  });
+
+  assert.equal(await boot.ready, null);
+  assert.equal(constructions, 0);
+  assert.equal(starts, 0);
+  assert.equal(boot.game, null);
+  assert.equal(boot.assetStore.status('formal-a').status, 'loaded');
+  assert.equal(boot.assetStore.status('formal-b').status, 'failed');
+  assert.deepEqual(attempts, new Map([['formal-a', 1], ['formal-b', 1]]));
+  assert.equal(boot.loadingState.state, 'error');
+  assert.equal(boot.loadingState.total, 2);
+  assert.equal(boot.loadingState.failed, 1);
+  assert.ok(boot.loadingState.retryBounds);
+
+  const retry = boot.loadingState.retryBounds;
+  host.emit('onTouchEnd', {
+    changedTouches: [{
+      identifier: 9,
+      clientX: retry.x + retry.width / 2,
+      clientY: retry.y + retry.height / 2,
+    }],
+  });
+  const retriedGame = await boot.ready;
+  assert.ok(retriedGame);
+  assert.equal(constructions, 1);
+  assert.equal(starts, 1);
+  assert.equal(boot.game, retriedGame);
+  assert.equal(boot.loadingState.state, 'ready');
+  assert.equal(boot.loadingState.completed, 2);
+  assert.equal(attempts.get('formal-a'), 1, 'already loaded images stay cached across retry');
+  assert.equal(attempts.get('formal-b'), 2);
+  boot.dispose();
+});
+
+test('WeChat loading canvas animates at native DPR while the game does not yet exist', async () => {
+  const host = createFakeWechatHost();
+  const calls = instrumentFake2dContext(host.context);
+  const pendingImages = [];
+  host.wxApi.createImage = () => {
+    const image = { onload: null, onerror: null, width: 512, height: 512 };
+    Object.defineProperty(image, 'src', {
+      set() { pendingImages.push(image); },
+    });
+    return image;
+  };
+  let constructions = 0;
+  class FakeGame {
+    constructor(canvas) { constructions += 1; this.canvas = canvas; }
+    setAssetStore() {}
+    setGeneratedCharacterArtEnabled() {}
+    start() {}
+    onBackground() {}
+  }
+
+  const boot = startWechatGame({
+    wxApi: host.wxApi,
+    GameClass: FakeGame,
+    config: { assetPaths: { formal: 'https://cdn.example.com/formal.png' } },
+  });
+  assert.equal(constructions, 0);
+  assert.equal(boot.loadingState.state, 'loading');
+  assert.equal(host.nativeCanvas.width, 2560);
+  assert.equal(host.nativeCanvas.height, 1440);
+  assert.ok(calls.some(([name, ratio]) => name === 'setTransform' && ratio === 2));
+  assert.ok(calls.some(([name]) => name === 'bezierCurveTo'));
+  assert.ok(calls.some(([name]) => name === 'fillText'));
+
+  assert.equal(host.fireFrame(140), true);
+  const firstAnimated = boot.loadingState;
+  assert.equal(host.fireFrame(840), true);
+  const secondAnimated = boot.loadingState;
+  assert.ok(secondAnimated.framesDrawn >= firstAnimated.framesDrawn + 1);
+  assert.notEqual(secondAnimated.phase, firstAnimated.phase, 'slime bounce and bubbles must advance');
+  assert.equal(constructions, 0);
+
+  assert.equal(pendingImages.length, 1);
+  pendingImages[0].onload();
+  await boot.ready;
+  assert.equal(constructions, 1);
+  assert.equal(boot.loadingState.state, 'ready');
+  boot.dispose();
+});
+
+test('WeChat unsupported or dishonest preload summaries never pass the ready gate', async () => {
+  const unsupportedStore = createWechatImageAssetStore(
+    { formal: 'https://cdn.example.com/formal.png' },
+    { wxApi: {} },
+  );
+  const progress = [];
+  const summary = await unsupportedStore.preload({
+    keys: ['formal'],
+    onProgress: (event) => progress.push(event),
+  });
+  assert.deepEqual(
+    { total: summary.total, loaded: summary.loaded, failed: summary.failed, unsupported: summary.unsupported },
+    { total: 1, loaded: 0, failed: 0, unsupported: 1 },
+  );
+  assert.equal(progress.length, 1);
+  assert.equal(progress[0].unsupported, 1);
+  assert.equal(Object.isFrozen(progress[0]), true);
+  assert.equal(wechatPreloadSucceeded(summary, unsupportedStore, ['formal']), false);
+
+  const loadedStatusStore = { status: () => ({ status: 'loaded' }) };
+  assert.equal(wechatPreloadSucceeded(
+    { total: 1, loaded: 1, failed: 1, unsupported: 0 },
+    loadedStatusStore,
+    ['formal'],
+  ), false, 'a failed summary cannot be hidden by a loaded status record');
+
+  const host = createFakeWechatHost();
+  let constructions = 0;
+  class UnsupportedGame {
+    constructor() { constructions += 1; }
+    start() {}
+    onBackground() {}
+  }
+  const boot = startWechatGame({
+    wxApi: host.wxApi,
+    GameClass: UnsupportedGame,
+    config: { assetPaths: { formal: 'https://cdn.example.com/formal.png' } },
+  });
+  assert.equal(await boot.ready, null);
+  assert.equal(constructions, 0);
+  assert.equal(boot.game, null);
+  assert.equal(boot.loadingState.state, 'error');
+  assert.equal(boot.loadingState.unsupported, 1);
+  boot.dispose();
+  delete globalThis.__SLIME_WECHAT_BOOT_ERROR__;
+});
+
+test('WeChat verifies render before start and keeps the loading error page on first-frame failure', async () => {
+  const host = createFakeWechatHost();
+  instrumentFake2dContext(host.context);
+  host.wxApi.createImage = () => {
+    const image = { onload: null, onerror: null, width: 128, height: 128 };
+    Object.defineProperty(image, 'src', {
+      set() { queueMicrotask(() => image.onload?.()); },
+    });
+    return image;
+  };
+  let constructions = 0;
+  let renders = 0;
+  let starts = 0;
+  class BrokenFirstFrameGame {
+    constructor() { constructions += 1; }
+    setAssetStore() {}
+    setGeneratedCharacterArtEnabled() {}
+    render() { renders += 1; throw new Error('first frame failed'); }
+    start() { starts += 1; }
+    onBackground() {}
+  }
+
+  const boot = startWechatGame({
+    wxApi: host.wxApi,
+    GameClass: BrokenFirstFrameGame,
+    config: { assetPaths: { formal: 'https://cdn.example.com/formal.png' } },
+  });
+  assert.equal(await boot.ready, null);
+  assert.equal(constructions, 1);
+  assert.equal(renders, 1);
+  assert.equal(starts, 0);
+  assert.equal(boot.game, null);
+  assert.equal(boot.loadingState.state, 'error');
+  assert.equal(boot.loadingState.firstFailedKey, 'first frame failed');
+  boot.dispose();
+  delete globalThis.__SLIME_WECHAT_BOOT_ERROR__;
 });
 
 test('ads are never constructed without unit ids and disabled calls never claim success', async () => {
@@ -658,6 +901,28 @@ async function listTree(root, relative = '') {
   return files.sort();
 }
 
+test('WeChat production remote gate contains 125 canonical images and all 16 versioned rig PNGs', async () => {
+  const assetSpec = JSON.parse(await readFile(path.join(PROJECT_ROOT, 'assets', 'asset-spec.json'), 'utf8'));
+  const rigManifest = JSON.parse(await readFile(path.join(PROJECT_ROOT, 'assets', 'rig-parts.json'), 'utf8'));
+  const declaredRigPaths = assertRigBuildContract(rigManifest, PRODUCTION_RIG_OWNER_IDS);
+  const assets = await collectRemoteAssets(PROJECT_ROOT, assetSpec, rigManifest);
+  const ordinary = packagedAssetPaths(assets, 'https://cdn.example.com/game');
+  const rigs = packagedRigImagePaths(assets, 'https://cdn.example.com/game');
+
+  assert.equal(Object.keys(ordinary).length, 125);
+  assert.equal(new Set(Object.values(ordinary)).size, 125);
+  assert.equal(Object.hasOwn(ordinary, 'scene-gel-garden'), false);
+  assert.equal(Object.hasOwn(ordinary, 'town-core'), false);
+  assert.equal(Object.hasOwn(ordinary, 'enemy-portal'), false);
+  assert.equal(declaredRigPaths.length, 16);
+  assert.equal(Object.keys(rigs).length, 16);
+  assert.equal(new Set(Object.values(rigs)).size, 16);
+  assert.equal(new Set([...Object.values(ordinary), ...Object.values(rigs)]).size, 141);
+  for (const url of [...Object.values(ordinary), ...Object.values(rigs)]) {
+    assert.match(url, /\?v=[a-f0-9]{12}$/);
+  }
+});
+
 test('WeChat build emits and executes a playable canvas bootstrap with zero packaged PNGs', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'slime-wechat-build-'));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -669,15 +934,29 @@ test('WeChat build emits and executes a playable canvas bootstrap with zero pack
       await readFile(path.join(PROJECT_ROOT, 'src', 'platform', filename), 'utf8'),
     );
   }
+  await mkdir(path.join(root, 'src', 'animation'), { recursive: true });
+  await writeFile(
+    path.join(root, 'src', 'animation', 'rig-assets.js'),
+    await readFile(path.join(PROJECT_ROOT, 'src', 'animation', 'rig-assets.js'), 'utf8'),
+  );
   await writeFile(path.join(root, 'src', 'game.js'), `export class SlimeGame {
   constructor(canvas) {
+    globalThis.__WX_FIXTURE_CONSTRUCTIONS__ = (globalThis.__WX_FIXTURE_CONSTRUCTIONS__ || 0) + 1;
     this.canvas = canvas;
     globalThis.__WX_FIXTURE_TOUCHES__ = [];
     canvas.addEventListener('pointerdown', (event) => {
       globalThis.__WX_FIXTURE_TOUCHES__.push([event.pointerId, event.clientX, event.clientY]);
     });
   }
+  setAssetStore(store) { this.assetStore = store; }
+  setRigAssetStore(store) { this.rigAssetStore = store; globalThis.__WX_FIXTURE_RIG_ATTACHED__ = true; }
+  setGeneratedCharacterArtEnabled(enabled) { this.generated = enabled; }
+  render() {
+    if (!this.rigAssetStore || !globalThis.__WX_FIXTURE_RIG_ATTACHED__) throw new Error('rig not attached');
+    globalThis.__WX_FIXTURE_RENDERED__ = (globalThis.__WX_FIXTURE_RENDERED__ || 0) + 1;
+  }
   start() {
+    if (!globalThis.__WX_FIXTURE_RENDERED__) throw new Error('first frame not verified');
     globalThis.__WX_FIXTURE_STARTED__ = (globalThis.__WX_FIXTURE_STARTED__ || 0) + 1;
     requestAnimationFrame((timestamp) => { globalThis.__WX_FIXTURE_FRAME__ = timestamp; });
   }
@@ -689,10 +968,12 @@ test('WeChat build emits and executes a playable canvas bootstrap with zero pack
 
   const ordinaryPath = 'assets/generated/effect/effect-test.png';
   const rigPath = 'assets/generated-v2/rig/survivor-test/atlas.png';
+  const expressionPath = 'assets/generated-v2/rig/survivor-test/expressions.png';
   await mkdir(path.join(root, path.dirname(ordinaryPath)), { recursive: true });
   await mkdir(path.join(root, path.dirname(rigPath)), { recursive: true });
   await writeFile(path.join(root, ordinaryPath), Buffer.from('ordinary-png-bytes'));
   await writeFile(path.join(root, rigPath), Buffer.from('rig-png-bytes'));
+  await writeFile(path.join(root, expressionPath), Buffer.from('expression-png-bytes'));
   await writeJson(path.join(root, 'assets', 'asset-spec.json'), {
     schemaVersion: 1,
     assets: [{
@@ -704,9 +985,57 @@ test('WeChat build emits and executes a playable canvas bootstrap with zero pack
   });
   await writeJson(path.join(root, 'assets', 'rig-parts.json'), {
     schemaVersion: 2,
+    coordinateSpace: {
+      units: 'rig-local',
+      canonicalSize: 100,
+      origin: 'ground-center',
+      xAxis: 'right',
+      yAxis: 'down',
+    },
+    assetPolicy: {
+      container: 'PNG',
+      colorMode: 'RGBA',
+      transparent: true,
+      rootBoneHasImage: false,
+      faceBoneHasImage: false,
+      bodyIncludesFacialPixels: false,
+      readiness: 'atomic',
+    },
     rigs: {
       'survivor-test': {
-        parts: [{ id: 'body', path: rigPath }],
+        rigId: 'test',
+        rootBone: 'root',
+        faceBone: 'face',
+        canonicalFacing: 1,
+        parts: [
+          {
+            id: 'body', bone: 'body', z: 0, path: rigPath, required: true,
+            sourceRect: { x: 0, y: 0, width: 64, height: 64 },
+            bindRect: { x: -25, y: -50, width: 50, height: 50 },
+          },
+          {
+            id: 'eyes', bone: 'eyes', z: 10, path: rigPath, required: true,
+            sourceRect: { x: 64, y: 0, width: 32, height: 16 },
+            bindRect: { x: -12, y: -35, width: 24, height: 12 },
+            variants: {
+              blink: {
+                path: expressionPath,
+                sourceRect: { x: 0, y: 0, width: 32, height: 16 },
+              },
+            },
+          },
+          {
+            id: 'mouth', bone: 'mouth', z: 20, path: rigPath, required: true,
+            sourceRect: { x: 96, y: 0, width: 16, height: 16 },
+            bindRect: { x: -4, y: -20, width: 8, height: 8 },
+            variants: {
+              open: {
+                path: expressionPath,
+                sourceRect: { x: 32, y: 0, width: 16, height: 16 },
+              },
+            },
+          },
+        ],
       },
     },
   });
@@ -715,9 +1044,12 @@ test('WeChat build emits and executes a playable canvas bootstrap with zero pack
     projectRoot: root,
     assetBaseUrl: 'https://cdn.example.com/game',
     appId: 'wx-test-app',
+    requiredRigOwnerIds: ['survivor-test'],
   });
   assert.equal(result.pngs, 0);
-  assert.equal(result.remoteAssets, 2);
+  assert.equal(result.remoteAssets, 3);
+  assert.equal(result.ordinaryAssets, 1);
+  assert.equal(result.rigAssets, 2);
   const output = path.join(root, '_wxgame');
   const files = await listTree(output);
   assert.ok(files.includes('game.js'));
@@ -727,6 +1059,7 @@ test('WeChat build emits and executes a playable canvas bootstrap with zero pack
   assert.ok(files.includes('src/platform/runtime.js'));
   assert.ok(files.includes('src/platform/wechat-canvas.js'));
   assert.ok(files.includes('src/platform/wechat-entry.js'));
+  assert.ok(files.includes('src/animation/rig-assets.js'));
   assert.ok(files.includes('src/game.js'));
   assert.equal(files.includes('src/main.js'), false);
   assert.equal(files.some((filename) => filename.endsWith('.png')), false);
@@ -735,8 +1068,9 @@ test('WeChat build emits and executes a playable canvas bootstrap with zero pack
   assert.equal(manifest.delivery.mode, 'remote');
   assert.equal(manifest.delivery.mainPackagePngCount, 0);
   assert.equal(manifest.delivery.configured, true);
-  assert.equal(manifest.assets.length, 2);
+  assert.equal(manifest.assets.length, 3);
   assert.ok(manifest.assets.every(({ url }) => url.startsWith('https://cdn.example.com/game/assets/')));
+  assert.ok(manifest.assets.every(({ url }) => /\?v=[a-f0-9]{12}$/.test(url)));
   assert.ok(manifest.assets.every(({ bytes, sha256 }) => bytes > 0 && /^[a-f0-9]{64}$/.test(sha256)));
 
   const project = JSON.parse(await readFile(path.join(output, 'project.config.json'), 'utf8'));
@@ -749,6 +1083,14 @@ test('WeChat build emits and executes a playable canvas bootstrap with zero pack
   assert.match(entry, /https:\/\/cdn\.example\.com\/game\/assets\/generated\/effect\/effect-test\.png/);
 
   const host = createFakeWechatHost();
+  const buildImages = [];
+  host.wxApi.createImage = () => {
+    const image = { onload: null, onerror: null, width: 512, height: 512 };
+    Object.defineProperty(image, 'src', {
+      set(url) { buildImages.push({ image, url }); },
+    });
+    return image;
+  };
   const previousWx = globalThis.wx;
   globalThis.wx = host.wxApi;
   t.after(() => {
@@ -758,12 +1100,36 @@ test('WeChat build emits and executes a playable canvas bootstrap with zero pack
     for (const name of [
       '__SLIME_WECHAT_BOOT__', '__SLIME_WECHAT_BOOT_ERROR__', '__SLIME_PLATFORM_RUNTIME__',
       '__SLIME_GAME__', '__WX_FIXTURE_TOUCHES__', '__WX_FIXTURE_STARTED__', '__WX_FIXTURE_FRAME__',
-      '__WX_FIXTURE_RESIZED__', '__WX_FIXTURE_BACKGROUNDED__',
+      '__WX_FIXTURE_RESIZED__', '__WX_FIXTURE_BACKGROUNDED__', '__WX_FIXTURE_CONSTRUCTIONS__',
+      '__WX_FIXTURE_RIG_ATTACHED__', '__WX_FIXTURE_RENDERED__',
     ]) delete globalThis[name];
   });
   await import(`${pathToFileURL(path.join(output, 'game.js')).href}?run=${Date.now()}`);
   assert.equal(host.canvasCreations, 1);
+  assert.equal(buildImages.length, 3);
+  assert.equal(new Set(buildImages.map(({ url }) => url)).size, 3);
+  const lastRigImage = buildImages.find(({ url }) => url.includes('expressions.png'));
+  assert.ok(lastRigImage);
+  for (const record of buildImages) {
+    if (record !== lastRigImage) record.image.onload?.();
+  }
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(globalThis.__WX_FIXTURE_CONSTRUCTIONS__, undefined,
+    'the last pending rig PNG must keep game construction at zero');
+  assert.equal(globalThis.__WX_FIXTURE_STARTED__, undefined,
+    'generated entry must not construct or start the game before remote PNGs are ready');
+  lastRigImage.image.onload?.();
+  await globalThis.__SLIME_WECHAT_BOOT__.ready;
+  assert.equal(globalThis.__WX_FIXTURE_CONSTRUCTIONS__, 1);
+  assert.equal(globalThis.__WX_FIXTURE_RIG_ATTACHED__, true);
+  assert.equal(globalThis.__WX_FIXTURE_RENDERED__, 1);
   assert.equal(globalThis.__WX_FIXTURE_STARTED__, 1);
+  assert.equal(globalThis.__SLIME_WECHAT_BOOT__.rigAssetStore.status('survivor-test').ready, true);
+  assert.equal(wechatRigPreloadSucceeded(
+    { total: 1, ready: 1, fallback: 0, unknown: 0 },
+    globalThis.__SLIME_WECHAT_BOOT__.rigAssetStore,
+    ['survivor-test'],
+  ), true);
   assert.ok(globalThis.__SLIME_WECHAT_BOOT__?.game);
   assert.equal(host.fireFrame(64), true);
   assert.equal(globalThis.__WX_FIXTURE_FRAME__, 64);

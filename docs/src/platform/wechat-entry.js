@@ -4,6 +4,7 @@ import {
   createWechatCanvasSurface,
   installWechatGameGlobals,
 } from './wechat-canvas.js';
+import { createRigAssetStore } from '../animation/rig-assets.js';
 
 export const WECHAT_CRITICAL_ASSET_KEYS = Object.freeze([
   'survivor-shell-shell',
@@ -133,7 +134,7 @@ export function createWechatRemoteAssetPaths(assetBaseUrl, paths = {}) {
   })));
 }
 
-/** Small wx.Image store with key-scoped preload for a generated-art first screen. */
+/** Small wx.Image store with strict, retryable preload for formal game art. */
 export function createWechatImageAssetStore(paths = {}, {
   wxApi = globalThis.wx,
   timeoutMs = 12000,
@@ -146,13 +147,16 @@ export function createWechatImageAssetStore(paths = {}, {
     promise: null,
   }]));
 
-  const load = (key) => {
+  const load = (key, { retryFailed = false } = {}) => {
     const record = records.get(key);
     if (!record) return Promise.resolve({ key, status: 'unknown' });
-    if (record.status === 'loaded' || record.status === 'failed') return Promise.resolve({ ...record });
+    if (record.status === 'loaded') return Promise.resolve({ ...record });
     if (record.promise) return record.promise;
+    if ((record.status === 'failed' || record.status === 'unsupported') && !retryFailed) {
+      return Promise.resolve({ ...record });
+    }
     if (typeof wxApi?.createImage !== 'function') {
-      record.status = 'failed';
+      record.status = 'unsupported';
       return Promise.resolve({ ...record });
     }
     record.status = 'loading';
@@ -202,24 +206,54 @@ export function createWechatImageAssetStore(paths = {}, {
       return record ? { key, url: record.url, status: record.status } : { key, status: 'unknown' };
     },
     load,
-    async preload({ keys = [...records.keys()], concurrency = 6 } = {}) {
-      const selectedKeys = [...new Set(keys)].filter((key) => records.has(key));
+    async preload({
+      keys = [...records.keys()],
+      concurrency = 6,
+      retryFailed = true,
+      onProgress = null,
+    } = {}) {
+      const selectedKeys = [...new Set(keys)];
+      const results = new Array(selectedKeys.length);
       let cursor = 0;
+      let completed = 0;
+      let loaded = 0;
+      let failed = 0;
+      let unsupported = 0;
+      const reportProgress = (result) => {
+        completed += 1;
+        if (result.status === 'loaded') loaded += 1;
+        else if (result.status === 'unsupported') unsupported += 1;
+        else failed += 1;
+        safeCall(onProgress, Object.freeze({
+          total: selectedKeys.length,
+          completed,
+          loaded,
+          failed,
+          unsupported,
+          current: result,
+        }));
+      };
       const workers = Array.from(
         { length: Math.max(1, Math.min(selectedKeys.length || 1, Math.floor(Number(concurrency) || 6))) },
         async () => {
           while (cursor < selectedKeys.length) {
-            const key = selectedKeys[cursor];
+            const index = cursor;
+            const key = selectedKeys[index];
             cursor += 1;
-            await load(key);
+            const result = await load(key, { retryFailed });
+            results[index] = result;
+            reportProgress(result);
           }
         },
       );
       await Promise.all(workers);
-      return {
+      return Object.freeze({
         total: selectedKeys.length,
-        loaded: selectedKeys.filter((key) => records.get(key)?.status === 'loaded').length,
-      };
+        loaded,
+        failed,
+        unsupported,
+        results: Object.freeze(results),
+      });
     },
     useOrFallback(key, renderAsset, renderFallback = () => {}) {
       const record = records.get(key);
@@ -240,25 +274,509 @@ export function createWechatImageAssetStore(paths = {}, {
   };
 }
 
-function attachAssetStore(game, wxApi, config, createAssetStoreImpl, paths) {
+function resolveWechatAssetConfiguration(config, paths) {
   const configuredPaths = config.assetPaths && typeof config.assetPaths === 'object'
     ? config.assetPaths
     : {};
   const relativePaths = config.assetRelativePaths && typeof config.assetRelativePaths === 'object'
     ? config.assetRelativePaths
     : paths;
-  const remotePaths = Object.keys(configuredPaths).length
-    ? configuredPaths
-    : createWechatRemoteAssetPaths(config.assetBaseUrl, relativePaths);
-  if (!Object.keys(remotePaths).length || typeof wxApi?.createImage !== 'function') return null;
-  const assetStore = createAssetStoreImpl(remotePaths, {
-    wxApi,
-    timeoutMs: Number(config.assetLoadTimeoutMs) || 12000,
+  const remotePaths = createWechatRemoteAssetPaths(config.assetBaseUrl, relativePaths);
+  const directHttpsPaths = Object.fromEntries(
+    Object.entries(relativePaths || {}).filter(([, value]) => (
+      typeof value === 'string' && /^https:\/\//i.test(value)
+    )),
+  );
+  // assetRelativePaths is embedded by the build and cannot be narrowed by a
+  // runtime criticalAssetKeys override. Explicit URLs may replace individual
+  // destinations, but they may not remove the rest of the formal build set.
+  const resolvedPaths = Object.freeze({
+    ...remotePaths,
+    ...directHttpsPaths,
+    ...configuredPaths,
   });
+  const declaredKeys = Object.freeze([...new Set([
+    ...Object.keys(relativePaths || {}),
+    ...Object.keys(configuredPaths),
+  ])]);
+  const missingKeys = declaredKeys.filter(
+    (key) => !Object.prototype.hasOwnProperty.call(resolvedPaths, key),
+  );
+  return {
+    paths: resolvedPaths,
+    keys: declaredKeys,
+    error: missingKeys.length
+      ? new Error('正式素材地址未配置，请设置 HTTPS 素材域名后重试。')
+      : null,
+  };
+}
+
+function rigImagePathsFromManifest(manifest) {
+  const paths = new Set();
+  for (const rig of Object.values(manifest?.rigs || {})) {
+    for (const part of rig?.parts || []) {
+      if (typeof part?.path === 'string') paths.add(part.path);
+      for (const variant of Object.values(part?.variants || {})) {
+        const variantPath = variant?.path ?? part?.path;
+        if (typeof variantPath === 'string') paths.add(variantPath);
+      }
+    }
+  }
+  return Object.freeze([...paths].sort());
+}
+
+function resolveWechatRigConfiguration(config) {
+  const required = config.rigRequired === true || Boolean(config.rigManifest);
+  if (!required) {
+    return {
+      required: false,
+      manifest: null,
+      ownerIds: Object.freeze([]),
+      imagePaths: Object.freeze({}),
+      error: null,
+    };
+  }
+  const manifest = config.rigManifest;
+  const ownerIds = Array.isArray(config.rigOwnerIds)
+    ? Object.freeze([...new Set(config.rigOwnerIds)])
+    : Object.freeze([]);
+  const actualOwnerIds = Object.keys(manifest?.rigs || {});
+  const resourcePaths = rigImagePathsFromManifest(manifest);
+  const configuredImagePaths = config.rigImagePaths && typeof config.rigImagePaths === 'object'
+    ? config.rigImagePaths
+    : {};
+  let error = null;
+  if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) {
+    error = new Error('微信构建没有提供骨骼素材清单。');
+  } else if (
+    ownerIds.length === 0
+    || actualOwnerIds.length !== ownerIds.length
+    || ownerIds.some((ownerId) => !actualOwnerIds.includes(ownerId))
+  ) {
+    error = new Error('微信骨骼素材 owner 集合不完整。');
+  } else if (resourcePaths.length !== ownerIds.length * 2) {
+    error = new Error('每套微信骨骼必须提供一张图集和一张表情图。');
+  } else if (ownerIds.some((ownerId) => (
+    resourcePaths.filter((path) => (
+      path.startsWith(`assets/generated-v2/rig/${ownerId}/`)
+    )).length !== 2
+  ))) {
+    error = new Error('微信骨骼图片与 owner 目录不匹配。');
+  } else if (
+    Object.keys(configuredImagePaths).length !== resourcePaths.length
+    || resourcePaths.some((path) => {
+      const url = configuredImagePaths[path];
+      return typeof url !== 'string'
+        || !/^https:\/\//i.test(url)
+        || !/[?&]v=[a-f0-9]{12}(?:&|$)/i.test(url);
+    })
+  ) {
+    error = new Error('微信骨骼远程图片映射缺失或没有 SHA 版本参数。');
+  }
+  return {
+    required,
+    manifest,
+    ownerIds,
+    imagePaths: Object.freeze({ ...configuredImagePaths }),
+    resourcePaths,
+    error,
+  };
+}
+
+function attachAssetStore(game, assetStore) {
+  if (!assetStore) return;
   if (typeof game.setAssetStore === 'function') game.setAssetStore(assetStore);
   else game.assetStore = assetStore;
   game.setGeneratedCharacterArtEnabled?.(true);
-  return assetStore;
+}
+
+export function wechatPreloadSucceeded(summary, assetStore, keys) {
+  const uniqueKeys = [...new Set(keys)];
+  return Boolean(
+    summary
+    && summary.total === uniqueKeys.length
+    && summary.loaded === uniqueKeys.length
+    && summary.failed === 0
+    && summary.unsupported === 0
+    && uniqueKeys.every((key) => assetStore?.status?.(key)?.status === 'loaded')
+  );
+}
+
+export function wechatRigPreloadSucceeded(summary, rigStore, ownerIds) {
+  const requiredOwnerIds = [...new Set(ownerIds)];
+  const manifestOwnerIds = Object.keys(rigStore?.manifest?.rigs || {});
+  return Boolean(
+    summary
+    && summary.total === requiredOwnerIds.length
+    && summary.ready === requiredOwnerIds.length
+    && summary.fallback === 0
+    && summary.unknown === 0
+    && manifestOwnerIds.length === requiredOwnerIds.length
+    && requiredOwnerIds.every((ownerId) => (
+      manifestOwnerIds.includes(ownerId) && rigStore?.status?.(ownerId)?.ready === true
+    ))
+  );
+}
+
+function roundedRect(ctx, x, y, width, height, radius, fill, stroke = null, lineWidth = 0) {
+  const canDrawPath = [
+    'beginPath', 'moveTo', 'lineTo', 'quadraticCurveTo', 'closePath', 'fill',
+  ].every((name) => typeof ctx?.[name] === 'function');
+  if (!canDrawPath) {
+    if (fill) {
+      ctx.fillStyle = fill;
+      ctx.fillRect?.(x, y, width, height);
+    }
+    return;
+  }
+  const safeRadius = Math.max(0, Math.min(radius, width / 2, height / 2));
+  ctx.beginPath();
+  ctx.moveTo(x + safeRadius, y);
+  ctx.lineTo(x + width - safeRadius, y);
+  ctx.quadraticCurveTo(x + width, y, x + width, y + safeRadius);
+  ctx.lineTo(x + width, y + height - safeRadius);
+  ctx.quadraticCurveTo(x + width, y + height, x + width - safeRadius, y + height);
+  ctx.lineTo(x + safeRadius, y + height);
+  ctx.quadraticCurveTo(x, y + height, x, y + height - safeRadius);
+  ctx.lineTo(x, y + safeRadius);
+  ctx.quadraticCurveTo(x, y, x + safeRadius, y);
+  ctx.closePath();
+  if (fill) {
+    ctx.fillStyle = fill;
+    ctx.fill();
+  }
+  if (stroke && typeof ctx.stroke === 'function') {
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = lineWidth;
+    ctx.stroke();
+  }
+}
+
+/** Canvas-only loading UI used before SlimeGame is allowed to exist. */
+export function createWechatCanvasLoadingView({ surface }) {
+  const canvas = surface?.canvas;
+  const nativeCanvas = surface?.nativeCanvas;
+  const ctx = canvas?.getContext?.('2d') || null;
+  let state = 'idle';
+  let completed = 0;
+  let total = 0;
+  let failed = 0;
+  let unsupported = 0;
+  let firstFailedKey = '';
+  let frameId = 0;
+  let retryHandler = null;
+  let retryBounds = null;
+  let framesDrawn = 0;
+  let phase = 0;
+  let disposed = false;
+
+  const layout = () => {
+    const viewport = surface.viewport();
+    const width = Math.max(320, viewport.width);
+    const height = Math.max(180, viewport.height);
+    const cardWidth = Math.min(460, width - 32);
+    const cardHeight = Math.min(340, height - 24);
+    const cardX = (width - cardWidth) / 2;
+    const cardY = (height - cardHeight) / 2;
+    return {
+      viewport,
+      width,
+      height,
+      cardWidth,
+      cardHeight,
+      cardX,
+      cardY,
+      centerX: width / 2,
+      mascotY: cardY + 91,
+      titleY: cardY + 178,
+      statusY: cardY + 207,
+      barX: cardX + 38,
+      barY: cardY + 228,
+      barWidth: cardWidth - 76,
+      barHeight: 16,
+      retry: {
+        x: width / 2 - 90,
+        y: cardY + 263,
+        width: 180,
+        height: 43,
+      },
+    };
+  };
+
+  const ensureNativeResolution = (viewport) => {
+    const pixelRatio = Math.max(1, Number(viewport.pixelRatio) || 1);
+    const targetWidth = Math.max(1, Math.round(viewport.width * pixelRatio));
+    const targetHeight = Math.max(1, Math.round(viewport.height * pixelRatio));
+    if (nativeCanvas.width !== targetWidth) nativeCanvas.width = targetWidth;
+    if (nativeCanvas.height !== targetHeight) nativeCanvas.height = targetHeight;
+    return pixelRatio;
+  };
+
+  const drawSlime = (centerX, centerY, timePhase) => {
+    const bounce = Math.sin(timePhase * Math.PI * 2) * 4;
+    const slimeY = centerY + bounce;
+    if (typeof ctx?.beginPath !== 'function') return;
+    ctx.beginPath();
+    ctx.moveTo?.(centerX - 46, slimeY + 28);
+    ctx.bezierCurveTo?.(
+      centerX - 50, slimeY - 18,
+      centerX - 31, slimeY - 42,
+      centerX, slimeY - 44,
+    );
+    ctx.bezierCurveTo?.(
+      centerX + 34, slimeY - 42,
+      centerX + 52, slimeY - 15,
+      centerX + 47, slimeY + 28,
+    );
+    ctx.bezierCurveTo?.(
+      centerX + 23, slimeY + 43,
+      centerX - 24, slimeY + 43,
+      centerX - 46, slimeY + 28,
+    );
+    ctx.closePath?.();
+    ctx.fillStyle = '#4fd49b';
+    ctx.fill?.();
+    ctx.strokeStyle = '#334750';
+    ctx.lineWidth = 4;
+    ctx.stroke?.();
+
+    for (const eyeX of [centerX - 17, centerX + 17]) {
+      ctx.beginPath();
+      ctx.arc?.(eyeX, slimeY - 5, 5, 0, Math.PI * 2);
+      ctx.fillStyle = '#334750';
+      ctx.fill?.();
+    }
+    ctx.beginPath();
+    ctx.arc?.(centerX, slimeY + 8, 10, 0.15, Math.PI - 0.15);
+    ctx.strokeStyle = '#334750';
+    ctx.lineWidth = 3;
+    ctx.stroke?.();
+
+    const orbit = timePhase * Math.PI * 2;
+    const bubbles = [
+      [orbit, 60, 8, '#8ceaf1'],
+      [orbit + 2.1, 67, 6, '#f6be58'],
+      [orbit + 4.2, 57, 5, '#d8a8f4'],
+    ];
+    for (const [angle, distance, radius, color] of bubbles) {
+      ctx.beginPath();
+      ctx.arc?.(
+        centerX + Math.cos(angle) * distance,
+        slimeY + Math.sin(angle) * 31,
+        radius,
+        0,
+        Math.PI * 2,
+      );
+      ctx.fillStyle = color;
+      ctx.fill?.();
+      ctx.strokeStyle = '#334750';
+      ctx.lineWidth = 2;
+      ctx.stroke?.();
+    }
+  };
+
+  const render = (timestamp = Date.now()) => {
+    if (disposed || state === 'idle' || !ctx) return;
+    const current = layout();
+    const pixelRatio = ensureNativeResolution(current.viewport);
+    retryBounds = { ...current.retry };
+    phase = ((Number(timestamp) || 0) / 1400) % 1;
+    framesDrawn += 1;
+    safeCall(() => {
+      ctx.save?.();
+      if (typeof ctx.setTransform === 'function') ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+      else ctx.scale?.(pixelRatio, pixelRatio);
+      ctx.clearRect?.(0, 0, current.width, current.height);
+      ctx.fillStyle = '#a7cf83';
+      ctx.fillRect?.(0, 0, current.width, current.height);
+      roundedRect(
+        ctx,
+        current.cardX,
+        current.cardY,
+        current.cardWidth,
+        current.cardHeight,
+        28,
+        '#fff8e9',
+        state === 'error' ? '#9c5457' : '#334750',
+        3,
+      );
+      drawSlime(current.centerX, current.mascotY, phase);
+
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#334750';
+      ctx.font = 'bold 21px sans-serif';
+      ctx.fillText?.(
+        state === 'error' ? '正式素材没有加载完整' : state === 'ready' ? '基地准备完毕' : '正在唤醒史莱姆基地',
+        current.centerX,
+        current.titleY,
+      );
+      ctx.fillStyle = state === 'error' ? '#9c5457' : '#667970';
+      ctx.font = 'bold 14px sans-serif';
+      const missing = Math.max(1, failed + unsupported);
+      const statusText = state === 'error'
+        ? `${missing} 项素材失败${firstFailedKey ? ` · ${firstFailedKey}` : ''}`
+        : state === 'ready'
+          ? '史莱姆们已经就位'
+          : `正在装载正式素材 ${completed}/${total}`;
+      ctx.fillText?.(statusText, current.centerX, current.statusY);
+
+      roundedRect(
+        ctx,
+        current.barX,
+        current.barY,
+        current.barWidth,
+        current.barHeight,
+        8,
+        '#dce5ce',
+        '#334750',
+        2,
+      );
+      const ratio = total > 0 ? Math.max(0, Math.min(1, completed / total)) : 0;
+      const fillWidth = Math.max(0, (current.barWidth - 4) * ratio);
+      if (fillWidth > 0) {
+        roundedRect(
+          ctx,
+          current.barX + 2,
+          current.barY + 2,
+          fillWidth,
+          current.barHeight - 4,
+          6,
+          '#43c98a',
+        );
+        const shimmerWidth = Math.min(34, fillWidth);
+        const travel = Math.max(1, fillWidth + shimmerWidth);
+        const shimmerX = current.barX + 2 + ((phase * travel) % travel) - shimmerWidth;
+        ctx.globalAlpha = 0.45;
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect?.(
+          Math.max(current.barX + 2, shimmerX),
+          current.barY + 3,
+          Math.max(0, Math.min(shimmerWidth, current.barX + 2 + fillWidth - shimmerX)),
+          current.barHeight - 6,
+        );
+        ctx.globalAlpha = 1;
+      }
+
+      if (state === 'error') {
+        const pulse = 1 + Math.sin(phase * Math.PI * 2) * 0.025;
+        const buttonWidth = current.retry.width * pulse;
+        const buttonX = current.centerX - buttonWidth / 2;
+        roundedRect(
+          ctx,
+          buttonX,
+          current.retry.y,
+          buttonWidth,
+          current.retry.height,
+          22,
+          '#f6be58',
+          '#334750',
+          2,
+        );
+        ctx.fillStyle = '#334750';
+        ctx.font = 'bold 16px sans-serif';
+        ctx.fillText?.('轻触重新加载', current.centerX, current.retry.y + current.retry.height / 2);
+      }
+      ctx.restore?.();
+    });
+  };
+
+  const schedule = () => {
+    if (disposed || frameId || (state !== 'loading' && state !== 'error')) return;
+    frameId = surface.frames.request((timestamp) => {
+      frameId = 0;
+      render(timestamp);
+      schedule();
+    });
+  };
+
+  const cancelFrame = () => {
+    if (!frameId) return;
+    surface.frames.cancel(frameId);
+    frameId = 0;
+  };
+
+  const onPointerUp = (event) => {
+    if (state !== 'error' || !retryBounds || typeof retryHandler !== 'function') return;
+    const x = Number(event?.clientX);
+    const y = Number(event?.clientY);
+    if (
+      x >= retryBounds.x
+      && x <= retryBounds.x + retryBounds.width
+      && y >= retryBounds.y
+      && y <= retryBounds.y + retryBounds.height
+    ) {
+      event.preventDefault?.();
+      retryHandler();
+    }
+  };
+  canvas?.addEventListener?.('pointerup', onPointerUp);
+
+  return Object.freeze({
+    onRetry(handler) {
+      retryHandler = typeof handler === 'function' ? handler : null;
+    },
+    showLoading(nextTotal) {
+      cancelFrame();
+      state = 'loading';
+      total = Math.max(0, Math.floor(Number(nextTotal) || 0));
+      completed = 0;
+      failed = 0;
+      unsupported = 0;
+      firstFailedKey = '';
+      render(Date.now());
+      schedule();
+    },
+    setProgress(progress = {}) {
+      total = Math.max(0, Math.floor(Number(progress.total) || total));
+      completed = Math.max(0, Math.min(total, Math.floor(Number(progress.completed) || 0)));
+      failed = Math.max(0, Math.floor(Number(progress.failed) || 0));
+      unsupported = Math.max(0, Math.floor(Number(progress.unsupported) || 0));
+    },
+    showFailure(details = {}) {
+      cancelFrame();
+      state = 'error';
+      failed = Math.max(0, Math.floor(Number(details.failed) || 0));
+      unsupported = Math.max(0, Math.floor(Number(details.unsupported) || 0));
+      firstFailedKey = String(details.firstFailedKey || '');
+      render(Date.now());
+      schedule();
+    },
+    showReady(nextTotal = total) {
+      cancelFrame();
+      state = 'ready';
+      total = Math.max(0, Math.floor(Number(nextTotal) || 0));
+      completed = total;
+      failed = 0;
+      unsupported = 0;
+      render(Date.now());
+    },
+    resize() {
+      if (state === 'idle') return;
+      render(Date.now());
+      schedule();
+    },
+    snapshot() {
+      return Object.freeze({
+        state,
+        total,
+        completed,
+        failed,
+        unsupported,
+        firstFailedKey,
+        framesDrawn,
+        phase,
+        retryBounds: retryBounds ? Object.freeze({ ...retryBounds }) : null,
+      });
+    },
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      cancelFrame();
+      canvas?.removeEventListener?.('pointerup', onPointerUp);
+      retryHandler = null;
+    },
+  });
 }
 
 /**
@@ -279,43 +797,111 @@ export function startWechatGame({
   const runtime = createRuntime({ platform: 'wechat', wxApi, config });
   const surface = createWechatCanvasSurface({ wxApi });
   const environment = installWechatGameGlobals({ wxApi, surface, runtime });
-  let game;
+  let game = null;
   let assetStore = null;
+  let assetStoreError = null;
+  let rigAssetStore = null;
+  let rigAssetStoreError = null;
   let disposed = false;
   let started = false;
   let ready = Promise.resolve(null);
+  let activeAttempt = null;
   const disposers = [];
 
   try {
-    game = new GameClass(surface.canvas);
-    assetStore = attachAssetStore(
-      game,
-      wxApi,
-      config,
-      createAssetStoreImpl,
-      assetPaths,
-    );
+    const assetConfiguration = resolveWechatAssetConfiguration(config, assetPaths);
+    const requiredAssetKeys = assetConfiguration.keys;
+    const rigConfiguration = resolveWechatRigConfiguration(config);
+    const requiredRigOwnerIds = rigConfiguration.ownerIds;
+    const totalLoadingUnits = requiredAssetKeys.length + requiredRigOwnerIds.length;
+    const ensureAssetStore = () => {
+      if (
+        assetStore
+        && typeof assetStore.preload === 'function'
+        && typeof assetStore.status === 'function'
+      ) return assetStore;
+      assetStore = null;
+      assetStoreError = null;
+      try {
+        assetStore = createAssetStoreImpl(assetConfiguration.paths, {
+          wxApi,
+          timeoutMs: Number(config.assetLoadTimeoutMs) || 12000,
+        });
+      } catch (error) {
+        assetStoreError = error instanceof Error ? error : new Error('无法创建微信素材加载器。');
+        return null;
+      }
+      if (
+        !assetStore
+        || typeof assetStore.preload !== 'function'
+        || typeof assetStore.status !== 'function'
+      ) {
+        assetStore = null;
+        assetStoreError = new Error('微信素材加载器不可用。');
+      }
+      return assetStore;
+    };
+    const ensureRigAssetStore = () => {
+      if (
+        rigAssetStore
+        && typeof rigAssetStore.preload === 'function'
+        && typeof rigAssetStore.status === 'function'
+      ) return rigAssetStore;
+      rigAssetStore = null;
+      rigAssetStoreError = null;
+      try {
+        rigAssetStore = createRigAssetStore(rigConfiguration.manifest, {
+          imageFactory: () => wxApi.createImage?.() ?? null,
+          resolvePath: (assetPath) => {
+            const url = rigConfiguration.imagePaths[assetPath];
+            if (!url) throw new Error(`微信骨骼图片地址缺失：${assetPath}`);
+            return url;
+          },
+        });
+      } catch (error) {
+        rigAssetStoreError = error instanceof Error ? error : new Error('无法创建微信骨骼素材加载器。');
+        return null;
+      }
+      if (
+        !rigAssetStore
+        || typeof rigAssetStore.preload !== 'function'
+        || typeof rigAssetStore.status !== 'function'
+      ) {
+        rigAssetStore = null;
+        rigAssetStoreError = new Error('微信骨骼素材加载器不可用。');
+      }
+      return rigAssetStore;
+    };
+    if (requiredAssetKeys.length && !assetConfiguration.error) ensureAssetStore();
+    if (requiredRigOwnerIds.length && !rigConfiguration.error) ensureRigAssetStore();
+    const loadingView = createWechatCanvasLoadingView({ surface });
+    disposers.push(() => loadingView.dispose());
 
     disposers.push(runtime.lifecycle.onHide((event) => {
       surface.frames.pause();
       environment.setHidden(true, event);
-      safeCall(game.onBackground?.bind(game));
+      safeCall(game?.onBackground?.bind(game));
     }));
     disposers.push(runtime.lifecycle.onShow((event) => {
       surface.refreshViewport(event);
       environment.setHidden(false, event);
       environment.dispatchResize(event);
-      game.lastTime = 0;
-      safeCall(game.resize?.bind(game));
+      if (game) {
+        game.lastTime = 0;
+        safeCall(game.resize?.bind(game));
+      } else {
+        loadingView.resize();
+      }
       surface.frames.resume();
-      safeCall(game.onForeground?.bind(game), event);
+      safeCall(game?.onForeground?.bind(game), event);
     }));
 
     if (typeof wxApi.onWindowResize === 'function') {
       const onResize = (event) => {
         surface.refreshViewport(event);
         environment.dispatchResize(event);
-        safeCall(game.resize?.bind(game));
+        if (game) safeCall(game.resize?.bind(game));
+        else loadingView.resize();
       };
       wxApi.onWindowResize(onResize);
       disposers.push(() => wxApi.offWindowResize?.(onResize));
@@ -323,42 +909,194 @@ export function startWechatGame({
 
     const startLoop = () => {
       if (disposed || started) return game;
-      game.start();
+      loadingView.showReady(totalLoadingUnits);
+      const candidate = new GameClass(surface.canvas, {
+        assetStore,
+        rigAssetStore,
+        generatedCharacterArtEnabled: true,
+      });
+      attachAssetStore(candidate, assetStore);
+      if (rigAssetStore) {
+        if (typeof candidate.setRigAssetStore === 'function') candidate.setRigAssetStore(rigAssetStore);
+        else candidate.rigAssetStore = rigAssetStore;
+      }
+      // A complete first frame is part of the startup gate. Never reveal or
+      // start a game whose fully loaded formal art cannot render.
+      candidate.render?.();
+      candidate.start();
+      game = candidate;
       started = true;
+      globalThis.__SLIME_GAME__ = game;
       return game;
     };
-    if (assetStore && typeof assetStore.preload === 'function') {
-      const requestedCriticalKeys = Array.isArray(config.criticalAssetKeys)
-        ? config.criticalAssetKeys
-        : WECHAT_CRITICAL_ASSET_KEYS;
-      const criticalKeys = requestedCriticalKeys.filter(
-        (key) => assetStore.status?.(key)?.status !== 'unknown',
-      );
-      const waitMs = Math.max(500, Number(config.criticalStartupWaitMs) || 7000);
-      let waitTimer = null;
-      const criticalBudget = new Promise((resolve) => {
-        waitTimer = setTimeout(resolve, waitMs);
-      });
-      const criticalPreload = Promise.resolve(assetStore.preload({
-        keys: criticalKeys,
-        concurrency: Number(config.assetLoadConcurrency) || 6,
-      })).catch(() => null);
-      ready = Promise.race([criticalPreload, criticalBudget])
-        .finally(() => {
-          if (waitTimer !== null) clearTimeout(waitTimer);
+
+    const showFailure = ({ summary = null, rigSummary = null, error = null } = {}) => {
+      const incomplete = requiredAssetKeys
+        .map((key) => assetStore?.status?.(key) || { key, status: 'unknown' })
+        .filter(({ status }) => status !== 'loaded');
+      const incompleteRigs = requiredRigOwnerIds
+        .map((ownerId) => rigAssetStore?.status?.(ownerId) || {
+          id: ownerId,
+          status: 'unknown',
+          ready: false,
         })
-        .then(startLoop);
-      void ready.catch((error) => {
-        globalThis.__SLIME_WECHAT_BOOT_ERROR__ = error;
-        safeCall(wxApi.showModal?.bind(wxApi), {
-          title: '启动失败',
-          content: error?.message || '微信小游戏无法启动',
-          showCancel: false,
-        });
+        .filter(({ ready }) => ready !== true);
+      const actualUnsupported = incomplete.filter(({ status }) => status === 'unsupported').length;
+      const actualFailed = incomplete.length - actualUnsupported + incompleteRigs.length;
+      const details = {
+        failed: Math.max(
+          actualFailed,
+          Math.floor(Number(summary?.failed) || 0)
+            + Math.floor(Number(rigSummary?.fallback) || 0)
+            + Math.floor(Number(rigSummary?.unknown) || 0),
+        ),
+        unsupported: Math.max(actualUnsupported, Math.floor(Number(summary?.unsupported) || 0)),
+        firstFailedKey: incomplete[0]?.key
+          || (incompleteRigs[0]?.id ? `rig:${incompleteRigs[0].id}` : '')
+          || error?.message
+          || '启动初始化',
+      };
+      const bootError = error instanceof Error
+        ? error
+        : new Error(`正式素材加载失败：${details.failed + details.unsupported} 项未就绪。`);
+      globalThis.__SLIME_WECHAT_BOOT_ERROR__ = bootError;
+      loadingView.showFailure(details);
+      return null;
+    };
+
+    const runAttempt = async () => {
+      if (disposed || started) return game;
+      loadingView.showLoading(totalLoadingUnits);
+      if (assetConfiguration.error) return showFailure({ error: assetConfiguration.error });
+      if (rigConfiguration.error) return showFailure({ error: rigConfiguration.error });
+      if (requiredAssetKeys.length && !ensureAssetStore()) {
+        return showFailure({ error: assetStoreError });
+      }
+      if (requiredRigOwnerIds.length && !ensureRigAssetStore()) {
+        return showFailure({ error: rigAssetStoreError });
+      }
+      let ordinaryCompleted = 0;
+      let rigCompleted = 0;
+      const reportCombinedProgress = () => loadingView.setProgress({
+        total: totalLoadingUnits,
+        completed: ordinaryCompleted + rigCompleted,
       });
+      const ordinaryPreload = requiredAssetKeys.length
+        ? Promise.resolve(assetStore.preload({
+          keys: requiredAssetKeys,
+          concurrency: Number(config.assetLoadConcurrency) || 6,
+          retryFailed: true,
+          onProgress: (progress) => {
+            ordinaryCompleted = Math.max(ordinaryCompleted, Number(progress?.completed) || 0);
+            reportCombinedProgress();
+          },
+        })).then((summary) => ({ summary, error: null }))
+          .catch((error) => ({ summary: null, error }))
+        : Promise.resolve({
+          summary: Object.freeze({ total: 0, loaded: 0, failed: 0, unsupported: 0 }),
+          error: null,
+        });
+      const rigPreload = requiredRigOwnerIds.length
+        ? Promise.resolve(rigAssetStore.preload({
+          ids: requiredRigOwnerIds,
+          timeoutMs: Number(config.rigLoadTimeoutMs) || 15000,
+          concurrency: Number(config.rigLoadConcurrency) || 3,
+          retryFailed: true,
+          onProgress: (progress) => {
+            rigCompleted = Math.max(rigCompleted, Number(progress?.completed) || 0);
+            reportCombinedProgress();
+          },
+        })).then((summary) => ({ summary, error: null }))
+          .catch((error) => ({ summary: null, error }))
+        : Promise.resolve({
+          summary: Object.freeze({ total: 0, ready: 0, fallback: 0, unknown: 0 }),
+          error: null,
+        });
+      const [ordinaryResult, rigResult] = await Promise.all([ordinaryPreload, rigPreload]);
+      if (disposed) return null;
+      if (ordinaryResult.error || rigResult.error) {
+        return showFailure({
+          summary: ordinaryResult.summary,
+          rigSummary: rigResult.summary,
+          error: ordinaryResult.error || rigResult.error,
+        });
+      }
+      if (!wechatPreloadSucceeded(ordinaryResult.summary, assetStore, requiredAssetKeys)) {
+        return showFailure({
+          summary: ordinaryResult.summary,
+          rigSummary: rigResult.summary,
+        });
+      }
+      if (!wechatRigPreloadSucceeded(
+        rigResult.summary,
+        rigAssetStore,
+        requiredRigOwnerIds,
+      )) {
+        return showFailure({
+          summary: ordinaryResult.summary,
+          rigSummary: rigResult.summary,
+        });
+      }
+      try {
+        const nextGame = startLoop();
+        delete globalThis.__SLIME_WECHAT_BOOT_ERROR__;
+        return nextGame;
+      } catch (error) {
+        game = null;
+        started = false;
+        return showFailure({ error });
+      }
+    };
+
+    const beginAttempt = () => {
+      if (disposed) return Promise.resolve(null);
+      if (started) return Promise.resolve(game);
+      if (activeAttempt) return activeAttempt;
+      activeAttempt = runAttempt().finally(() => { activeAttempt = null; });
+      ready = activeAttempt;
+      return activeAttempt;
+    };
+    loadingView.onRetry(beginAttempt);
+
+    if (
+      requiredAssetKeys.length
+      || requiredRigOwnerIds.length
+      || assetConfiguration.error
+      || rigConfiguration.error
+    ) {
+      ready = beginAttempt();
     } else {
       ready = Promise.resolve(startLoop());
     }
+
+    globalThis.__SLIME_PLATFORM_RUNTIME__ = runtime;
+
+    const boot = {
+      get game() { return game; },
+      runtime,
+      get assetStore() { return assetStore; },
+      get rigAssetStore() { return rigAssetStore; },
+      get ready() { return ready; },
+      retry: beginAttempt,
+      get loadingState() { return loadingView.snapshot(); },
+      canvas: surface.canvas,
+      nativeCanvas: surface.nativeCanvas,
+      surface,
+      dispose() {
+        if (disposed) return;
+        disposed = true;
+        safeCall(game?.onBackground?.bind(game));
+        disposers.splice(0).forEach((dispose) => safeCall(dispose));
+        safeCall(surface.dispose);
+        safeCall(runtime.dispose?.bind(runtime));
+        safeCall(environment.restore);
+        if (globalThis.__SLIME_PLATFORM_RUNTIME__ === runtime) {
+          delete globalThis.__SLIME_PLATFORM_RUNTIME__;
+        }
+        if (globalThis.__SLIME_GAME__ === game) delete globalThis.__SLIME_GAME__;
+      },
+    };
+    return boot;
   } catch (error) {
     disposers.splice(0).forEach((dispose) => dispose?.());
     surface.dispose();
@@ -366,30 +1104,4 @@ export function startWechatGame({
     environment.restore();
     throw error;
   }
-
-  const boot = {
-    game,
-    runtime,
-    assetStore,
-    ready,
-    canvas: surface.canvas,
-    nativeCanvas: surface.nativeCanvas,
-    surface,
-    dispose() {
-      if (disposed) return;
-      disposed = true;
-      safeCall(game.onBackground?.bind(game));
-      disposers.splice(0).forEach((dispose) => safeCall(dispose));
-      safeCall(surface.dispose);
-      safeCall(runtime.dispose?.bind(runtime));
-      safeCall(environment.restore);
-      if (globalThis.__SLIME_PLATFORM_RUNTIME__ === runtime) {
-        delete globalThis.__SLIME_PLATFORM_RUNTIME__;
-      }
-      if (globalThis.__SLIME_GAME__ === game) delete globalThis.__SLIME_GAME__;
-    },
-  };
-  globalThis.__SLIME_PLATFORM_RUNTIME__ = runtime;
-  globalThis.__SLIME_GAME__ = game;
-  return boot;
 }

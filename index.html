@@ -16,7 +16,7 @@
     <meta name="twitter:title" content="史莱姆基地 · 经营与三人远征" />
     <meta name="twitter:description" content="经营持续白昼的无限生态基地，采集材料、自由铺地建造，并派三只史莱姆自动战斗与探索。" />
     <title>史莱姆基地 · 经营与三人远征</title>
-    <link rel="preload" as="image" href="./assets/generated/survivor/survivor-moss-sprout.png" />
+    <link rel="preload" as="image" href="./assets/generated/survivor/survivor-moss-sprout.png?v=soft-gel-20260829-v1" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
@@ -28,7 +28,7 @@
         <div class="rotate-card">
           <img
             class="rotate-slime"
-            src="./assets/generated/survivor/survivor-moss-sprout.png"
+            src="./assets/generated/survivor/survivor-moss-sprout.png?v=soft-gel-20260829-v1"
             width="512"
             height="512"
             alt=""
@@ -40,19 +40,40 @@
           <span>史莱姆们需要更宽的战场</span>
         </div>
       </div>
-      <div id="loading" role="status" aria-live="polite">
-        <img
-          class="loading-blob"
-          src="./assets/generated/survivor/survivor-moss-sprout.png"
-          width="512"
-          height="512"
-          alt=""
-          aria-hidden="true"
-          loading="eager"
-          decoding="async"
-          fetchpriority="high"
-        />
-        <span>正在唤醒史莱姆基地…</span>
+      <div id="loading" class="is-loading" role="status" aria-live="polite" aria-busy="true">
+        <div class="loading-card">
+          <div class="loading-mascot" aria-hidden="true">
+            <span class="loading-orbit loading-orbit-a"></span>
+            <span class="loading-orbit loading-orbit-b"></span>
+            <img
+              class="loading-blob"
+              src="./assets/generated/survivor/survivor-moss-sprout.png?v=soft-gel-20260829-v1"
+              width="512"
+              height="512"
+              alt=""
+              aria-hidden="true"
+              loading="eager"
+              decoding="async"
+              fetchpriority="high"
+            />
+          </div>
+          <strong data-loading-title>正在唤醒史莱姆基地</strong>
+          <span class="loading-status" data-loading-status>正在装载正式素材 0/0</span>
+          <div
+            class="loading-progress"
+            data-loading-progress
+            role="progressbar"
+            aria-label="正式素材加载进度"
+            aria-valuemin="0"
+            aria-valuemax="0"
+            aria-valuenow="0"
+          >
+            <span data-loading-progress-fill></span>
+          </div>
+          <button class="loading-retry" data-loading-retry type="button" hidden disabled>
+            重新加载正式素材
+          </button>
+        </div>
       </div>
       <noscript>
         <div class="no-script">史莱姆基地需要启用 JavaScript 才能运行。</div>

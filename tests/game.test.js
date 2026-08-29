@@ -294,6 +294,39 @@ function createReadyAssetStore(keysOrAssets) {
   };
 }
 
+function createWorldSurvivorFacingHarness(cardId) {
+  const recording = createTransformRecordingContext();
+  const card = SURVIVORS.find(({ id }) => id === cardId);
+  const art = {
+    key: card.id,
+    naturalWidth: 512,
+    naturalHeight: 512,
+  };
+  const { game } = createHarness({
+    context: recording.ctx,
+    assetStore: createReadyAssetStore({ [card.id]: art }),
+  });
+  const survivor = game.state.survivors.find(({ cardId: id }) => id === card.id);
+  const colonySlime = game.state.colony.slimes.find(({ uid }) => uid === survivor.uid);
+  survivor.x = Math.floor(game.camera.x) + 3;
+  survivor.y = Math.floor(game.camera.y) + 3;
+  colonySlime.x = survivor.x;
+  colonySlime.y = survivor.y;
+  return {
+    art,
+    colonySlime,
+    game,
+    recording,
+    survivor,
+  };
+}
+
+function recordedWorldSprite(recording, game, kind, entity, art) {
+  recording.calls.length = 0;
+  game.drawUnits(recording.ctx, [{ kind, entity, depth: 0 }]);
+  return recording.calls.find((call) => call.method === 'drawImage' && call.asset === art);
+}
+
 test('renders all top-level screens with the zero-dependency canvas renderer', () => {
   const { game } = createHarness();
   assert.doesNotThrow(() => game.render());
@@ -669,6 +702,122 @@ test('character detail and mini-card art crops transparent margins without disto
   ]);
   assert.ok(call[8] <= 40 && call[9] <= 60);
   assert.ok(Math.abs(call[8] / call[9] - expectedCrop.width / expectedCrop.height) < 1e-9);
+});
+
+test('world survivor movement updates the generated sprite facing in both directions', () => {
+  const {
+    art,
+    colonySlime,
+    game,
+    recording,
+    survivor,
+  } = createWorldSurvivorFacingHarness('survivor-shell-shell');
+  colonySlime.x = survivor.x - 1;
+
+  game.syncColonySlimesToSurvivors();
+  assert.equal(survivor.facing, -1, 'walking left should persist a left-facing gameplay direction');
+  let spriteCall = recordedWorldSprite(recording, game, 'survivor', survivor, art);
+  assert.ok(spriteCall?.matrix[0] < 0, 'the right-authored standalone should mirror while facing left');
+
+  colonySlime.x = survivor.x + 2;
+  game.syncColonySlimesToSurvivors();
+  assert.equal(survivor.facing, 1, 'walking right should persist a right-facing gameplay direction');
+  spriteCall = recordedWorldSprite(recording, game, 'survivor', survivor, art);
+  assert.ok(spriteCall?.matrix[0] > 0, 'the standalone should return to its authored direction while facing right');
+
+  colonySlime.x = survivor.x;
+  colonySlime.y = survivor.y + 2;
+  game.syncColonySlimesToSurvivors();
+  assert.equal(survivor.facing, 1,
+    'pure vertical worker movement must retain the last horizontal facing');
+
+  game.faceEntityToward(survivor, { x: survivor.x - 3, y: survivor.y }, 1);
+  assert.equal(survivor.facing, -1, 'a stationary attack target should also turn the actor');
+});
+
+test('Sprout world standalone dynamically turns without reversing its default direction', () => {
+  const {
+    art,
+    colonySlime,
+    game,
+    recording,
+    survivor,
+  } = createWorldSurvivorFacingHarness('survivor-moss-sprout');
+
+  let spriteCall = recordedWorldSprite(recording, game, 'survivor', survivor, art);
+  assert.equal(survivor.facing, 1);
+  assert.ok(spriteCall?.matrix[0] > 0,
+    'Sprout starts in the same right-facing direction baked into its standalone');
+
+  colonySlime.x = survivor.x - 1;
+  game.syncColonySlimesToSurvivors();
+  spriteCall = recordedWorldSprite(recording, game, 'survivor', survivor, art);
+  assert.equal(survivor.facing, -1);
+  assert.ok(spriteCall?.matrix[0] < 0, 'walking left mirrors Sprout exactly once');
+
+  colonySlime.x = survivor.x + 2;
+  game.syncColonySlimesToSurvivors();
+  spriteCall = recordedWorldSprite(recording, game, 'survivor', survivor, art);
+  assert.equal(survivor.facing, 1);
+  assert.ok(spriteCall?.matrix[0] > 0, 'walking right restores the unmirrored Sprout export');
+});
+
+test('monster movement updates both facings and vertical movement retains the last one', () => {
+  const recording = createTransformRecordingContext();
+  const card = ENEMY_BY_ID['enemy-soft-biter'];
+  const art = {
+    key: card.id,
+    naturalWidth: 512,
+    naturalHeight: 512,
+  };
+  const { game } = createHarness({
+    context: recording.ctx,
+    assetStore: createReadyAssetStore({ [card.id]: art }),
+  });
+  const enemy = game.spawnEnemyAtWorld(card.id, {
+    x: Math.floor(game.camera.x) + 4,
+    y: Math.floor(game.camera.y) + 4,
+  });
+
+  const leftStart = enemy.x;
+  game.moveEnemyToward(enemy, { x: enemy.x - 2, y: enemy.y }, 0.25, 1);
+  assert.ok(enemy.x < leftStart);
+  assert.equal(enemy.facing, -1, 'moving left persists a left-facing monster direction');
+  let spriteCall = recordedWorldSprite(recording, game, 'enemy', enemy, art);
+  assert.ok(spriteCall?.matrix[0] > 0,
+    'the gameplay-left enemy standalone remains unmirrored while moving left');
+
+  const rightStart = enemy.x;
+  game.moveEnemyToward(enemy, { x: enemy.x + 2, y: enemy.y }, 0.25, 1);
+  assert.ok(enemy.x > rightStart);
+  assert.equal(enemy.facing, 1, 'moving right persists a right-facing monster direction');
+  spriteCall = recordedWorldSprite(recording, game, 'enemy', enemy, art);
+  assert.ok(spriteCall?.matrix[0] < 0,
+    'the gameplay-left enemy standalone mirrors exactly once while moving right');
+
+  const verticalX = enemy.x;
+  game.moveEnemyToward(enemy, { x: verticalX, y: enemy.y + 2 }, 0.25, 1);
+  assert.equal(enemy.x, verticalX);
+  assert.equal(enemy.facing, 1,
+    'pure vertical monster movement keeps the last horizontal facing');
+});
+
+test('survivor facing survives a save and load round trip', () => {
+  const { game, storage } = createHarness();
+  const cardId = 'survivor-shell-shell';
+  const survivor = game.state.survivors.find(({ cardId: id }) => id === cardId);
+  survivor.facing = -1;
+
+  game.save();
+  const storageKey = storage.keys().next().value;
+  const saved = JSON.parse(storage.get(storageKey));
+  assert.equal(saved.survivors.find(({ cardId: id }) => id === cardId).facing, -1);
+
+  survivor.facing = 1;
+  game.load();
+  const restored = game.state.survivors.find(({ cardId: id }) => id === cardId);
+  assert.equal(restored.facing, -1,
+    'loading must restore the saved direction instead of resetting to the card default');
 });
 
 test('battlefield keeps the portal and moving-bubble shell behind depth-sorted actors', () => {

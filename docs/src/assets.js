@@ -1,14 +1,18 @@
 /**
  * PNG asset loading for the browser and WeChat Mini Game runtimes.
  *
- * Formal building art and first-screen gameplay art are preloaded as critical
- * assets. Other decorative images may still use their dedicated runtime
- * fallback while they stream in.
+ * The loader supports both focused groups and the complete canonical image
+ * set. Browser startup waits for the complete set; focused groups remain
+ * useful to platform builds and isolated tests.
  */
 
-const generatedAssetUrl = (relativePath) => (
-  new URL(`../assets/generated/${relativePath}`, import.meta.url).href
-);
+export const ASSET_CACHE_VERSION = 'soft-gel-20260829-v1';
+
+const generatedAssetUrl = (relativePath) => {
+  const url = new URL(`../assets/generated/${relativePath}`, import.meta.url);
+  url.searchParams.set('v', ASSET_CACHE_VERSION);
+  return url.href;
+};
 
 export const ASSET_LOAD_TIMEOUT_MS = 15000;
 export const ASSET_PRELOAD_CONCURRENCY = 8;
@@ -118,10 +122,9 @@ export const CRITICAL_STARTUP_ASSET_KEYS = Object.freeze([
 ]);
 
 /**
- * Bright, streamed world art used by the procedural infinite map. These are
- * intentionally kept out of the first-screen critical set. The renderer
- * requests nearby region/POI keys as chunks enter view, while any other idle
- * asset begins loading the first time its fallback is drawn.
+ * Bright world art used by the procedural infinite map. Keeping this semantic
+ * group exported lets constrained runtimes choose staged loading even though
+ * the browser's strict startup currently preloads every canonical image.
  */
 export const INFINITE_WORLD_ASSET_KEYS = Object.freeze([
   'region-gel-meadow-field-a',
@@ -265,6 +268,13 @@ const DECLARED_ASSET_PATHS = {
   'ui-audio-on': generatedAssetUrl('ui/ui-audio-on.png'),
   'ui-audio-off': generatedAssetUrl('ui/ui-audio-off.png'),
 };
+
+/**
+ * Every unique runtime image, excluding compatibility aliases that point at
+ * the same files. Browser startup uses this list so no renderer can briefly
+ * expose its fallback while a formal PNG is still streaming.
+ */
+export const ALL_RUNTIME_ASSET_KEYS = Object.freeze(Object.keys(DECLARED_ASSET_PATHS));
 
 export const ASSET_PATHS = Object.freeze({
   ...DECLARED_ASSET_PATHS,
@@ -418,6 +428,7 @@ export function createAssetStore(
     retryFailed = true,
     retryAttempts = ASSET_PRELOAD_RETRIES,
     concurrency = ASSET_PRELOAD_CONCURRENCY,
+    onProgress = null,
   } = {}) {
     const uniqueKeys = [...new Set(keys)];
     const results = new Array(uniqueKeys.length);
@@ -429,6 +440,31 @@ export function createAssetStore(
       ? Math.max(0, Math.floor(retryAttempts))
       : 0;
     let nextIndex = 0;
+    let completed = 0;
+    let loaded = 0;
+    let failed = 0;
+    let unsupported = 0;
+
+    const reportProgress = (result) => {
+      completed += 1;
+      if (result.status === 'loaded') loaded += 1;
+      else if (result.status === 'unsupported') unsupported += 1;
+      else failed += 1;
+      if (typeof onProgress !== 'function') return;
+      try {
+        onProgress(Object.freeze({
+          total: uniqueKeys.length,
+          completed,
+          loaded,
+          failed,
+          unsupported,
+          current: result,
+        }));
+      } catch {
+        // A UI observer must never turn a successfully loaded image into a
+        // failed preload operation.
+      }
+    };
 
     const worker = async () => {
       while (nextIndex < uniqueKeys.length) {
@@ -440,6 +476,7 @@ export function createAssetStore(
           result = await load(key, { timeoutMs, retryFailed: true });
         }
         results[index] = result;
+        reportProgress(result);
       }
     };
 

@@ -103,9 +103,10 @@ import {
 } from './expedition.js';
 
 const VIEW = Object.freeze({ width: 1280, height: 720 });
-const MAX_CANVAS_DPR = 1.5;
-const MIN_CANVAS_DPR = 0.75;
-const MAX_CANVAS_BACKING_PIXELS = 4_000_000;
+// Match the original high-fidelity renderer: retain up to two physical pixels
+// per CSS pixel on every viewport instead of shrinking large canvases to meet
+// a pixel budget. Performance work must remove redundant work, not resolution.
+const MAX_CANVAS_DPR = 2;
 // The authored 24x16 garden remains the starter clearing, while all cells
 // beyond it are generated lazily in deterministic chunks.
 const WORLD = Object.freeze({ ...COLONY_WORLD, infinite: true });
@@ -161,12 +162,11 @@ const BUILDING_AUTOTILE_PROFILE_BY_CARD_ID = Object.freeze({
   }),
 });
 const GEL_PAVING_AUTOTILE_ASSET_KEY = 'terrain-gel-paving-autotile-v1';
-const GEL_PAVING_CHUNK_SIZE = 16;
-// Eight 768px RGBA surfaces retain about 18 MiB: small enough for WeChat while
-// remaining crisp when the 48px cached cells interpolate up to the 1.6x zoom cap.
-const GEL_PAVING_CACHE_CELL_SIZE = 48;
-const GEL_PAVING_CHUNK_PIXEL_SIZE = GEL_PAVING_CHUNK_SIZE * GEL_PAVING_CACHE_CELL_SIZE;
-const GEL_PAVING_CHUNK_CACHE_LIMIT = 8;
+const GEL_PAVING_MAX_CHUNK_SIZE = 16;
+const GEL_PAVING_MAX_SURFACE_EDGE = 768;
+const GEL_PAVING_CACHE_BYTE_LIMIT = 24 * 1024 * 1024;
+const RGBA_BYTES_PER_PIXEL = 4;
+const GEL_PAVING_CELL_RESOLUTION_QUANTUM = 8;
 const STORAGE_KEY = 'slime-haven-colony-v2';
 const TAU = Math.PI * 2;
 const COLONY_RESOURCE_ID = Object.freeze({
@@ -279,7 +279,6 @@ const DYNAMIC_EFFECT_ATLAS_GRID = 4;
 const DYNAMIC_EFFECT_COMPONENT_GENERAL_BUDGET = 48;
 const DYNAMIC_EFFECT_COMPONENT_ABILITY_RESERVE = 4;
 const DYNAMIC_EFFECT_COMPONENT_WAVE_RESERVE = 12;
-const DYNAMIC_EFFECT_FRAME_BUDGET = 32;
 const DYNAMIC_EFFECT_COMPONENT_PRIORITY = Object.freeze({
   impact: 0,
   spawn: 1,
@@ -392,20 +391,17 @@ export function autotileFrameRect(mask) {
   return AUTOTILE_FRAME_RECTS[normalizedMask];
 }
 
-function createGelPavingChunkSurface(ctx) {
+function createGelPavingChunkSurface(ctx, pixelSize) {
   let canvas = null;
   try {
     if (typeof globalThis.OffscreenCanvas === 'function') {
-      canvas = new globalThis.OffscreenCanvas(
-        GEL_PAVING_CHUNK_PIXEL_SIZE,
-        GEL_PAVING_CHUNK_PIXEL_SIZE,
-      );
+      canvas = new globalThis.OffscreenCanvas(pixelSize, pixelSize);
     } else {
       const documentRef = ctx?.canvas?.ownerDocument ?? globalThis.document;
       if (typeof documentRef?.createElement === 'function') {
         canvas = documentRef.createElement('canvas');
-        canvas.width = GEL_PAVING_CHUNK_PIXEL_SIZE;
-        canvas.height = GEL_PAVING_CHUNK_PIXEL_SIZE;
+        canvas.width = pixelSize;
+        canvas.height = pixelSize;
       }
     }
   } catch {
@@ -420,7 +416,25 @@ function createGelPavingChunkSurface(ctx) {
   if (!surfaceCtx
     || typeof surfaceCtx.clearRect !== 'function'
     || typeof surfaceCtx.drawImage !== 'function') return null;
-  return { canvas, ctx: surfaceCtx };
+  return { canvas, ctx: surfaceCtx, pixelSize };
+}
+
+function resizeGelPavingChunkSurface(surface, pixelSize) {
+  if (!surface?.canvas) return null;
+  if (surface.pixelSize === pixelSize) return surface;
+  try {
+    surface.canvas.width = pixelSize;
+    surface.canvas.height = pixelSize;
+    const surfaceCtx = surface.canvas.getContext?.('2d') || surface.ctx;
+    if (!surfaceCtx
+      || typeof surfaceCtx.clearRect !== 'function'
+      || typeof surfaceCtx.drawImage !== 'function') return null;
+    surface.ctx = surfaceCtx;
+    surface.pixelSize = pixelSize;
+    return surface;
+  } catch {
+    return null;
+  }
 }
 
 function normalizeSavedCellKey(entry) {
@@ -1031,6 +1045,7 @@ export class SlimeGame {
     this.gelPavingChunkCache = new Map();
     this.gelPavingChunkSurfacePool = [];
     this.gelPavingChunkSurfaceAvailable = null;
+    this.gelPavingCacheConfiguration = null;
     this.gelPavingCacheSet = null;
     this.gelPavingCacheSize = -1;
     this.rigAssetStore = null;
@@ -1108,8 +1123,11 @@ export class SlimeGame {
   }
 
   releaseGelPavingChunkEntry(entry) {
+    const configuration = this.gelPavingCacheConfiguration;
     if (!entry?.surface
-      || this.gelPavingChunkSurfacePool.length >= GEL_PAVING_CHUNK_CACHE_LIMIT) return;
+      || !configuration
+      || entry.surface.pixelSize !== configuration.surfacePixels
+      || this.gelPavingChunkSurfacePool.length >= configuration.maxSurfaces) return;
     this.gelPavingChunkSurfacePool.push(entry.surface);
   }
 
@@ -1130,6 +1148,106 @@ export class SlimeGame {
     this.invalidateGelPavingRenderCache();
     this.gelPavingCacheSet = paved;
     this.gelPavingCacheSize = paved.size;
+  }
+
+  gelPavingPhysicalScale(ctx) {
+    const fallback = Math.max(0.01, Number(this.scale) || 1)
+      * Math.max(0.01, Number(this.dpr) || 1);
+    try {
+      const transform = ctx?.getTransform?.();
+      const scaleX = Math.hypot(Number(transform?.a) || 0, Number(transform?.b) || 0);
+      const scaleY = Math.hypot(Number(transform?.c) || 0, Number(transform?.d) || 0);
+      const measured = Math.max(scaleX, scaleY);
+      return Number.isFinite(measured) && measured > 0 ? measured : fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
+  gelPavingRenderConfiguration(ctx) {
+    const requiredPhysicalCellPixels = Math.max(
+      1,
+      Math.ceil(this.worldPixelsPerCell() * this.gelPavingPhysicalScale(ctx) - 1e-6),
+    );
+    // Above this point a one-cell surface alone would exceed the texture
+    // budget. The direct atlas path remains lossless and avoids allocation.
+    if (requiredPhysicalCellPixels > GEL_PAVING_MAX_SURFACE_EDGE) {
+      const retainedSurfaces = [
+        ...[...this.gelPavingChunkCache.values()]
+          .map((entry) => entry.surface)
+          .filter(Boolean),
+        ...this.gelPavingChunkSurfacePool,
+      ];
+      for (const surface of retainedSurfaces) {
+        try {
+          surface.canvas.width = 1;
+          surface.canvas.height = 1;
+        } catch {
+          // Dropping the last reference still lets the runtime reclaim it.
+        }
+      }
+      this.gelPavingChunkCache.clear();
+      this.gelPavingChunkSurfacePool.length = 0;
+      this.gelPavingCacheConfiguration = null;
+      return null;
+    }
+    // Round upward only: the cached raster never has fewer pixels than its
+    // final destination, while 8px buckets avoid reallocating on every tiny
+    // pinch-zoom delta.
+    const physicalCellPixels = Math.min(
+      GEL_PAVING_MAX_SURFACE_EDGE,
+      Math.ceil(requiredPhysicalCellPixels / GEL_PAVING_CELL_RESOLUTION_QUANTUM)
+        * GEL_PAVING_CELL_RESOLUTION_QUANTUM,
+    );
+    const chunkSize = Math.max(
+      1,
+      Math.min(
+        GEL_PAVING_MAX_CHUNK_SIZE,
+        Math.floor(GEL_PAVING_MAX_SURFACE_EDGE / physicalCellPixels),
+      ),
+    );
+    const surfacePixels = physicalCellPixels * chunkSize;
+    const surfaceBytes = surfacePixels * surfacePixels * RGBA_BYTES_PER_PIXEL;
+    const maxSurfaces = Math.max(1, Math.floor(GEL_PAVING_CACHE_BYTE_LIMIT / surfaceBytes));
+    const key = `${physicalCellPixels}:${chunkSize}:${surfacePixels}`;
+    if (this.gelPavingCacheConfiguration?.key === key) {
+      return this.gelPavingCacheConfiguration;
+    }
+    const nextConfiguration = {
+      key,
+      requiredPhysicalCellPixels,
+      physicalCellPixels,
+      chunkSize,
+      surfacePixels,
+      surfaceBytes,
+      maxSurfaces,
+    };
+    // Preserve a bounded pool of canvas objects across zoom buckets. Each is
+    // resized lazily before reuse, avoiding a wave of new backing-store
+    // allocations while a pinch gesture crosses a resolution threshold.
+    const previousSurfaces = [
+      ...[...this.gelPavingChunkCache.values()]
+        .map((entry) => entry.surface)
+        .filter(Boolean),
+      ...this.gelPavingChunkSurfacePool,
+    ];
+    const reusableSurfaces = [];
+    let retainedBytes = 0;
+    for (const surface of previousSurfaces) {
+      const transitionBytes = Math.max(
+        surface.pixelSize * surface.pixelSize * RGBA_BYTES_PER_PIXEL,
+        surfaceBytes,
+      );
+      if (reusableSurfaces.length >= maxSurfaces
+        || retainedBytes + transitionBytes > GEL_PAVING_CACHE_BYTE_LIMIT) continue;
+      reusableSurfaces.push(surface);
+      retainedBytes += transitionBytes;
+    }
+    this.gelPavingChunkCache.clear();
+    this.gelPavingChunkSurfacePool.length = 0;
+    this.gelPavingChunkSurfacePool.push(...reusableSurfaces);
+    this.gelPavingCacheConfiguration = nextConfiguration;
+    return this.gelPavingCacheConfiguration;
   }
 
   requestWorldAssetKeys(keys = []) {
@@ -1739,13 +1857,8 @@ export class SlimeGame {
       x: (Number(this.camera?.x) || 0) + BOARD.width / (BOARD.cellSize * zoom * 2),
       y: (Number(this.camera?.y) || 0) + BOARD.height / (BOARD.cellSize * zoom * 2),
     };
-    const cssPixels = Math.max(1, rect.width * rect.height);
     const deviceDpr = Math.max(1, Number(window.devicePixelRatio) || 1);
-    const pixelBudgetDpr = Math.sqrt(MAX_CANVAS_BACKING_PIXELS / cssPixels);
-    this.dpr = Math.max(
-      MIN_CANVAS_DPR,
-      Math.min(MAX_CANVAS_DPR, deviceDpr, pixelBudgetDpr),
-    );
+    this.dpr = Math.min(MAX_CANVAS_DPR, deviceDpr);
     this.canvas.width = Math.max(1, Math.floor(rect.width * this.dpr));
     this.canvas.height = Math.max(1, Math.floor(rect.height * this.dpr));
     this.scale = Math.max(0.01, Math.min(rect.width / VIEW.width, rect.height / VIEW.height));
@@ -4521,17 +4634,20 @@ export class SlimeGame {
     ));
   }
 
-  acquireGelPavingChunkSurface(ctx) {
+  acquireGelPavingChunkSurface(ctx, configuration) {
     const pooled = this.gelPavingChunkSurfacePool.pop();
-    if (pooled) return pooled;
+    if (pooled) {
+      const resized = resizeGelPavingChunkSurface(pooled, configuration.surfacePixels);
+      if (resized) return resized;
+    }
     if (this.gelPavingChunkSurfaceAvailable === false) return null;
-    const surface = createGelPavingChunkSurface(ctx);
+    const surface = createGelPavingChunkSurface(ctx, configuration.surfacePixels);
     this.gelPavingChunkSurfaceAvailable = Boolean(surface);
     return surface;
   }
 
-  gelPavingChunkEntry(ctx, asset, paved, chunkX, chunkY) {
-    const key = `${chunkX},${chunkY}`;
+  gelPavingChunkEntry(ctx, asset, paved, chunkX, chunkY, configuration) {
+    const key = `${configuration.key}:${chunkX},${chunkY}`;
     const cached = this.gelPavingChunkCache.get(key);
     if (cached?.asset === asset) {
       this.gelPavingChunkCache.delete(key);
@@ -4543,16 +4659,16 @@ export class SlimeGame {
       this.releaseGelPavingChunkEntry(cached);
     }
 
-    const surface = this.acquireGelPavingChunkSurface(ctx);
+    const surface = this.acquireGelPavingChunkSurface(ctx, configuration);
     if (!surface) return null;
-    surface.ctx.clearRect(0, 0, GEL_PAVING_CHUNK_PIXEL_SIZE, GEL_PAVING_CHUNK_PIXEL_SIZE);
-    const originX = chunkX * GEL_PAVING_CHUNK_SIZE;
-    const originY = chunkY * GEL_PAVING_CHUNK_SIZE;
+    surface.ctx.clearRect(0, 0, configuration.surfacePixels, configuration.surfacePixels);
+    const originX = chunkX * configuration.chunkSize;
+    const originY = chunkY * configuration.chunkSize;
     let tileCount = 0;
     try {
-      for (let localY = 0; localY < GEL_PAVING_CHUNK_SIZE; localY += 1) {
+      for (let localY = 0; localY < configuration.chunkSize; localY += 1) {
         const y = originY + localY;
-        for (let localX = 0; localX < GEL_PAVING_CHUNK_SIZE; localX += 1) {
+        for (let localX = 0; localX < configuration.chunkSize; localX += 1) {
           const x = originX + localX;
           if (!paved.has(cellKey(x, y))) continue;
           const mask = cardinalAutotileMask(x, y, (neighborX, neighborY) => (
@@ -4565,10 +4681,10 @@ export class SlimeGame {
             source.y,
             source.width,
             source.height,
-            localX * GEL_PAVING_CACHE_CELL_SIZE,
-            localY * GEL_PAVING_CACHE_CELL_SIZE,
-            GEL_PAVING_CACHE_CELL_SIZE,
-            GEL_PAVING_CACHE_CELL_SIZE,
+            localX * configuration.physicalCellPixels,
+            localY * configuration.physicalCellPixels,
+            configuration.physicalCellPixels,
+            configuration.physicalCellPixels,
           );
           tileCount += 1;
         }
@@ -4587,8 +4703,8 @@ export class SlimeGame {
     return entry;
   }
 
-  trimGelPavingChunkCache() {
-    while (this.gelPavingChunkCache.size > GEL_PAVING_CHUNK_CACHE_LIMIT) {
+  trimGelPavingChunkCache(configuration) {
+    while (this.gelPavingChunkCache.size > configuration.maxSurfaces) {
       const oldestKey = this.gelPavingChunkCache.keys().next().value;
       const oldest = this.gelPavingChunkCache.get(oldestKey);
       this.gelPavingChunkCache.delete(oldestKey);
@@ -4599,17 +4715,19 @@ export class SlimeGame {
   drawCachedGelPavingChunks(ctx, asset, paved, visibleCells) {
     this.syncGelPavingRenderCache(paved);
     if (this.gelPavingChunkSurfaceAvailable === false) return null;
+    const configuration = this.gelPavingRenderConfiguration(ctx);
+    if (!configuration) return null;
     const chunkCoordinates = [];
     const requestedKeys = new Set();
     for (let index = 0; index < visibleCells.length; index += 2) {
-      const chunkX = Math.floor(visibleCells[index] / GEL_PAVING_CHUNK_SIZE);
-      const chunkY = Math.floor(visibleCells[index + 1] / GEL_PAVING_CHUNK_SIZE);
-      const key = `${chunkX},${chunkY}`;
+      const chunkX = Math.floor(visibleCells[index] / configuration.chunkSize);
+      const chunkY = Math.floor(visibleCells[index + 1] / configuration.chunkSize);
+      const key = `${configuration.key}:${chunkX},${chunkY}`;
       if (requestedKeys.has(key)) continue;
       requestedKeys.add(key);
       chunkCoordinates.push(chunkX, chunkY);
     }
-    if (requestedKeys.size > GEL_PAVING_CHUNK_CACHE_LIMIT) return null;
+    if (requestedKeys.size > configuration.maxSurfaces) return null;
     for (const [key, entry] of this.gelPavingChunkCache) {
       if (requestedKeys.has(key)) continue;
       this.gelPavingChunkCache.delete(key);
@@ -4621,12 +4739,28 @@ export class SlimeGame {
       for (let index = 0; index < chunkCoordinates.length; index += 2) {
         const chunkX = chunkCoordinates[index];
         const chunkY = chunkCoordinates[index + 1];
-        const entry = this.gelPavingChunkEntry(ctx, asset, paved, chunkX, chunkY);
+        const entry = this.gelPavingChunkEntry(
+          ctx,
+          asset,
+          paved,
+          chunkX,
+          chunkY,
+          configuration,
+        );
         if (!entry) return null;
         chunks.push(chunkX, chunkY, entry);
       }
     } catch {
       this.invalidateGelPavingRenderCache();
+      for (const surface of this.gelPavingChunkSurfacePool) {
+        try {
+          surface.canvas.width = 1;
+          surface.canvas.height = 1;
+        } catch {
+          // The direct atlas fallback remains available without this surface.
+        }
+      }
+      this.gelPavingChunkSurfacePool.length = 0;
       this.gelPavingChunkSurfaceAvailable = false;
       return null;
     }
@@ -4638,18 +4772,18 @@ export class SlimeGame {
       const chunkY = chunks[index + 1];
       const entry = chunks[index + 2];
       if (!entry.surface || entry.tileCount <= 0) continue;
-      const worldX = chunkX * GEL_PAVING_CHUNK_SIZE;
-      const worldY = chunkY * GEL_PAVING_CHUNK_SIZE;
+      const worldX = chunkX * configuration.chunkSize;
+      const worldY = chunkY * configuration.chunkSize;
       ctx.drawImage(
         entry.surface.canvas,
         BOARD.x + (worldX - this.camera.x) * size,
         BOARD.y + (worldY - this.camera.y) * size,
-        GEL_PAVING_CHUNK_SIZE * size,
-        GEL_PAVING_CHUNK_SIZE * size,
+        configuration.chunkSize * size,
+        configuration.chunkSize * size,
       );
       draws += 1;
     }
-    this.trimGelPavingChunkCache();
+    this.trimGelPavingChunkCache(configuration);
     return draws;
   }
 
@@ -5157,6 +5291,7 @@ export class SlimeGame {
       terrainAt: (x, y) => this.terrainRenderCell(x, y),
       worldToScreen: (point) => worldToScreen(point, this.camera, BOARD),
       pixelsPerCell: tileSize,
+      pixelRatio: this.dpr * this.scale,
       time: this.time,
       assetStore: this.assetStore,
     };
@@ -5268,6 +5403,7 @@ export class SlimeGame {
       visibleBounds: bounds,
       worldToScreen: (point) => worldToScreen(point, this.camera, BOARD),
       pixelsPerCell: size,
+      pixelRatio: this.dpr * this.scale,
       assetStore: this.assetStore,
       isUndiscovered: (x, y) => this.worldCellAt(x, y)?.discovered === false,
     });
@@ -5986,6 +6122,22 @@ export class SlimeGame {
     this.dynamicComponentPriority = 0;
   }
 
+  dynamicEffectCullPadding(effect) {
+    const travel = Math.hypot(Number(effect?.dx) || 0, Number(effect?.dy) || 0);
+    const intensity = clamp(Number(effect?.intensity) || 1, 0.45, 2.2);
+    // Push/trail/swap artwork can span the full vector even when its origin is
+    // outside the viewport. A conservative travel-aware radius keeps every
+    // intersecting pixel while still rejecting effects that are wholly away.
+    return 180 + travel * intensity;
+  }
+
+  isDynamicEffectVisible(effect) {
+    return this.isWorldScreenPositionVisible(
+      effect,
+      this.dynamicEffectCullPadding(effect),
+    );
+  }
+
   drawDynamicComponent(ctx, componentName, options = {}) {
     const cell = DYNAMIC_EFFECT_COMPONENTS[componentName];
     if (!cell) return false;
@@ -6044,19 +6196,16 @@ export class SlimeGame {
     let pushCount = 0;
     let enemyPopCount = 0;
     for (const effect of effects) {
-      if (effect.layer !== layer || !this.isWorldScreenPositionVisible(effect, 180)) continue;
+      if (effect.layer !== layer || !this.isDynamicEffectVisible(effect)) continue;
       if (effect.kind === 'impact') impactCount += 1;
       else if (effect.kind === 'push') pushCount += 1;
       else if (effect.kind === 'enemy-pop') enemyPopCount += 1;
     }
-    let renderedEffects = 0;
     for (const effect of effects) {
       if (
         effect.layer !== layer
-        || !this.isWorldScreenPositionVisible(effect, 180)
-        || renderedEffects >= DYNAMIC_EFFECT_FRAME_BUDGET
+        || !this.isDynamicEffectVisible(effect)
       ) continue;
-      renderedEffects += 1;
       const progress = clamp(1 - effect.life / effect.maxLife, 0, 1);
       this.dynamicComponentPriority = DYNAMIC_EFFECT_COMPONENT_PRIORITY[effect.kind] ?? 0;
       ctx.save();

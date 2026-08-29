@@ -70,6 +70,7 @@ function createHarness({
   assetStore = null,
   viewportWidth = 1280,
   viewportHeight = 720,
+  devicePixelRatio = 1,
 } = {}) {
   const storage = new Map();
   globalThis.localStorage = {
@@ -78,7 +79,7 @@ function createHarness({
     removeItem: (key) => storage.delete(key),
   };
   globalThis.window = {
-    devicePixelRatio: 1,
+    devicePixelRatio,
     addEventListener() {},
     AudioContext: null,
     webkitAudioContext: null,
@@ -308,6 +309,18 @@ test('renders all top-level screens with the zero-dependency canvas renderer', (
   game.finishDefense(true);
   assert.equal(game.state.phase, 'result');
   assert.doesNotThrow(() => game.render());
+});
+
+test('large canvases retain the original full two-pixel DPR instead of lowering resolution', () => {
+  const { game } = createHarness({
+    viewportWidth: 2560,
+    viewportHeight: 1440,
+    devicePixelRatio: 3,
+  });
+
+  assert.equal(game.dpr, 2);
+  assert.equal(game.canvas.width, 5120);
+  assert.equal(game.canvas.height, 2880);
 });
 
 test('the infinite map fills the authored canvas and replaces the decorative background layers', () => {
@@ -1115,6 +1128,7 @@ test('gel paving composites stable 16x16 offscreen chunks and bounds the cache',
       context: recording.ctx,
       assetStore: createReadyAssetStore({ [atlas.key]: atlas }),
     });
+    game.camera.zoom = 0.6;
     const paved = new Set();
     for (let y = 0; y < 23; y += 1) {
       for (let x = 0; x < 37; x += 1) paved.add(`${x},${y}`);
@@ -1129,8 +1143,15 @@ test('gel paving composites stable 16x16 offscreen chunks and bounds the cache',
     );
     assert.equal(offscreenAtlasDraws.length, 851, 'each formal atlas tile is authored into its chunk once');
     assert.ok(
-      offscreenSurfaces.every(({ width, height }) => width === 768 && height === 768),
-      '48px cache cells keep every 16x16 surface at a WeChat-safe 768px edge',
+      offscreenSurfaces.every(({ width, height }) => width === 640 && height === 640),
+      'zoomed-out 40px cache cells keep every 16x16 surface at a 640px edge',
+    );
+    assert.equal(game.gelPavingCacheConfiguration.requiredPhysicalCellPixels, 39);
+    assert.equal(game.gelPavingCacheConfiguration.physicalCellPixels, 40);
+    assert.equal(game.gelPavingCacheConfiguration.chunkSize, 16);
+    assert.ok(
+      [...game.gelPavingChunkCache.keys()].every((key) => key.startsWith('40:16:640:')),
+      'cache identity includes the selected raster resolution and world chunk size',
     );
     assert.equal(
       recording.calls.filter(([name, asset]) => (
@@ -1162,7 +1183,59 @@ test('gel paving composites stable 16x16 offscreen chunks and bounds the cache',
       Array.from({ length: 13 }, (_, index) => `${index * 16},0`),
     );
     game.drawGelPaving(recording.ctx, { minX: 0, minY: 0, maxX: 192, maxY: 0 });
-    assert.ok(game.gelPavingChunkCache.size <= 8, 'the LRU never retains more than eight chunks');
+    const retainedSurfaces = [
+      ...[...game.gelPavingChunkCache.values()].map((entry) => entry.surface).filter(Boolean),
+      ...game.gelPavingChunkSurfacePool,
+    ];
+    assert.ok(
+      retainedSurfaces.reduce((bytes, surface) => (
+        bytes + surface.pixelSize * surface.pixelSize * 4
+      ), 0) <= 24 * 1024 * 1024,
+      'cached and pooled RGBA surfaces remain inside the 24 MiB budget',
+    );
+    const allocatedSurfaceCount = offscreenSurfaces.length;
+
+    game.state.gelPavingCells = new Set(['0,0']);
+    game.camera.zoom = 1.6;
+    game.scale = 1;
+    game.dpr = 1.5;
+    delete recording.ctx.getTransform;
+    game.drawGelPaving(recording.ctx, { minX: 0, minY: 0, maxX: 0, maxY: 0 });
+    assert.deepEqual(
+      {
+        required: game.gelPavingCacheConfiguration.requiredPhysicalCellPixels,
+        cached: game.gelPavingCacheConfiguration.physicalCellPixels,
+        chunkSize: game.gelPavingCacheConfiguration.chunkSize,
+        surface: game.gelPavingCacheConfiguration.surfacePixels,
+      },
+      { required: 154, cached: 160, chunkSize: 4, surface: 640 },
+      'maximum camera zoom plus 1.5 DPR caches above the final physical cell size',
+    );
+    assert.ok(game.gelPavingCacheConfiguration.physicalCellPixels >= 128);
+    assert.ok(
+      [...game.gelPavingChunkCache.keys()].every((key) => key.startsWith('160:4:640:')),
+      'the old low-resolution cache cannot survive a zoom/DPR bucket change',
+    );
+    assert.equal(offscreenAtlasDraws.at(-1)[7], 160, 'atlas cells rasterize at the selected high-res size');
+    assert.equal(
+      offscreenSurfaces.length,
+      allocatedSurfaceCount,
+      'a zoom/DPR bucket change resizes retained canvases instead of allocating a second pool',
+    );
+
+    game.camera.zoom = 1.2;
+    recording.ctx.getTransform = () => ({ a: 1.25, b: 0, c: 0, d: 1.25 });
+    game.drawGelPaving(recording.ctx, { minX: 0, minY: 0, maxX: 0, maxY: 0 });
+    assert.deepEqual(
+      {
+        required: game.gelPavingCacheConfiguration.requiredPhysicalCellPixels,
+        cached: game.gelPavingCacheConfiguration.physicalCellPixels,
+        chunkSize: game.gelPavingCacheConfiguration.chunkSize,
+      },
+      { required: 96, cached: 96, chunkSize: 8 },
+      'an active context transform takes precedence over the stored DPR fallback',
+    );
+    assert.ok(game.gelPavingCacheConfiguration.surfacePixels <= 768);
   } finally {
     if (hadOffscreenCanvas) globalThis.OffscreenCanvas = previousOffscreenCanvas;
     else delete globalThis.OffscreenCanvas;
@@ -1837,7 +1910,7 @@ test('dense kill chains cap illustrated components at 64 and reserve room for wa
   );
 });
 
-test('authored dynamic effects cull off-screen entries and obey one 32-draw frame budget', () => {
+test('authored dynamic effects cull off-screen entries without dropping visible composites', () => {
   const assetKey = AUTHORED_DYNAMIC_EFFECT_ASSET_BY_KIND.push;
   const asset = { key: assetKey, width: 512, height: 512 };
   const store = createReadyAssetStore({ [assetKey]: asset });
@@ -1846,11 +1919,12 @@ test('authored dynamic effects cull off-screen entries and obey one 32-draw fram
   game.state.dynamicEffects = [];
   for (let index = 0; index < 96; index += 1) {
     const visible = index < 64;
+    const crossesLeftEdge = index === 63;
     const effect = game.spawnDynamicEffect(
       'push',
-      visible ? 120 + (index % 16) * 52 : 10000 + index * 10,
-      visible ? 130 + Math.floor(index / 16) * 74 : 10000,
-      { dx: 56, dy: 0, layer: 'front', seed: index },
+      crossesLeftEdge ? -260 : visible ? 120 + (index % 16) * 52 : 10000 + index * 10,
+      crossesLeftEdge ? 300 : visible ? 130 + Math.floor(index / 16) * 74 : 10000,
+      { dx: crossesLeftEdge ? 400 : 56, dy: 0, layer: 'front', seed: index },
     );
     effect.life = effect.maxLife * 0.55;
   }
@@ -1866,9 +1940,10 @@ test('authored dynamic effects cull off-screen entries and obey one 32-draw fram
   const authoredDraws = recording.calls.filter(([name, image]) => (
     name === 'drawImage' && image === asset
   ));
-  assert.ok(
-    authoredDraws.length <= 32,
-    `one frame may draw at most 32 authored effect composites, got ${authoredDraws.length}`,
+  assert.equal(
+    authoredDraws.length,
+    64,
+    'every visible/intersecting authored effect remains while only off-screen work is removed',
   );
   assert.equal(
     recording.calls.some(([name, x, y]) => name === 'translate' && x > 5000 && y > 5000),

@@ -55,10 +55,11 @@ export const TERRAIN_LAYER_ASSET_KEYS = Object.freeze({
 /** One authored ground field spans this many world cells on each axis. */
 export const WORLD_GROUND_TEXTURE_PERIOD_CELLS = 12;
 
-/** Discovery fog is rasterized once per infinite-world chunk, then reused. */
+/** Discovery fog is rasterized once per adaptive infinite-world chunk, then reused. */
 export const DISCOVERY_FOG_CHUNK_CELLS = 16;
-export const DISCOVERY_FOG_CACHE_CELL_PIXELS = 30;
 export const DISCOVERY_FOG_CACHE_CAPACITY = 12;
+export const DISCOVERY_FOG_CACHE_TARGET_PIXELS = 768;
+export const DISCOVERY_FOG_CACHE_MAX_PIXELS = 1024;
 
 const DISCOVERY_FOG_WIDTH_CELLS = 1.6;
 const DISCOVERY_FOG_HEIGHT_CELLS = 1.2;
@@ -1304,6 +1305,7 @@ function createDiscoveryFogSurface(provider, width, height) {
     const context = canvas.getContext('2d');
     if (!context || typeof context.drawImage !== 'function') return null;
     if ('imageSmoothingEnabled' in context) context.imageSmoothingEnabled = true;
+    if ('imageSmoothingQuality' in context) context.imageSmoothingQuality = 'high';
     context.clearRect?.(0, 0, width, height);
     return { canvas, context };
   } catch {
@@ -1311,8 +1313,7 @@ function createDiscoveryFogSurface(provider, width, height) {
   }
 }
 
-function discoveryFogChunkStates(bounds, isUndiscovered) {
-  const chunkSize = DISCOVERY_FOG_CHUNK_CELLS;
+function discoveryFogChunkStates(bounds, isUndiscovered, chunkSize) {
   const minChunkX = Math.floor(bounds.minX / chunkSize);
   const maxChunkX = Math.floor(bounds.maxX / chunkSize);
   const minChunkY = Math.floor(bounds.minY / chunkSize);
@@ -1355,25 +1356,83 @@ function discoveryFogChunkStates(bounds, isUndiscovered) {
   return { chunks, visibleCells };
 }
 
-function discoveryFogDimensions(widthCells, heightCells) {
+function discoveryFogChunkCount(bounds, chunkCells) {
+  const columns = Math.floor(bounds.maxX / chunkCells)
+    - Math.floor(bounds.minX / chunkCells) + 1;
+  const rows = Math.floor(bounds.maxY / chunkCells)
+    - Math.floor(bounds.minY / chunkCells) + 1;
+  return columns * rows;
+}
+
+function discoveryFogCachePlan(cell, pixelRatio, widthCells, heightCells, bounds) {
+  // Canvas destinations are expressed in logical pixels while the backing
+  // store may contain several physical pixels per logical pixel. Never
+  // rasterize below that final physical resolution: high-DPR output must be
+  // indistinguishable from drawing every authored sprite on the main canvas.
+  const cacheCellPixels = Math.max(1, Math.ceil(cell * pixelRatio));
   const marginXCells = (widthCells - 1) / 2;
   const marginYCells = (heightCells - 1) / 2;
-  const worldWidthCells = DISCOVERY_FOG_CHUNK_CELLS + marginXCells * 2;
-  const worldHeightCells = DISCOVERY_FOG_CHUNK_CELLS + marginYCells * 2;
+  const horizontalOverflowCells = marginXCells * 2;
+  const verticalOverflowCells = marginYCells * 2;
+  const chunkLimitForSurface = (surfacePixels) => Math.min(
+    DISCOVERY_FOG_CHUNK_CELLS,
+    Math.floor(surfacePixels / cacheCellPixels - horizontalOverflowCells),
+    Math.floor(surfacePixels / cacheCellPixels - verticalOverflowCells),
+  );
+  const maximumChunkCells = chunkLimitForSurface(DISCOVERY_FOG_CACHE_MAX_PIXELS);
+  if (maximumChunkCells < 1) {
+    // A one-cell cache would already require downsampling. Preserve quality by
+    // declining the cache so the caller can draw directly at final resolution.
+    return null;
+  }
+  const preferredChunkCells = Math.max(
+    1,
+    chunkLimitForSurface(DISCOVERY_FOG_CACHE_TARGET_PIXELS),
+  );
+  let chunkCells = Math.min(preferredChunkCells, maximumChunkCells);
+  // Prefer ~768px surfaces, but grow toward the 1024px hard limit when doing
+  // so lets one stable viewport fit in the bounded LRU without cache churn.
+  while (chunkCells < maximumChunkCells
+    && discoveryFogChunkCount(bounds, chunkCells) > DISCOVERY_FOG_CACHE_CAPACITY) {
+    chunkCells += 1;
+  }
+  const worldWidthCells = chunkCells + horizontalOverflowCells;
+  const worldHeightCells = chunkCells + verticalOverflowCells;
+  const pixelWidth = Math.max(
+    1,
+    Math.ceil(worldWidthCells * cacheCellPixels - 1e-7),
+  );
+  const pixelHeight = Math.max(
+    1,
+    Math.ceil(worldHeightCells * cacheCellPixels - 1e-7),
+  );
   return {
+    cacheCellPixels,
+    chunkCells,
     marginXCells,
     marginYCells,
     worldWidthCells,
     worldHeightCells,
-    pixelWidth: Math.max(1, Math.round(worldWidthCells * DISCOVERY_FOG_CACHE_CELL_PIXELS)),
-    pixelHeight: Math.max(1, Math.round(worldHeightCells * DISCOVERY_FOG_CACHE_CELL_PIXELS)),
+    pixelWidth,
+    pixelHeight,
   };
 }
 
-function discoveryFogCacheKey(asset, provider, chunk, widthCells, heightCells) {
+function discoveryFogCacheKey(
+  asset,
+  provider,
+  chunk,
+  plan,
+  fogAlpha,
+  widthCells,
+  heightCells,
+) {
   return [
     discoveryFogIdentity(asset),
     discoveryFogIdentity(provider.identity),
+    plan.cacheCellPixels,
+    plan.chunkCells,
+    fogAlpha,
     widthCells.toFixed(4),
     heightCells.toFixed(4),
     chunk.chunkX,
@@ -1402,42 +1461,74 @@ function storeDiscoveryFogChunk(key, entry) {
   }
 }
 
-function renderDiscoveryFogChunk(provider, asset, chunk, dimensions, widthCells, heightCells) {
+function renderDiscoveryFogChunk(
+  provider,
+  asset,
+  chunk,
+  plan,
+  fogAlpha,
+  widthCells,
+  heightCells,
+) {
   const surface = createDiscoveryFogSurface(
     provider,
-    dimensions.pixelWidth,
-    dimensions.pixelHeight,
+    plan.pixelWidth,
+    plan.pixelHeight,
   );
   if (!surface) return null;
-  const cacheCell = DISCOVERY_FOG_CACHE_CELL_PIXELS;
+  const cacheCell = plan.cacheCellPixels;
   const fogWidth = cacheCell * widthCells;
   const fogHeight = cacheCell * heightCells;
   for (const { localX, localY } of chunk.hiddenCells) {
     // Each authored sprite keeps one 1.6 x 1.2-cell destination. Adjacent cells
     // overlap naturally; no row, run, or chunk ever stretches the source PNG.
+    const worldX = chunk.originX + localX;
+    const worldY = chunk.originY + localY;
+    surface.context.save();
+    surface.context.globalAlpha *= fogAlpha;
+    surface.context.translate(
+      (localX + widthCells / 2) * cacheCell,
+      (localY + heightCells / 2) * cacheCell,
+    );
+    surface.context.scale(isOddInteger(worldX + worldY) ? -1 : 1, 1);
     surface.context.drawImage(
       asset,
-      localX * cacheCell,
-      localY * cacheCell,
+      -fogWidth / 2,
+      -fogHeight / 2,
       fogWidth,
       fogHeight,
     );
+    surface.context.restore();
   }
   return { canvas: surface.canvas, signature: chunk.signature };
 }
 
-function drawDirectDiscoveryFog(ctx, asset, cells, project, cell, widthCells, heightCells) {
+function drawDirectDiscoveryFog(
+  ctx,
+  asset,
+  cells,
+  project,
+  cell,
+  fogAlpha,
+  widthCells,
+  heightCells,
+) {
   const fogWidth = cell * widthCells;
   const fogHeight = cell * heightCells;
   for (const { x, y } of cells) {
     const center = project(x + 0.5, y + 0.5);
+    ctx.save();
+    ctx.globalAlpha *= fogAlpha;
+    ctx.translate(center.x, center.y);
+    ctx.scale(isOddInteger(x + y) ? -1 : 1, 1);
     ctx.drawImage(
       asset,
-      center.x - fogWidth / 2,
-      center.y - fogHeight / 2,
+      -fogWidth / 2,
+      -fogHeight / 2,
       fogWidth,
       fogHeight,
     );
+    ctx.restore();
   }
 }
 
@@ -1446,13 +1537,39 @@ function drawDirectDiscoveryFog(ctx, asset, cells, project, cell, widthCells, he
  * square fill is deliberately fallback-only so a ready PNG never reveals the
  * underlying logical grid. `isUndiscovered(x, y)` is the preferred predicate;
  * `discoveryAt` and a cell-returning `terrainAt` are accepted for adapters.
+ * `pixelRatio` is the main canvas backing-store-to-logical-pixel ratio and
+ * defaults to 1; it determines cache resolution without changing world size.
  */
 export function drawAuthoredDiscoveryFog(ctx, options = {}) {
   if (!ctx) throw new TypeError('drawAuthoredDiscoveryFog requires a Canvas 2D context');
   const bounds = normalizeBounds(options);
   const { project, pixelsPerCell: cell } = createProjector(options);
   const isUndiscovered = discoveryPredicate(options);
-  const { chunks, visibleCells } = discoveryFogChunkStates(bounds, isUndiscovered);
+  const widthCells = clamp(
+    finite(options.fogWidthCells, DISCOVERY_FOG_WIDTH_CELLS),
+    1.01,
+    2.5,
+  );
+  const heightCells = clamp(
+    finite(options.fogHeightCells, DISCOVERY_FOG_HEIGHT_CELLS),
+    1.01,
+    2.5,
+  );
+  const requestedPixelRatio = finite(options.pixelRatio, 1);
+  const pixelRatio = requestedPixelRatio > 0 ? requestedPixelRatio : 1;
+  const cachePlan = discoveryFogCachePlan(
+    cell,
+    pixelRatio,
+    widthCells,
+    heightCells,
+    bounds,
+  );
+  const chunkSize = cachePlan?.chunkCells ?? DISCOVERY_FOG_CHUNK_CELLS;
+  const { chunks, visibleCells } = discoveryFogChunkStates(
+    bounds,
+    isUndiscovered,
+    chunkSize,
+  );
   if (!visibleCells) {
     return {
       cells: 0,
@@ -1472,31 +1589,27 @@ export function drawAuthoredDiscoveryFog(ctx, options = {}) {
   let directAssetCells = 0;
   let cacheHits = 0;
   let cacheMisses = 0;
-  const widthCells = clamp(
-    finite(options.fogWidthCells, DISCOVERY_FOG_WIDTH_CELLS),
-    1.01,
-    2.5,
-  );
-  const heightCells = clamp(
-    finite(options.fogHeightCells, DISCOVERY_FOG_HEIGHT_CELLS),
-    1.01,
-    2.5,
-  );
   const fogAlpha = clamp(finite(options.fogAlpha, 0.9), 0, 1);
   const usedAsset = useTerrainAsset(
     ctx,
     options.assetStore,
     TERRAIN_LAYER_ASSET_KEYS.fog,
     (asset) => {
-      ctx.globalAlpha *= fogAlpha;
       const provider = discoveryFogCanvasProvider(options);
-      const dimensions = discoveryFogDimensions(widthCells, heightCells);
-      let cacheAvailable = Boolean(provider);
+      let cacheAvailable = Boolean(provider && cachePlan);
       for (const chunk of chunks) {
         if (!chunk.visibleHiddenCells.length) continue;
         let entry = null;
         if (cacheAvailable) {
-          const key = discoveryFogCacheKey(asset, provider, chunk, widthCells, heightCells);
+          const key = discoveryFogCacheKey(
+            asset,
+            provider,
+            chunk,
+            cachePlan,
+            fogAlpha,
+            widthCells,
+            heightCells,
+          );
           entry = cachedDiscoveryFogChunk(key, chunk.signature);
           if (entry) {
             cacheHits += 1;
@@ -1505,7 +1618,8 @@ export function drawAuthoredDiscoveryFog(ctx, options = {}) {
               provider,
               asset,
               chunk,
-              dimensions,
+              cachePlan,
+              fogAlpha,
               widthCells,
               heightCells,
             );
@@ -1524,6 +1638,7 @@ export function drawAuthoredDiscoveryFog(ctx, options = {}) {
             chunk.visibleHiddenCells,
             project,
             cell,
+            fogAlpha,
             widthCells,
             heightCells,
           );
@@ -1532,15 +1647,15 @@ export function drawAuthoredDiscoveryFog(ctx, options = {}) {
           continue;
         }
         const corner = project(
-          chunk.originX - dimensions.marginXCells,
-          chunk.originY - dimensions.marginYCells,
+          chunk.originX - cachePlan.marginXCells,
+          chunk.originY - cachePlan.marginYCells,
         );
         ctx.drawImage(
           entry.canvas,
           corner.x,
           corner.y,
-          dimensions.worldWidthCells * cell,
-          dimensions.worldHeightCells * cell,
+          cachePlan.worldWidthCells * cell,
+          cachePlan.worldHeightCells * cell,
         );
         cachedChunks += 1;
         assetCells += 1;

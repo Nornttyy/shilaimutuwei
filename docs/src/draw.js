@@ -68,15 +68,14 @@ export const PALETTE = Object.freeze({
 const TAU = Math.PI * 2;
 const KAPPA = 0.5522847498307936;
 const RIG_SURFACE = Object.freeze({
-  // The rig's logical viewport is 256x256. Rendering it at 2x here made every
-  // visible unit clear and repaint a 512x512 texture each frame, even though
-  // the main canvas immediately scaled it back down. Keep the exact logical
-  // geometry while quartering the offscreen pixel work.
-  width: 256,
-  height: 256,
-  pixelsPerUnit: 1,
-  originX: 128,
-  originY: 192,
+  // Preserve two source pixels per logical unit before the complete layered
+  // rig is composited onto the main canvas. Performance work may skip hidden
+  // actors and redundant paints, but must not downsample visible characters.
+  width: 512,
+  height: 512,
+  pixelsPerUnit: 2,
+  originX: 256,
+  originY: 384,
 });
 
 let sharedRigSurface = null;

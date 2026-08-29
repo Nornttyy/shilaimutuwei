@@ -391,6 +391,8 @@ test('gel paving converts only explored passable resource terrain and frees the 
   assert.equal(game.state.colony.resourceNodes.some(({ uid }) => uid === targetNode.uid), false, 'covered resource jobs are removed');
   assert.equal(game.worldCellAt(target.x, target.y).terrainId, 'ground');
   assert.equal(game.worldCellAt(target.x, target.y).buildable, true);
+  assert.equal(game.worldCellAt(target.x, target.y).surfaceId, 'gel-paving');
+  assert.equal(game.state.gelPavingCells.has(`${target.x},${target.y}`), true);
   assert.equal(game.state.colony.blueprints.some(({ complete }) => complete), false, 'completed project blueprints are retired');
 
   game.state.colony.resources = { gel: 99, nectar: 99, shard: 99 };
@@ -405,7 +407,40 @@ test('gel paving converts only explored passable resource terrain and frees the 
   const restored = createGame(storage);
   assert.equal(restored.worldCellAt(target.x, target.y).terrainId, 'ground');
   assert.equal(restored.worldCellAt(target.x, target.y).buildable, true);
+  assert.equal(restored.worldCellAt(target.x, target.y).surfaceId, 'gel-paving');
+  assert.equal(restored.state.gelPavingCells.has(`${target.x},${target.y}`), true);
   assert.equal(restored.state.buildings.some(({ cardId }) => cardId === paver.id), false);
+});
+
+test('legacy completed paver buildings migrate into persistent gel-paving surfaces', () => {
+  const storage = new Map();
+  const seed = createGame(storage);
+  seed.save();
+  const storageKey = storage.keys().next().value;
+  const payload = JSON.parse(storage.get(storageKey));
+  const paver = BUILDINGS.find(({ id }) => id === 'building-gel-foundation');
+  const target = { x: 3, y: 6 };
+  delete payload.gelPavingCells;
+  payload.buildings.push({
+    cardId: paver.id,
+    x: target.x,
+    y: target.y,
+    rotation: 270,
+    hp: paver.hp,
+    maxHp: paver.hp,
+    underConstruction: false,
+  });
+  storage.set(storageKey, JSON.stringify(payload));
+
+  const restored = createGame(storage);
+  assert.equal(restored.state.gelPavingCells.has(`${target.x},${target.y}`), true);
+  assert.equal(restored.worldCellAt(target.x, target.y).terrainId, 'ground');
+  assert.equal(restored.worldCellAt(target.x, target.y).surfaceId, 'gel-paving');
+  assert.equal(restored.state.buildings.some(({ cardId }) => cardId === paver.id), false);
+
+  restored.save();
+  const resaved = JSON.parse(storage.get(storageKey));
+  assert.deepEqual(resaved.gelPavingCells, [target]);
 });
 
 test('cancelling a blueprint returns delivered and in-transit resources', () => {

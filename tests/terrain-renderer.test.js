@@ -2,6 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  clearDiscoveryFogChunkCache,
+  DISCOVERY_FOG_CACHE_CAPACITY,
+  DISCOVERY_FOG_CACHE_CELL_PIXELS,
+  DISCOVERY_FOG_CHUNK_CELLS,
   drawAuthoredDiscoveryFog,
   drawTerrainAsset,
   drawOrganicGround,
@@ -36,13 +40,29 @@ function createContextSpy() {
     lineJoin: 'miter',
   };
   for (const method of [
-    'beginPath', 'bezierCurveTo', 'closePath', 'fill', 'fillRect', 'lineTo', 'moveTo',
+    'beginPath', 'bezierCurveTo', 'clearRect', 'closePath', 'fill', 'fillRect', 'lineTo', 'moveTo',
     'clip', 'drawImage', 'quadraticCurveTo', 'restore', 'rotate', 'save', 'scale',
     'stroke', 'strokeRect', 'translate',
   ]) {
     context[method] = (...args) => calls.push({ method, args });
   }
   return context;
+}
+
+function createCanvasFactorySpy() {
+  const canvases = [];
+  const factory = (width, height) => {
+    const context = createContextSpy();
+    const canvas = {
+      key: `discovery-fog-cache-${canvases.length}`,
+      width,
+      height,
+      getContext: (kind) => (kind === '2d' ? context : null),
+    };
+    canvases.push({ canvas, context });
+    return canvas;
+  };
+  return { factory, canvases };
 }
 
 function readyAssetStore(keys) {
@@ -166,51 +186,249 @@ test('ready authored ground has no viewport-relative fill or square base', () =>
   assert.equal(ctx.calls.filter(({ method }) => method === 'fillRect').length, 0);
 });
 
-test('authored discovery fog overlaps deterministically without per-cell square fills', () => {
+test('authored discovery fog caches fixed-ratio sprites without stretching a continuous row', () => {
+  clearDiscoveryFogChunkCache();
   const unknown = new Set(['-1,0', '0,0', '1,1']);
-  const render = (keys) => {
+  const cacheSurfaces = createCanvasFactorySpy();
+  const readyStore = readyAssetStore([TERRAIN_LAYER_ASSET_KEYS.fog]);
+  const render = (store, canvasFactory = cacheSurfaces.factory) => {
     const ctx = createContextSpy();
-    const store = readyAssetStore(keys);
     const result = drawAuthoredDiscoveryFog(ctx, {
       visibleBounds: { minX: -1, minY: 0, maxX: 1, maxY: 1 },
       pixelsPerCell: 50,
       worldToScreen: ({ x, y }) => ({ x: 12 + x * 50, y: 18 + y * 50 }),
       assetStore: store,
       isUndiscovered: (x, y) => unknown.has(`${x},${y}`),
+      canvasFactory,
     });
     return { ctx, store, result };
   };
-  const first = render([TERRAIN_LAYER_ASSET_KEYS.fog]);
-  const second = render([TERRAIN_LAYER_ASSET_KEYS.fog]);
+  const first = render(readyStore);
+  const second = render(readyStore);
 
   assert.deepEqual(first.result, {
     cells: 3,
-    assetCells: 3,
+    assetCells: 2,
     fallbackCells: 0,
     usedAsset: true,
+    cachedChunks: 2,
+    directAssetCells: 0,
+    cacheHits: 0,
+    cacheMisses: 2,
   });
-  assert.deepEqual(first.store.requested, [TERRAIN_LAYER_ASSET_KEYS.fog]);
+  assert.deepEqual(second.result, {
+    ...first.result,
+    cacheHits: 2,
+    cacheMisses: 0,
+  });
+  assert.deepEqual(first.store.requested, [
+    TERRAIN_LAYER_ASSET_KEYS.fog,
+    TERRAIN_LAYER_ASSET_KEYS.fog,
+  ]);
   assert.equal(first.ctx.calls.filter(({ method }) => method === 'fillRect').length, 0);
   const imageCalls = first.ctx.calls.filter(({ method }) => method === 'drawImage');
-  assert.equal(imageCalls.length, 3);
-  assert.ok(imageCalls.every(({ args }) => args[3] > 50 && args[4] > 50),
-    'fog cutouts overlap beyond every logical cell in both axes');
+  assert.equal(imageCalls.length, 2);
+  assert.equal(cacheSurfaces.canvases.length, 2,
+    'two signed world chunks are built once and reused on the stable frame');
+  const internalFogDraws = cacheSurfaces.canvases.flatMap(({ context }) => (
+    context.calls.filter(({ method, args }) => (
+      method === 'drawImage' && args[0]?.key === TERRAIN_LAYER_ASSET_KEYS.fog
+    ))
+  ));
+  assert.equal(internalFogDraws.length, 3);
+  assert.ok(internalFogDraws.every(({ args }) => (
+    args[3] === DISCOVERY_FOG_CACHE_CELL_PIXELS * 1.6
+    && args[4] === DISCOVERY_FOG_CACHE_CELL_PIXELS * 1.2
+  )), 'every cache-internal authored sprite keeps its 1.6 x 1.2-cell destination');
+  assert.equal(first.ctx.calls.some(({ method, args }) => (
+    method === 'drawImage' && args[0]?.key === TERRAIN_LAYER_ASSET_KEYS.fog
+  )), false, 'the main canvas composites chunk caches rather than a stretched fog source');
   assert.deepEqual(
-    texturePlacements(first.ctx, TERRAIN_LAYER_ASSET_KEYS.fog),
-    texturePlacements(second.ctx, TERRAIN_LAYER_ASSET_KEYS.fog),
-    'the same world fog cells keep their positions and mirrors',
+    imageCalls.map(({ args }) => args.slice(1)),
+    second.ctx.calls.filter(({ method }) => method === 'drawImage').map(({ args }) => args.slice(1)),
+    'the same world chunks keep stable screen placement',
   );
 
-  const fallback = render([]);
+  const fallback = render(readyAssetStore([]));
   assert.deepEqual(fallback.result, {
     cells: 3,
     assetCells: 0,
     fallbackCells: 3,
     usedAsset: false,
+    cachedChunks: 0,
+    directAssetCells: 0,
+    cacheHits: 0,
+    cacheMisses: 0,
   });
   assert.equal(fallback.ctx.calls.filter(({ method }) => method === 'drawImage').length, 0);
   assert.equal(fallback.ctx.calls.filter(({ method }) => method === 'fillRect').length, 3,
     'square safety fog is emitted only when the authored PNG is unavailable');
+});
+
+test('authored fog falls back per cell at 1.6 x 1.2 when offscreen canvas is unavailable', () => {
+  clearDiscoveryFogChunkCache();
+  const ctx = createContextSpy();
+  const store = readyAssetStore([TERRAIN_LAYER_ASSET_KEYS.fog]);
+  const result = drawAuthoredDiscoveryFog(ctx, {
+    visibleBounds: { minX: 0, minY: 0, maxX: 7, maxY: 0 },
+    pixelsPerCell: 50,
+    worldToScreen: ({ x, y }) => ({ x: x * 50, y: y * 50 }),
+    assetStore: store,
+    isUndiscovered: () => true,
+    canvasFactory: () => null,
+  });
+  const fogDraws = ctx.calls.filter(({ method, args }) => (
+    method === 'drawImage' && args[0]?.key === TERRAIN_LAYER_ASSET_KEYS.fog
+  ));
+
+  assert.deepEqual(result, {
+    cells: 8,
+    assetCells: 8,
+    fallbackCells: 0,
+    usedAsset: true,
+    cachedChunks: 0,
+    directAssetCells: 8,
+    cacheHits: 0,
+    cacheMisses: 0,
+  });
+  assert.equal(fogDraws.length, 8, 'a continuous row remains eight overlapping sprites');
+  assert.ok(fogDraws.every(({ args }) => args[3] === 80 && args[4] === 60));
+  assert.equal(fogDraws.some(({ args }) => args[3] > 80), false,
+    'no source sprite is widened to the length of the undiscovered row');
+});
+
+test('minimum-zoom 1280x720 terrain keeps macro texture and dense fog draw calls bounded', () => {
+  // This is a count-based mobile render budget, not a wall-clock benchmark.
+  // At the minimum supported zoom a 1280x720 viewport plus the one-cell camera
+  // guard contains 37x23 logical cells. Growing the infinite world must not
+  // increase either budget beyond what one screen can display.
+  const pixelsPerCell = 64 * 0.6;
+  const bounds = { minX: -1, minY: -1, maxX: 35, maxY: 21 };
+  const worldToScreen = ({ x, y }) => ({
+    x: x * pixelsPerCell,
+    y: y * pixelsPerCell,
+  });
+  const store = readyAssetStore([
+    TERRAIN_LAYER_ASSET_KEYS.ground,
+    TERRAIN_LAYER_ASSET_KEYS.fog,
+  ]);
+
+  const groundContext = createContextSpy();
+  const ground = drawOrganicGround(groundContext, {
+    visibleBounds: bounds,
+    pixelsPerCell,
+    worldToScreen,
+    assetStore: store,
+  });
+  const macroTextureDraws = groundContext.calls.filter(({ method, args }) => (
+    method === 'drawImage' && args[0]?.key === TERRAIN_LAYER_ASSET_KEYS.ground
+  )).length;
+  assert.ok(
+    macroTextureDraws <= 12,
+    `one minimum-zoom screen may draw at most 12 macro ground tiles, got ${macroTextureDraws}`,
+  );
+  assert.equal(ground.groundTextureTiles, macroTextureDraws);
+
+  clearDiscoveryFogChunkCache();
+  const cacheSurfaces = createCanvasFactorySpy();
+  const fogOptions = {
+    visibleBounds: bounds,
+    pixelsPerCell,
+    worldToScreen,
+    assetStore: store,
+    isUndiscovered: () => true,
+    canvasFactory: cacheSurfaces.factory,
+  };
+  const fogContext = createContextSpy();
+  const fog = drawAuthoredDiscoveryFog(fogContext, fogOptions);
+  const internalDrawsAfterBuild = cacheSurfaces.canvases.reduce((total, { context }) => (
+    total + context.calls.filter(({ method }) => method === 'drawImage').length
+  ), 0);
+  const stableContext = createContextSpy();
+  const stableFog = drawAuthoredDiscoveryFog(stableContext, fogOptions);
+  const internalDrawsAfterStableFrame = cacheSurfaces.canvases.reduce((total, { context }) => (
+    total + context.calls.filter(({ method }) => method === 'drawImage').length
+  ), 0);
+  const fogDraws = fogContext.calls.filter(({ method, args }) => (
+    method === 'drawImage' && args[0]?.key?.startsWith('discovery-fog-cache-')
+  )).length;
+  assert.equal(fog.cells, 37 * 23, 'the contract exercises a completely hidden screen');
+  assert.ok(
+    fogDraws <= 12,
+    `dense discovery fog may composite at most 12 visible chunks per screen, got ${fogDraws}`,
+  );
+  assert.equal(fog.assetCells, fogDraws);
+  assert.equal(fog.cachedChunks, fogDraws);
+  assert.equal(fog.cacheMisses, fogDraws);
+  assert.equal(stableFog.cacheHits, fogDraws);
+  assert.equal(stableFog.cacheMisses, 0);
+  assert.equal(stableContext.calls.filter(({ method }) => method === 'drawImage').length, fogDraws);
+  assert.equal(internalDrawsAfterStableFrame, internalDrawsAfterBuild,
+    'a stable frame performs no new per-cell fog rasterization');
+  assert.equal(DISCOVERY_FOG_CHUNK_CELLS, 16);
+  assert.ok(DISCOVERY_FOG_CACHE_CAPACITY >= fogDraws);
+  assert.ok(cacheSurfaces.canvases.every(({ canvas }) => (
+    canvas.width <= 512 && canvas.height <= 512
+  )), 'margin-inclusive fog caches stay within one 512-square RGBA surface each');
+});
+
+test('revealing one cell invalidates only its signed fog chunk', () => {
+  clearDiscoveryFogChunkCache();
+  const cacheSurfaces = createCanvasFactorySpy();
+  const store = readyAssetStore([TERRAIN_LAYER_ASSET_KEYS.fog]);
+  let revealed = false;
+  const options = {
+    visibleBounds: { minX: 0, minY: 0, maxX: 15, maxY: 15 },
+    pixelsPerCell: 40,
+    worldToScreen: ({ x, y }) => ({ x: x * 40, y: y * 40 }),
+    assetStore: store,
+    isUndiscovered: (x, y) => !(revealed && x === 0 && y === 0),
+    canvasFactory: cacheSurfaces.factory,
+  };
+
+  const first = drawAuthoredDiscoveryFog(createContextSpy(), options);
+  const stable = drawAuthoredDiscoveryFog(createContextSpy(), options);
+  revealed = true;
+  const changed = drawAuthoredDiscoveryFog(createContextSpy(), options);
+
+  assert.equal(first.cells, 256);
+  assert.equal(first.cacheMisses, 1);
+  assert.equal(stable.cacheHits, 1);
+  assert.equal(changed.cells, 255);
+  assert.equal(changed.cacheHits, 0);
+  assert.equal(changed.cacheMisses, 1);
+  assert.equal(cacheSurfaces.canvases.length, 2,
+    'the changed content signature replaces that chunk cache exactly once');
+  assert.equal(
+    cacheSurfaces.canvases[1].context.calls.filter(({ method }) => method === 'drawImage').length,
+    255,
+  );
+});
+
+test('discovery fog cache is a fixed-capacity LRU', () => {
+  clearDiscoveryFogChunkCache();
+  const cacheSurfaces = createCanvasFactorySpy();
+  const store = readyAssetStore([TERRAIN_LAYER_ASSET_KEYS.fog]);
+  const renderChunk = (chunkX) => {
+    const originX = chunkX * DISCOVERY_FOG_CHUNK_CELLS;
+    return drawAuthoredDiscoveryFog(createContextSpy(), {
+      visibleBounds: { minX: originX, minY: 0, maxX: originX, maxY: 0 },
+      pixelsPerCell: 40,
+      worldToScreen: ({ x, y }) => ({ x: x * 40, y: y * 40 }),
+      assetStore: store,
+      isUndiscovered: (x, y) => x === originX && y === 0,
+      canvasFactory: cacheSurfaces.factory,
+    });
+  };
+
+  for (let chunkX = 0; chunkX < DISCOVERY_FOG_CACHE_CAPACITY; chunkX += 1) {
+    assert.equal(renderChunk(chunkX).cacheMisses, 1);
+  }
+  assert.equal(renderChunk(0).cacheHits, 1, 'touching the oldest entry refreshes it');
+  assert.equal(renderChunk(DISCOVERY_FOG_CACHE_CAPACITY).cacheMisses, 1);
+  assert.equal(renderChunk(0).cacheHits, 1, 'the refreshed entry survives capacity eviction');
+  assert.equal(renderChunk(1).cacheMisses, 1, 'the least-recently-used entry was evicted');
+  assert.equal(cacheSurfaces.canvases.length, DISCOVERY_FOG_CACHE_CAPACITY + 2);
 });
 
 test('resource, obstacle, destructible and permanent terrain each use their own prop renderer', () => {

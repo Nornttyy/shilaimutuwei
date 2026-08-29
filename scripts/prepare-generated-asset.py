@@ -24,6 +24,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("height", type=int)
     parser.add_argument("--opaque", action="store_true")
     parser.add_argument("--margin", type=float, default=0.08)
+    parser.add_argument("--bottom-margin", type=float)
     parser.add_argument("--anchor", choices=("center", "bottom"), default="center")
     parser.add_argument("--min-background-fraction", type=float, default=0.08)
     parser.add_argument("--clean-alpha-radius", type=int, default=0)
@@ -108,6 +109,7 @@ def fit_transparent(
     height: int,
     margin: float,
     anchor: str,
+    bottom_margin: float | None = None,
 ) -> Image.Image:
     alpha = image.getchannel("A")
     bounds = alpha.getbbox()
@@ -124,7 +126,8 @@ def fit_transparent(
     canvas = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     x = (width - resized.width) // 2
     if anchor == "bottom":
-        y = height - round(height * margin) - resized.height
+        ground_margin = margin if bottom_margin is None else bottom_margin
+        y = height - round(height * ground_margin) - resized.height
     else:
         y = (height - resized.height) // 2
     canvas.alpha_composite(resized, (x, y))
@@ -207,6 +210,8 @@ def main() -> None:
         raise ValueError("width and height must be positive")
     if not 0 <= args.margin < 0.4:
         raise ValueError("margin must be between 0 and 0.4")
+    if args.bottom_margin is not None and not 0 <= args.bottom_margin < 0.4:
+        raise ValueError("bottom-margin must be between 0 and 0.4")
     if not 0 < args.min_background_fraction < 1:
         raise ValueError("min-background-fraction must be between 0 and 1")
     if args.clean_alpha_radius < 0 or args.clean_alpha_radius > 16:
@@ -226,6 +231,7 @@ def main() -> None:
             args.height,
             args.margin,
             args.anchor,
+            args.bottom_margin,
         )
         if output.getchannel("A").getextrema()[0] != 0:
             raise RuntimeError("Output does not contain transparent pixels.")

@@ -55,6 +55,17 @@ export const TERRAIN_LAYER_ASSET_KEYS = Object.freeze({
 /** One authored ground field spans this many world cells on each axis. */
 export const WORLD_GROUND_TEXTURE_PERIOD_CELLS = 12;
 
+/** Discovery fog is rasterized once per infinite-world chunk, then reused. */
+export const DISCOVERY_FOG_CHUNK_CELLS = 16;
+export const DISCOVERY_FOG_CACHE_CELL_PIXELS = 30;
+export const DISCOVERY_FOG_CACHE_CAPACITY = 12;
+
+const DISCOVERY_FOG_WIDTH_CELLS = 1.6;
+const DISCOVERY_FOG_HEIGHT_CELLS = 1.2;
+const discoveryFogChunkCache = new Map();
+const discoveryFogIdentityIds = new WeakMap();
+let nextDiscoveryFogIdentityId = 1;
+
 /** Large organic decals for the five deterministic infinite-world biomes. */
 export const REGION_ASSET_KEYS = Object.freeze({
   'gel-garden': 'region-gel-meadow-field-a',
@@ -1242,6 +1253,194 @@ function drawSafeDiscoveryFog(ctx, cells, project, cell) {
   }
 }
 
+/** Drop every cached fog chunk, for example after replacing the authored asset. */
+export function clearDiscoveryFogChunkCache() {
+  discoveryFogChunkCache.clear();
+}
+
+function discoveryFogIdentity(value) {
+  if ((typeof value !== 'object' || value === null) && typeof value !== 'function') {
+    return `${typeof value}:${String(value)}`;
+  }
+  let identity = discoveryFogIdentityIds.get(value);
+  if (!identity) {
+    identity = nextDiscoveryFogIdentityId;
+    nextDiscoveryFogIdentityId += 1;
+    discoveryFogIdentityIds.set(value, identity);
+  }
+  return identity;
+}
+
+function discoveryFogCanvasProvider(options) {
+  if (typeof options.canvasFactory === 'function') {
+    return {
+      identity: options.canvasFactory,
+      create: (width, height) => options.canvasFactory(width, height),
+    };
+  }
+  if (typeof globalThis.OffscreenCanvas === 'function') {
+    return {
+      identity: globalThis.OffscreenCanvas,
+      create: (width, height) => new globalThis.OffscreenCanvas(width, height),
+    };
+  }
+  const documentRef = globalThis.document;
+  if (documentRef && typeof documentRef.createElement === 'function') {
+    return {
+      // Browser document and the WeChat document shim both expose this path.
+      identity: documentRef,
+      create: () => documentRef.createElement('canvas'),
+    };
+  }
+  return null;
+}
+
+function createDiscoveryFogSurface(provider, width, height) {
+  try {
+    const canvas = provider.create(width, height);
+    if (!canvas || typeof canvas.getContext !== 'function') return null;
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext('2d');
+    if (!context || typeof context.drawImage !== 'function') return null;
+    if ('imageSmoothingEnabled' in context) context.imageSmoothingEnabled = true;
+    context.clearRect?.(0, 0, width, height);
+    return { canvas, context };
+  } catch {
+    return null;
+  }
+}
+
+function discoveryFogChunkStates(bounds, isUndiscovered) {
+  const chunkSize = DISCOVERY_FOG_CHUNK_CELLS;
+  const minChunkX = Math.floor(bounds.minX / chunkSize);
+  const maxChunkX = Math.floor(bounds.maxX / chunkSize);
+  const minChunkY = Math.floor(bounds.minY / chunkSize);
+  const maxChunkY = Math.floor(bounds.maxY / chunkSize);
+  const chunks = [];
+  let visibleCells = 0;
+
+  for (let chunkY = minChunkY; chunkY <= maxChunkY; chunkY += 1) {
+    for (let chunkX = minChunkX; chunkX <= maxChunkX; chunkX += 1) {
+      const originX = chunkX * chunkSize;
+      const originY = chunkY * chunkSize;
+      const signatureWords = Array(chunkSize).fill(0);
+      const hiddenCells = [];
+      const visibleHiddenCells = [];
+      for (let localY = 0; localY < chunkSize; localY += 1) {
+        for (let localX = 0; localX < chunkSize; localX += 1) {
+          const x = originX + localX;
+          const y = originY + localY;
+          if (!isUndiscovered(x, y)) continue;
+          signatureWords[localY] = (signatureWords[localY] | (1 << localX)) >>> 0;
+          hiddenCells.push({ localX, localY });
+          if (x < bounds.minX || x > bounds.maxX || y < bounds.minY || y > bounds.maxY) {
+            continue;
+          }
+          visibleHiddenCells.push({ x, y });
+          visibleCells += 1;
+        }
+      }
+      chunks.push({
+        chunkX,
+        chunkY,
+        originX,
+        originY,
+        hiddenCells,
+        visibleHiddenCells,
+        signature: signatureWords.map((word) => word.toString(16).padStart(4, '0')).join(''),
+      });
+    }
+  }
+  return { chunks, visibleCells };
+}
+
+function discoveryFogDimensions(widthCells, heightCells) {
+  const marginXCells = (widthCells - 1) / 2;
+  const marginYCells = (heightCells - 1) / 2;
+  const worldWidthCells = DISCOVERY_FOG_CHUNK_CELLS + marginXCells * 2;
+  const worldHeightCells = DISCOVERY_FOG_CHUNK_CELLS + marginYCells * 2;
+  return {
+    marginXCells,
+    marginYCells,
+    worldWidthCells,
+    worldHeightCells,
+    pixelWidth: Math.max(1, Math.round(worldWidthCells * DISCOVERY_FOG_CACHE_CELL_PIXELS)),
+    pixelHeight: Math.max(1, Math.round(worldHeightCells * DISCOVERY_FOG_CACHE_CELL_PIXELS)),
+  };
+}
+
+function discoveryFogCacheKey(asset, provider, chunk, widthCells, heightCells) {
+  return [
+    discoveryFogIdentity(asset),
+    discoveryFogIdentity(provider.identity),
+    widthCells.toFixed(4),
+    heightCells.toFixed(4),
+    chunk.chunkX,
+    chunk.chunkY,
+  ].join(':');
+}
+
+function cachedDiscoveryFogChunk(key, signature) {
+  const entry = discoveryFogChunkCache.get(key);
+  if (!entry || entry.signature !== signature) {
+    if (entry) discoveryFogChunkCache.delete(key);
+    return null;
+  }
+  // Map insertion order is the LRU clock. Refresh a hit without allocating.
+  discoveryFogChunkCache.delete(key);
+  discoveryFogChunkCache.set(key, entry);
+  return entry;
+}
+
+function storeDiscoveryFogChunk(key, entry) {
+  discoveryFogChunkCache.delete(key);
+  discoveryFogChunkCache.set(key, entry);
+  while (discoveryFogChunkCache.size > DISCOVERY_FOG_CACHE_CAPACITY) {
+    const oldest = discoveryFogChunkCache.keys().next().value;
+    discoveryFogChunkCache.delete(oldest);
+  }
+}
+
+function renderDiscoveryFogChunk(provider, asset, chunk, dimensions, widthCells, heightCells) {
+  const surface = createDiscoveryFogSurface(
+    provider,
+    dimensions.pixelWidth,
+    dimensions.pixelHeight,
+  );
+  if (!surface) return null;
+  const cacheCell = DISCOVERY_FOG_CACHE_CELL_PIXELS;
+  const fogWidth = cacheCell * widthCells;
+  const fogHeight = cacheCell * heightCells;
+  for (const { localX, localY } of chunk.hiddenCells) {
+    // Each authored sprite keeps one 1.6 x 1.2-cell destination. Adjacent cells
+    // overlap naturally; no row, run, or chunk ever stretches the source PNG.
+    surface.context.drawImage(
+      asset,
+      localX * cacheCell,
+      localY * cacheCell,
+      fogWidth,
+      fogHeight,
+    );
+  }
+  return { canvas: surface.canvas, signature: chunk.signature };
+}
+
+function drawDirectDiscoveryFog(ctx, asset, cells, project, cell, widthCells, heightCells) {
+  const fogWidth = cell * widthCells;
+  const fogHeight = cell * heightCells;
+  for (const { x, y } of cells) {
+    const center = project(x + 0.5, y + 0.5);
+    ctx.drawImage(
+      asset,
+      center.x - fogWidth / 2,
+      center.y - fogHeight / 2,
+      fogWidth,
+      fogHeight,
+    );
+  }
+}
+
 /**
  * Draws discovery fog as deterministic, overlapping authored cutouts. The
  * square fill is deliberately fallback-only so a ready PNG never reveals the
@@ -1253,25 +1452,36 @@ export function drawAuthoredDiscoveryFog(ctx, options = {}) {
   const bounds = normalizeBounds(options);
   const { project, pixelsPerCell: cell } = createProjector(options);
   const isUndiscovered = discoveryPredicate(options);
-  const cells = [];
-  for (let y = bounds.minY; y <= bounds.maxY; y += 1) {
-    for (let x = bounds.minX; x <= bounds.maxX; x += 1) {
-      if (isUndiscovered(x, y)) cells.push({ x, y });
-    }
-  }
-  if (!cells.length) {
+  const { chunks, visibleCells } = discoveryFogChunkStates(bounds, isUndiscovered);
+  if (!visibleCells) {
     return {
       cells: 0,
       assetCells: 0,
       fallbackCells: 0,
       usedAsset: false,
+      cachedChunks: 0,
+      directAssetCells: 0,
+      cacheHits: 0,
+      cacheMisses: 0,
     };
   }
 
   let assetCells = 0;
   let fallbackCells = 0;
-  const fogWidth = cell * Math.max(1.01, finite(options.fogWidthCells, 1.6));
-  const fogHeight = cell * Math.max(1.01, finite(options.fogHeightCells, 1.2));
+  let cachedChunks = 0;
+  let directAssetCells = 0;
+  let cacheHits = 0;
+  let cacheMisses = 0;
+  const widthCells = clamp(
+    finite(options.fogWidthCells, DISCOVERY_FOG_WIDTH_CELLS),
+    1.01,
+    2.5,
+  );
+  const heightCells = clamp(
+    finite(options.fogHeightCells, DISCOVERY_FOG_HEIGHT_CELLS),
+    1.01,
+    2.5,
+  );
   const fogAlpha = clamp(finite(options.fogAlpha, 0.9), 0, 1);
   const usedAsset = useTerrainAsset(
     ctx,
@@ -1279,27 +1489,79 @@ export function drawAuthoredDiscoveryFog(ctx, options = {}) {
     TERRAIN_LAYER_ASSET_KEYS.fog,
     (asset) => {
       ctx.globalAlpha *= fogAlpha;
-      for (const { x, y } of cells) {
-        const center = project(x + 0.5, y + 0.5);
-        ctx.save();
-        ctx.translate(center.x, center.y);
-        ctx.scale(isOddInteger(x + y) ? -1 : 1, 1);
-        ctx.drawImage(asset, -fogWidth / 2, -fogHeight / 2, fogWidth, fogHeight);
-        ctx.restore();
+      const provider = discoveryFogCanvasProvider(options);
+      const dimensions = discoveryFogDimensions(widthCells, heightCells);
+      let cacheAvailable = Boolean(provider);
+      for (const chunk of chunks) {
+        if (!chunk.visibleHiddenCells.length) continue;
+        let entry = null;
+        if (cacheAvailable) {
+          const key = discoveryFogCacheKey(asset, provider, chunk, widthCells, heightCells);
+          entry = cachedDiscoveryFogChunk(key, chunk.signature);
+          if (entry) {
+            cacheHits += 1;
+          } else {
+            entry = renderDiscoveryFogChunk(
+              provider,
+              asset,
+              chunk,
+              dimensions,
+              widthCells,
+              heightCells,
+            );
+            if (entry) {
+              cacheMisses += 1;
+              storeDiscoveryFogChunk(key, entry);
+            } else {
+              cacheAvailable = false;
+            }
+          }
+        }
+        if (!entry) {
+          drawDirectDiscoveryFog(
+            ctx,
+            asset,
+            chunk.visibleHiddenCells,
+            project,
+            cell,
+            widthCells,
+            heightCells,
+          );
+          directAssetCells += chunk.visibleHiddenCells.length;
+          assetCells += chunk.visibleHiddenCells.length;
+          continue;
+        }
+        const corner = project(
+          chunk.originX - dimensions.marginXCells,
+          chunk.originY - dimensions.marginYCells,
+        );
+        ctx.drawImage(
+          entry.canvas,
+          corner.x,
+          corner.y,
+          dimensions.worldWidthCells * cell,
+          dimensions.worldHeightCells * cell,
+        );
+        cachedChunks += 1;
         assetCells += 1;
       }
     },
     () => {
+      const cells = chunks.flatMap((chunk) => chunk.visibleHiddenCells);
       drawSafeDiscoveryFog(ctx, cells, project, cell);
       fallbackCells = cells.length;
     },
   );
 
   return {
-    cells: cells.length,
+    cells: visibleCells,
     assetCells,
     fallbackCells,
     usedAsset,
+    cachedChunks,
+    directAssetCells,
+    cacheHits,
+    cacheMisses,
   };
 }
 

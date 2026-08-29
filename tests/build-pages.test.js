@@ -70,7 +70,7 @@ const REQUIRED_GAMEPLAY_MODULES = Object.freeze([
   'src/platform/wechat-entry.js',
 ]);
 const REQUIRED_GAMEPLAY_ASSET_CATEGORIES = Object.freeze({
-  terrain: 10,
+  terrain: 11,
   'terrain-waste': 7,
   region: 5,
   nest: 2,
@@ -104,9 +104,9 @@ test('the browser shell loads formal loading and rotation art without JavaScript
   assert.match(css, /@media \(orientation:\s*portrait\) and \(max-width:\s*900px\)/);
 });
 
-test('the project asset whitelist covers all 123 canonical nested PNG paths', () => {
+test('the project asset whitelist covers all 125 canonical nested PNG paths', () => {
   const paths = collectDeclaredAssetPaths(PROJECT_ASSET_SPEC);
-  assert.equal(paths.length, 123);
+  assert.equal(paths.length, 125);
   assert.equal(new Set(paths).size, paths.length);
   assert.equal(paths.every((assetPath) => (
     /^assets\/generated\/[a-z][a-z0-9-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*\.png$/.test(assetPath)

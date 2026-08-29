@@ -520,6 +520,76 @@ test('accepts ready loader parts with embedded decoded images and layers alias',
   );
 });
 
+test('one maximum-detail rig frame has explicit bitmap and array-producing pass budgets', () => {
+  // Crystal Pin is the largest production rig at eleven visible parts. Two
+  // expression slots may each blend two source cells on cached isolated
+  // surfaces, but the main canvas must still receive one composite per part.
+  const ctx = createContext({ expressionSurfaceFactory: createRecordingExpressionSurface });
+  const bodyParts = Array.from({ length: 9 }, (_, index) => part(
+    `layer-${index}`,
+    'body',
+    index,
+    { x: -40 + index, y: -70, width: 80, height: 72 },
+    { image: { id: `layer-${index}` } },
+  ));
+  const expressionPart = (id, z) => part(
+    id,
+    'face',
+    z,
+    { x: -18, y: -50 + z, width: 36, height: 14 },
+    {
+      image: { id: `${id}-normal` },
+      variants: {
+        active: {
+          image: { id: `${id}-active` },
+          bindRect: { x: -18, y: -50 + z, width: 36, height: 14 },
+        },
+      },
+    },
+  );
+  const entry = manifest([
+    ...bodyParts,
+    expressionPart('eyes', 10),
+    expressionPart('mouth', 11),
+  ]);
+  const expression = {
+    eyes: { from: 'normal', to: 'active', weights: { from: 0.5, to: 0.5 } },
+    mouth: { from: 'normal', to: 'active', weights: { from: 0.5, to: 0.5 } },
+  };
+
+  const allocationMethods = ['map', 'filter', 'flatMap', 'slice'];
+  const nativeMethods = Object.fromEntries(allocationMethods.map((name) => (
+    [name, Array.prototype[name]]
+  )));
+  let arrayProducingPasses = 0;
+  for (const name of allocationMethods) {
+    Array.prototype[name] = function observedArrayProducer(...args) {
+      arrayProducingPasses += 1;
+      return nativeMethods[name].apply(this, args);
+    };
+  }
+  try {
+    assert.equal(renderLayeredRig(ctx, EXPRESSION_RIG, {}, entry, null, expression), true);
+  } finally {
+    for (const name of allocationMethods) Array.prototype[name] = nativeMethods[name];
+  }
+
+  const mainCanvasDraws = ctx.calls.filter(([name]) => name === 'drawImage').length;
+  const expressionSurfaceDraws = ctx.surfaces.reduce((total, surface) => (
+    total + surface.calls.filter(([name]) => name === 'drawImage').length
+  ), 0);
+  assert.equal(mainCanvasDraws, 11, 'each rig part composites onto the world canvas once');
+  assert.equal(expressionSurfaceDraws, 4, 'two face slots blend at most two source cells each');
+  assert.ok(
+    mainCanvasDraws + expressionSurfaceDraws <= 15,
+    'one maximum-detail rig may issue at most fifteen bitmap draws across all canvases',
+  );
+  assert.ok(
+    arrayProducingPasses <= 18,
+    `one rig preparation may use at most 18 array-producing passes, got ${arrayProducingPasses}`,
+  );
+});
+
 test('leaves the canvas untouched when a required decoded part is missing', () => {
   const ctx = createContext({ alpha: 0.75 });
   const entry = manifest([

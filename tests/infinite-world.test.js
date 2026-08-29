@@ -243,6 +243,43 @@ test('updateCamera returns lightweight base chunks unless resolved cells are req
   assert.equal(coreCell.discovered, true);
 });
 
+test('resolved cell hot reads reuse immutable objects and invalidate only changed cells', () => {
+  const world = createInfiniteWorld({ seed: 'resolved-cell-cache', maxLoadedChunks: 4 });
+  const x = CHUNK_SIZE * 2 + 3;
+  const y = -CHUNK_SIZE + 5;
+
+  const initial = world.getCell(x, y);
+  assert.equal(world.getCell(x, y), initial,
+    'unchanged render reads should reuse the resolved immutable cell');
+
+  world.reveal(x, y);
+  const discovered = world.getCell(x, y);
+  assert.notEqual(discovered, initial);
+  assert.equal(discovered.discovered, true);
+  assert.equal(world.getCell(x, y), discovered,
+    'the newly discovered value should become the next hot cache entry');
+
+  const replacement = discovered.terrainId === 'ground' ? 'soft-gel' : 'ground';
+  world.setTerrain(x, y, replacement);
+  const modified = world.getCell(x, y);
+  assert.notEqual(modified, discovered);
+  assert.equal(modified.terrainId, replacement);
+  assert.equal(modified.modified, true);
+  assert.equal(world.getCell(x, y), modified,
+    'a terrain delta invalidates exactly once, then returns to the hot path');
+});
+
+test('timestamp LRU refreshes hot chunks without depending on Map insertion order', () => {
+  const world = createInfiniteWorld({ seed: 'timestamp-lru', maxLoadedChunks: 2 });
+  world.getCell(0, 0);
+  world.getCell(CHUNK_SIZE, 0);
+  world.getCell(0, 0);
+  world.getCell(CHUNK_SIZE * 2, 0);
+
+  assert.deepEqual(new Set(world.cacheKeys()), new Set(['0,0', '2,0']));
+  assert.equal(world.stats().loadedChunks, 2);
+});
+
 test('discovery plus harvest, destruction, and building deltas survive eviction and restore', () => {
   const world = createInfiniteWorld({ seed: 'persistent-world', maxLoadedChunks: 4 });
   const resource = findBaseCell(world, (cell) => cell.harvestable && !cell.safe);

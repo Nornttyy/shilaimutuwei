@@ -1,7 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { SlimeGame } from '../src/game.js';
+import {
+  AUTOTILE_FRAME_SIZE,
+  AUTOTILE_MASK_BITS,
+  SlimeGame,
+  autotileFrameRect,
+  cardinalAutotileMask,
+} from '../src/game.js';
 import {
   BUILDINGS,
   ENEMY_BY_ID,
@@ -663,7 +669,6 @@ test('battlefield keeps the portal and moving-bubble shell behind depth-sorted a
   const { game } = createHarness({ assetStore: store });
   game.drawRoutes = () => events.push('routes');
   game.drawTerrain = () => events.push('terrain');
-  game.drawBuildingFoundations = () => events.push('building-foundations');
   game.drawWorldEffects = (_ctx, layer) => events.push(`effects:${layer}`);
   game.drawDynamicEffects = (_ctx, layer) => events.push(`dynamic:${layer}`);
   game.drawMovingBubblePreview = () => events.push('moving-bubble-preview');
@@ -677,11 +682,7 @@ test('battlefield keeps the portal and moving-bubble shell behind depth-sorted a
     events.indexOf('asset:rift-entry-portal') < events.indexOf('actors'),
     'the portal must be painted before enemies emerging from it',
   );
-  assert.ok(
-    events.indexOf('terrain') < events.indexOf('building-foundations')
-      && events.indexOf('building-foundations') < events.indexOf('actors'),
-    'the seamless module floor must render once between terrain and every building body',
-  );
+  assert.ok(events.indexOf('terrain') < events.indexOf('actors'));
   assert.deepEqual(events.filter((event) => [
     'effects:back',
     'moving-bubble-preview',
@@ -709,12 +710,14 @@ test('battlefield keeps the portal and moving-bubble shell behind depth-sorted a
 
   const order = [];
   const { game: depthGame } = createHarness();
+  const visibleX = Math.floor(depthGame.camera.x) + 2;
+  const visibleY = Math.floor(depthGame.camera.y) + 2;
   depthGame.state.buildings = [{
-    uid: 'building-depth', cardId: 'building-mushroom-home', x: 0, y: 3, rotation: 0,
+    uid: 'building-depth', cardId: 'building-mushroom-home', x: visibleX, y: visibleY + 3, rotation: 0,
   }];
-  depthGame.state.deployables = [{ uid: 'deployable-depth', type: 'pad', x: 0, y: 1 }];
-  depthGame.state.survivors = [{ uid: 'survivor-depth', x: 0, y: 0 }];
-  depthGame.state.enemies = [{ uid: 'enemy-depth', x: 0, y: 2 }];
+  depthGame.state.deployables = [{ uid: 'deployable-depth', type: 'pad', x: visibleX, y: visibleY + 1 }];
+  depthGame.state.survivors = [{ uid: 'survivor-depth', x: visibleX, y: visibleY }];
+  depthGame.state.enemies = [{ uid: 'enemy-depth', x: visibleX, y: visibleY + 2 }];
   depthGame.drawBuildings = (_ctx, [entity]) => order.push(entity.uid);
   depthGame.drawDeployables = (_ctx, [entity]) => order.push(entity.uid);
   depthGame.drawUnits = (_ctx, [{ entity }]) => order.push(entity.uid);
@@ -728,8 +731,8 @@ test('battlefield keeps the portal and moving-bubble shell behind depth-sorted a
   ]);
 
   order.length = 0;
-  depthGame.state.buildings[0].y = 2;
-  depthGame.state.survivors[0].y = 2;
+  depthGame.state.buildings[0].y = visibleY + 2;
+  depthGame.state.survivors[0].y = visibleY + 2;
   depthGame.state.deployables = [];
   depthGame.state.enemies = [];
   depthGame.drawWorldActors(depthGame.ctx);
@@ -740,6 +743,86 @@ test('battlefield keeps the portal and moving-bubble shell behind depth-sorted a
   );
 });
 
+test('world actor depth sorting and dispatch are bounded by visible entities, not save size', () => {
+  const { game } = createHarness();
+  const visibleX = Math.floor(game.camera.x) + 2;
+  const visibleY = Math.floor(game.camera.y) + 2;
+  const visiblePerKind = 3;
+  const hiddenPerKind = 160;
+  const makeEntities = (kind, cardId) => [
+    ...Array.from({ length: visiblePerKind }, (_, index) => ({
+      uid: `${kind}-visible-${index}`,
+      cardId,
+      x: visibleX + index,
+      y: visibleY + index * 0.1,
+      rotation: 0,
+    })),
+    ...Array.from({ length: hiddenPerKind }, (_, index) => ({
+      uid: `${kind}-hidden-${index}`,
+      cardId,
+      x: visibleX + 10000 + index,
+      y: visibleY + 10000 + index,
+      rotation: 0,
+    })),
+  ];
+  game.visibleWorldPois = [];
+  game.state.buildings = makeEntities('building', 'building-mushroom-home');
+  game.state.deployables = makeEntities('deployable', null).map((item) => ({
+    ...item,
+    type: 'pad',
+  }));
+  game.state.survivors = makeEntities('survivor', 'survivor-shell-shell');
+  game.state.enemies = makeEntities('enemy', 'enemy-soft-biter');
+  if (game.state.worldExpedition) game.state.worldExpedition.enemies = [];
+  let enemySomeCalls = 0;
+  const nativeEnemySome = game.state.enemies.some.bind(game.state.enemies);
+  game.state.enemies.some = (predicate) => {
+    enemySomeCalls += 1;
+    return nativeEnemySome(predicate);
+  };
+
+  const dispatched = [];
+  game.drawBuildings = (_ctx, buildings, options) => {
+    assert.equal(options.underAttack, true);
+    dispatched.push(...buildings.map(({ uid }) => uid));
+  };
+  game.drawDeployables = (_ctx, deployables) => dispatched.push(...deployables.map(({ uid }) => uid));
+  game.drawUnits = (_ctx, units) => dispatched.push(...units.map(({ entity }) => entity.uid));
+
+  const sortedLengths = [];
+  const nativeSort = Array.prototype.sort;
+  Array.prototype.sort = function observedSort(...args) {
+    if (this.some((item) => item?.kind && item?.entity)) sortedLengths.push(this.length);
+    return nativeSort.apply(this, args);
+  };
+  try {
+    game.drawWorldActors(game.ctx);
+  } finally {
+    Array.prototype.sort = nativeSort;
+  }
+
+  const visibleActorBudget = visiblePerKind * 4;
+  assert.equal(
+    dispatched.length,
+    visibleActorBudget,
+    'screen-space culling must happen before per-kind draw dispatch',
+  );
+  assert.ok(
+    Math.max(0, ...sortedLengths) <= visibleActorBudget,
+    `the depth-sort input may contain at most ${visibleActorBudget} visible actors`,
+  );
+  assert.equal(
+    dispatched.some((uid) => uid.includes('-hidden-')),
+    false,
+    'off-screen entities must never enter a per-actor singleton draw allocation',
+  );
+  assert.equal(
+    enemySomeCalls,
+    1,
+    'the shared under-attack state is computed once before singleton building dispatch',
+  );
+});
+
 test('all six building surfaces use their formal PNG and fill one world-cell module', () => {
   const frame = { key: 'ui-card-frame-common', naturalWidth: 512, naturalHeight: 384 };
   const buildingArt = new Map(BUILDINGS.map((card) => [card.id, {
@@ -747,9 +830,22 @@ test('all six building surfaces use their formal PNG and fill one world-cell mod
     naturalWidth: 512,
     naturalHeight: 512,
   }]));
+  const buildingAutotileArt = new Map([
+    ['building-honey-plot', {
+      key: 'building-honey-plot-autotile-v3',
+      naturalWidth: 512,
+      naturalHeight: 512,
+    }],
+    ['building-bouncy-fence', {
+      key: 'building-bouncy-fence-autotile-v3',
+      naturalWidth: 512,
+      naturalHeight: 512,
+    }],
+  ]);
   const store = createReadyAssetStore(new Map([
     ['ui-card-frame-common', frame],
     ...buildingArt,
+    ...[...buildingAutotileArt.values()].map((asset) => [asset.key, asset]),
   ]));
   const recording = createRecordingContext();
   const scales = [];
@@ -770,23 +866,42 @@ test('all six building surfaces use their formal PNG and fill one world-cell mod
 
   game.drawBuildings(recording.ctx);
 
-  for (const art of buildingArt.values()) {
-    const worldCall = recording.calls.find((call) => call[0] === 'drawImage' && call[1] === art);
-    assert.ok(worldCall, `${art.key} should render its formal world PNG`);
-    assert.equal(worldCall.length, 10, `${art.key} world art must crop transparent padding`);
-    assert.ok(worldCall[2] > 0 && worldCall[3] > 0, `${art.key} crop starts inside its source canvas`);
-    assert.ok(worldCall[4] < 512 && worldCall[5] < 512, `${art.key} crop removes empty source margins`);
+  for (const card of BUILDINGS) {
+    const fixedArt = buildingArt.get(card.id);
+    const worldArt = buildingAutotileArt.get(card.id) || fixedArt;
+    const worldCall = recording.calls.find((call) => (
+      call[0] === 'drawImage' && call[1] === worldArt
+    ));
+    assert.ok(worldCall, `${worldArt.key} should render its formal world PNG`);
+    if (buildingAutotileArt.has(card.id)) {
+      assert.deepEqual(
+        worldCall.slice(2, 6),
+        [0, 0, AUTOTILE_FRAME_SIZE, AUTOTILE_FRAME_SIZE],
+        `${worldArt.key} isolated module uses mask-zero atlas frame`,
+      );
+      assertClose(worldCall[8] * game.camera.zoom, cellSize, `${worldArt.key} world width`);
+      assertClose(worldCall[9] * game.camera.zoom, cellSize, `${worldArt.key} world height`);
+      assertClose(
+        worldCall[7] * game.camera.zoom,
+        -cellSize,
+        `${worldArt.key} atlas frame top aligns to the whole-cell slot`,
+      );
+    } else {
+      assert.equal(worldCall.length, 6, `${worldArt.key} must use one uncropped five-argument draw`);
+      assertClose(worldCall[4] * game.camera.zoom, cellSize, `${worldArt.key} world width`);
+      assertClose(worldCall[5] * game.camera.zoom, cellSize, `${worldArt.key} world height`);
+      assertClose(
+        worldCall[3] * game.camera.zoom,
+        -cellSize * (246 / 256),
+        `${worldArt.key} keeps its authored independent-sprite ground anchor`,
+      );
+    }
   }
   assert.ok(
     scales.filter(([x, y]) => (
-      Math.abs(x - cellSize / 115) < 1e-9 && Math.abs(y - cellSize / 115) < 1e-9
+      Math.abs(x - game.camera.zoom) < 1e-9 && Math.abs(y - game.camera.zoom) < 1e-9
     )).length >= BUILDINGS.length,
-    'every world building should fill the complete logical cell instead of leaving a seam',
-  );
-  assert.equal(
-    scales.some(([x, y]) => Math.abs(x - 60 / 115) < 1e-9 || Math.abs(y - 60 / 115) < 1e-9),
-    false,
-    'the former inset 60px building slot must not return',
+    'every world module shares the camera scale without per-building crop correction',
   );
 
   recording.calls.length = 0;
@@ -801,6 +916,257 @@ test('all six building surfaces use their formal PNG and fill one world-cell mod
     BUILDINGS.length * 9,
     'each building card should keep the generated nine-slice frame',
   );
+});
+
+test('four-way autotile masks use N=1 E=2 S=4 W=8 and map directly into the 4x4 atlas', () => {
+  assert.deepEqual(AUTOTILE_MASK_BITS, {
+    north: 1,
+    east: 2,
+    south: 4,
+    west: 8,
+  });
+  const directionByBit = new Map([
+    [1, '0,-1'],
+    [2, '1,0'],
+    [4, '0,1'],
+    [8, '-1,0'],
+  ]);
+  for (let expectedMask = 0; expectedMask < 16; expectedMask += 1) {
+    const connected = new Set(
+      [...directionByBit].filter(([bit]) => expectedMask & bit).map(([, key]) => key),
+    );
+    assert.equal(
+      cardinalAutotileMask(0, 0, (x, y) => connected.has(`${x},${y}`)),
+      expectedMask,
+    );
+    const frame = autotileFrameRect(expectedMask);
+    assert.deepEqual(frame, {
+      x: (expectedMask & 3) * AUTOTILE_FRAME_SIZE,
+      y: (expectedMask >> 2) * AUTOTILE_FRAME_SIZE,
+      width: AUTOTILE_FRAME_SIZE,
+      height: AUTOTILE_FRAME_SIZE,
+    });
+    assert.equal(
+      autotileFrameRect(expectedMask),
+      frame,
+      `mask ${expectedMask} reuses its immutable frame descriptor`,
+    );
+    assert.equal(Object.isFrozen(frame), true);
+  }
+});
+
+test('fences and honey plots choose fixed authored atlas frames without rotation or mirroring', () => {
+  const fenceAtlas = {
+    key: 'building-bouncy-fence-autotile-v3',
+    naturalWidth: 512,
+    naturalHeight: 512,
+  };
+  const honeyAtlas = {
+    key: 'building-honey-plot-autotile-v3',
+    naturalWidth: 512,
+    naturalHeight: 512,
+  };
+  const store = createReadyAssetStore({
+    [fenceAtlas.key]: fenceAtlas,
+    [honeyAtlas.key]: honeyAtlas,
+  });
+  const recording = createDynamicEffectRecordingContext();
+  const { game } = createHarness({ context: recording.ctx, assetStore: store });
+  const fenceCard = BUILDINGS.find(({ id }) => id === 'building-bouncy-fence');
+  const honeyCard = BUILDINGS.find(({ id }) => id === 'building-honey-plot');
+  const makeBuilding = (uid, card, x, y) => ({
+    uid,
+    cardId: card.id,
+    x,
+    y,
+    rotation: 0,
+    hp: card.hp,
+    maxHp: card.hp,
+    placedAt: -10,
+  });
+  const fences = [
+    makeBuilding('fence-left', fenceCard, 9, 7),
+    makeBuilding('fence-middle', fenceCard, 10, 7),
+    makeBuilding('fence-right', fenceCard, 11, 7),
+  ];
+  const honeyPlots = [
+    makeBuilding('honey-center', honeyCard, 13, 7),
+    makeBuilding('honey-north', honeyCard, 13, 6),
+    makeBuilding('honey-east', honeyCard, 14, 7),
+  ];
+  game.state.buildings = [...fences, ...honeyPlots];
+
+  game.drawBuildings(recording.ctx, fences);
+  const fenceDraws = recording.calls.filter(([name, asset]) => (
+    name === 'drawImage' && asset === fenceAtlas
+  ));
+  assert.equal(fenceDraws.length, 3, 'each fence cell gets exactly one atlas draw');
+  assert.deepEqual(
+    fenceDraws.map((call) => call.slice(2, 6)),
+    [2, 10, 8].map((mask) => {
+      const frame = autotileFrameRect(mask);
+      return [frame.x, frame.y, frame.width, frame.height];
+    }),
+  );
+
+  recording.calls.length = 0;
+  game.drawBuildings(recording.ctx, [honeyPlots[0]]);
+  const honeyDraw = recording.calls.find(([name, asset]) => (
+    name === 'drawImage' && asset === honeyAtlas
+  ));
+  assert.ok(honeyDraw, 'a singleton draw still sees neighbors from the full saved layout');
+  const honeyFrame = autotileFrameRect(3);
+  assert.deepEqual(
+    honeyDraw.slice(2, 6),
+    [honeyFrame.x, honeyFrame.y, honeyFrame.width, honeyFrame.height],
+    'north and east neighbors select mask 3 even when those neighbors are outside the draw list',
+  );
+  assert.equal(recording.calls.some(([name]) => name === 'rotate'), false);
+  assert.equal(
+    recording.calls.some(([name, x, y]) => name === 'scale' && (x < 0 || y < 0)),
+    false,
+    'atlas variants are never mirrored with negative scale',
+  );
+});
+
+test('gel paving draws one atlas frame per visible cell and includes off-viewport neighbors', () => {
+  const atlas = {
+    key: 'terrain-gel-paving-autotile-v1',
+    naturalWidth: 512,
+    naturalHeight: 512,
+  };
+  const recording = createDynamicEffectRecordingContext();
+  const { game } = createHarness({
+    context: recording.ctx,
+    assetStore: createReadyAssetStore({ [atlas.key]: atlas }),
+  });
+  game.state.gelPavingCells = new Set(['10,10', '11,10', '12,10']);
+
+  const result = game.drawGelPaving(recording.ctx, {
+    minX: 10,
+    minY: 10,
+    maxX: 11,
+    maxY: 10,
+  });
+  assert.deepEqual(result, { cells: 2, draws: 2 });
+  assert.equal(result.draws, 2);
+  const draws = recording.calls.filter(([name, asset]) => name === 'drawImage' && asset === atlas);
+  assert.equal(draws.length, 2, 'only the two visible paving cells are drawn');
+  assert.deepEqual(
+    draws.map((call) => call.slice(2, 6)),
+    [2, 10].map((mask) => {
+      const frame = autotileFrameRect(mask);
+      return [frame.x, frame.y, frame.width, frame.height];
+    }),
+  );
+  assert.equal(recording.calls.some(([name]) => name === 'rotate' || name === 'scale'), false);
+
+  recording.calls.length = 0;
+  game.state.gelPavingCells = new Set(['-1,0', '0,0', '1,0']);
+  const signedResult = game.drawGelPaving(recording.ctx, {
+    minX: -1,
+    minY: 0,
+    maxX: 0,
+    maxY: 0,
+  });
+  assert.deepEqual(signedResult, { cells: 2, draws: 2 });
+  const signedDraws = recording.calls.filter(([name, asset]) => (
+    name === 'drawImage' && asset === atlas
+  ));
+  assert.deepEqual(
+    signedDraws.map((call) => call.slice(2, 6)),
+    [2, 10].map((mask) => {
+      const frame = autotileFrameRect(mask);
+      return [frame.x, frame.y, frame.width, frame.height];
+    }),
+    'zero maxima stay valid and off-viewport neighbors still join signed-map cells',
+  );
+});
+
+test('gel paving composites stable 16x16 offscreen chunks and bounds the cache', () => {
+  const atlas = {
+    key: 'terrain-gel-paving-autotile-v1',
+    naturalWidth: 512,
+    naturalHeight: 512,
+  };
+  const offscreenAtlasDraws = [];
+  const offscreenSurfaces = [];
+  const previousOffscreenCanvas = globalThis.OffscreenCanvas;
+  const hadOffscreenCanvas = Object.hasOwn(globalThis, 'OffscreenCanvas');
+  class FakeOffscreenCanvas {
+    constructor(width, height) {
+      this.width = width;
+      this.height = height;
+      offscreenSurfaces.push(this);
+      this.context = {
+        clearRect() {},
+        drawImage: (...args) => offscreenAtlasDraws.push(args),
+      };
+    }
+
+    getContext() {
+      return this.context;
+    }
+  }
+  globalThis.OffscreenCanvas = FakeOffscreenCanvas;
+  try {
+    const recording = createDynamicEffectRecordingContext();
+    const { game } = createHarness({
+      context: recording.ctx,
+      assetStore: createReadyAssetStore({ [atlas.key]: atlas }),
+    });
+    const paved = new Set();
+    for (let y = 0; y < 23; y += 1) {
+      for (let x = 0; x < 37; x += 1) paved.add(`${x},${y}`);
+    }
+    game.state.gelPavingCells = paved;
+    const bounds = { minX: 0, minY: 0, maxX: 36, maxY: 22 };
+
+    assert.deepEqual(
+      game.drawGelPaving(recording.ctx, bounds),
+      { cells: 851, draws: 6 },
+      '851 paved cells collapse into the six intersecting chunk composites',
+    );
+    assert.equal(offscreenAtlasDraws.length, 851, 'each formal atlas tile is authored into its chunk once');
+    assert.ok(
+      offscreenSurfaces.every(({ width, height }) => width === 768 && height === 768),
+      '48px cache cells keep every 16x16 surface at a WeChat-safe 768px edge',
+    );
+    assert.equal(
+      recording.calls.filter(([name, asset]) => (
+        name === 'drawImage' && asset instanceof FakeOffscreenCanvas
+      )).length,
+      6,
+    );
+
+    recording.calls.length = 0;
+    assert.deepEqual(game.drawGelPaving(recording.ctx, bounds), { cells: 851, draws: 6 });
+    assert.equal(
+      offscreenAtlasDraws.length,
+      851,
+      'an unchanged paving set reuses the chunk pixels without redrawing atlas cells',
+    );
+
+    paved.add('37,0');
+    assert.deepEqual(
+      game.drawGelPaving(recording.ctx, { ...bounds, maxX: 37 }),
+      { cells: 852, draws: 6 },
+    );
+    assert.equal(
+      offscreenAtlasDraws.length,
+      851 + 852,
+      'a paving mutation invalidates cached adjacency before the next composite',
+    );
+
+    game.state.gelPavingCells = new Set(
+      Array.from({ length: 13 }, (_, index) => `${index * 16},0`),
+    );
+    game.drawGelPaving(recording.ctx, { minX: 0, minY: 0, maxX: 192, maxY: 0 });
+    assert.ok(game.gelPavingChunkCache.size <= 8, 'the LRU never retains more than eight chunks');
+  } finally {
+    if (hadOffscreenCanvas) globalThis.OffscreenCanvas = previousOffscreenCanvas;
+    else delete globalThis.OffscreenCanvas;
+  }
 });
 
 test('every one-cell building shares the cell-bottom anchor and rotation never changes its cell', () => {
@@ -832,59 +1198,82 @@ test('every one-cell building shares the cell-bottom anchor and rotation never c
   }
 });
 
-test('adjacent buildings compose one continuous module floor with a one-pixel seam guard', () => {
+test('shared building-floor rendering is removed from the game surface', () => {
+  const { game } = createHarness();
+  assert.equal(game.drawBuildingFoundations, undefined);
+  assert.equal(game.drawBuildingFoundationCells, undefined);
+});
+
+test('visible buildings render as one authored module draw without a shared floor pass', () => {
+  const buildingArt = {
+    key: 'building-mushroom-home',
+    naturalWidth: 256,
+    naturalHeight: 256,
+  };
   const moduleFloor = {
     key: 'building-module-floor-v1',
     naturalWidth: 512,
     naturalHeight: 512,
   };
-  const recording = createTransformRecordingContext();
+  const contactShadow = {
+    key: 'terrain-prop-contact-shadow-v1',
+    naturalWidth: 256,
+    naturalHeight: 128,
+  };
+  const recording = createRecordingContext();
   const { game } = createHarness({
     context: recording.ctx,
-    assetStore: createReadyAssetStore({ [moduleFloor.key]: moduleFloor }),
+    assetStore: createReadyAssetStore({
+      [buildingArt.key]: buildingArt,
+      [moduleFloor.key]: moduleFloor,
+      [contactShadow.key]: contactShadow,
+    }),
   });
-  const cells = [
-    { x: 8, y: 6, cardId: 'building-mushroom-home' },
-    { x: 9, y: 6, cardId: 'building-honey-plot' },
-    { x: 8, y: 7, cardId: 'building-bubble-tower' },
-    { x: 9, y: 7, cardId: 'building-bouncy-fence' },
-  ];
-  const buildings = cells.map((cell, index) => ({
-    uid: `module-${index}`,
-    ...cell,
-    rotation: index * 90,
-    hp: BUILDINGS.find(({ id }) => id === cell.cardId).hp,
-    maxHp: BUILDINGS.find(({ id }) => id === cell.cardId).hp,
+  const visibleX = Math.floor(game.camera.x) + 2;
+  const visibleY = Math.floor(game.camera.y) + 2;
+  const visibleBuildings = Array.from({ length: 8 }, (_, index) => ({
+    uid: `foundation-visible-${index}`,
+    cardId: 'building-mushroom-home',
+    x: visibleX + (index % 4),
+    y: visibleY + Math.floor(index / 4),
+    rotation: 0,
+    hp: BUILDINGS.find(({ id }) => id === 'building-mushroom-home').hp,
+    maxHp: BUILDINGS.find(({ id }) => id === 'building-mushroom-home').hp,
     placedAt: -10,
   }));
+  const hiddenBuildings = Array.from({ length: 600 }, (_, index) => ({
+    uid: `foundation-hidden-${index}`,
+    cardId: 'building-mushroom-home',
+    x: visibleX + 10000 + index,
+    y: visibleY + 10000,
+    rotation: 0,
+    hp: BUILDINGS.find(({ id }) => id === 'building-mushroom-home').hp,
+    maxHp: BUILDINGS.find(({ id }) => id === 'building-mushroom-home').hp,
+    placedAt: -10,
+  }));
+  const buildings = [...visibleBuildings, ...hiddenBuildings];
+  game.state.phase = 'build';
+  game.state.enemies = [];
 
-  game.drawBuildingFoundations(recording.ctx, buildings);
+  game.drawBuildingFoundations?.(recording.ctx, buildings);
+  game.drawBuildings(recording.ctx, buildings);
 
-  const moduleCalls = recording.calls.filter(({ asset }) => asset === moduleFloor);
-  assert.equal(moduleCalls.length, cells.length, 'each occupied cell gets one shared floor draw');
-  const size = game.worldPixelsPerCell();
-  for (const [index, cell] of cells.entries()) {
-    const center = game.cellCenter(cell.x, cell.y);
-    assertBoundsClose(moduleCalls[index].bounds, {
-      minX: center.x - size / 2 - 0.5,
-      minY: center.y - size / 2 - 0.5,
-      maxX: center.x + size / 2 + 0.5,
-      maxY: center.y + size / 2 + 0.5,
-    }, `${cell.cardId} module floor`);
-  }
-
-  assertClose(
-    moduleCalls[0].bounds.maxX - moduleCalls[1].bounds.minX,
-    1,
-    'horizontal neighbors overlap by the seam guard',
+  const buildingDraws = recording.calls.filter(([name, image]) => (
+    name === 'drawImage' && image === buildingArt
+  ));
+  const detachedLayerDraws = recording.calls.filter(([name, image]) => (
+    name === 'drawImage' && (image === moduleFloor || image === contactShadow)
+  ));
+  assert.equal(
+    buildingDraws.length,
+    visibleBuildings.length,
+    'one screen draws one complete authored module for each visible building',
   );
-  assertClose(
-    moduleCalls[0].bounds.maxY - moduleCalls[2].bounds.minY,
-    1,
-    'vertical neighbors overlap by the seam guard',
+  assert.equal(
+    detachedLayerDraws.length,
+    0,
+    'the finished module owns its base and shadow instead of paying for shared floor layers',
   );
-  assertClose(moduleCalls[0].bounds.minY, moduleCalls[1].bounds.minY, 'top row alignment');
-  assertClose(moduleCalls[0].bounds.minX, moduleCalls[2].bounds.minX, 'left column alignment');
 });
 
 test('missing building PNGs never invoke procedural building art or building glyphs', () => {
@@ -924,21 +1313,30 @@ test('missing building PNGs never invoke procedural building art or building gly
 test('all building previews fill exactly one tile, use formal art, and expose no rotation UI', () => {
   const validTile = { key: 'tile-placement-valid' };
   const invalidTile = { key: 'tile-placement-invalid' };
-  const moduleFloor = { key: 'building-module-floor-v1' };
   const buildingArt = new Map(BUILDINGS.map((card) => [card.id, {
     key: card.id,
-    naturalWidth: 512,
-    naturalHeight: 512,
+    naturalWidth: 256,
+    naturalHeight: 256,
   }]));
+  const buildingAutotileArt = new Map([
+    ['building-honey-plot', {
+      key: 'building-honey-plot-autotile-v3',
+      naturalWidth: 512,
+      naturalHeight: 512,
+    }],
+    ['building-bouncy-fence', {
+      key: 'building-bouncy-fence-autotile-v3',
+      naturalWidth: 512,
+      naturalHeight: 512,
+    }],
+  ]);
   const store = createReadyAssetStore(new Map([
     [validTile.key, validTile],
     [invalidTile.key, invalidTile],
-    [moduleFloor.key, moduleFloor],
     ...buildingArt,
+    ...[...buildingAutotileArt.values()].map((asset) => [asset.key, asset]),
   ]));
   const recording = createRecordingContext();
-  const scales = [];
-  recording.ctx.scale = (x, y) => scales.push([x, y]);
   const { game } = createHarness({ context: recording.ctx, assetStore: store });
   const cellSize = game.worldPixelsPerCell();
   game.state.phase = 'build';
@@ -947,7 +1345,6 @@ test('all building previews fill exactly one tile, use formal art, and expose no
 
   for (const card of BUILDINGS) {
     recording.calls.length = 0;
-    scales.length = 0;
     game.hits = [];
     game.selection = { kind: 'place-building', cardId: card.id, rotation: 0 };
     game.drawSelectionOverlay(recording.ctx);
@@ -956,22 +1353,26 @@ test('all building previews fill exactly one tile, use formal art, and expose no
       call[0] === 'drawImage' && (call[1] === validTile || call[1] === invalidTile)
     ));
     assert.equal(footprintCalls.length, 1, `${card.id} must preview exactly one occupied tile`);
+    const previewArt = buildingAutotileArt.get(card.id) || buildingArt.get(card.id);
     const moduleCall = recording.calls.find((call) => (
-      call[0] === 'drawImage' && call[1] === moduleFloor
+      call[0] === 'drawImage' && call[1] === previewArt
     ));
-    assert.ok(moduleCall, `${card.id} preview should include its complete module floor`);
-    const previewCenter = game.cellCenter(game.hoverCell.x, game.hoverCell.y);
-    assertClose(moduleCall[2], previewCenter.x - cellSize / 2 - 0.5, `${card.id} floor x`);
-    assertClose(moduleCall[3], previewCenter.y - cellSize / 2 - 0.5, `${card.id} floor y`);
-    assertClose(moduleCall[4], cellSize + 1, `${card.id} floor width`);
-    assertClose(moduleCall[5], cellSize + 1, `${card.id} floor height`);
-    assert.ok(
-      recording.calls.some((call) => call[0] === 'drawImage' && call[1] === buildingArt.get(card.id)),
-      `${card.id} preview should use its formal PNG`,
-    );
-    assert.ok(scales.some(([x, y]) => (
-      Math.abs(x - cellSize / 115) < 1e-9 && Math.abs(y - cellSize / 115) < 1e-9
-    )), `${card.id} preview must fill one complete logical cell`);
+    assert.ok(moduleCall, `${card.id} preview should use its complete formal module PNG`);
+    if (buildingAutotileArt.has(card.id)) {
+      assert.equal(moduleCall.length, 10, `${card.id} preview uses one fixed atlas crop`);
+      assertClose(moduleCall[8], cellSize, `${card.id} preview width`);
+      assertClose(moduleCall[9], cellSize, `${card.id} preview height`);
+      assertClose(moduleCall[7], -cellSize, `${card.id} atlas preview uses the whole-cell top`);
+    } else {
+      assert.equal(moduleCall.length, 6, `${card.id} preview uses one uncropped image draw`);
+      assertClose(moduleCall[4], cellSize, `${card.id} preview width`);
+      assertClose(moduleCall[5], cellSize, `${card.id} preview height`);
+      assertClose(
+        moduleCall[3],
+        -cellSize * (246 / 256),
+        `${card.id} preview keeps the independent-sprite ground anchor`,
+      );
+    }
 
     recording.calls.length = 0;
     game.drawBuildSide(recording.ctx);
@@ -1436,6 +1837,51 @@ test('dense kill chains cap illustrated components at 64 and reserve room for wa
   );
 });
 
+test('authored dynamic effects cull off-screen entries and obey one 32-draw frame budget', () => {
+  const assetKey = AUTHORED_DYNAMIC_EFFECT_ASSET_BY_KIND.push;
+  const asset = { key: assetKey, width: 512, height: 512 };
+  const store = createReadyAssetStore({ [assetKey]: asset });
+  const recording = createDynamicEffectRecordingContext();
+  const { game } = createHarness({ context: recording.ctx, assetStore: store });
+  game.state.dynamicEffects = [];
+  for (let index = 0; index < 96; index += 1) {
+    const visible = index < 64;
+    const effect = game.spawnDynamicEffect(
+      'push',
+      visible ? 120 + (index % 16) * 52 : 10000 + index * 10,
+      visible ? 130 + Math.floor(index / 16) * 74 : 10000,
+      { dx: 56, dy: 0, layer: 'front', seed: index },
+    );
+    effect.life = effect.maxLife * 0.55;
+  }
+  let arrayProducingPasses = 0;
+  game.state.dynamicEffects.filter = function observedFilter(...args) {
+    arrayProducingPasses += 1;
+    return Array.prototype.filter.apply(this, args);
+  };
+
+  game.resetDynamicComponentBudget();
+  game.drawDynamicEffects(recording.ctx, 'front');
+
+  const authoredDraws = recording.calls.filter(([name, image]) => (
+    name === 'drawImage' && image === asset
+  ));
+  assert.ok(
+    authoredDraws.length <= 32,
+    `one frame may draw at most 32 authored effect composites, got ${authoredDraws.length}`,
+  );
+  assert.equal(
+    recording.calls.some(([name, x, y]) => name === 'translate' && x > 5000 && y > 5000),
+    false,
+    'off-screen effects must be culled before Canvas state and asset work',
+  );
+  assert.equal(
+    arrayProducingPasses,
+    0,
+    'effect kind counts must use one allocation-free scan instead of filter-created arrays',
+  );
+});
+
 test('priority-two effects cannot consume the wave-clear-only component reserve', () => {
   const recording = createDynamicEffectRecordingContext();
   const store = createDynamicAtlasStore();
@@ -1612,7 +2058,8 @@ test('game routes world, UI, projectile, status, and particle slots through the 
     'tile-honey-puddle', 'tile-crystal-spikes',
     'tile-building-rubble', 'building-mushroom-home', 'building-honey-plot',
     'building-bubble-tower', 'building-bouncy-fence', 'building-weather-scout',
-    'building-gel-foundation',
+    'building-gel-foundation', 'building-honey-plot-autotile-v3',
+    'building-bouncy-fence-autotile-v3', 'terrain-gel-paving-autotile-v1',
     'town-soft-core', 'rift-entry-portal', 'item-spring-pad-world', 'item-lure-jelly-world',
     'background-garden-base', 'background-cloud-overlay', 'background-foreground-grass',
     'effect-projectile-goo', 'effect-projectile-needle', 'effect-projectile-bubble',
@@ -1630,6 +2077,7 @@ test('game routes world, UI, projectile, status, and particle slots through the 
   const store = createReadyAssetStore(keys);
   const recording = createRecordingContext();
   const { game } = createHarness({ context: recording.ctx, assetStore: store });
+  game.state.gelPavingCells.add('10,7');
 
   game.drawBackground(recording.ctx);
   game.drawForeground(recording.ctx);

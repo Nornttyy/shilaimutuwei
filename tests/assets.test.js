@@ -1,9 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
 import { deflateSync } from 'node:zlib';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
 import {
@@ -23,17 +25,18 @@ import {
 import { WECHAT_CRITICAL_ASSET_KEYS } from '../src/platform/wechat-entry.js';
 
 const PROJECT_ROOT = fileURLToPath(new URL('../', import.meta.url));
+const execFileAsync = promisify(execFile);
 const PROJECT_ASSET_SPEC = JSON.parse(await readFile(
   new URL('../assets/asset-spec.json', import.meta.url),
   'utf8',
 ));
 
-test('the workspace asset manifest strictly validates all 123 finished PNGs', async () => {
+test('the workspace asset manifest strictly validates all 125 finished PNGs', async () => {
   const result = await verifyAssets({ cwd: PROJECT_ROOT, allowMissingSpec: false });
   assert.equal(result.ok, true, formatErrors(result));
   assert.equal(result.skipped, false);
-  assert.equal(result.summary.declaredAssets, 123);
-  assert.equal(result.summary.checkedAssets, 123);
+  assert.equal(result.summary.declaredAssets, 125);
+  assert.equal(result.summary.checkedAssets, 125);
   assert.deepEqual(result.errors, [], formatErrors(result));
   assert.deepEqual(result.warnings, [], formatErrors(result));
 });
@@ -187,8 +190,8 @@ test('missing asset-spec is skippable by default and an error in strict mode', a
   }, { writeAssetsDirectory: false });
 });
 
-test('runtime asset map covers all 123 canonical nested paths and three aliases', () => {
-  assert.equal(PROJECT_ASSET_SPEC.assets.length, 123);
+test('runtime asset map covers all 125 canonical nested paths and three aliases', () => {
+  assert.equal(PROJECT_ASSET_SPEC.assets.length, 125);
   for (const asset of PROJECT_ASSET_SPEC.assets) {
     assert.equal(typeof ASSET_PATHS[asset.id], 'string', `missing runtime asset: ${asset.id}`);
     assert.ok(
@@ -196,7 +199,7 @@ test('runtime asset map covers all 123 canonical nested paths and three aliases'
       `unexpected runtime path for ${asset.id}: ${ASSET_PATHS[asset.id]}`,
     );
   }
-  assert.equal(Object.keys(ASSET_PATHS).length, 126);
+  assert.equal(Object.keys(ASSET_PATHS).length, 128);
   assert.equal(ASSET_PATHS['scene-gel-garden'], ASSET_PATHS['background-garden-base']);
   assert.equal(ASSET_PATHS['town-core'], ASSET_PATHS['town-soft-core']);
   assert.equal(ASSET_PATHS['enemy-portal'], ASSET_PATHS['rift-entry-portal']);
@@ -437,28 +440,64 @@ test('organic terrain PNG contracts stay transparent and match the colony source
   for (const asset of buildingAssets) {
     assert.equal(asset.category, 'building');
     assert.equal(asset.transparent, true);
-    assert.deepEqual(asset.recommendedCanvas, { width: 512, height: 512 });
-    assert.equal(asset.width, 512);
-    assert.equal(asset.height, 512);
-    assert.match(asset.runtimeDisplaySize, /完整1×1地块模块内/);
+    assert.deepEqual(asset.recommendedCanvas, { width: 256, height: 256 });
+    assert.equal(asset.width, 256);
+    assert.equal(asset.height, 256);
+    assert.match(asset.runtimeDisplaySize, /完整1×1地块模块一次绘制/);
     assert.equal(CRITICAL_STARTUP_ASSET_KEYS.includes(asset.id), true);
     assert.equal(WECHAT_CRITICAL_ASSET_KEYS.includes(asset.id), true);
     assert.equal(typeof ASSET_PATHS[asset.id], 'string');
   }
 });
 
-test('shared building module floor is one opaque full-cell critical PNG', () => {
+test('the rejected shared building floor is absent from specs and startup maps', () => {
   const asset = PROJECT_ASSET_SPEC.assets.find(({ id }) => id === 'building-module-floor-v1');
-  assert.ok(asset);
-  assert.equal(asset.category, 'building');
-  assert.equal(asset.background, true);
-  assert.equal(asset.transparent, false);
-  assert.deepEqual(asset.recommendedCanvas, { width: 512, height: 512 });
-  assert.match(asset.runtimeDisplaySize, /完整64×64单格/);
-  assert.match(asset.brief, /一整块方形软胶板铺满画布四边/);
-  assert.equal(CRITICAL_STARTUP_ASSET_KEYS.includes(asset.id), true);
-  assert.equal(WECHAT_CRITICAL_ASSET_KEYS.includes(asset.id), true);
-  assert.equal(typeof ASSET_PATHS[asset.id], 'string');
+  assert.equal(asset, undefined);
+  assert.equal(CRITICAL_STARTUP_ASSET_KEYS.includes('building-module-floor-v1'), false);
+  assert.equal(WECHAT_CRITICAL_ASSET_KEYS.includes('building-module-floor-v1'), false);
+  assert.equal(ASSET_PATHS['building-module-floor-v1'], undefined);
+});
+
+test('oblique top-down connectable modules use three fixed 16-mask atlases', () => {
+  const atlasIds = [
+    'building-honey-plot-autotile-v3',
+    'building-bouncy-fence-autotile-v3',
+    'terrain-gel-paving-autotile-v1',
+  ];
+  const atlases = PROJECT_ASSET_SPEC.assets.filter(({ id }) => atlasIds.includes(id));
+
+  assert.deepEqual(atlases.map(({ id }) => id), atlasIds);
+  for (const atlas of atlases) {
+    assert.deepEqual(atlas.recommendedCanvas, { width: 512, height: 512 });
+    assert.equal(atlas.width, 512);
+    assert.equal(atlas.height, 512);
+    assert.equal(atlas.transparent, true);
+    assert.match(atlas.runtimeDisplaySize, /16个128×128斜俯视邻接帧/);
+    assert.match(atlas.view, /N=1、E=2、S=4、W=8/);
+    assert.match(atlas.view, /禁止旋转或镜像/);
+    const requiredAtStartup = atlas.id !== 'terrain-gel-paving-autotile-v1';
+    assert.equal(CRITICAL_STARTUP_ASSET_KEYS.includes(atlas.id), requiredAtStartup);
+    assert.equal(WECHAT_CRITICAL_ASSET_KEYS.includes(atlas.id), requiredAtStartup);
+    assert.equal(typeof ASSET_PATHS[atlas.id], 'string');
+  }
+});
+
+test('every generated autotile frame has only its declared cardinal edge connectors', async () => {
+  const outputs = [
+    'assets/generated/building/building-honey-plot-autotile-v3.png',
+    'assets/generated/building/building-bouncy-fence-autotile-v3.png',
+    'assets/generated/terrain/terrain-gel-paving-autotile-v1.png',
+  ];
+  for (const output of outputs) {
+    const { stdout } = await execFileAsync('python3', [
+      'scripts/build-autotile-atlas.py',
+      '--verify-only',
+      '--output',
+      output,
+    ], { cwd: PROJECT_ROOT });
+    assert.match(stdout, /RGBA 512x512/);
+    assert.match(stdout, /16 non-empty 128px frames/);
+  }
 });
 
 test('browser startup waits only for first-screen art and leaves the rest on demand', async () => {

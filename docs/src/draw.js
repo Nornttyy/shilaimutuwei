@@ -68,11 +68,15 @@ export const PALETTE = Object.freeze({
 const TAU = Math.PI * 2;
 const KAPPA = 0.5522847498307936;
 const RIG_SURFACE = Object.freeze({
-  width: 512,
-  height: 512,
-  pixelsPerUnit: 2,
-  originX: 256,
-  originY: 384,
+  // The rig's logical viewport is 256x256. Rendering it at 2x here made every
+  // visible unit clear and repaint a 512x512 texture each frame, even though
+  // the main canvas immediately scaled it back down. Keep the exact logical
+  // geometry while quartering the offscreen pixel work.
+  width: 256,
+  height: 256,
+  pixelsPerUnit: 1,
+  originX: 128,
+  originY: 192,
 });
 
 let sharedRigSurface = null;
@@ -1858,31 +1862,7 @@ const BUILDING_ASSET_BY_TYPE = Object.freeze({
   paver: 'building-gel-foundation',
 });
 
-// The authored building sheets deliberately keep generous transparent safety
-// margins. World modules crop those margins at draw time so the building body
-// actually uses its complete one-cell slot. UI cards keep the original canvas
-// framing by leaving `trimTransparentPadding` disabled.
-const BUILDING_SOURCE_RECT_BY_TYPE = Object.freeze({
-  hut: Object.freeze({ x: 51, y: 31, width: 416, height: 440 }),
-  farm: Object.freeze({ x: 49, y: 60, width: 415, height: 416 }),
-  tower: Object.freeze({ x: 52, y: 35, width: 421, height: 442 }),
-  fence: Object.freeze({ x: 9, y: 61, width: 496, height: 387 }),
-  weather: Object.freeze({ x: 68, y: 63, width: 323, height: 383 }),
-  paver: Object.freeze({ x: 41, y: 97, width: 430, height: 311 }),
-});
-
-function scaledBuildingSourceRect(type, sourceWidth, sourceHeight) {
-  const contract = BUILDING_SOURCE_RECT_BY_TYPE[type];
-  if (!contract) return null;
-  const scaleX = sourceWidth / 512;
-  const scaleY = sourceHeight / 512;
-  return {
-    x: contract.x * scaleX,
-    y: contract.y * scaleY,
-    width: contract.width * scaleX,
-    height: contract.height * scaleY,
-  };
-}
+const BUILDING_GROUND_ANCHOR_Y = 246 / 256;
 
 /**
  * Draw one formal generated building sprite, including the terrain paver.
@@ -1891,45 +1871,26 @@ function scaledBuildingSourceRect(type, sourceWidth, sourceHeight) {
 export function drawBuilding(ctx, x, y, size, typeOrOptions = 'hut', maybeOptions = {}) {
   const [typeRaw, options] = resolveVariant(typeOrOptions, maybeOptions, 'hut');
   const type = ['hut', 'farm', 'tower', 'fence', 'weather', 'paver'].includes(typeRaw) ? typeRaw : 'hut';
-  const time = safeNumber(options.time, 0);
-  const bob = options.active ? Math.sin(time * 4.2 + (options.phase || 0)) * size * 0.008 : 0;
   const footprintScale = 1;
-  const moduleFloor = options.moduleFloor === true;
-  const ringY = moduleFloor ? y - size * 0.25 : y + size * 0.01;
-
-  drawSelectionRing(ctx, x, ringY, size * footprintScale, options);
-  if (moduleFloor) {
-    drawAssetOrFallback(ctx, options.assetStore, 'terrain-prop-contact-shadow-v1', (asset) => {
-      ctx.globalAlpha *= 0.42;
-      ctx.drawImage(asset, x - size * 0.34, y - size * 0.17, size * 0.68, size * 0.22);
-    }, () => {});
-  } else {
-    drawSoftShadow(ctx, x, y + size * 0.025, size, {
-      width: size * 0.84 * footprintScale,
-      height: size * 0.18,
-      alpha: 0.2,
-    });
-  }
+  const assetKey = typeof options.assetKey === 'string' && options.assetKey
+    ? options.assetKey
+    : BUILDING_ASSET_BY_TYPE[type];
+  const sourceRect = options.sourceRect
+    && Number.isFinite(options.sourceRect.x)
+    && Number.isFinite(options.sourceRect.y)
+    && Number.isFinite(options.sourceRect.width)
+    && Number.isFinite(options.sourceRect.height)
+    ? options.sourceRect
+    : null;
+  drawSelectionRing(ctx, x, y - size * 0.25, size * footprintScale, options);
 
   ctx.save();
   ctx.globalAlpha *= options.ghost ? 0.55 : (options.disabled ? 0.48 : clamp(options.alpha ?? 1));
-  ctx.translate(x, y + bob);
-  const unit = size / 115;
-  ctx.scale(unit, unit);
+  ctx.translate(x, y);
   // Placeable buildings are production art: if a required PNG cannot be
   // decoded, keep the slot empty instead of silently changing its appearance
   // to one of the old procedural stand-ins.
-  drawAssetOrFallback(ctx, options.assetStore, BUILDING_ASSET_BY_TYPE[type], (asset) => {
-    const sourceWidth = Number(asset?.naturalWidth || asset?.videoWidth || asset?.width) || 1;
-    const sourceHeight = Number(asset?.naturalHeight || asset?.videoHeight || asset?.height) || 1;
-    const sourceRect = options.trimTransparentPadding
-      ? scaledBuildingSourceRect(type, sourceWidth, sourceHeight)
-      : null;
-    const fittedWidth = sourceRect?.width || sourceWidth;
-    const fittedHeight = sourceRect?.height || sourceHeight;
-    const imageScale = Math.min(115 / fittedWidth, 115 / fittedHeight);
-    const imageWidth = fittedWidth * imageScale;
-    const imageHeight = fittedHeight * imageScale;
+  drawAssetOrFallback(ctx, options.assetStore, assetKey, (asset) => {
     if (sourceRect) {
       ctx.drawImage(
         asset,
@@ -1937,44 +1898,36 @@ export function drawBuilding(ctx, x, y, size, typeOrOptions = 'hut', maybeOption
         sourceRect.y,
         sourceRect.width,
         sourceRect.height,
-        -imageWidth / 2,
-        moduleFloor ? -imageHeight : 5 - imageHeight,
-        imageWidth,
-        imageHeight,
+        -size / 2,
+        -size,
+        size,
+        size,
       );
     } else {
       ctx.drawImage(
         asset,
-        -imageWidth / 2,
-        moduleFloor ? -imageHeight : 5 - imageHeight,
-        imageWidth,
-        imageHeight,
+        -size / 2,
+        -size * BUILDING_GROUND_ANCHOR_Y,
+        size,
+        size,
       );
     }
   }, () => {});
   const damage = clamp(options.damage || 0);
   if (damage > 0.25) {
     drawAssetOrFallback(ctx, options.assetStore, 'effect-damage-cracks-overlay', (asset) => {
-      drawDamageCracksAsset(ctx, asset, damage, -27.5, -104, 55, 104);
+      drawDamageCracksAsset(
+        ctx,
+        asset,
+        damage,
+        -size * 0.24,
+        -size * 0.88,
+        size * 0.48,
+        size * 0.82,
+      );
     }, () => drawDamageCracksLocal(ctx, damage));
   }
   ctx.restore();
-
-  if (options.ghost && !moduleFloor) {
-    ctx.save();
-    ctx.strokeStyle = options.valid === false ? PALETTE.danger : PALETTE.friendly;
-    ctx.lineWidth = Math.max(2, size * 0.025);
-    ctx.setLineDash?.([size * 0.08, size * 0.05]);
-    ellipsePath(
-      ctx,
-      x,
-      y,
-      size * 0.47 * footprintScale,
-      size * 0.15,
-    );
-    ctx.stroke();
-    ctx.restore();
-  }
 }
 
 export const drawHut = (ctx, x, y, size, options = {}) => drawBuilding(ctx, x, y, size, 'hut', options);

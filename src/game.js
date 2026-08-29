@@ -103,6 +103,9 @@ import {
 } from './expedition.js';
 
 const VIEW = Object.freeze({ width: 1280, height: 720 });
+const MAX_CANVAS_DPR = 1.5;
+const MIN_CANVAS_DPR = 0.75;
+const MAX_CANVAS_BACKING_PIXELS = 4_000_000;
 // The authored 24x16 garden remains the starter clearing, while all cells
 // beyond it are generated lazily in deterministic chunks.
 const WORLD = Object.freeze({ ...COLONY_WORLD, infinite: true });
@@ -123,12 +126,47 @@ const CORE_CELL = WORLD.base.core;
 const DEFAULT_CAMERA_FOCUS = Object.freeze({ x: CORE_CELL.x + 0.5, y: CORE_CELL.y + 0.5 });
 const PANEL = Object.freeze({ x: 866, y: 92, width: 388, height: 486 });
 const BOTTOM = Object.freeze({ x: 22, y: 592, width: 1232, height: 110 });
-// A building is one complete world module. Its separate generated floor fills
-// the cell, while the transparent building cutout is bottom-centre anchored on
-// the same boundary.
+// Every generated building PNG is a complete one-cell module, including its
+// own purpose-built base and contact shadow.
 const BUILDING_WORLD_SLOT = BOARD.cell;
-const BUILDING_MODULE_FLOOR_ASSET_KEY = 'building-module-floor-v1';
-const BUILDING_MODULE_FLOOR_OVERLAP = 1;
+export const AUTOTILE_FRAME_SIZE = 128;
+export const AUTOTILE_MASK_BITS = Object.freeze({
+  north: 1,
+  east: 2,
+  south: 4,
+  west: 8,
+});
+const AUTOTILE_DIRECTIONS = Object.freeze([
+  Object.freeze({ dx: 0, dy: -1, bit: AUTOTILE_MASK_BITS.north }),
+  Object.freeze({ dx: 1, dy: 0, bit: AUTOTILE_MASK_BITS.east }),
+  Object.freeze({ dx: 0, dy: 1, bit: AUTOTILE_MASK_BITS.south }),
+  Object.freeze({ dx: -1, dy: 0, bit: AUTOTILE_MASK_BITS.west }),
+]);
+const AUTOTILE_FRAME_RECTS = Object.freeze(Array.from({ length: 16 }, (_, mask) => (
+  Object.freeze({
+    x: (mask & 3) * AUTOTILE_FRAME_SIZE,
+    y: (mask >> 2) * AUTOTILE_FRAME_SIZE,
+    width: AUTOTILE_FRAME_SIZE,
+    height: AUTOTILE_FRAME_SIZE,
+  })
+)));
+const BUILDING_AUTOTILE_PROFILE_BY_CARD_ID = Object.freeze({
+  'building-honey-plot': Object.freeze({
+    group: 'honey-plot',
+    assetKey: 'building-honey-plot-autotile-v3',
+  }),
+  'building-bouncy-fence': Object.freeze({
+    group: 'bouncy-fence',
+    assetKey: 'building-bouncy-fence-autotile-v3',
+  }),
+});
+const GEL_PAVING_AUTOTILE_ASSET_KEY = 'terrain-gel-paving-autotile-v1';
+const GEL_PAVING_CHUNK_SIZE = 16;
+// Eight 768px RGBA surfaces retain about 18 MiB: small enough for WeChat while
+// remaining crisp when the 48px cached cells interpolate up to the 1.6x zoom cap.
+const GEL_PAVING_CACHE_CELL_SIZE = 48;
+const GEL_PAVING_CHUNK_PIXEL_SIZE = GEL_PAVING_CHUNK_SIZE * GEL_PAVING_CACHE_CELL_SIZE;
+const GEL_PAVING_CHUNK_CACHE_LIMIT = 8;
 const STORAGE_KEY = 'slime-haven-colony-v2';
 const TAU = Math.PI * 2;
 const COLONY_RESOURCE_ID = Object.freeze({
@@ -241,6 +279,7 @@ const DYNAMIC_EFFECT_ATLAS_GRID = 4;
 const DYNAMIC_EFFECT_COMPONENT_GENERAL_BUDGET = 48;
 const DYNAMIC_EFFECT_COMPONENT_ABILITY_RESERVE = 4;
 const DYNAMIC_EFFECT_COMPONENT_WAVE_RESERVE = 12;
+const DYNAMIC_EFFECT_FRAME_BUDGET = 32;
 const DYNAMIC_EFFECT_COMPONENT_PRIORITY = Object.freeze({
   impact: 0,
   spawn: 1,
@@ -336,6 +375,76 @@ const effectNoise = (seed, index = 0) => {
   return value - Math.floor(value);
 };
 const cellKey = (x, y) => `${x},${y}`;
+
+export function cardinalAutotileMask(x, y, hasConnectedCell) {
+  if (typeof hasConnectedCell !== 'function') {
+    throw new TypeError('cardinalAutotileMask requires a neighbor predicate');
+  }
+  let mask = 0;
+  for (const { dx, dy, bit } of AUTOTILE_DIRECTIONS) {
+    if (hasConnectedCell(x + dx, y + dy)) mask |= bit;
+  }
+  return mask;
+}
+
+export function autotileFrameRect(mask) {
+  const normalizedMask = Math.max(0, Math.min(15, Math.floor(Number(mask) || 0)));
+  return AUTOTILE_FRAME_RECTS[normalizedMask];
+}
+
+function createGelPavingChunkSurface(ctx) {
+  let canvas = null;
+  try {
+    if (typeof globalThis.OffscreenCanvas === 'function') {
+      canvas = new globalThis.OffscreenCanvas(
+        GEL_PAVING_CHUNK_PIXEL_SIZE,
+        GEL_PAVING_CHUNK_PIXEL_SIZE,
+      );
+    } else {
+      const documentRef = ctx?.canvas?.ownerDocument ?? globalThis.document;
+      if (typeof documentRef?.createElement === 'function') {
+        canvas = documentRef.createElement('canvas');
+        canvas.width = GEL_PAVING_CHUNK_PIXEL_SIZE;
+        canvas.height = GEL_PAVING_CHUNK_PIXEL_SIZE;
+      }
+    }
+  } catch {
+    return null;
+  }
+  let surfaceCtx = null;
+  try {
+    surfaceCtx = canvas?.getContext?.('2d');
+  } catch {
+    return null;
+  }
+  if (!surfaceCtx
+    || typeof surfaceCtx.clearRect !== 'function'
+    || typeof surfaceCtx.drawImage !== 'function') return null;
+  return { canvas, ctx: surfaceCtx };
+}
+
+function normalizeSavedCellKey(entry) {
+  if (typeof entry === 'string') {
+    const match = /^(-?\d+),(-?\d+)$/.exec(entry);
+    if (!match) return null;
+    const x = Number(match[1]);
+    const y = Number(match[2]);
+    return Number.isSafeInteger(x) && Number.isSafeInteger(y) ? cellKey(x, y) : null;
+  }
+  const x = Array.isArray(entry) ? Number(entry[0]) : Number(entry?.x);
+  const y = Array.isArray(entry) ? Number(entry[1]) : Number(entry?.y);
+  return Number.isSafeInteger(x) && Number.isSafeInteger(y) ? cellKey(x, y) : null;
+}
+
+function sortedSavedCells(keys) {
+  return [...keys]
+    .map((key) => {
+      const match = /^(-?\d+),(-?\d+)$/.exec(key);
+      return match ? { x: Number(match[1]), y: Number(match[2]) } : null;
+    })
+    .filter(Boolean)
+    .sort((left, right) => left.y - right.y || left.x - right.x);
+}
 const inBoard = (x, y) => WORLD.infinite
   ? Number.isSafeInteger(x) && Number.isSafeInteger(y)
   : x >= 0 && x < BOARD.cols && y >= 0 && y < BOARD.rows;
@@ -919,6 +1028,11 @@ export class SlimeGame {
     this.ctx = canvas.getContext('2d', { alpha: false });
     this.assetStore = null;
     this.requestedWorldAssetKeys = new Set();
+    this.gelPavingChunkCache = new Map();
+    this.gelPavingChunkSurfacePool = [];
+    this.gelPavingChunkSurfaceAvailable = null;
+    this.gelPavingCacheSet = null;
+    this.gelPavingCacheSize = -1;
     this.rigAssetStore = null;
     this.generatedCharacterArtEnabled = options?.generatedCharacterArtEnabled !== false;
     this.setRigAssetStore(
@@ -989,7 +1103,33 @@ export class SlimeGame {
       ? store
       : null;
     this.requestedWorldAssetKeys?.clear();
+    this.invalidateGelPavingRenderCache();
     return this;
+  }
+
+  releaseGelPavingChunkEntry(entry) {
+    if (!entry?.surface
+      || this.gelPavingChunkSurfacePool.length >= GEL_PAVING_CHUNK_CACHE_LIMIT) return;
+    this.gelPavingChunkSurfacePool.push(entry.surface);
+  }
+
+  invalidateGelPavingRenderCache() {
+    if (this.gelPavingChunkCache) {
+      for (const entry of this.gelPavingChunkCache.values()) {
+        this.releaseGelPavingChunkEntry(entry);
+      }
+      this.gelPavingChunkCache.clear();
+    }
+    const paved = this.state?.gelPavingCells;
+    this.gelPavingCacheSet = paved instanceof Set ? paved : null;
+    this.gelPavingCacheSize = paved instanceof Set ? paved.size : -1;
+  }
+
+  syncGelPavingRenderCache(paved) {
+    if (paved === this.gelPavingCacheSet && paved.size === this.gelPavingCacheSize) return;
+    this.invalidateGelPavingRenderCache();
+    this.gelPavingCacheSet = paved;
+    this.gelPavingCacheSize = paved.size;
   }
 
   requestWorldAssetKeys(keys = []) {
@@ -1019,11 +1159,20 @@ export class SlimeGame {
 
   worldCellAt(x, y) {
     if (!Number.isSafeInteger(x) || !Number.isSafeInteger(y)) return null;
+    const surfaceId = this.state?.gelPavingCells?.has(cellKey(x, y))
+      ? 'gel-paving'
+      : null;
     if (this.state?.worldTerrain && this.isStarterCell(x, y)) {
       const cell = catalogTerrainAt(this.state.worldTerrain, x, y);
-      return cell ? { ...cell, discovered: true, modified: false } : null;
+      return cell ? {
+        ...cell,
+        discovered: true,
+        modified: false,
+        ...(surfaceId ? { surfaceId } : {}),
+      } : null;
     }
-    return this.infiniteWorld.getCell(x, y);
+    const cell = this.infiniteWorld.getCell(x, y);
+    return surfaceId ? { ...cell, surfaceId } : cell;
   }
 
   placementWorldCellAt(x, y) {
@@ -1225,6 +1374,10 @@ export class SlimeGame {
       buildings: this.defaultBuildings(),
       survivors: this.defaultSurvivors(),
       worldTerrain: cloneWorldTerrain(),
+      // Sparse, player-authored surface overlay. Keys use absolute world
+      // coordinates so paving survives chunk eviction without changing the
+      // terrain generator or the one-cell building occupancy rules.
+      gelPavingCells: new Set(),
       colony: null,
       colonyDirector: {
         elapsed: 0,
@@ -1586,7 +1739,13 @@ export class SlimeGame {
       x: (Number(this.camera?.x) || 0) + BOARD.width / (BOARD.cellSize * zoom * 2),
       y: (Number(this.camera?.y) || 0) + BOARD.height / (BOARD.cellSize * zoom * 2),
     };
-    this.dpr = Math.min(2, window.devicePixelRatio || 1);
+    const cssPixels = Math.max(1, rect.width * rect.height);
+    const deviceDpr = Math.max(1, Number(window.devicePixelRatio) || 1);
+    const pixelBudgetDpr = Math.sqrt(MAX_CANVAS_BACKING_PIXELS / cssPixels);
+    this.dpr = Math.max(
+      MIN_CANVAS_DPR,
+      Math.min(MAX_CANVAS_DPR, deviceDpr, pixelBudgetDpr),
+    );
     this.canvas.width = Math.max(1, Math.floor(rect.width * this.dpr));
     this.canvas.height = Math.max(1, Math.floor(rect.height * this.dpr));
     this.scale = Math.max(0.01, Math.min(rect.width / VIEW.width, rect.height / VIEW.height));
@@ -1669,6 +1828,7 @@ export class SlimeGame {
         tutorialSeen: this.state.tutorialSeen,
         terrainIds: this.state.worldTerrain.cells.map((cell) => cell.terrainId),
         infiniteWorld: this.infiniteWorld.serialize(),
+        gelPavingCells: sortedSavedCells(this.state.gelPavingCells || []),
         colonyResources,
         colonyBlueprints: (this.state.colony?.blueprints || [])
           .filter((blueprint) => !blueprint.complete && !blueprint.cancelled)
@@ -1730,6 +1890,14 @@ export class SlimeGame {
       if (Number.isFinite(saved.softCrystals)) this.state.softCrystals = saved.softCrystals;
       this.state.tutorialSeen = Boolean(saved.tutorialSeen);
       this.state.worldTerrain = worldTerrainFromIds(saved.terrainIds);
+      const savedPaving = Array.isArray(saved.gelPavingCells)
+        ? saved.gelPavingCells
+        : Array.isArray(saved.pavedCells)
+          ? saved.pavedCells
+          : [];
+      this.state.gelPavingCells = new Set(
+        savedPaving.map(normalizeSavedCellKey).filter(Boolean),
+      );
       if (saved.infiniteWorld) {
         try {
           this.infiniteWorld = restoreInfiniteWorld(saved.infiniteWorld, { maxLoadedChunks: 81 });
@@ -1808,8 +1976,26 @@ export class SlimeGame {
         };
       }
       if (Array.isArray(saved.buildings)) {
+        // Very early saves could contain an already-completed paving card as
+        // a permanent building. Migrate it to the new sparse surface overlay;
+        // unfinished paving blueprints keep their normal construction state.
+        for (const item of saved.buildings) {
+          if (item?.cardId !== 'building-gel-foundation'
+            || item.underConstruction === true
+            || !Number.isSafeInteger(item.x)
+            || !Number.isSafeInteger(item.y)) continue;
+          this.state.gelPavingCells.add(cellKey(item.x, item.y));
+          if (this.isStarterCell(item.x, item.y)) {
+            replaceWorldTerrainCell(this.state.worldTerrain, item.x, item.y, 'ground');
+          } else {
+            this.infiniteWorld.setTerrain(item.x, item.y, 'ground');
+          }
+        }
         this.state.buildings = saved.buildings
-          .filter((item) => BUILDING_BY_ID[item.cardId])
+          .filter((item) => (
+            BUILDING_BY_ID[item.cardId]
+            && !(item.cardId === 'building-gel-foundation' && item.underConstruction !== true)
+          ))
           .map((item) => {
             const card = BUILDING_BY_ID[item.cardId];
             return {
@@ -3031,6 +3217,11 @@ export class SlimeGame {
       harvestable: false,
       destructible: false,
     });
+    const pavingKey = cellKey(building.x, building.y);
+    if (!this.state.gelPavingCells.has(pavingKey)) {
+      this.state.gelPavingCells.add(pavingKey);
+      this.invalidateGelPavingRenderCache();
+    }
     const buildingIndex = this.state.buildings.findIndex(({ uid: buildingUid }) => (
       buildingUid === building.uid
     ));
@@ -4299,6 +4490,229 @@ export class SlimeGame {
     return worldToScreen({ x: entity.x + 0.5, y: entity.y + 0.78 }, this.camera, BOARD);
   }
 
+  createBuildingAutotileIndex(
+    buildings = this.state.buildings,
+    { excludeUid = null, virtualBuilding = null } = {},
+  ) {
+    const index = new Map();
+    for (const building of buildings || []) {
+      if (!building
+        || building.uid === excludeUid
+        || building.destroyed
+        || !Number.isSafeInteger(building.x)
+        || !Number.isSafeInteger(building.y)) continue;
+      const profile = BUILDING_AUTOTILE_PROFILE_BY_CARD_ID[building.cardId];
+      if (profile) index.set(cellKey(building.x, building.y), profile.group);
+    }
+    if (virtualBuilding
+      && Number.isSafeInteger(virtualBuilding.x)
+      && Number.isSafeInteger(virtualBuilding.y)) {
+      const profile = BUILDING_AUTOTILE_PROFILE_BY_CARD_ID[virtualBuilding.cardId];
+      if (profile) index.set(cellKey(virtualBuilding.x, virtualBuilding.y), profile.group);
+    }
+    return index;
+  }
+
+  buildingAutotileMask(building, index = this.createBuildingAutotileIndex()) {
+    const profile = BUILDING_AUTOTILE_PROFILE_BY_CARD_ID[building?.cardId];
+    if (!profile) return 0;
+    return cardinalAutotileMask(building.x, building.y, (x, y) => (
+      index.get(cellKey(x, y)) === profile.group
+    ));
+  }
+
+  acquireGelPavingChunkSurface(ctx) {
+    const pooled = this.gelPavingChunkSurfacePool.pop();
+    if (pooled) return pooled;
+    if (this.gelPavingChunkSurfaceAvailable === false) return null;
+    const surface = createGelPavingChunkSurface(ctx);
+    this.gelPavingChunkSurfaceAvailable = Boolean(surface);
+    return surface;
+  }
+
+  gelPavingChunkEntry(ctx, asset, paved, chunkX, chunkY) {
+    const key = `${chunkX},${chunkY}`;
+    const cached = this.gelPavingChunkCache.get(key);
+    if (cached?.asset === asset) {
+      this.gelPavingChunkCache.delete(key);
+      this.gelPavingChunkCache.set(key, cached);
+      return cached;
+    }
+    if (cached) {
+      this.gelPavingChunkCache.delete(key);
+      this.releaseGelPavingChunkEntry(cached);
+    }
+
+    const surface = this.acquireGelPavingChunkSurface(ctx);
+    if (!surface) return null;
+    surface.ctx.clearRect(0, 0, GEL_PAVING_CHUNK_PIXEL_SIZE, GEL_PAVING_CHUNK_PIXEL_SIZE);
+    const originX = chunkX * GEL_PAVING_CHUNK_SIZE;
+    const originY = chunkY * GEL_PAVING_CHUNK_SIZE;
+    let tileCount = 0;
+    try {
+      for (let localY = 0; localY < GEL_PAVING_CHUNK_SIZE; localY += 1) {
+        const y = originY + localY;
+        for (let localX = 0; localX < GEL_PAVING_CHUNK_SIZE; localX += 1) {
+          const x = originX + localX;
+          if (!paved.has(cellKey(x, y))) continue;
+          const mask = cardinalAutotileMask(x, y, (neighborX, neighborY) => (
+            paved.has(cellKey(neighborX, neighborY))
+          ));
+          const source = autotileFrameRect(mask);
+          surface.ctx.drawImage(
+            asset,
+            source.x,
+            source.y,
+            source.width,
+            source.height,
+            localX * GEL_PAVING_CACHE_CELL_SIZE,
+            localY * GEL_PAVING_CACHE_CELL_SIZE,
+            GEL_PAVING_CACHE_CELL_SIZE,
+            GEL_PAVING_CACHE_CELL_SIZE,
+          );
+          tileCount += 1;
+        }
+      }
+    } catch (error) {
+      this.gelPavingChunkSurfacePool.push(surface);
+      throw error;
+    }
+    const entry = {
+      asset,
+      surface: tileCount > 0 ? surface : null,
+      tileCount,
+    };
+    if (!tileCount) this.gelPavingChunkSurfacePool.push(surface);
+    this.gelPavingChunkCache.set(key, entry);
+    return entry;
+  }
+
+  trimGelPavingChunkCache() {
+    while (this.gelPavingChunkCache.size > GEL_PAVING_CHUNK_CACHE_LIMIT) {
+      const oldestKey = this.gelPavingChunkCache.keys().next().value;
+      const oldest = this.gelPavingChunkCache.get(oldestKey);
+      this.gelPavingChunkCache.delete(oldestKey);
+      this.releaseGelPavingChunkEntry(oldest);
+    }
+  }
+
+  drawCachedGelPavingChunks(ctx, asset, paved, visibleCells) {
+    this.syncGelPavingRenderCache(paved);
+    if (this.gelPavingChunkSurfaceAvailable === false) return null;
+    const chunkCoordinates = [];
+    const requestedKeys = new Set();
+    for (let index = 0; index < visibleCells.length; index += 2) {
+      const chunkX = Math.floor(visibleCells[index] / GEL_PAVING_CHUNK_SIZE);
+      const chunkY = Math.floor(visibleCells[index + 1] / GEL_PAVING_CHUNK_SIZE);
+      const key = `${chunkX},${chunkY}`;
+      if (requestedKeys.has(key)) continue;
+      requestedKeys.add(key);
+      chunkCoordinates.push(chunkX, chunkY);
+    }
+    if (requestedKeys.size > GEL_PAVING_CHUNK_CACHE_LIMIT) return null;
+    for (const [key, entry] of this.gelPavingChunkCache) {
+      if (requestedKeys.has(key)) continue;
+      this.gelPavingChunkCache.delete(key);
+      this.releaseGelPavingChunkEntry(entry);
+    }
+
+    const chunks = [];
+    try {
+      for (let index = 0; index < chunkCoordinates.length; index += 2) {
+        const chunkX = chunkCoordinates[index];
+        const chunkY = chunkCoordinates[index + 1];
+        const entry = this.gelPavingChunkEntry(ctx, asset, paved, chunkX, chunkY);
+        if (!entry) return null;
+        chunks.push(chunkX, chunkY, entry);
+      }
+    } catch {
+      this.invalidateGelPavingRenderCache();
+      this.gelPavingChunkSurfaceAvailable = false;
+      return null;
+    }
+
+    const size = this.worldPixelsPerCell();
+    let draws = 0;
+    for (let index = 0; index < chunks.length; index += 3) {
+      const chunkX = chunks[index];
+      const chunkY = chunks[index + 1];
+      const entry = chunks[index + 2];
+      if (!entry.surface || entry.tileCount <= 0) continue;
+      const worldX = chunkX * GEL_PAVING_CHUNK_SIZE;
+      const worldY = chunkY * GEL_PAVING_CHUNK_SIZE;
+      ctx.drawImage(
+        entry.surface.canvas,
+        BOARD.x + (worldX - this.camera.x) * size,
+        BOARD.y + (worldY - this.camera.y) * size,
+        GEL_PAVING_CHUNK_SIZE * size,
+        GEL_PAVING_CHUNK_SIZE * size,
+      );
+      draws += 1;
+    }
+    this.trimGelPavingChunkCache();
+    return draws;
+  }
+
+  drawGelPaving(ctx, bounds) {
+    const paved = this.state.gelPavingCells;
+    if (!(paved instanceof Set) || !paved.size || !bounds) {
+      return { cells: 0, draws: 0 };
+    }
+    const rawMinX = Number(bounds.minX);
+    const rawMinY = Number(bounds.minY);
+    const rawMaxX = Number(bounds.maxX);
+    const rawMaxY = Number(bounds.maxY);
+    const minX = Math.floor(Number.isFinite(rawMinX) ? rawMinX : 0);
+    const minY = Math.floor(Number.isFinite(rawMinY) ? rawMinY : 0);
+    const maxX = Math.max(minX, Math.ceil(Number.isFinite(rawMaxX) ? rawMaxX : minX));
+    const maxY = Math.max(minY, Math.ceil(Number.isFinite(rawMaxY) ? rawMaxY : minY));
+    const cells = [];
+    for (let y = minY; y <= maxY; y += 1) {
+      for (let x = minX; x <= maxX; x += 1) {
+        if (!paved.has(cellKey(x, y))) continue;
+        cells.push(x, y);
+      }
+    }
+    if (!cells.length) return { cells: 0, draws: 0 };
+
+    const size = this.worldPixelsPerCell();
+    let draws = 0;
+    drawAssetOrFallback(
+      ctx,
+      this.assetStore,
+      GEL_PAVING_AUTOTILE_ASSET_KEY,
+      (asset) => {
+        const cachedDraws = this.drawCachedGelPavingChunks(ctx, asset, paved, cells);
+        if (cachedDraws !== null) {
+          draws = cachedDraws;
+          return;
+        }
+        for (let index = 0; index < cells.length; index += 2) {
+          const x = cells[index];
+          const y = cells[index + 1];
+          const mask = cardinalAutotileMask(x, y, (neighborX, neighborY) => (
+            paved.has(cellKey(neighborX, neighborY))
+          ));
+          const source = autotileFrameRect(mask);
+          ctx.drawImage(
+            asset,
+            source.x,
+            source.y,
+            source.width,
+            source.height,
+            BOARD.x + (x - this.camera.x) * size,
+            BOARD.y + (y - this.camera.y) * size,
+            size,
+            size,
+          );
+          draws += 1;
+        }
+      },
+      () => {},
+    );
+    return { cells: cells.length / 2, draws };
+  }
+
   selectCombatCard(card) {
     if (this.state.phase !== 'battle') return;
     if (card.type === 'skill') {
@@ -4748,6 +5162,7 @@ export class SlimeGame {
     };
     drawOrganicGround(ctx, terrainOptions);
     this.drawWorldRegionDecals(ctx, visibleChunks, bounds);
+    this.drawGelPaving(ctx, bounds);
 
     const corePosition = this.cellCenter(CORE_CELL.x, CORE_CELL.y);
     const portalPositions = WORLD.monsterEntrances.map((entrance) => ({
@@ -4759,7 +5174,6 @@ export class SlimeGame {
     drawOrganicTerrainProps(ctx, terrainOptions);
     this.drawDiscoveryFog(ctx, bounds);
     this.drawTerrain(ctx);
-    this.drawBuildingFoundations(ctx);
     this.drawWorldPoiBackEffects(ctx, visiblePois);
     const expeditionBattle = this.state.phase === 'battle' && this.isExpeditionSession();
     const beaconDrawn = expeditionBattle && drawAssetOrFallback(
@@ -5176,10 +5590,18 @@ export class SlimeGame {
 
   drawWorldActors(ctx) {
     const actors = [];
+    const zoom = this.camera.zoom;
+    const buildingAutotileIndex = this.createBuildingAutotileIndex();
+    const underAttack = this.state.phase === 'battle'
+      || this.state.enemies.some((enemy) => !enemy.dead);
     for (const site of this.visibleWorldPois || []) {
+      const position = this.cellCenter(site.x, site.y);
+      if (!this.isWorldScreenPositionVisible(position, 120 * zoom)) continue;
       actors.push({ kind: 'poi', entity: site, depth: site.y + 0.72, rank: 1 });
     }
     for (const building of this.state.buildings) {
+      const position = this.entityCanvasPosition(building);
+      if (!this.isWorldScreenPositionVisible(position, 150 * zoom)) continue;
       const card = BUILDING_BY_ID[building.cardId];
       const shape = rotatedFootprint(card, building.rotation);
       // The body is anchored to the exact cell bottom, but shares the unit's
@@ -5193,15 +5615,23 @@ export class SlimeGame {
       });
     }
     for (const item of this.state.deployables) {
+      const position = this.cellCenter(item.x, item.y);
+      if (!this.isWorldScreenPositionVisible(position, 80 * zoom)) continue;
       actors.push({ kind: 'deployable', entity: item, depth: item.y + 0.72, rank: 1 });
     }
     for (const survivor of this.state.survivors) {
+      const position = this.entityCanvasPosition(survivor);
+      if (!this.isWorldScreenPositionVisible(position, 120 * zoom)) continue;
       actors.push({ kind: 'survivor', entity: survivor, depth: survivor.y + 0.78, rank: 2 });
     }
     for (const enemy of this.state.enemies) {
+      const position = this.entityCanvasPosition(enemy);
+      if (!this.isWorldScreenPositionVisible(position, 160 * zoom)) continue;
       actors.push({ kind: 'enemy', entity: enemy, depth: enemy.y + 0.78, rank: 2 });
     }
     for (const enemy of this.state.worldExpedition?.enemies || []) {
+      const position = this.entityCanvasPosition(enemy);
+      if (!this.isWorldScreenPositionVisible(position, 160 * zoom)) continue;
       actors.push({ kind: 'enemy', entity: enemy, depth: enemy.y + 0.78, rank: 2 });
     }
     actors.sort((left, right) => (
@@ -5210,59 +5640,31 @@ export class SlimeGame {
       || (left.entity.x || 0) - (right.entity.x || 0)
     ));
     for (const actor of actors) {
-      if (actor.kind === 'building') this.drawBuildings(ctx, [actor.entity]);
+      if (actor.kind === 'building') {
+        this.drawBuildings(ctx, [actor.entity], {
+          autotileIndex: buildingAutotileIndex,
+          underAttack,
+        });
+      }
       else if (actor.kind === 'deployable') this.drawDeployables(ctx, [actor.entity]);
       else if (actor.kind === 'poi') this.drawWorldPoiActor(ctx, actor.entity);
       else this.drawUnits(ctx, [actor]);
     }
   }
 
-  drawBuildingFoundationCells(ctx, cells, { alpha = 1 } = {}) {
-    const size = this.worldPixelsPerCell();
-    const overlap = BUILDING_MODULE_FLOOR_OVERLAP;
-    const seen = new Set();
-    for (const cell of cells || []) {
-      if (!Number.isFinite(cell?.x) || !Number.isFinite(cell?.y)) continue;
-      const key = `${cell.x},${cell.y}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      const corner = worldToScreen({ x: cell.x, y: cell.y }, this.camera, BOARD);
-      const center = { x: corner.x + size / 2, y: corner.y + size / 2 };
-      if (!this.isWorldScreenPositionVisible(center, size)) continue;
-      drawAssetOrFallback(
-        ctx,
-        this.assetStore,
-        BUILDING_MODULE_FLOOR_ASSET_KEY,
-        (asset) => {
-          ctx.globalAlpha *= clamp(alpha, 0, 1);
-          ctx.drawImage(
-            asset,
-            corner.x - overlap / 2,
-            corner.y - overlap / 2,
-            size + overlap,
-            size + overlap,
-          );
-        },
-        () => {},
-      );
-    }
-  }
-
-  drawBuildingFoundations(ctx, buildings = this.state.buildings) {
-    const cells = [];
-    for (const building of buildings || []) {
-      const card = BUILDING_BY_ID[building?.cardId];
-      if (!card) continue;
-      cells.push(...footprintCells(card, building.x, building.y, building.rotation));
-    }
-    this.drawBuildingFoundationCells(ctx, cells);
-  }
-
-  drawBuildings(ctx, buildings = this.state.buildings) {
-    const sorted = [...buildings].sort((a, b) => a.y - b.y || a.x - b.x);
+  drawBuildings(
+    ctx,
+    buildings = this.state.buildings,
+    { autotileIndex = null, underAttack: providedUnderAttack = null } = {},
+  ) {
+    const sorted = buildings.length > 1
+      ? [...buildings].sort((a, b) => a.y - b.y || a.x - b.x)
+      : buildings;
+    const connectionIndex = autotileIndex || this.createBuildingAutotileIndex();
     const zoom = this.camera.zoom;
-    const underAttack = this.state.phase === 'battle'
-      || this.state.enemies.some((enemy) => !enemy.dead);
+    const underAttack = typeof providedUnderAttack === 'boolean'
+      ? providedUnderAttack
+      : this.state.phase === 'battle' || this.state.enemies.some((enemy) => !enemy.dead);
     for (const building of sorted) {
       const position = this.entityCanvasPosition(building);
       if (!this.isWorldScreenPositionVisible(position, 150 * zoom)) continue;
@@ -5288,11 +5690,15 @@ export class SlimeGame {
       if (building.underConstruction) ctx.globalAlpha *= 0.58;
       ctx.translate(centerX, centerY);
       ctx.scale(scale * zoom, scale * zoom);
+      const autotileProfile = BUILDING_AUTOTILE_PROFILE_BY_CARD_ID[card.id];
+      const autotileMask = autotileProfile
+        ? this.buildingAutotileMask(building, connectionIndex)
+        : 0;
       drawBuilding(ctx, 0, 0, BUILDING_WORLD_SLOT, BUILDING_VARIANT[card.id], {
         assetStore: this.assetStore,
+        assetKey: autotileProfile?.assetKey,
+        sourceRect: autotileProfile ? autotileFrameRect(autotileMask) : null,
         time: this.time,
-        moduleFloor: true,
-        trimTransparentPadding: true,
         selected,
         active: underAttack && !building.underConstruction,
         ghost: building.underConstruction,
@@ -5394,12 +5800,14 @@ export class SlimeGame {
 
   drawUnits(ctx, providedUnits = null) {
     const zoom = this.camera.zoom;
-    const units = providedUnits ? [...providedUnits] : [];
+    const units = providedUnits
+      ? (providedUnits.length > 1 ? [...providedUnits] : providedUnits)
+      : [];
     if (!providedUnits) {
       this.state.survivors.forEach((survivor) => units.push({ kind: 'survivor', entity: survivor, depth: survivor.y + 0.15 }));
       this.state.enemies.forEach((enemy) => units.push({ kind: 'enemy', entity: enemy, depth: enemy.y + 0.5 }));
     }
-    units.sort((a, b) => a.depth - b.depth);
+    if (units.length > 1) units.sort((a, b) => a.depth - b.depth);
     for (const unit of units) {
       if (unit.kind === 'survivor') {
         const survivor = unit.entity;
@@ -5632,12 +6040,23 @@ export class SlimeGame {
 
   drawDynamicEffects(ctx, layer) {
     const effects = this.state.dynamicEffects || [];
-    const layerEffects = effects.filter((effect) => effect.layer === layer);
-    const impactCount = layerEffects.filter((effect) => effect.kind === 'impact').length;
-    const pushCount = layerEffects.filter((effect) => effect.kind === 'push').length;
-    const enemyPopCount = layerEffects.filter((effect) => effect.kind === 'enemy-pop').length;
+    let impactCount = 0;
+    let pushCount = 0;
+    let enemyPopCount = 0;
     for (const effect of effects) {
-      if (effect.layer !== layer) continue;
+      if (effect.layer !== layer || !this.isWorldScreenPositionVisible(effect, 180)) continue;
+      if (effect.kind === 'impact') impactCount += 1;
+      else if (effect.kind === 'push') pushCount += 1;
+      else if (effect.kind === 'enemy-pop') enemyPopCount += 1;
+    }
+    let renderedEffects = 0;
+    for (const effect of effects) {
+      if (
+        effect.layer !== layer
+        || !this.isWorldScreenPositionVisible(effect, 180)
+        || renderedEffects >= DYNAMIC_EFFECT_FRAME_BUDGET
+      ) continue;
+      renderedEffects += 1;
       const progress = clamp(1 - effect.life / effect.maxLife, 0, 1);
       this.dynamicComponentPriority = DYNAMIC_EFFECT_COMPONENT_PRIORITY[effect.kind] ?? 0;
       ctx.save();
@@ -6735,9 +7154,6 @@ export class SlimeGame {
         this.hoverCell.y,
         rotation,
       );
-      this.drawBuildingFoundationCells(ctx, previewCells, {
-        alpha: valid ? 0.78 : 0.52,
-      });
       for (const cell of previewCells) {
         if (inBoard(cell.x, cell.y)) drawCellOverlay(cell, valid);
       }
@@ -6748,6 +7164,23 @@ export class SlimeGame {
       }, this.camera, BOARD);
       const centerX = previewGround.x;
       const centerY = previewGround.y;
+      const autotileProfile = BUILDING_AUTOTILE_PROFILE_BY_CARD_ID[card.id];
+      const virtualBuilding = autotileProfile
+        ? {
+          cardId: card.id,
+          x: this.hoverCell.x,
+          y: this.hoverCell.y,
+        }
+        : null;
+      const previewAutotileIndex = autotileProfile
+        ? this.createBuildingAutotileIndex(this.state.buildings, {
+          excludeUid: selection.kind === 'move-building' ? selection.uid : null,
+          virtualBuilding,
+        })
+        : null;
+      const previewAutotileMask = autotileProfile
+        ? this.buildingAutotileMask(virtualBuilding, previewAutotileIndex)
+        : 0;
       drawBuilding(
         ctx,
         centerX,
@@ -6756,9 +7189,9 @@ export class SlimeGame {
         BUILDING_VARIANT[card.id],
         {
           assetStore: this.assetStore,
+          assetKey: autotileProfile?.assetKey,
+          sourceRect: autotileProfile ? autotileFrameRect(previewAutotileMask) : null,
           time: this.time,
-          moduleFloor: true,
-          trimTransparentPadding: true,
           ghost: true,
           valid,
         },

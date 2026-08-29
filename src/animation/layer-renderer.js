@@ -240,10 +240,10 @@ function variantWeightsFor(part, slots) {
   if (Math.abs(fromWeight + toWeight - 1) > 1e-6) {
     throw new RangeError(`expression slot ${part.id} weights must add up to one.`);
   }
-  return [
-    { name: selection.from, weight: fromWeight },
-    { name: selection.to, weight: toWeight },
-  ].filter(({ weight }) => weight > 0);
+  const weighted = [];
+  if (fromWeight > 0) weighted.push({ name: selection.from, weight: fromWeight });
+  if (toWeight > 0) weighted.push({ name: selection.to, weight: toWeight });
+  return weighted;
 }
 
 function descriptorForVariant(part, variantName) {
@@ -273,7 +273,10 @@ function sameVisual(left, right) {
 
 function prepareParts(rig, entry, images, expression) {
   const slots = expressionSlotsFor(rig, expression);
-  const parts = partsFromEntry(entry).map((part, index) => {
+  const sourceParts = partsFromEntry(entry);
+  const parts = [];
+  for (let index = 0; index < sourceParts.length; index += 1) {
+    const part = sourceParts[index];
     if (!part || typeof part !== 'object') {
       throw new TypeError(`manifestEntry.parts[${index}] must be an object.`);
     }
@@ -305,15 +308,15 @@ function prepareParts(rig, entry, images, expression) {
       if (duplicate) duplicate.alpha += candidate.alpha;
       else prepared.push(candidate);
     }
-    return {
+    parts.push({
       index,
       part,
       chain,
       z,
       alpha: clampAlpha(part.alpha),
       variants: prepared,
-    };
-  });
+    });
+  }
 
   // A required missing part must leave the canvas untouched so callers can
   // safely draw the existing vector fallback instead of a partial character.
@@ -323,16 +326,22 @@ function prepareParts(rig, entry, images, expression) {
     return null;
   }
 
-  return parts
-    .map((prepared) => ({
-      ...prepared,
-      variants: prepared.variants.filter(({ image }) => image != null),
-    }))
-    .filter(({ variants }) => variants.length > 0)
-    .sort((left, right) => (
-      left.z - right.z
-      || left.index - right.index
-    ));
+  const drawable = [];
+  for (const prepared of parts) {
+    let writeIndex = 0;
+    for (const variant of prepared.variants) {
+      if (variant.image == null) continue;
+      prepared.variants[writeIndex] = variant;
+      writeIndex += 1;
+    }
+    prepared.variants.length = writeIndex;
+    if (writeIndex > 0) drawable.push(prepared);
+  }
+  drawable.sort((left, right) => (
+    left.z - right.z
+    || left.index - right.index
+  ));
+  return drawable;
 }
 
 function applyBoneTransform(ctx, pose, { name, bone }) {
@@ -384,22 +393,28 @@ function imagePixelHeight(image) {
 }
 
 function expressionBlendGeometry(variants) {
-  const left = Math.min(...variants.map(({ rect }) => rect.x));
-  const top = Math.min(...variants.map(({ rect }) => rect.y));
-  const right = Math.max(...variants.map(({ rect }) => rect.x + rect.width));
-  const bottom = Math.max(...variants.map(({ rect }) => rect.y + rect.height));
+  let left = Number.POSITIVE_INFINITY;
+  let top = Number.POSITIVE_INFINITY;
+  let right = Number.NEGATIVE_INFINITY;
+  let bottom = Number.NEGATIVE_INFINITY;
+  let pixelsPerUnit = 1;
+  for (const { image, rect, sourceRect } of variants) {
+    left = Math.min(left, rect.x);
+    top = Math.min(top, rect.y);
+    right = Math.max(right, rect.x + rect.width);
+    bottom = Math.max(bottom, rect.y + rect.height);
+    const pixelWidth = sourceRect?.width ?? imagePixelWidth(image);
+    const pixelHeight = sourceRect?.height ?? imagePixelHeight(image);
+    const densityX = pixelWidth / rect.width;
+    const densityY = pixelHeight / rect.height;
+    if (Number.isFinite(densityX) && densityX > 0) pixelsPerUnit = Math.max(pixelsPerUnit, densityX);
+    if (Number.isFinite(densityY) && densityY > 0) pixelsPerUnit = Math.max(pixelsPerUnit, densityY);
+  }
   const width = right - left;
   const height = bottom - top;
   if (!(width > 0) || !(height > 0)) {
     throw new RangeError('Expression variant bindRects must have positive dimensions.');
   }
-
-  const densities = variants.flatMap(({ image, rect, sourceRect }) => {
-    const pixelWidth = sourceRect?.width ?? imagePixelWidth(image);
-    const pixelHeight = sourceRect?.height ?? imagePixelHeight(image);
-    return [pixelWidth / rect.width, pixelHeight / rect.height];
-  }).filter((value) => Number.isFinite(value) && value > 0);
-  const pixelsPerUnit = Math.max(1, ...densities);
   const surfaceWidth = Math.ceil(width * pixelsPerUnit);
   const surfaceHeight = Math.ceil(height * pixelsPerUnit);
   if (

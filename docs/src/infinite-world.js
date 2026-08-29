@@ -792,10 +792,31 @@ export class InfiniteWorld {
   }
 
   _touchCache(key, chunk) {
-    this._cache.delete(key);
-    this._cache.set(key, { chunk, tick: ++this._accessTick });
+    const tick = ++this._accessTick;
+    const cached = this._cache.get(key);
+    if (cached) {
+      // Cell reads are the overwhelmingly common path while rendering. Moving
+      // a hot chunk to the end of a Map for every read turned an O(1) lookup
+      // into two Map mutations, often thousands of times per frame. Keep the
+      // LRU timestamp on the entry and only scan the small bounded cache when
+      // a newly loaded chunk actually needs an eviction.
+      cached.chunk = chunk;
+      cached.tick = tick;
+      return chunk;
+    }
+    this._cache.set(key, {
+      chunk,
+      tick,
+      resolvedCells: new Array(CHUNK_SIZE * CHUNK_SIZE),
+    });
     while (this._cache.size > this.maxLoadedChunks) {
-      const oldestKey = this._cache.keys().next().value;
+      let oldestKey = null;
+      let oldestTick = Infinity;
+      for (const [candidateKey, entry] of this._cache) {
+        if (entry.tick >= oldestTick) continue;
+        oldestKey = candidateKey;
+        oldestTick = entry.tick;
+      }
       this._cache.delete(oldestKey);
     }
     return chunk;
@@ -815,8 +836,10 @@ export class InfiniteWorld {
     }));
   }
 
-  _resolveCell(baseCell) {
-    const delta = this._deltas.get(deltaKey(baseCell.x, baseCell.y));
+  _resolveCell(baseCell, resolvedState = null) {
+    const delta = resolvedState
+      ? resolvedState.delta
+      : this._deltas.get(deltaKey(baseCell.x, baseCell.y));
     const terrainId = delta?.terrainId ?? baseCell.terrainId;
     const terrain = TERRAIN_RULES[terrainId];
     const building = delta?.building ?? null;
@@ -827,7 +850,9 @@ export class InfiniteWorld {
       passable: terrain.passable && !(building?.solid === true),
       buildable: terrain.buildable && !building,
       building,
-      discovered: this.isDiscovered(baseCell.x, baseCell.y),
+      discovered: resolvedState
+        ? resolvedState.discovered
+        : this.isDiscovered(baseCell.x, baseCell.y),
       modified: Boolean(delta),
     });
   }
@@ -838,7 +863,38 @@ export class InfiniteWorld {
   }
 
   getCell(x, y) {
-    return this._resolveCell(this.peekBaseCell(x, y));
+    assertSafeInteger(x, 'x');
+    assertSafeInteger(y, 'y');
+    const chunkX = floorDiv(x);
+    const chunkY = floorDiv(y);
+    const localX = floorMod(x);
+    const localY = floorMod(y);
+    const index = localY * CHUNK_SIZE + localX;
+    const key = chunkKey(chunkX, chunkY);
+    // Avoid worldToChunk's public frozen descriptor on this render-hot path.
+    // Callers still receive that immutable descriptor from worldToChunk itself.
+    const chunk = this._baseChunk(chunkX, chunkY);
+    const baseCell = chunk.cells[index];
+    const delta = this._deltas.get(deltaKey(x, y));
+    const discovered = this._isDiscoveredCell(chunkX, chunkY, index);
+    const record = this._cache.get(key);
+    const cached = record?.resolvedCells?.[index];
+    if (cached
+      && cached.baseCell === baseCell
+      && cached.delta === delta
+      && cached.discovered === discovered) {
+      return cached.cell;
+    }
+    const cell = this._resolveCell(baseCell, { delta, discovered });
+    if (record?.resolvedCells) {
+      record.resolvedCells[index] = {
+        baseCell,
+        delta,
+        discovered,
+        cell,
+      };
+    }
+    return cell;
   }
 
   getZoneAt(x, y) {
@@ -967,11 +1023,19 @@ export class InfiniteWorld {
   }
 
   isDiscovered(x, y) {
-    const coordinate = worldToChunk(x, y);
-    const record = this._discoveryRecord(coordinate.chunkX, coordinate.chunkY);
+    assertSafeInteger(x, 'x');
+    assertSafeInteger(y, 'y');
+    const chunkX = floorDiv(x);
+    const chunkY = floorDiv(y);
+    const index = floorMod(y) * CHUNK_SIZE + floorMod(x);
+    return this._isDiscoveredCell(chunkX, chunkY, index);
+  }
+
+  _isDiscoveredCell(chunkX, chunkY, index) {
+    const record = this._discoveryRecord(chunkX, chunkY);
     if (!record) return false;
-    const word = Math.floor(coordinate.index / 32);
-    const mask = (1 << (coordinate.index % 32)) >>> 0;
+    const word = Math.floor(index / 32);
+    const mask = (1 << (index % 32)) >>> 0;
     return (record.bits[word] & mask) !== 0;
   }
 

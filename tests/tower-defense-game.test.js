@@ -215,8 +215,14 @@ test('formal asset and rig stores can be replaced and are used during rendering'
   assert.equal(game.generatedCharacterArtEnabled, false);
   game.render();
 
+  assert.ok(assets.requests.includes('background-garden-base'));
+  assert.ok(assets.requests.includes('background-cloud-overlay'));
+  assert.ok(assets.requests.includes('town-soft-core'));
   assert.ok(assets.requests.includes('region-gel-meadow-field-a'));
+  assert.ok(assets.requests.includes('region-bubble-heath-field-a'));
+  assert.ok(assets.requests.includes('region-crystal-bloom-field-a'));
   assert.ok(assets.requests.includes('expedition-route-combat'));
+  assert.ok(assets.requests.includes('expedition-route-boss'));
   assert.ok(rigs.requests.includes('survivor-shell-shell'));
   assert.ok(rigs.requests.includes('survivor-crystal-pin'));
   assert.equal(game.setGeneratedCharacterArtEnabled(true), game);
@@ -333,7 +339,17 @@ test('menu stage buttons use pointer events and respect saved unlock progress', 
   const game = new TowerDefenseGame(canvas, { runtime, pixelRatio: 1 });
   game.render();
 
-  click(game, canvas, { x: 494, y: 458 });
+  const stageHits = ['stage-1', 'stage-2', 'stage-3'].map((id) => (
+    game.hits.find((candidate) => candidate.id === id)
+  ));
+  assert.equal(stageHits.every(Boolean), true);
+  assert.notEqual(stageHits[0].y, stageHits[1].y);
+  assert.notEqual(stageHits[1].y, stageHits[2].y);
+  assert.notEqual(stageHits[0].width, stageHits[2].width);
+  assert.equal(stageHits[2].enabled, false);
+  assert.equal(game.hits.find(({ id }) => id === 'endless').enabled, false);
+
+  click(game, canvas, hitCenter(game, 'stage-2'));
   assert.equal(game.state.screen, 'battle');
   assert.equal(game.state.stageId, 'stage-2');
   assert.equal(game.state.mode, 'stage');

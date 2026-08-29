@@ -77,6 +77,15 @@ const COMMAND_DOCK = Object.freeze({
   start: Object.freeze({ x: 1038, y: 608, width: 226, height: 80 }),
 });
 
+const MENU_ROUTE_NODES = Object.freeze([
+  Object.freeze({ x: 92, y: 386, width: 206, height: 224, centerX: 185, centerY: 480 }),
+  Object.freeze({ x: 320, y: 230, width: 238, height: 230, centerX: 439, centerY: 326 }),
+  Object.freeze({ x: 588, y: 354, width: 244, height: 236, centerX: 710, centerY: 454 }),
+]);
+const MENU_ENDLESS_NODE = Object.freeze({
+  x: 846, y: 180, width: 238, height: 234, centerX: 965, centerY: 280,
+});
+
 const COLORS = Object.freeze({
   ink: '#273844',
   inkSoft: '#5E7078',
@@ -1015,27 +1024,298 @@ export class TowerDefenseGame {
   }
 
   drawMenu(ctx) {
-    this.drawBackdrop(ctx, 'stage-1');
+    ctx.fillStyle = '#CBE8D0';
+    ctx.fillRect(0, 0, TD_VIEW.width, TD_VIEW.height);
+    drawAssetOrFallback(ctx, this.assetStore, 'background-garden-base', (asset) => {
+      ctx.drawImage(asset, 0, 0, TD_VIEW.width, TD_VIEW.height);
+    }, () => this.drawBackdrop(ctx, 'stage-1'));
+    drawAssetOrFallback(ctx, this.assetStore, 'background-cloud-overlay', (asset) => {
+      ctx.globalAlpha *= 0.34;
+      const drift = Math.sin(this.state.time * 0.08) * 24;
+      ctx.drawImage(asset, -18 + drift, -18, 1316, 438);
+    }, () => {});
     ctx.save();
-    ctx.fillStyle = 'rgba(255, 251, 237, 0.68)';
+    const veil = ctx.createLinearGradient(0, 0, TD_VIEW.width, TD_VIEW.height);
+    veil.addColorStop(0, 'rgba(255, 250, 226, 0.36)');
+    veil.addColorStop(0.58, 'rgba(226, 244, 218, 0.18)');
+    veil.addColorStop(1, 'rgba(76, 119, 121, 0.34)');
+    ctx.fillStyle = veil;
     ctx.fillRect(0, 0, TD_VIEW.width, TD_VIEW.height);
     ctx.restore();
 
-    label(ctx, '史莱姆融合塔防', TD_VIEW.width / 2, 82, {
-      size: 48, color: COLORS.ink, weight: 900,
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(28, 18);
+    ctx.bezierCurveTo(150, 2, 422, 12, 470, 56);
+    ctx.bezierCurveTo(494, 82, 452, 131, 376, 137);
+    ctx.bezierCurveTo(260, 146, 84, 135, 34, 104);
+    ctx.bezierCurveTo(12, 89, 8, 39, 28, 18);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(255, 249, 224, 0.92)';
+    ctx.shadowColor = 'rgba(30, 56, 58, 0.2)';
+    ctx.shadowBlur = 18;
+    ctx.shadowOffsetY = 8;
+    ctx.fill();
+    ctx.restore();
+    label(ctx, '史莱姆融合塔防', 62, 63, {
+      size: 43, color: COLORS.ink, weight: 950, align: 'left',
     });
-    label(ctx, '抽取 · 放置 · 融合', TD_VIEW.width / 2, 132, {
-      size: 21, color: COLORS.inkSoft, weight: 650,
+    label(ctx, '融合 · 守护', 65, 109, {
+      size: 18, color: COLORS.inkSoft, weight: 760, align: 'left',
+    });
+    TD_STAGES.forEach((stage, index) => {
+      const x = 374 + index * 28;
+      const cleared = this.state.progress.clearedStages.includes(stage.id);
+      const unlocked = stage.index <= this.state.progress.unlockedStage;
+      ctx.save();
+      if (unlocked && !cleared) {
+        ctx.shadowColor = stage.accent;
+        ctx.shadowBlur = 10;
+      }
+      ctx.beginPath();
+      ctx.arc(x, 109, 7, 0, TAU);
+      ctx.fillStyle = cleared ? stage.accent : unlocked ? '#FFF8DF' : '#AAB5AF';
+      ctx.fill();
+      ctx.strokeStyle = unlocked ? stage.accent : '#87948E';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      ctx.restore();
     });
 
-    const portraits = Object.values(TOWER_TYPES);
-    portraits.forEach((tower, index) => {
-      const x = 505 + index * 90;
+    const endlessUnlocked = this.endlessUnlocked();
+    const routePoints = [
+      ...MENU_ROUTE_NODES.map(({ centerX: x, centerY: y }) => ({ x, y })),
+      { x: MENU_ENDLESS_NODE.centerX, y: MENU_ENDLESS_NODE.centerY },
+    ];
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(92, 539);
+    ctx.bezierCurveTo(125, 529, 148, 500, routePoints[0].x, routePoints[0].y);
+    ctx.strokeStyle = 'rgba(35, 62, 64, 0.22)';
+    ctx.lineWidth = 42;
+    ctx.stroke();
+    ctx.strokeStyle = '#A7E27F';
+    ctx.lineWidth = 30;
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(255, 255, 222, 0.9)';
+    ctx.lineWidth = 4;
+    ctx.stroke();
+    ctx.restore();
+    drawAssetOrFallback(ctx, this.assetStore, 'town-soft-core', (asset) => {
+      const bob = Math.sin(this.state.time * 1.4) * 2;
+      ctx.drawImage(asset, 0, 500 + bob, 92, 92);
+    }, () => {
+      ctx.fillStyle = '#72D6C7';
+      ctx.beginPath();
+      ctx.arc(46, 546, 32, 0, TAU);
+      ctx.fill();
+    });
+    routePoints.slice(0, -1).forEach((left, index) => {
+      const right = routePoints[index + 1];
+      const unlocked = index < 2
+        ? TD_STAGES[index + 1].index <= this.state.progress.unlockedStage
+        : endlessUnlocked;
+      const direction = index % 2 === 0 ? -1 : 1;
+      const bend = 38 * direction;
+      ctx.save();
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(left.x, left.y);
+      ctx.bezierCurveTo(
+        left.x + (right.x - left.x) * 0.34,
+        left.y + bend,
+        left.x + (right.x - left.x) * 0.66,
+        right.y - bend,
+        right.x,
+        right.y,
+      );
+      ctx.strokeStyle = 'rgba(35, 62, 64, 0.22)';
+      ctx.lineWidth = 42;
+      ctx.stroke();
+      ctx.strokeStyle = unlocked ? '#A7E27F' : 'rgba(183, 193, 180, 0.84)';
+      ctx.lineWidth = 30;
+      ctx.stroke();
+      ctx.strokeStyle = unlocked ? 'rgba(255, 255, 222, 0.9)' : 'rgba(255,255,255,0.35)';
+      ctx.lineWidth = 4;
+      ctx.setLineDash?.([12, 15]);
+      ctx.stroke();
+      ctx.restore();
+    });
+
+    TD_STAGES.forEach((stage, index) => {
+      const rect = MENU_ROUTE_NODES[index];
+      const unlocked = stage.index <= this.state.progress.unlockedStage;
+      const cleared = this.state.progress.clearedStages.includes(stage.id);
+      const hot = unlocked && Boolean(this.hoverPoint && insideRect(this.hoverPoint, rect));
+      const pulse = unlocked && !cleared
+        ? 1 + Math.sin(this.state.time * 2.4 + index) * 0.018
+        : 1;
+      const radius = (82 + index * 3 + (hot ? 5 : 0)) * pulse;
+      const { centerX: x, centerY: y } = rect;
+
+      ctx.save();
+      ctx.shadowColor = unlocked ? stage.accent : 'rgba(42, 58, 61, 0.2)';
+      ctx.shadowBlur = hot ? 30 : 18;
+      ctx.shadowOffsetY = 9;
+      ctx.beginPath();
+      ctx.arc(x, y, radius + 8, 0, TAU);
+      ctx.fillStyle = unlocked ? '#FFF8DF' : '#C8D0CB';
+      ctx.fill();
+      ctx.restore();
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, TAU);
+      ctx.clip();
+      drawAssetOrFallback(ctx, this.assetStore, STAGE_REGION_ASSET[stage.id], (asset) => {
+        ctx.globalAlpha *= unlocked ? 0.96 : 0.32;
+        ctx.drawImage(asset, x - radius * 1.32, y - radius, radius * 2.64, radius * 2.06);
+      }, () => {
+        const fill = ctx.createRadialGradient(x - 25, y - 35, 8, x, y, radius);
+        fill.addColorStop(0, unlocked ? '#F8FFE6' : '#DCE1DD');
+        fill.addColorStop(1, unlocked ? stage.accent : '#AEB9B3');
+        ctx.fillStyle = fill;
+        ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+      });
+      ctx.restore();
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, TAU);
+      ctx.strokeStyle = unlocked ? stage.accent : '#8D9A94';
+      ctx.lineWidth = hot ? 8 : 6;
+      ctx.stroke();
+      ctx.restore();
+
+      drawAssetOrFallback(ctx, this.assetStore, 'expedition-route-combat', (asset) => {
+        ctx.globalAlpha *= unlocked ? 0.96 : 0.32;
+        ctx.drawImage(asset, x - 57, y - 49, 114, 76);
+      }, () => {});
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(x - 62, y - 58, 28, 0, TAU);
+      ctx.fillStyle = unlocked ? '#FFF8DF' : '#B7C0BB';
+      ctx.fill();
+      ctx.strokeStyle = unlocked ? stage.accent : '#7E8A85';
+      ctx.lineWidth = 4;
+      ctx.stroke();
+      ctx.restore();
+      label(ctx, unlocked ? stage.index : '锁', x - 62, y - 58, {
+        size: unlocked ? 24 : 17, color: unlocked ? stage.accent : '#65716C', weight: 950,
+      });
+      if (cleared) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(x + 64, y - 58, 24, 0, TAU);
+        ctx.fillStyle = '#E8FFD8';
+        ctx.fill();
+        ctx.restore();
+        label(ctx, '✓', x + 64, y - 58, {
+          size: 25, color: COLORS.mintDeep, weight: 950,
+        });
+      }
+
+      const nameRect = { x: x - 78, y: y + 58, width: 156, height: 56 };
+      panel(ctx, nameRect, {
+        fill: unlocked ? 'rgba(255, 249, 226, 0.96)' : 'rgba(205, 212, 208, 0.94)',
+        stroke: unlocked ? stage.accent : '#929D97', lineWidth: 3, radius: 22, shadow: hot,
+      });
+      label(ctx, stage.name, x, y + 77, {
+        size: 22, color: unlocked ? COLORS.ink : '#68736E', weight: 900,
+      });
+      label(ctx, `${stage.waves.length}波`, x, y + 101, {
+        size: 13, color: cleared ? COLORS.mintDeep : COLORS.inkSoft, weight: 800,
+      });
+      this.addHit(`stage-${stage.index}`, rect, 'stage', {
+        stageId: stage.id, stageIndex: index,
+      }, unlocked);
+    });
+
+    const endlessRect = MENU_ENDLESS_NODE;
+    const endlessHot = endlessUnlocked
+      && Boolean(this.hoverPoint && insideRect(this.hoverPoint, endlessRect));
+    const endlessPulse = endlessUnlocked
+      ? 1 + Math.sin(this.state.time * 2.8 + 0.8) * 0.025
+      : 1;
+    const endlessRadius = (86 + (endlessHot ? 5 : 0)) * endlessPulse;
+    const endlessX = endlessRect.centerX;
+    const endlessY = endlessRect.centerY;
+    ctx.save();
+    ctx.shadowColor = endlessUnlocked ? 'rgba(126, 95, 231, 0.7)' : 'rgba(34, 48, 54, 0.2)';
+    ctx.shadowBlur = endlessHot ? 34 : 22;
+    ctx.beginPath();
+    ctx.arc(endlessX, endlessY, endlessRadius + 10, 0, TAU);
+    ctx.fillStyle = endlessUnlocked ? '#F9ECFF' : '#C7CECA';
+    ctx.fill();
+    ctx.restore();
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(endlessX, endlessY, endlessRadius, 0, TAU);
+    ctx.clip();
+    const portal = ctx.createRadialGradient(
+      endlessX - 18, endlessY - 24, 8, endlessX, endlessY, endlessRadius,
+    );
+    portal.addColorStop(0, endlessUnlocked ? '#E6D8FF' : '#D5DBD7');
+    portal.addColorStop(0.55, endlessUnlocked ? '#8C80E8' : '#A2ACA7');
+    portal.addColorStop(1, endlessUnlocked ? '#453C88' : '#727C77');
+    ctx.fillStyle = portal;
+    ctx.fillRect(endlessX - endlessRadius, endlessY - endlessRadius,
+      endlessRadius * 2, endlessRadius * 2);
+    drawAssetOrFallback(ctx, this.assetStore, 'expedition-route-boss', (asset) => {
+      ctx.globalAlpha *= endlessUnlocked ? 0.92 : 0.28;
+      ctx.drawImage(asset, endlessX - 54, endlessY - 58, 108, 108);
+    }, () => {});
+    ctx.restore();
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(endlessX, endlessY, endlessRadius, 0, TAU);
+    ctx.strokeStyle = endlessUnlocked ? '#C6B4FF' : '#828E88';
+    ctx.lineWidth = endlessHot ? 9 : 7;
+    ctx.stroke();
+    ctx.restore();
+    label(ctx, endlessUnlocked ? '∞' : '锁', endlessX, endlessY - 8, {
+      size: endlessUnlocked ? 50 : 24,
+      color: endlessUnlocked ? COLORS.white : '#EDF1EE', weight: 950,
+    });
+    const endlessNameRect = { x: endlessX - 80, y: endlessY + 62, width: 160, height: 58 };
+    panel(ctx, endlessNameRect, {
+      fill: endlessUnlocked ? 'rgba(249, 240, 255, 0.96)' : 'rgba(205, 212, 208, 0.94)',
+      stroke: endlessUnlocked ? COLORS.crystal : '#929D97', lineWidth: 3, radius: 22,
+      shadow: endlessHot,
+    });
+    label(ctx, '无尽', endlessX, endlessY + 81, {
+      size: 23, color: endlessUnlocked ? COLORS.ink : '#68736E', weight: 900,
+    });
+    label(ctx, endlessUnlocked ? `最高 ${this.state.progress.bestEndlessWave}` : '3 ✓',
+      endlessX, endlessY + 106, {
+        size: 13, color: endlessUnlocked ? COLORS.crystal : COLORS.inkSoft, weight: 800,
+      });
+    this.addHit('endless', endlessRect, 'endless', {}, endlessUnlocked);
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(865, 522);
+    ctx.bezierCurveTo(940, 465, 1100, 476, 1268, 538);
+    ctx.lineTo(1280, 720);
+    ctx.lineTo(840, 720);
+    ctx.bezierCurveTo(822, 630, 824, 560, 865, 522);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(255, 248, 220, 0.82)';
+    ctx.shadowColor = 'rgba(29, 48, 52, 0.22)';
+    ctx.shadowBlur = 20;
+    ctx.fill();
+    ctx.restore();
+    label(ctx, '守护队', 1058, 527, {
+      size: 16, color: COLORS.inkSoft, weight: 900,
+    });
+    Object.values(TOWER_TYPES).forEach((tower, index) => {
+      const x = 920 + index * 96;
       const animation = this.characterAnimationSample(
         `preview:menu:${tower.id}`,
         tower.ownerId,
       );
-      drawSlime(ctx, x, 245, 78, tower.id, {
+      drawSlime(ctx, x, 658 - (index % 2) * 9, 82, tower.id, {
         time: this.state.time + index * 0.22,
         facing: index < 2 ? 1 : -1,
         assetStore: this.assetStore,
@@ -1044,78 +1324,6 @@ export class TowerDefenseGame {
         allowGeneratedStandalone: this.generatedCharacterArtEnabled,
       });
     });
-
-    const stageRects = TD_STAGES.map((stage, index) => ({
-      x: 64 + index * 300, y: 340, width: 260, height: 236,
-    }));
-    const endlessRect = { x: 964, y: 340, width: 252, height: 236 };
-
-    TD_STAGES.forEach((stage, index) => {
-      const rect = stageRects[index];
-      const unlocked = stage.index <= this.state.progress.unlockedStage;
-      const cleared = this.state.progress.clearedStages.includes(stage.id);
-      panel(ctx, rect, {
-        fill: unlocked ? '#FFF9E9' : '#D9DFDA',
-        stroke: unlocked ? stage.accent : '#AAB4AF',
-        lineWidth: 4,
-        radius: 26,
-        shadow: unlocked,
-      });
-      drawAssetOrFallback(ctx, this.assetStore, 'expedition-route-combat', (asset) => {
-        ctx.globalAlpha *= unlocked ? 0.86 : 0.32;
-        ctx.drawImage(asset, rect.x + 70, rect.y + 24, 120, 104);
-      }, () => {
-        ctx.save();
-        ctx.globalAlpha = unlocked ? 0.26 : 0.12;
-        ctx.fillStyle = stage.accent;
-        ctx.beginPath();
-        ctx.arc(rect.x + rect.width / 2, rect.y + 76, 48, 0, TAU);
-        ctx.fill();
-        ctx.restore();
-      });
-      label(ctx, unlocked ? stage.index : '锁', rect.x + rect.width / 2, rect.y + 78, {
-        size: unlocked ? 40 : 30,
-        color: unlocked ? stage.accent : '#7E8A85',
-        weight: 900,
-      });
-      label(ctx, stage.name, rect.x + rect.width / 2, rect.y + 147, {
-        size: 27, color: unlocked ? COLORS.ink : '#7E8A85', weight: 850,
-      });
-      label(ctx, cleared ? '✓' : `${stage.waves.length}波`, rect.x + rect.width / 2, rect.y + 194, {
-        size: cleared ? 28 : 18,
-        color: cleared ? COLORS.mintDeep : COLORS.inkSoft,
-        weight: 800,
-      });
-      this.addHit(`stage-${stage.index}`, rect, 'stage', {
-        stageId: stage.id, stageIndex: index,
-      }, unlocked);
-    });
-
-    const endlessUnlocked = this.endlessUnlocked();
-    panel(ctx, endlessRect, {
-      fill: endlessUnlocked ? '#F8F2FF' : '#D9DFDA',
-      stroke: endlessUnlocked ? COLORS.crystal : '#AAB4AF',
-      lineWidth: 4,
-      radius: 26,
-      shadow: endlessUnlocked,
-    });
-    drawAssetOrFallback(ctx, this.assetStore, 'expedition-route-boss', (asset) => {
-      ctx.globalAlpha *= endlessUnlocked ? 0.88 : 0.3;
-      ctx.drawImage(asset, endlessRect.x + 66, endlessRect.y + 24, 120, 104);
-    }, () => {});
-    label(ctx, endlessUnlocked ? '∞' : '锁', endlessRect.x + endlessRect.width / 2, endlessRect.y + 78, {
-      size: endlessUnlocked ? 48 : 30,
-      color: endlessUnlocked ? COLORS.crystal : '#7E8A85',
-      weight: 900,
-    });
-    label(ctx, '无尽', endlessRect.x + endlessRect.width / 2, endlessRect.y + 147, {
-      size: 27, color: endlessUnlocked ? COLORS.ink : '#7E8A85', weight: 850,
-    });
-    label(ctx, endlessUnlocked ? `最高 ${this.state.progress.bestEndlessWave}` : '通关3解锁',
-      endlessRect.x + endlessRect.width / 2, endlessRect.y + 194, {
-        size: 18, color: COLORS.inkSoft, weight: 750,
-      });
-    this.addHit('endless', endlessRect, 'endless', {}, endlessUnlocked);
   }
 
   drawBattle(ctx) {
@@ -1848,7 +2056,8 @@ export class TowerDefenseGame {
   tutorialHoles(target) {
     if (!target) return [];
     if (target.type === 'stage') {
-      return [{ x: 64 + target.stageIndex * 300 + 130, y: 458, radius: 156 }];
+      const node = MENU_ROUTE_NODES[target.stageIndex];
+      return node ? [{ x: node.centerX, y: node.centerY, radius: 92 }] : [];
     }
     if (target.type === 'draw') return [{
       x: COMMAND_DOCK.draw.x + COMMAND_DOCK.draw.width / 2,

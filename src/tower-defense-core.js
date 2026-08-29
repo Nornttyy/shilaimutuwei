@@ -9,12 +9,21 @@
 const TAU = Math.PI * 2;
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const distance = (left, right) => Math.hypot(left.x - right.x, left.y - right.y);
+const scaleValue = (value) => Math.round(value * 1000) / 1000;
 
 export const TD_VIEW = Object.freeze({ width: 1280, height: 720 });
 export const TD_FIELD = Object.freeze({ x: 0, y: 0, width: 930, height: 720 });
 export const TD_MAX_STAR = 4;
 export const TD_HAND_LIMIT = 4;
 export const TD_STORAGE_KEY = 'slime-fusion-defense-v1';
+export const TD_STAGE_SCALE_CAPS = Object.freeze({ hp: 3.4, speed: 1.4, reward: 2.2 });
+export const TD_ENDLESS_SCALE_CAPS = Object.freeze({
+  count: 8,
+  hp: 7.5,
+  speed: 1.55,
+  reward: 3,
+  bossCount: 2,
+});
 
 export const TOWER_TYPES = Object.freeze({
   shell: Object.freeze({
@@ -80,20 +89,20 @@ export const TOWER_DRAW_WEIGHTS = Object.freeze([
 
 export const TD_ENEMIES = Object.freeze({
   bug: Object.freeze({
-    id: 'bug', ownerId: 'enemy-soft-biter', hp: 28, speed: 50, reward: 5,
+    id: 'bug', ownerId: 'enemy-soft-biter', hp: 30, speed: 52, reward: 6,
     size: 58, coreDamage: 1, color: '#A77770',
   }),
   windcap: Object.freeze({
-    id: 'windcap', ownerId: 'enemy-windcap', hp: 22, speed: 78, reward: 6,
-    size: 55, coreDamage: 1, color: '#C18BCC',
+    id: 'windcap', ownerId: 'enemy-windcap', hp: 26, speed: 82, reward: 8,
+    size: 55, coreDamage: 2, color: '#C18BCC',
   }),
   stone: Object.freeze({
-    id: 'stone', ownerId: 'enemy-stone-lump', hp: 86, speed: 34, reward: 10,
-    size: 68, coreDamage: 2, color: '#85848D',
+    id: 'stone', ownerId: 'enemy-stone-lump', hp: 104, speed: 36, reward: 15,
+    size: 68, coreDamage: 3, color: '#85848D',
   }),
   boss: Object.freeze({
-    id: 'boss', ownerId: 'enemy-acid-shell-king', hp: 390, speed: 27, reward: 45,
-    size: 104, coreDamage: 5, color: '#778D54', boss: true,
+    id: 'boss', ownerId: 'enemy-acid-shell-king', hp: 900, speed: 29, reward: 90,
+    size: 104, coreDamage: 20, color: '#778D54', boss: true,
   }),
 });
 
@@ -124,11 +133,11 @@ export const TD_STAGES = Object.freeze([
       [804, 382], [823, 608], [148, 486], [376, 92],
     ]),
     waves: Object.freeze([
-      wave(group('bug', 10, 0.72)),
-      wave(group('bug', 14, 0.62), group('windcap', 5, 0.92, 2.4)),
-      wave(group('bug', 16, 0.54), group('stone', 4, 1.8, 3.8)),
-      wave(group('windcap', 14, 0.52), group('stone', 6, 1.55, 2.8)),
-      wave(group('bug', 18, 0.46), group('stone', 5, 1.45, 3.2), group('boss', 1, 0, 9.8)),
+      wave(group('bug', 5, 0.66)),
+      wave(group('bug', 5, 0.6), group('windcap', 2, 0.78, 1.8)),
+      wave(group('bug', 4, 0.56), group('stone', 3, 1.18, 2.2)),
+      wave(group('windcap', 3, 0.56), group('stone', 4, 1.08, 1.8)),
+      wave(group('bug', 2, 0.5), group('stone', 4, 1.02, 1.6), group('boss', 1, 0, 5.4)),
     ]),
   }),
   Object.freeze({
@@ -146,12 +155,12 @@ export const TD_STAGES = Object.freeze([
       [714, 276], [752, 516], [836, 212], [88, 112],
     ]),
     waves: Object.freeze([
-      wave(group('windcap', 12, 0.68)),
-      wave(group('bug', 16, 0.56), group('windcap', 10, 0.7, 1.8)),
-      wave(group('stone', 8, 1.35), group('windcap', 12, 0.56, 2.2)),
-      wave(group('bug', 22, 0.43), group('stone', 7, 1.2, 3)),
-      wave(group('windcap', 20, 0.43), group('stone', 9, 1.08, 3.2)),
-      wave(group('bug', 20, 0.4), group('stone', 8, 1.05, 3), group('boss', 1, 0, 8.6)),
+      wave(group('windcap', 8, 0.62)),
+      wave(group('bug', 4, 0.56), group('windcap', 4, 0.68, 1.4)),
+      wave(group('windcap', 4, 0.56), group('stone', 4, 1.02, 1.7)),
+      wave(group('bug', 3, 0.5), group('stone', 5, 0.96, 1.5)),
+      wave(group('windcap', 2, 0.5), group('stone', 5, 0.92, 1.5), group('boss', 1, 0, 5.2)),
+      wave(group('bug', 2, 0.46), group('stone', 5, 0.88, 1.4), group('boss', 1, 0, 4.8)),
     ]),
   }),
   Object.freeze({
@@ -170,13 +179,13 @@ export const TD_STAGES = Object.freeze([
       [642, 358], [642, 646], [826, 320], [836, 586],
     ]),
     waves: Object.freeze([
-      wave(group('bug', 18, 0.52), group('windcap', 8, 0.72, 2)),
-      wave(group('stone', 10, 1.2), group('windcap', 14, 0.54, 2.4)),
-      wave(group('bug', 26, 0.4), group('stone', 8, 1.05, 3)),
-      wave(group('windcap', 25, 0.38), group('stone', 10, 0.98, 2.4)),
-      wave(group('bug', 28, 0.36), group('stone', 12, 0.92, 3)),
-      wave(group('windcap', 26, 0.35), group('boss', 1, 0, 7.4)),
-      wave(group('bug', 30, 0.32), group('stone', 12, 0.86, 2.8), group('boss', 2, 4.6, 7.2)),
+      wave(group('bug', 5, 0.52), group('windcap', 4, 0.62, 1.2)),
+      wave(group('windcap', 5, 0.52), group('stone', 4, 0.94, 1.5)),
+      wave(group('bug', 4, 0.46), group('stone', 5, 0.9, 1.4)),
+      wave(group('windcap', 4, 0.46), group('stone', 5, 0.86, 1.3)),
+      wave(group('bug', 3, 0.42), group('stone', 5, 0.82, 1.2), group('boss', 1, 0, 4.8)),
+      wave(group('windcap', 3, 0.42), group('stone', 5, 0.8, 1.2), group('boss', 1, 0, 4.4)),
+      wave(group('bug', 1, 0.4), group('stone', 6, 0.76, 1.1), group('boss', 2, 3.4, 4.2)),
     ]),
   }),
 ]);
@@ -517,24 +526,30 @@ export function pointOnPath(points, travelled) {
 export function endlessScaleForWave(waveNumber) {
   const waveIndex = Math.max(1, Math.floor(Number(waveNumber) || 1));
   return Object.freeze({
-    count: 8 + waveIndex * 3 + Math.floor(waveIndex ** 1.2),
-    hp: 1 + (waveIndex - 1) * 0.115 + (waveIndex - 1) ** 2 * 0.0048,
-    speed: Math.min(1.68, 1 + (waveIndex - 1) * 0.018),
-    reward: Math.max(0.48, 1 - (waveIndex - 1) * 0.012),
-    bossCount: waveIndex % 5 === 0 ? Math.max(1, Math.floor(waveIndex / 15) + 1) : 0,
+    // Total spawn slots stay fixed; boss waves replace regular enemies inside this budget.
+    count: TD_ENDLESS_SCALE_CAPS.count,
+    hp: scaleValue(Math.min(TD_ENDLESS_SCALE_CAPS.hp, 1.35 + (waveIndex - 1) * 0.115)),
+    speed: scaleValue(Math.min(TD_ENDLESS_SCALE_CAPS.speed, 1.05 + (waveIndex - 1) * 0.01)),
+    reward: scaleValue(Math.min(TD_ENDLESS_SCALE_CAPS.reward, 1.2 + (waveIndex - 1) * 0.03)),
+    bossCount: waveIndex % 5 === 0
+      ? Math.min(TD_ENDLESS_SCALE_CAPS.bossCount, 1 + Math.floor(waveIndex / 30))
+      : 0,
   });
 }
 
 function endlessWaveGroups(waveNumber) {
   const scale = endlessScaleForWave(waveNumber);
   const groups = [];
-  const stoneCount = waveNumber >= 3 ? Math.floor(scale.count * Math.min(0.32, 0.1 + waveNumber * 0.008)) : 0;
-  const windCount = waveNumber >= 2 ? Math.floor(scale.count * 0.34) : 0;
-  const bugCount = Math.max(5, scale.count - stoneCount - windCount);
-  groups.push(group('bug', bugCount, Math.max(0.24, 0.58 - waveNumber * 0.009)));
-  if (windCount) groups.push(group('windcap', windCount, Math.max(0.28, 0.66 - waveNumber * 0.008), 1.4));
-  if (stoneCount) groups.push(group('stone', stoneCount, Math.max(0.62, 1.35 - waveNumber * 0.014), 2.8));
-  if (scale.bossCount) groups.push(group('boss', scale.bossCount, 3.8, 5.8));
+  const regularCount = scale.count - scale.bossCount;
+  const stoneShare = Math.min(0.4, 0.16 + Math.max(0, waveNumber - 3) * 0.008);
+  const windShare = Math.min(0.38, 0.3 + Math.max(0, waveNumber - 2) * 0.004);
+  const stoneCount = waveNumber >= 3 ? Math.floor(regularCount * stoneShare) : 0;
+  const windCount = waveNumber >= 2 ? Math.floor(regularCount * windShare) : 0;
+  const bugCount = regularCount - stoneCount - windCount;
+  if (bugCount) groups.push(group('bug', bugCount, Math.max(0.42, 0.62 - waveNumber * 0.008)));
+  if (windCount) groups.push(group('windcap', windCount, Math.max(0.48, 0.7 - waveNumber * 0.007), 1.2));
+  if (stoneCount) groups.push(group('stone', stoneCount, Math.max(0.82, 1.22 - waveNumber * 0.01), 1.8));
+  if (scale.bossCount) groups.push(group('boss', scale.bossCount, 3.4, 4.6));
   return groups;
 }
 
@@ -576,14 +591,19 @@ export function startNextTowerDefenseWave(state) {
   return true;
 }
 
+export function stageScaleForWave(stageIndex, waveNumber) {
+  const stageOffset = clamp(Math.floor(Number(stageIndex) || 1), 1, TD_STAGES.length) - 1;
+  const waveOffset = Math.max(1, Math.floor(Number(waveNumber) || 1)) - 1;
+  return Object.freeze({
+    hp: scaleValue(Math.min(TD_STAGE_SCALE_CAPS.hp, 1.25 + stageOffset * 0.34 + waveOffset * 0.18)),
+    speed: scaleValue(Math.min(TD_STAGE_SCALE_CAPS.speed, 1.07 + stageOffset * 0.055 + waveOffset * 0.025)),
+    reward: scaleValue(Math.min(TD_STAGE_SCALE_CAPS.reward, 1.2 + stageOffset * 0.12 + waveOffset * 0.08)),
+  });
+}
+
 function enemyScaleForState(state) {
   if (state.mode === 'endless') return endlessScaleForWave(state.wave);
-  const stage = stageForState(state);
-  return {
-    hp: 1 + (stage.index - 1) * 0.16 + (state.wave - 1) * 0.075,
-    speed: 1 + (stage.index - 1) * 0.045 + (state.wave - 1) * 0.012,
-    reward: 1,
-  };
+  return stageScaleForWave(stageForState(state).index, state.wave);
 }
 
 function spawnEnemy(state, type) {

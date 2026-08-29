@@ -145,6 +145,7 @@ function createMainContext() {
     'beginPath',
     'bezierCurveTo',
     'clearRect',
+    'clip',
     'closePath',
     'ellipse',
     'fill',

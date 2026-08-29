@@ -2,9 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  TD_ENDLESS_SCALE_CAPS,
+  TD_ENEMIES,
   TD_HAND_LIMIT,
   TD_MAX_STAR,
+  TD_STAGE_SCALE_CAPS,
   TD_STAGES,
+  TOWER_TYPES,
   beginTowerDefenseRun,
   canMergeCardIntoTower,
   canMergeTowers,
@@ -16,9 +20,12 @@ import {
   mergeTowers,
   moveTowerToPad,
   normalizeTowerDefenseProgress,
+  pathMetrics,
   placeTowerFromHand,
+  pointOnPath,
   reclaimTowerToHand,
   serializeTowerDefenseProgress,
+  stageScaleForWave,
   startNextTowerDefenseWave,
   tutorialTargetForState,
   updateTowerDefense,
@@ -27,11 +34,83 @@ import {
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
 function createBattleState({ tutorialSeen = true, mode = 'stage', stageId = 'stage-1' } = {}) {
+  const unlockedStage = TD_STAGES.find(({ id }) => id === stageId)?.index || 1;
   const state = createTowerDefenseState({
-    progress: { tutorialSeen },
+    progress: { tutorialSeen, unlockedStage },
     seed: 0x12345678,
   });
   assert.equal(beginTowerDefenseRun(state, { mode, stageId }), true);
+  return state;
+}
+
+function padCoverageScore(state, towerType, padIndex) {
+  const stage = TD_STAGES.find(({ id }) => id === state.stageId);
+  const metrics = pathMetrics(stage.path);
+  const pad = stage.pads[padIndex];
+  let score = 0;
+  for (let travelled = 0; travelled <= metrics.total; travelled += 16) {
+    const point = pointOnPath(stage.path, travelled);
+    if (Math.hypot(point.x - pad.x, point.y - pad.y) <= TOWER_TYPES[towerType].range) score += 1;
+  }
+  return score;
+}
+
+function manageSimulatedBoard(state) {
+  for (let guard = 0; guard < 100; guard += 1) {
+    let changed = false;
+    outer: for (let leftIndex = 0; leftIndex < state.towers.length; leftIndex += 1) {
+      for (let rightIndex = leftIndex + 1; rightIndex < state.towers.length; rightIndex += 1) {
+        const left = state.towers[leftIndex];
+        const right = state.towers[rightIndex];
+        if (!canMergeTowers(left, right)) continue;
+        const leftScore = padCoverageScore(state, left.type, left.padIndex);
+        const rightScore = padCoverageScore(state, right.type, right.padIndex);
+        const [source, target] = leftScore <= rightScore ? [left, right] : [right, left];
+        mergeTowers(state, source.uid, target.uid);
+        changed = true;
+        break outer;
+      }
+    }
+    if (changed) continue;
+
+    for (const card of [...state.hand]) {
+      const mergeTarget = state.towers.find((tower) => canMergeCardIntoTower(card, tower));
+      if (mergeTarget) {
+        mergeCardIntoTower(state, card.uid, mergeTarget.uid);
+        changed = true;
+        break;
+      }
+      const occupied = new Set(state.towers.map(({ padIndex }) => padIndex));
+      const openPads = TD_STAGES.find(({ id }) => id === state.stageId).pads
+        .map((_, padIndex) => padIndex)
+        .filter((padIndex) => !occupied.has(padIndex));
+      const padIndex = openPads.sort((left, right) => (
+        padCoverageScore(state, card.type, right) - padCoverageScore(state, card.type, left)
+      ))[0];
+      if (padIndex !== undefined) {
+        placeTowerFromHand(state, card.uid, padIndex);
+        changed = true;
+        break;
+      }
+    }
+    if (!changed) break;
+  }
+}
+
+function spendSimulatedCurrency(state) {
+  manageSimulatedBoard(state);
+  for (let guard = 0; guard < 40; guard += 1) {
+    if (state.hand.length >= TD_HAND_LIMIT || state.currency < drawCostForState(state)) break;
+    if (!drawTowerCard(state)) break;
+    manageSimulatedBoard(state);
+  }
+}
+
+function runUntilResult(state, { engaged = false, maxTicks = 24_000 } = {}) {
+  for (let tick = 0; tick < maxTicks && !state.result; tick += 1) {
+    if (engaged && tick % 10 === 0) spendSimulatedCurrency(state);
+    updateTowerDefense(state, 0.05);
+  }
   return state;
 }
 
@@ -280,7 +359,45 @@ test('a placed tower moves only to a valid empty pad and preserves identity and 
   assert.equal(moving.aimAngle, 1.25);
 });
 
-test('stage waves use authored groups while endless waves grow and add periodic bosses', () => {
+test('authored stages use sharply smaller waves with concentrated elite and boss pressure', () => {
+  const countsByWave = TD_STAGES.map((stage) => stage.waves.map(
+    (groups) => groups.reduce((sum, entry) => sum + entry.count, 0),
+  ));
+  assert.deepEqual(countsByWave, [
+    [5, 7, 7, 7, 7],
+    [8, 8, 8, 8, 8, 8],
+    [9, 9, 9, 9, 9, 9, 9],
+  ]);
+  const totals = countsByWave.map((counts) => counts.reduce((sum, count) => sum + count, 0));
+  assert.deepEqual(totals, [33, 48, 63]);
+  [93, 145, 230].forEach((previousTotal, stageIndex) => {
+    assert.ok(totals[stageIndex] <= previousTotal * 0.4, 'each stage removes at least 60% of its enemies');
+  });
+
+  assert.deepEqual(TD_STAGES.map((stage) => (
+    stage.waves.at(-1).filter(({ type }) => type === 'boss')
+      .reduce((sum, entry) => sum + entry.count, 0)
+  )), [1, 1, 2]);
+  assert.ok(TD_ENEMIES.stone.hp >= TD_ENEMIES.bug.hp * 3);
+  assert.ok(TD_ENEMIES.boss.hp >= TD_ENEMIES.stone.hp * 8);
+  assert.ok(TD_ENEMIES.boss.coreDamage >= 10);
+
+  const expectedScales = [
+    [{ hp: 1.25, speed: 1.07, reward: 1.2 }, { hp: 1.97, speed: 1.17, reward: 1.52 }],
+    [{ hp: 1.59, speed: 1.125, reward: 1.32 }, { hp: 2.49, speed: 1.25, reward: 1.72 }],
+    [{ hp: 1.93, speed: 1.18, reward: 1.44 }, { hp: 3.01, speed: 1.33, reward: 1.92 }],
+  ];
+  TD_STAGES.forEach((stage, index) => {
+    assert.deepEqual(stageScaleForWave(stage.index, 1), expectedScales[index][0]);
+    assert.deepEqual(
+      stageScaleForWave(stage.index, stage.waves.length),
+      expectedScales[index][1],
+    );
+  });
+  assert.deepEqual(stageScaleForWave(3, 10_000), TD_STAGE_SCALE_CAPS);
+});
+
+test('endless waves cap population and every strength axis while adding periodic bosses', () => {
   const stageState = createBattleState();
   const firstWave = TD_STAGES[0].waves[0];
   const expectedStageSpawns = firstWave.reduce((sum, entry) => sum + entry.count, 0);
@@ -289,29 +406,94 @@ test('stage waves use authored groups while endless waves grow and add periodic 
   assert.equal(stageState.spawnQueue.length, expectedStageSpawns);
   assert.equal(startNextTowerDefenseWave(stageState), false, 'an active wave cannot be started twice');
 
-  const waveOne = endlessScaleForWave(1);
-  const waveFive = endlessScaleForWave(5);
-  const waveFifteen = endlessScaleForWave(15);
-  const lateWave = endlessScaleForWave(10_000);
-  assert.ok(waveFive.count > waveOne.count);
-  assert.ok(waveFive.hp > waveOne.hp);
-  assert.ok(waveFive.speed > waveOne.speed);
-  assert.ok(waveFive.reward < waveOne.reward);
-  assert.equal(waveOne.bossCount, 0);
-  assert.equal(waveFive.bossCount, 1);
-  assert.equal(waveFifteen.bossCount, 2);
-  assert.equal(lateWave.speed, 1.68);
-  assert.equal(lateWave.reward, 0.48);
+  assert.deepEqual(endlessScaleForWave(1), {
+    count: 8, hp: 1.35, speed: 1.05, reward: 1.2, bossCount: 0,
+  });
+  assert.deepEqual(endlessScaleForWave(10), {
+    count: 8, hp: 2.385, speed: 1.14, reward: 1.47, bossCount: 1,
+  });
+  assert.deepEqual(endlessScaleForWave(30), {
+    count: 8, hp: 4.685, speed: 1.34, reward: 2.07, bossCount: 2,
+  });
+  assert.deepEqual(endlessScaleForWave(100), {
+    ...TD_ENDLESS_SCALE_CAPS,
+  });
+  assert.deepEqual(endlessScaleForWave(10_000), {
+    ...TD_ENDLESS_SCALE_CAPS,
+  });
+  assert.equal(Object.isFrozen(endlessScaleForWave(100)), true);
 
-  const endlessState = createBattleState({ mode: 'endless' });
-  endlessState.wave = 4;
-  assert.equal(startNextTowerDefenseWave(endlessState), true);
-  assert.equal(endlessState.wave, 5);
-  assert.equal(
-    endlessState.spawnQueue.filter(({ type }) => type === 'boss').length,
-    waveFive.bossCount,
-  );
-  assert.equal(endlessState.spawnQueue.length, waveFive.count + waveFive.bossCount);
+  for (const waveNumber of [1, 10, 30, 100]) {
+    const endlessState = createBattleState({ mode: 'endless' });
+    endlessState.wave = waveNumber - 1;
+    assert.equal(startNextTowerDefenseWave(endlessState), true);
+    assert.equal(endlessState.wave, waveNumber);
+    assert.equal(
+      endlessState.spawnQueue.filter(({ type }) => type === 'boss').length,
+      endlessScaleForWave(waveNumber).bossCount,
+    );
+    assert.equal(endlessState.spawnQueue.length, TD_ENDLESS_SCALE_CAPS.count);
+  }
+});
+
+test('capped endless pressure defeats an undeveloped board while remaining clearable when upgraded', () => {
+  const simulateWave = (waveNumber, star, towerCount) => {
+    const state = createBattleState({ mode: 'endless' });
+    state.wave = waveNumber - 1;
+    state.towers = TD_STAGES[0].pads.slice(0, towerCount).map((_, padIndex) => ({
+      uid: `sim-tower-${padIndex}`,
+      type: Object.keys(TOWER_TYPES)[padIndex % Object.keys(TOWER_TYPES).length],
+      star,
+      padIndex,
+      cooldown: 0,
+      aimAngle: 0,
+      attackPulse: 0,
+    }));
+    assert.equal(startNextTowerDefenseWave(state), true);
+    for (let tick = 0; tick < 20_000 && state.waveActive && !state.result; tick += 1) {
+      updateTowerDefense(state, 0.05);
+    }
+    return state;
+  };
+
+  const undeveloped = simulateWave(30, 1, 4);
+  assert.equal(undeveloped.result, 'defeat');
+  assert.ok(undeveloped.kills < TD_ENDLESS_SCALE_CAPS.count);
+
+  const upgraded = simulateWave(100, TD_MAX_STAR, TD_STAGES[0].pads.length);
+  assert.equal(upgraded.result, null);
+  assert.equal(upgraded.waveActive, false);
+  assert.equal(upgraded.kills, TD_ENDLESS_SCALE_CAPS.count);
+  assert.equal(upgraded.coreHp, upgraded.coreMaxHp);
+});
+
+test('rule simulation defeats tutorial-only idling but clears all stages with continued draws and fusions', () => {
+  const idleState = createTowerDefenseState({ seed: 0x51A7E });
+  assert.equal(beginTowerDefenseRun(idleState, { stageId: 'stage-1' }), true);
+  const firstCard = drawTowerCard(idleState);
+  const firstTower = placeTowerFromHand(idleState, firstCard.uid, 0);
+  const secondCard = drawTowerCard(idleState);
+  assert.ok(mergeCardIntoTower(idleState, secondCard.uid, firstTower.uid));
+  assert.equal(startNextTowerDefenseWave(idleState), true);
+  runUntilResult(idleState);
+  assert.equal(idleState.result, 'defeat');
+  assert.equal(idleState.wave, TD_STAGES[0].waves.length);
+  assert.equal(idleState.drawCount, 2, 'the forced tutorial pair is deliberately insufficient for idling');
+
+  for (const stage of TD_STAGES) {
+    for (const seed of [0x1000, 0x1011, 0x1022]) {
+      const state = createTowerDefenseState({
+        progress: { tutorialSeen: true, unlockedStage: stage.index },
+        seed,
+      });
+      assert.equal(beginTowerDefenseRun(state, { stageId: stage.id }), true);
+      spendSimulatedCurrency(state);
+      assert.equal(startNextTowerDefenseWave(state), true);
+      runUntilResult(state, { engaged: true });
+      assert.equal(state.result, 'victory', `${stage.id} seed ${seed} should remain winnable`);
+      assert.ok(state.drawCount > TD_HAND_LIMIT, 'winning requires reinvesting wave rewards');
+    }
+  }
 });
 
 test('combat events carry stable entity ids and death snapshots for skeletal playback', () => {

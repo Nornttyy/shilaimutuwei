@@ -6,7 +6,7 @@
  * useful to platform builds and isolated tests.
  */
 
-export const ASSET_CACHE_VERSION = 'soft-gel-20260830-v8';
+export const ASSET_CACHE_VERSION = 'soft-gel-20260830-v9';
 
 const generatedAssetUrl = (relativePath) => {
   const url = new URL(`../assets/generated/${relativePath}`, import.meta.url);
@@ -47,6 +47,8 @@ export const CRITICAL_STARTUP_ASSET_KEYS = Object.freeze([
   'ui-hero-control-ring',
   'ui-hero-joystick-base',
   'ui-hero-joystick-knob',
+  'background-menu-portrait-v1',
+  'background-battle-portrait-v1',
   'background-cloud-overlay',
   'terrain-ground-field-v1',
   'terrain-discovery-fog-cell-v1',
@@ -114,8 +116,6 @@ export const CRITICAL_STARTUP_ASSET_KEYS = Object.freeze([
   'ui-gel-energy',
   'ui-card-frame-common',
   'ui-card-frame-deploy',
-  'ui-card-melee-squad',
-  'ui-card-ranged-squad',
   'ui-card-frame-item',
   'ui-audio-on',
   'ui-audio-off',
@@ -180,6 +180,8 @@ export const TOWER_DEFENSE_ASSET_KEYS = Object.freeze([
   'ui-hero-joystick-base',
   'ui-hero-joystick-knob',
   'background-garden-base',
+  'background-menu-portrait-v1',
+  'background-battle-portrait-v1',
   'background-cloud-overlay',
   'region-gel-meadow-field-a',
   'region-bubble-heath-field-a',
@@ -214,8 +216,6 @@ export const TOWER_DEFENSE_ASSET_KEYS = Object.freeze([
   'ui-gel-energy',
   'ui-card-frame-common',
   'ui-card-frame-deploy',
-  'ui-card-melee-squad',
-  'ui-card-ranged-squad',
   'ui-audio-on',
   'ui-audio-off',
   'ui-tutorial-hand',
@@ -329,6 +329,8 @@ const DECLARED_ASSET_PATHS = {
   'upgrade-gel-burst': generatedAssetUrl('expedition/upgrade-gel-burst.png'),
   'upgrade-last-bounce': generatedAssetUrl('expedition/upgrade-last-bounce.png'),
   'background-garden-base': generatedAssetUrl('background/background-garden-base.png'),
+  'background-menu-portrait-v1': generatedAssetUrl('background/background-menu-portrait-v1.png'),
+  'background-battle-portrait-v1': generatedAssetUrl('background/background-battle-portrait-v1.png'),
   'background-cloud-overlay': generatedAssetUrl('background/background-cloud-overlay.png'),
   'background-foreground-grass': generatedAssetUrl('background/background-foreground-grass.png'),
   'effect-projectile-goo': generatedAssetUrl('effect/effect-projectile-goo.png'),
@@ -359,8 +361,6 @@ const DECLARED_ASSET_PATHS = {
   'ui-gel-energy': generatedAssetUrl('ui/ui-gel-energy.png'),
   'ui-card-frame-common': generatedAssetUrl('ui/ui-card-frame-common.png'),
   'ui-card-frame-deploy': generatedAssetUrl('ui/ui-card-frame-deploy-v1.png'),
-  'ui-card-melee-squad': generatedAssetUrl('ui/ui-card-melee-squad-v1.png'),
-  'ui-card-ranged-squad': generatedAssetUrl('ui/ui-card-ranged-squad-v1.png'),
   'ui-card-frame-item': generatedAssetUrl('ui/ui-card-frame-item.png'),
   'ui-audio-on': generatedAssetUrl('ui/ui-audio-on.png'),
   'ui-audio-off': generatedAssetUrl('ui/ui-audio-off.png'),

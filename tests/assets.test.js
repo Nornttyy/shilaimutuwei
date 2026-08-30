@@ -416,8 +416,8 @@ test('tower-defense startup preloads every formal image used by its public rende
     'fortress-slime-core',
     'turret-gel-mount',
     'ui-card-frame-deploy',
-    'ui-card-melee-squad',
-    'ui-card-ranged-squad',
+    'background-menu-portrait-v1',
+    'background-battle-portrait-v1',
     'region-gel-meadow-field-a',
     'effect-projectile-needle',
   ]) {

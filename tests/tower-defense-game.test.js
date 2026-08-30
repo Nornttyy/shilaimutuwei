@@ -15,6 +15,9 @@ function createContext() {
     drawImage: (...args) => calls.push(['drawImage', ...args]),
     fillText: (text, x, y) => calls.push(['fillText', text, x, y]),
   };
+  base.stroke = () => calls.push([
+    'stroke', base.strokeStyle, base.lineWidth, base.globalAlpha,
+  ]);
   return new Proxy(base, {
     get(target, property) {
       if (property in target) return target[property];
@@ -224,9 +227,12 @@ test('formal asset and rig stores can be replaced and are used during rendering'
   assert.equal(game.generatedCharacterArtEnabled, false);
   game.render();
 
-  assert.ok(assets.requests.includes('background-garden-base'));
-  assert.ok(assets.requests.includes('background-cloud-overlay'));
-  assert.ok(assets.requests.includes('town-soft-core'));
+  assert.ok(assets.requests.includes('background-menu-portrait-v1'));
+  assert.ok(assets.requests.includes('background-garden-base'),
+    'the current garden stays as the loading-failure fallback');
+  assert.ok(assets.requests.includes('fortress-slime-core'));
+  assert.equal(assets.requests.includes('background-cloud-overlay'), false);
+  assert.equal(assets.requests.includes('town-soft-core'), false);
   assert.ok(rigs.requests.includes('survivor-shell-shell'));
   assert.ok(rigs.requests.includes('survivor-crystal-pin'));
   assert.equal(game.setGeneratedCharacterArtEnabled(true), game);
@@ -621,8 +627,8 @@ test('battle dock purchases squads and a fixed turret, moves squads in prep, the
   assert.equal(game.hits.find(({ id }) => id === 'hero-skill').enabled, false);
   assert.ok(assets.requests.includes('ui-gel-energy'));
   assert.ok(assets.requests.includes('ui-card-frame-deploy'));
-  assert.ok(assets.requests.includes('ui-card-melee-squad'));
-  assert.ok(assets.requests.includes('ui-card-ranged-squad'));
+  assert.equal(assets.requests.includes('ui-card-melee-squad'), false);
+  assert.equal(assets.requests.includes('ui-card-ranged-squad'), false);
   assert.equal(assets.requests.includes('ui-card-frame-common'), false);
 
   click(game, canvas, hitCenter(game, 'purchase-melee'));
@@ -708,13 +714,43 @@ test('portrait battle keeps deployment cards below the fortress and supports dir
     runtime: createRuntime({ tutorialSeen: true }),
     pixelRatio: 1,
   });
-  const assets = createAssetStore();
+  const assets = createAssetStore([
+    'background-menu-portrait-v1',
+    'background-battle-portrait-v1',
+  ]);
   game.setAssetStore(assets);
   game.render();
   click(game, canvas, hitCenter(game, 'start-story'));
   game.render();
   click(game, canvas, hitCenter(game, 'select-stage-1'));
+  let deploymentGrid = null;
+  let deploymentSegments = [];
+  const drawDeploymentGrid = game.drawDeploymentGrid.bind(game);
+  game.drawDeploymentGrid = (ctx, lanes, stage) => {
+    deploymentGrid = {
+      columns: lanes.map((lane) => lane.x),
+      rows: [...new Set(stage.pads.map((pad) => pad.y))],
+    };
+    const previousMoveTo = ctx.moveTo;
+    const previousLineTo = ctx.lineTo;
+    let start = null;
+    ctx.moveTo = (x, y) => {
+      start = { x, y };
+      previousMoveTo.call(ctx, x, y);
+    };
+    ctx.lineTo = (x, y) => {
+      if (start) deploymentSegments.push([start, { x, y }]);
+      previousLineTo.call(ctx, x, y);
+    };
+    try {
+      return drawDeploymentGrid(ctx, lanes, stage);
+    } finally {
+      ctx.moveTo = previousMoveTo;
+      ctx.lineTo = previousLineTo;
+    }
+  };
   assets.requests.length = 0;
+  canvas.context.calls.length = 0;
   game.render();
 
   const purchaseHits = ['purchase-melee', 'purchase-ranged', 'purchase-turret']
@@ -724,8 +760,27 @@ test('portrait battle keeps deployment cards below the fortress and supports dir
     assert.ok(hit.y + hit.height <= 1280, `${hit.id} stays inside the portrait view`);
   });
   const padZero = game.hits.find(({ id }) => id === 'pad-0');
-  assert.ok(padZero.y > 200 && padZero.y + padZero.height < 900,
-    'soldier cells stay in the middle field');
+  assert.deepEqual({
+    x: padZero.x,
+    y: padZero.y,
+    width: padZero.width,
+    height: padZero.height,
+  }, {
+    x: 20, y: 225, width: 136, height: 90,
+  }, 'each touch target covers its complete white-grid cell');
+  assert.equal(game.emptyPadHitAt({ x: 21, y: 226 })?.data?.padIndex, 0,
+    'the visible top-left edge of a grid cell accepts placement');
+  assert.deepEqual(deploymentGrid, {
+    columns: [88, 224, 360, 496, 632],
+    rows: [270, 360, 450, 540, 630, 720, 810],
+  }, 'the deployment overlay is one five-by-seven grid');
+  assert.equal(deploymentSegments.length, 14,
+    'the five-by-seven grid draws six vertical and eight horizontal lines');
+  assert.deepEqual(deploymentSegments[0], [{ x: 20, y: 225 }, { x: 20, y: 855 }]);
+  assert.deepEqual(deploymentSegments.at(-1), [{ x: 20, y: 855 }, { x: 700, y: 855 }]);
+  assert.ok(canvas.context.calls.some(([kind, strokeStyle, lineWidth]) => (
+    kind === 'stroke' && strokeStyle === '#FFFFFF' && lineWidth === 1.25
+  )), 'the deployment grid uses a thin white stroke');
   const slotId = game.state.turretSlots[0].id;
   const turretSlot = game.hits.find(({ id }) => id === slotId);
   assert.ok(turretSlot.y > 850 && turretSlot.y + turretSlot.height < 1020,
@@ -733,9 +788,12 @@ test('portrait battle keeps deployment cards below the fortress and supports dir
   assert.ok(assets.requests.includes('fortress-slime-core'));
   assert.ok(assets.requests.includes('turret-gel-mount'));
   assert.ok(assets.requests.includes('turret-gel-mortar'));
+  assert.ok(assets.requests.includes('background-battle-portrait-v1'));
+  assert.equal(assets.requests.filter((key) => key === 'rift-entry-portal').length, 1,
+    'the battlefield requests exactly one centered portal');
   assert.ok(assets.requests.includes('ui-card-frame-deploy'));
-  assert.ok(assets.requests.includes('ui-card-melee-squad'));
-  assert.ok(assets.requests.includes('ui-card-ranged-squad'));
+  assert.equal(assets.requests.includes('ui-card-melee-squad'), false);
+  assert.equal(assets.requests.includes('ui-card-ranged-squad'), false);
   assert.equal(assets.requests.includes('building-gel-foundation'), false,
     'empty turret positions no longer request the generic foundation');
   assert.equal(assets.requests.includes('ui-card-frame-common'), false,
@@ -782,41 +840,50 @@ test('portrait battle keeps deployment cards below the fortress and supports dir
   game.dispose();
 });
 
-test('portrait deployment cards prefer formal squad art and only use rig previews as fallback', () => {
+test('portrait deployment cards synthesize both four-member squads without baked card art', () => {
   const canvas = createCanvas();
   const game = new TowerDefenseGame(canvas, {
     runtime: createRuntime({ tutorialSeen: true }),
     pixelRatio: 1,
   });
   const assets = createAssetStore([
-    'turret-gel-mount',
     'ui-card-frame-deploy',
     'ui-card-melee-squad',
     'ui-card-ranged-squad',
   ]);
+  const rigs = createRigStore();
   game.setAssetStore(assets);
+  game.setRigAssetStore(rigs);
   game.render();
   click(game, canvas, hitCenter(game, 'start-story'));
   game.render();
   click(game, canvas, hitCenter(game, 'select-stage-1'));
 
   let rigPreviewCount = 0;
+  const previewRigRequests = [];
   const drawRigPreview = game.drawSquadPurchasePreview.bind(game);
   game.drawSquadPurchasePreview = (...args) => {
     rigPreviewCount += 1;
-    return drawRigPreview(...args);
+    const requestStart = rigs.requests.length;
+    const result = drawRigPreview(...args);
+    previewRigRequests.push(rigs.requests.slice(requestStart));
+    return result;
   };
   assets.requests.length = 0;
+  rigs.requests.length = 0;
   game.render();
 
-  assert.ok(assets.requests.includes('ui-card-melee-squad'));
-  assert.ok(assets.requests.includes('ui-card-ranged-squad'));
-  assert.equal(rigPreviewCount, 0, 'loaded squad card PNGs suppress the rig fallback');
-
-  assets.available.delete('ui-card-melee-squad');
-  assets.available.delete('ui-card-ranged-squad');
-  game.render();
-  assert.equal(rigPreviewCount, 2, 'each missing squad card PNG falls back to one rig preview');
+  assert.ok(assets.requests.includes('ui-card-frame-deploy'));
+  assert.equal(assets.requests.includes('ui-card-melee-squad'), false);
+  assert.equal(assets.requests.includes('ui-card-ranged-squad'), false);
+  assert.equal(rigPreviewCount, 2,
+    'melee and ranged cards each render one four-member skeletal preview');
+  assert.deepEqual(previewRigRequests.map((requests) => requests.length), [4, 4],
+    'each purchase-card preview resolves four independent layered soldiers');
+  assert.deepEqual(previewRigRequests.map((requests) => [...new Set(requests)]), [
+    ['survivor-shell-shell'],
+    ['survivor-crystal-pin'],
+  ]);
   game.dispose();
 });
 

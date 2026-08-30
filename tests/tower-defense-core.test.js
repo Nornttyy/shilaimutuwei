@@ -61,8 +61,16 @@ function createBattleState({
 }
 
 function travelledForY(lane, y) {
-  const direction = Math.sign(lane.path.at(-1).y - lane.path[0].y) || 1;
-  return Math.max(0, (y - lane.path[0].y) * direction);
+  const metrics = pathMetrics(lane.path);
+  const targetY = y ?? lane.path[0].y;
+  if (targetY <= lane.path[0].y) return 0;
+  if (targetY >= lane.path.at(-1).y) return metrics.total;
+  const segment = metrics.segments.find(({ start, end }) => (
+    targetY >= start.y && targetY <= end.y
+  ));
+  assert.ok(segment, `expected path segment at y=${targetY}`);
+  const ratio = (targetY - segment.start.y) / (segment.end.y - segment.start.y);
+  return segment.from + segment.length * ratio;
 }
 
 function enemyAt({
@@ -160,12 +168,12 @@ test('direct squad purchase is prep-only, correctly priced, one-cell, and atomic
 test('member losses reduce aliveMembers and squad damage linearly', () => {
   for (const squadType of ['melee', 'ranged']) {
     const state = createBattleState();
-    const squad = buyTowerDefenseSquad(state, squadType, 0);
-    const pad = TD_STAGES[0].pads[0];
+    const squad = buyTowerDefenseSquad(state, squadType, 1);
+    const pad = TD_STAGES[0].pads[1];
     holdCombat(state);
     const enemy = enemyAt({
       laneIndex: pad.laneIndex,
-      y: pad.y - (squadType === 'melee' ? 48 : 180),
+      y: pad.y - (squadType === 'melee' ? 20 : 120),
       uid: `${squadType}-damage-target`, hp: 1_000_000,
     });
     state.enemies = [enemy];
@@ -195,10 +203,10 @@ test('member losses reduce aliveMembers and squad damage linearly', () => {
 
 test('melee closes to contact while ranged fires a long-distance projectile', () => {
   const meleeState = createBattleState();
-  const melee = buyTowerDefenseSquad(meleeState, 'melee', 0);
-  const pad = TD_STAGES[0].pads[0];
+  const melee = buyTowerDefenseSquad(meleeState, 'melee', 1);
+  const pad = TD_STAGES[0].pads[1];
   holdCombat(meleeState);
-  const meleeEnemy = enemyAt({ laneIndex: 0, y: pad.y - 190, uid: 'melee-target', hp: 1e6 });
+  const meleeEnemy = enemyAt({ laneIndex: 0, y: pad.y - 80, uid: 'melee-target', hp: 1e6 });
   meleeState.enemies = [meleeEnemy];
   melee.cooldown = 0;
   updateTowerDefense(meleeState, 0.05);
@@ -211,9 +219,9 @@ test('melee closes to contact while ranged fires a long-distance projectile', ()
   assert.ok(meleeEnemy.hp < meleeEnemy.maxHp);
 
   const rangedState = createBattleState();
-  const ranged = buyTowerDefenseSquad(rangedState, 'ranged', 0);
+  const ranged = buyTowerDefenseSquad(rangedState, 'ranged', 1);
   holdCombat(rangedState);
-  const rangedEnemy = enemyAt({ laneIndex: 0, y: pad.y - 190, uid: 'ranged-target', hp: 1e6 });
+  const rangedEnemy = enemyAt({ laneIndex: 0, y: pad.y - 74, uid: 'ranged-target', hp: 1e6 });
   rangedState.enemies = [rangedEnemy];
   ranged.cooldown = 0;
   rangedState.events = [];
@@ -402,16 +410,43 @@ test('wave clear returns to prep, restores actors, and never auto-starts', () =>
   assert.equal(state.phase, 'combat');
 });
 
-test('portrait stages use five top-to-bottom lanes with soldiers, turrets, core, then cards', () => {
+test('portrait stages share one top entrance, smoothly split into five lanes, then reach the core', () => {
   assert.deepEqual(TD_VIEW, { width: 720, height: 1280 });
   assert.equal(TD_FIELD.y + TD_FIELD.height < TD_CARD_DOCK.y, true);
   for (const stage of TD_STAGES) {
     assert.equal(stage.lanes.length, 5);
     assert.equal(stage.pads.length, 35);
     assert.equal(stage.path, stage.lanes[2].path);
+    assert.deepEqual(
+      stage.lanes.map(({ path }) => path[0]),
+      Array.from({ length: 5 }, () => ({ x: TD_VIEW.width / 2, y: 222 })),
+    );
+    assert.deepEqual(
+      stage.lanes.map(({ path }) => path[1]),
+      Array.from({ length: 5 }, () => ({ x: TD_VIEW.width / 2, y: 226 })),
+    );
     for (const lane of stage.lanes) {
       assert.ok(lane.path[0].y < lane.path.at(-1).y);
-      assert.equal(lane.path.every(({ x }) => x === lane.x), true);
+      assert.equal(lane.path.length, 8);
+      assert.equal(lane.path.every((point, index) => (
+        index === 0 || point.y > lane.path[index - 1].y
+      )), true);
+      assert.deepEqual(lane.path.at(-2), { x: lane.x, y: 286 });
+      assert.deepEqual(lane.path.at(-1), { x: lane.x, y: 1002 });
+      const direction = Math.sign(lane.x - TD_VIEW.width / 2);
+      assert.equal(lane.path.every((point, index) => (
+        index === 0
+        || direction === 0
+        || Math.sign(point.x - lane.path[index - 1].x) === direction
+        || point.x === lane.path[index - 1].x
+      )), true);
+      if (direction !== 0) {
+        const lateralSteps = lane.path.slice(2, -1).map((point, index) => (
+          Math.abs(point.x - lane.path[index + 1].x)
+        ));
+        assert.ok(lateralSteps[0] < lateralSteps[2]);
+        assert.ok(lateralSteps.every((step) => step >= 0));
+      }
       assert.deepEqual(
         stage.pads.filter(({ laneIndex }) => laneIndex === lane.index)
           .map(({ rowIndex }) => rowIndex),
@@ -457,6 +492,60 @@ test('ranged squads target only upstream enemies on the same vertical lane', () 
   );
 });
 
+test('outer split uses true range and squads advance diagonally on their own route', () => {
+  const state = createBattleState();
+  const outerPad = TD_STAGES[0].pads.findIndex(({ laneIndex, rowIndex }) => (
+    laneIndex === 0 && rowIndex === 0
+  ));
+  const squad = buyTowerDefenseSquad(state, 'ranged', outerPad);
+  holdCombat(state);
+  const trunkEnemy = enemyAt({ laneIndex: 0, y: 222, uid: 'trunk-out-of-range' });
+  state.enemies = [trunkEnemy];
+  squad.cooldown = 0;
+  updateTowerDefense(state, 0.01);
+  assert.equal(state.events.some(({ type }) => type === 'shot'), false,
+    'route progress alone must not bridge the 272px lateral split');
+
+  const movingState = createBattleState();
+  const movingPad = TD_STAGES[0].pads.findIndex(({ laneIndex, rowIndex }) => (
+    laneIndex === 0 && rowIndex === 1
+  ));
+  const melee = buyTowerDefenseSquad(movingState, 'melee', movingPad);
+  holdCombat(movingState);
+  movingState.enemies = [enemyAt({ laneIndex: 0, y: 222, uid: 'split-target' })];
+  const before = { x: melee.x, y: melee.y };
+  for (let tick = 0; tick < 30; tick += 1) updateTowerDefense(movingState, 0.05);
+  assert.ok(melee.y < before.y);
+  assert.ok(melee.x > before.x, 'outer squad follows the diagonal branch toward the trunk');
+  const lane = TD_STAGES[0].lanes[0];
+  const travelled = travelledForY(lane, melee.y);
+  const expected = pointOnPath(lane.path, travelled);
+  assert.ok(Math.hypot(melee.x - expected.x, melee.y - expected.y) < 0.01);
+});
+
+test('blockers use projection onto each enemy path and shared-trunk hero blocks all routes', () => {
+  const state = createBattleState();
+  const outerPad = TD_STAGES[0].pads.findIndex(({ laneIndex, rowIndex }) => (
+    laneIndex === 0 && rowIndex === 0
+  ));
+  const squad = buyTowerDefenseSquad(state, 'melee', outerPad);
+  holdCombat(state);
+  squad.cooldown = 999;
+  state.hero.x = 360;
+  state.hero.y = 226;
+  state.hero.hp = state.hero.maxHp;
+  state.hero.cooldown = 999;
+  const enemies = Array.from({ length: 5 }, (_, laneIndex) => enemyAt({
+    laneIndex, y: 222, uid: `shared-${laneIndex}`, speed: 20,
+  }));
+  state.enemies = enemies;
+  updateTowerDefense(state, 0.1);
+  assert.deepEqual(enemies.map(({ blockedByTowerUid }) => blockedByTowerUid),
+    Array.from({ length: 5 }, () => state.hero.uid));
+  assert.notEqual(enemies[0].blockedByTowerUid, squad.uid,
+    'outer squad cannot contact an enemy hundreds of pixels away on the trunk');
+});
+
 test('an unblocked enemy leaks at the bottom endpoint and damages the base', () => {
   const state = createBattleState();
   const lane = TD_STAGES[0].lanes[4];
@@ -488,6 +577,22 @@ test('authored waves and endless pressure remain sharply capped', () => {
   ]);
   assert.ok(TD_ENEMIES.stone.hp >= TD_ENEMIES.bug.hp * 3);
   assert.ok(TD_ENEMIES.boss.hp >= TD_ENEMIES.stone.hp * 8);
+  const formerEnemyStats = {
+    bug: { hp: 40, speed: 36, attackDamage: 9, coreDamage: 1 },
+    windcap: { hp: 36, speed: 54, attackDamage: 8, coreDamage: 2 },
+    stone: { hp: 140, speed: 26, attackDamage: 18, coreDamage: 2 },
+    boss: { hp: 1150, speed: 20, attackDamage: 38, coreDamage: 10 },
+  };
+  for (const [type, former] of Object.entries(formerEnemyStats)) {
+    const strengthened = TD_ENEMIES[type];
+    assert.ok(strengthened.hp >= former.hp * 2.5, `${type} health is visibly stronger`);
+    assert.ok(strengthened.attackDamage >= former.attackDamage * 2.3,
+      `${type} contact damage is visibly stronger`);
+    assert.ok(strengthened.coreDamage > former.coreDamage,
+      `${type} fortress contact is more dangerous`);
+    assert.ok(strengthened.speed > former.speed && strengthened.speed <= former.speed * 1.06,
+      `${type} speed only rises slightly`);
+  }
   assert.deepEqual(stageScaleForWave(3, 10_000), TD_STAGE_SCALE_CAPS);
   assert.deepEqual(endlessScaleForWave(100), { ...TD_ENDLESS_SCALE_CAPS });
   for (const waveNumber of [1, 10, 30, 100]) {
@@ -498,6 +603,66 @@ test('authored waves and endless pressure remain sharply capped', () => {
     assert.equal(state.spawnQueue.filter(({ type }) => type === 'boss').length,
       endlessScaleForWave(waveNumber).bossCount);
   }
+});
+
+function simulateStarterLineup({ heroActive }) {
+  const state = createBattleState({ seed: 0x51A7E });
+  const stage = TD_STAGES[0];
+  const padIndex = (laneIndex, rowIndex) => stage.pads.findIndex((pad) => (
+    pad.laneIndex === laneIndex && pad.rowIndex === rowIndex
+  ));
+  assert.ok(buyTowerDefenseSquad(state, 'melee', padIndex(0, 0)));
+  assert.ok(buyTowerDefenseSquad(state, 'ranged', padIndex(2, 4)));
+  assert.ok(buildTowerDefenseTurret(state, 1));
+  assert.equal(state.currency, 75);
+  if (!heroActive) state.hero.hp = 0;
+
+  let ticks = 0;
+  while (!state.result && ticks < 8000) {
+    if (!state.waveActive && state.phase === 'prep') {
+      assert.equal(startNextTowerDefenseWave(state), true);
+    }
+    if (heroActive && state.waveActive && state.hero?.hp > 0) {
+      const target = [...state.enemies]
+        .filter((enemy) => enemy.hp > 0)
+        .sort((left, right) => right.travelled - left.travelled)[0];
+      if (target) {
+        const targetY = Math.min(TD_HERO_BOUNDS.maxY, target.y + 84);
+        const dx = target.x - state.hero.x;
+        const dy = targetY - state.hero.y;
+        const magnitude = Math.hypot(dx, dy) || 1;
+        setTowerDefenseHeroMovement(state, dx / magnitude, dy / magnitude);
+        const heroDefinition = HERO_TYPES[state.hero.type];
+        if (
+          state.hero.skillCooldown <= 0
+          && Math.hypot(target.x - state.hero.x, target.y - state.hero.y)
+            <= heroDefinition.skillRadius
+        ) activateTowerDefenseHeroSkill(state);
+      } else {
+        setTowerDefenseHeroMovement(state, 0, 0);
+      }
+    }
+    updateTowerDefense(state, 0.05);
+    ticks += 1;
+  }
+  assert.ok(ticks < 8000, 'the five-wave simulation cannot deadlock');
+  assert.equal(state.enemies.length, 0);
+  assert.equal(state.spawnQueue.length, 0);
+  return state;
+}
+
+test('the starter lineup clears stage one only when the player hero participates', () => {
+  const active = simulateStarterLineup({ heroActive: true });
+  assert.equal(active.result, 'victory');
+  assert.equal(active.wave, 5);
+  assert.equal(active.coreHp, 15);
+  assert.equal(active.kills, 31);
+
+  const idle = simulateStarterLineup({ heroActive: false });
+  assert.equal(idle.result, 'defeat');
+  assert.equal(idle.wave, 5);
+  assert.equal(idle.coreHp, 0);
+  assert.ok(idle.kills < active.kills);
 });
 
 test('legacy star attack data stays immutable for skeletal presentation', () => {

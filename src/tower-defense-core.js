@@ -253,20 +253,20 @@ export const TURRET_TYPES = Object.freeze({
 
 export const TD_ENEMIES = Object.freeze({
   bug: Object.freeze({
-    id: 'bug', ownerId: 'enemy-soft-biter', hp: 40, speed: 36, reward: 7,
-    size: 58, coreDamage: 1, attackDamage: 9, attackInterval: 1.2, color: '#A77770',
+    id: 'bug', ownerId: 'enemy-soft-biter', hp: 110, speed: 38, reward: 7,
+    size: 58, coreDamage: 2, attackDamage: 22, attackInterval: 1.2, color: '#A77770',
   }),
   windcap: Object.freeze({
-    id: 'windcap', ownerId: 'enemy-windcap', hp: 36, speed: 54, reward: 9,
-    size: 55, coreDamage: 2, attackDamage: 8, attackInterval: 0.85, color: '#C18BCC',
+    id: 'windcap', ownerId: 'enemy-windcap', hp: 95, speed: 56, reward: 9,
+    size: 55, coreDamage: 4, attackDamage: 20, attackInterval: 0.85, color: '#C18BCC',
   }),
   stone: Object.freeze({
-    id: 'stone', ownerId: 'enemy-stone-lump', hp: 140, speed: 26, reward: 18,
-    size: 68, coreDamage: 2, attackDamage: 18, attackInterval: 1.55, color: '#85848D',
+    id: 'stone', ownerId: 'enemy-stone-lump', hp: 360, speed: 27.5, reward: 18,
+    size: 68, coreDamage: 4, attackDamage: 45, attackInterval: 1.55, color: '#85848D',
   }),
   boss: Object.freeze({
-    id: 'boss', ownerId: 'enemy-acid-shell-king', hp: 1150, speed: 20, reward: 100,
-    size: 104, coreDamage: 10, attackDamage: 38, attackInterval: 1.35,
+    id: 'boss', ownerId: 'enemy-acid-shell-king', hp: 2900, speed: 21, reward: 100,
+    size: 104, coreDamage: 14, attackDamage: 90, attackInterval: 1.35,
     color: '#778D54', boss: true,
   }),
 });
@@ -274,15 +274,35 @@ export const TD_ENEMIES = Object.freeze({
 const freezePoints = (points) => Object.freeze(points.map((point) => Object.freeze(point)));
 const TD_LANE_X = Object.freeze([88, 224, 360, 496, 632]);
 const TD_ROW_Y = Object.freeze([270, 360, 450, 540, 630, 720, 810]);
-const TD_PATH_START_Y = 132;
+const TD_ENTRY_X = TD_VIEW.width / 2;
+// The authored portal ends at y=222. Enemies emerge at its lower lip, share a
+// short trunk, then finish fanning out around the first deployment row.
+const TD_PATH_START_Y = 222;
+const TD_PATH_TRUNK_Y = 226;
+const TD_PATH_SPLIT_END_Y = 286;
 const TD_PATH_END_Y = 1002;
 const TD_LANE_INDICES = Object.freeze(Array.from({ length: TD_LANE_COUNT }, (_, index) => index));
+
+const lanePath = (x) => {
+  const spread = x - TD_ENTRY_X;
+  const splitPoints = [234, 243, 252, 266, TD_PATH_SPLIT_END_Y].map((y) => {
+    const progress = (y - TD_PATH_TRUNK_Y) / (TD_PATH_SPLIT_END_Y - TD_PATH_TRUNK_Y);
+    const eased = progress * progress * (3 - 2 * progress);
+    return { x: TD_ENTRY_X + spread * eased, y };
+  });
+  return freezePoints([
+    { x: TD_ENTRY_X, y: TD_PATH_START_Y },
+    { x: TD_ENTRY_X, y: TD_PATH_TRUNK_Y },
+    ...splitPoints,
+    { x, y: TD_PATH_END_Y },
+  ]);
+};
 
 const freezeLanes = () => Object.freeze(TD_LANE_X.map((x, index) => Object.freeze({
   id: `lane-${index}`,
   index,
   x,
-  path: freezePoints([{ x, y: TD_PATH_START_Y }, { x, y: TD_PATH_END_Y }]),
+  path: lanePath(x),
 })));
 
 const freezeLanePads = (lanes) => Object.freeze(lanes.flatMap((lane) => (
@@ -985,6 +1005,51 @@ export function pointOnPath(points, travelled) {
   };
 }
 
+/** Nearest point on a polyline, including its route-distance coordinate. */
+function projectPointToPath(points, actor) {
+  const metrics = pathMetrics(points);
+  let best = null;
+  for (const segment of metrics.segments) {
+    const dx = segment.end.x - segment.start.x;
+    const dy = segment.end.y - segment.start.y;
+    const lengthSquared = dx * dx + dy * dy;
+    const ratio = lengthSquared > 0
+      ? clamp(((actor.x - segment.start.x) * dx + (actor.y - segment.start.y) * dy) / lengthSquared, 0, 1)
+      : 0;
+    const point = {
+      x: segment.start.x + dx * ratio,
+      y: segment.start.y + dy * ratio,
+    };
+    const transverseDistance = distance(actor, point);
+    if (!best || transverseDistance < best.distance) {
+      best = {
+        ...point,
+        distance: transverseDistance,
+        travelled: segment.from + segment.length * ratio,
+      };
+    }
+  }
+  return best || { ...points[0], distance: distance(actor, points[0]), travelled: 0 };
+}
+
+/** Returns route distance at a vertical contact line on a monotonic portrait path. */
+function travelledAtPathY(points, y) {
+  const metrics = pathMetrics(points);
+  const targetY = Number(y);
+  if (!Number.isFinite(targetY) || !metrics.segments.length) return 0;
+  if (targetY <= points[0].y) return 0;
+  if (targetY >= points.at(-1).y) return metrics.total;
+  const segment = metrics.segments.find(({ start, end }) => (
+    targetY >= Math.min(start.y, end.y) && targetY <= Math.max(start.y, end.y)
+  ));
+  if (!segment) return 0;
+  const deltaY = segment.end.y - segment.start.y;
+  const ratio = Math.abs(deltaY) > 1e-6
+    ? clamp((targetY - segment.start.y) / deltaY, 0, 1)
+    : 0;
+  return segment.from + segment.length * ratio;
+}
+
 export function endlessScaleForWave(waveNumber) {
   const waveIndex = Math.max(1, Math.floor(Number(waveNumber) || 1));
   return Object.freeze({
@@ -1182,13 +1247,15 @@ function targetForTower(state, tower) {
   const origin = towerPosition(state, tower);
   if (!origin) return null;
   const range = rangeForTowerState(state, tower);
+  const lane = stageForState(state).lanes[origin.laneIndex];
+  const actorTravelled = projectPointToPath(lane.path, origin).travelled;
   let best = null;
   for (const enemy of state.enemies) {
     if (
       enemy.hp <= 0
       || laneIndexForEnemy(state, enemy) !== origin.laneIndex
-      || enemy.y > origin.y
-      || origin.y - enemy.y > range
+      || enemy.travelled > actorTravelled + 0.01
+      || distance(origin, enemy) > range
     ) continue;
     if (!best || enemy.travelled > best.travelled) best = enemy;
   }
@@ -1200,13 +1267,16 @@ function volleyTargetsForTower(state, tower, primary, count) {
   const origin = towerPosition(state, tower);
   if (!origin) return [primary];
   const range = rangeForTowerState(state, tower);
+  const actorTravelled = projectPointToPath(
+    stageForState(state).lanes[origin.laneIndex].path, origin,
+  ).travelled;
   const extras = state.enemies
     .filter((enemy) => (
       enemy.uid !== primary.uid
       && enemy.hp > 0
       && laneIndexForEnemy(state, enemy) === origin.laneIndex
-      && enemy.y <= origin.y
-      && origin.y - enemy.y <= range
+      && enemy.travelled <= actorTravelled + 0.01
+      && distance(origin, enemy) <= range
     ))
     .sort((left, right) => right.travelled - left.travelled)
     .slice(0, count - 1);
@@ -1456,29 +1526,36 @@ function updateTowers(state, dt) {
     tower.hitPulse = Math.max(0, tower.hitPulse - dt * 6);
     if (tower.hp <= 0) continue;
     const origin = towerPosition(state, tower);
+    const lane = stageForState(state).lanes[origin.laneIndex];
+    const actorProjection = projectPointToPath(lane.path, origin);
     const approachTarget = state.enemies
       .filter((enemy) => (
         enemy.hp > 0
         && laneIndexForEnemy(state, enemy) === origin.laneIndex
-        && enemy.y <= origin.y
+        && enemy.travelled <= actorProjection.travelled + 0.01
       ))
-      .sort((left, right) => right.y - left.y)[0];
+      .sort((left, right) => right.travelled - left.travelled)[0];
     const preferredGap = definition.id === 'melee'
       ? 60
       : Math.max(62, rangeForTowerState(state, tower) * 0.72);
-    const shouldMove = approachTarget && origin.y - approachTarget.y > preferredGap;
+    const shouldMove = approachTarget
+      && actorProjection.travelled - approachTarget.travelled > preferredGap;
     if (shouldMove) {
-      const previousY = tower.y;
-      tower.y = Math.max(
-        approachTarget.y + preferredGap,
-        origin.y - (Number(tower.moveSpeed) || definition.speed) * dt,
-        TD_HERO_BOUNDS.minY,
+      const previous = { x: tower.x, y: tower.y };
+      const minimumTravelled = travelledAtPathY(lane.path, TD_HERO_BOUNDS.minY);
+      const nextTravelled = Math.max(
+        approachTarget.travelled + preferredGap,
+        actorProjection.travelled - (Number(tower.moveSpeed) || definition.speed) * dt,
+        minimumTravelled,
       );
+      const nextPoint = pointOnPath(lane.path, nextTravelled);
+      tower.x = nextPoint.x;
+      tower.y = nextPoint.y;
       if (!tower.moving) {
         state.events.push({
           type: 'soldier-move', soldierUid: tower.uid, soldierType: tower.type,
-          fromX: tower.x, toX: tower.x,
-          fromY: previousY, toY: approachTarget.y + preferredGap,
+          fromX: previous.x, toX: pointOnPath(lane.path, approachTarget.travelled + preferredGap).x,
+          fromY: previous.y, toY: pointOnPath(lane.path, approachTarget.travelled + preferredGap).y,
           laneIndex: origin.laneIndex,
         });
       }
@@ -1640,9 +1717,11 @@ function towerContactTravel(state, enemy, tower) {
   const origin = towerPosition(state, tower);
   if (!origin || origin.laneIndex !== laneIndexForEnemy(state, enemy)) return null;
   const lane = stage.lanes[origin.laneIndex];
+  const projection = projectPointToPath(lane.path, origin);
+  if (projection.distance > 46) return null;
   const definition = TD_ENEMIES[enemy.type] || TD_ENEMIES.bug;
   const contactOffset = 38 + definition.size * 0.18;
-  return Math.max(0, origin.y - contactOffset - lane.path[0].y);
+  return Math.max(0, projection.travelled - contactOffset);
 }
 
 function nextBlockingTower(state, enemy) {
@@ -1664,9 +1743,10 @@ function nextBlockingTower(state, enemy) {
     const laneIndex = laneIndexForEnemy(state, enemy);
     const lane = stage.lanes[laneIndex];
     const enemyDefinition = TD_ENEMIES[enemy.type] || TD_ENEMIES.bug;
-    if (Math.abs(hero.x - lane.x) <= 42) {
+    const projection = projectPointToPath(lane.path, hero);
+    if (projection.distance <= 42) {
       const contactOffset = 36 + enemyDefinition.size * 0.18;
-      const heroTravelled = Math.max(0, hero.y - contactOffset - lane.path[0].y);
+      const heroTravelled = Math.max(0, projection.travelled - contactOffset);
       if (heroTravelled >= enemy.travelled - 0.01 && heroTravelled < bestTravelled) {
         best = hero;
         bestTravelled = heroTravelled;

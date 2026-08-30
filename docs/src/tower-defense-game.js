@@ -69,6 +69,9 @@ const PAD_RADIUS = 38;
 const DRAG_THRESHOLD = 12;
 const BATTLE_FIELD = Object.freeze({ top: 96, bottom: 1088, left: 0, right: TD_VIEW.width });
 const FALLBACK_LANE_X = Object.freeze([88, 224, 360, 496, 632]);
+const DEPLOY_GRID_ROWS = Object.freeze([270, 360, 450, 540, 630, 720, 810]);
+const DEPLOY_CELL_SIZE = Object.freeze({ width: 136, height: 90 });
+const DEPLOY_HIGHLIGHT_SIZE = Object.freeze({ width: 120, height: 80 });
 
 const COMMAND_DOCK = Object.freeze({
   back: Object.freeze({ x: 12, y: 18, width: 48, height: 56 }),
@@ -1185,10 +1188,10 @@ export class TowerDefenseGame {
     pads.forEach((pad, padIndex) => {
       if (towerByPad(this.state, padIndex)) return;
       const rect = {
-        x: pad.x - PAD_RADIUS,
-        y: pad.y - PAD_RADIUS,
-        width: PAD_RADIUS * 2,
-        height: PAD_RADIUS * 2,
+        x: pad.x - DEPLOY_CELL_SIZE.width / 2,
+        y: pad.y - DEPLOY_CELL_SIZE.height / 2,
+        width: DEPLOY_CELL_SIZE.width,
+        height: DEPLOY_CELL_SIZE.height,
       };
       if (!insideRect(point, rect)) return;
       const distance = pointDistance(point, pad);
@@ -1710,21 +1713,21 @@ export class TowerDefenseGame {
   }
 
   drawMenu(ctx) {
-    ctx.fillStyle = '#CBE8D0';
+    ctx.fillStyle = '#B9E4D2';
     ctx.fillRect(0, 0, TD_VIEW.width, TD_VIEW.height);
-    drawAssetOrFallback(ctx, this.assetStore, 'background-garden-base', (asset) => {
+    drawAssetOrFallback(ctx, this.assetStore, 'background-menu-portrait-v1', (asset) => {
       drawCoverImage(ctx, asset);
-    }, () => this.drawBackdrop(ctx, 'stage-1'));
-    drawAssetOrFallback(ctx, this.assetStore, 'background-cloud-overlay', (asset) => {
-      ctx.globalAlpha *= 0.24;
-      const drift = Math.sin(this.state.time * 0.08) * 20;
-      drawCoverImage(ctx, asset, { x: -18 + drift, y: -18, width: 756, height: 500 });
-    }, () => {});
+    }, () => {
+      drawAssetOrFallback(ctx, this.assetStore, 'background-garden-base', (asset) => {
+        drawCoverImage(ctx, asset);
+      }, () => this.drawBackdrop(ctx, 'stage-1'));
+    });
 
     const wash = ctx.createLinearGradient(0, 0, 0, TD_VIEW.height);
-    wash.addColorStop(0, 'rgba(255, 251, 231, 0.42)');
-    wash.addColorStop(0.64, 'rgba(232, 247, 221, 0.18)');
-    wash.addColorStop(1, 'rgba(57, 98, 87, 0.2)');
+    wash.addColorStop(0, 'rgba(255, 252, 232, 0.5)');
+    wash.addColorStop(0.5, 'rgba(226, 251, 231, 0.08)');
+    wash.addColorStop(0.77, 'rgba(33, 85, 78, 0.08)');
+    wash.addColorStop(1, 'rgba(18, 53, 60, 0.38)');
     ctx.fillStyle = wash;
     ctx.fillRect(0, 0, TD_VIEW.width, TD_VIEW.height);
 
@@ -1741,7 +1744,11 @@ export class TowerDefenseGame {
         ctx.shadowBlur = 11;
       }
       ctx.beginPath();
-      ctx.arc(x, 170, 7, 0, TAU);
+      ctx.moveTo(x, 161);
+      ctx.lineTo(x + 9, 170);
+      ctx.lineTo(x, 179);
+      ctx.lineTo(x - 9, 170);
+      ctx.closePath();
       ctx.fillStyle = cleared ? stage.accent : unlocked ? '#FFF8DF' : '#AAB5AF';
       ctx.fill();
       ctx.strokeStyle = unlocked ? stage.accent : '#87948E';
@@ -1764,18 +1771,9 @@ export class TowerDefenseGame {
     ctx.fill();
     ctx.restore();
 
-    const ringPhase = (this.state.time % 3) / 3;
-    ctx.save();
-    ctx.globalAlpha = (1 - ringPhase) * 0.18;
-    ctx.strokeStyle = '#D8FFE9';
-    ctx.lineWidth = 6;
-    ctx.beginPath();
-    ctx.ellipse(TD_VIEW.width / 2, 520,
-      95 + ringPhase * 80, 74 + ringPhase * 62, 0, 0, TAU);
-    ctx.stroke();
-    ctx.restore();
-
-    drawCore(ctx, TD_VIEW.width / 2, 668, 270, {
+    drawCore(ctx, TD_VIEW.width / 2, 688, 252, {
+      assetKey: 'fortress-slime-core',
+      ...FORTRESS_CORE_ASSET_LAYOUT,
       time: this.state.time,
       health: 1,
       assetStore: this.assetStore,
@@ -1806,13 +1804,25 @@ export class TowerDefenseGame {
     const storyStage = this.menuStoryStage();
     const storyRect = MENU_ACTIONS.story;
     const storyHot = Boolean(this.hoverPoint && insideRect(this.hoverPoint, storyRect));
-    panel(ctx, storyRect, {
-      fill: storyHot ? '#75DDB0' : '#64D3A0',
-      stroke: storyHot ? '#176E59' : COLORS.mintDeep,
-      lineWidth: storyHot ? 5 : 3,
-      radius: 32,
-      shadow: true,
-    });
+    ctx.save();
+    ctx.shadowColor = 'rgba(17, 59, 58, 0.34)';
+    ctx.shadowBlur = storyHot ? 22 : 14;
+    ctx.shadowOffsetY = 8;
+    roundedPath(ctx, storyRect.x, storyRect.y, storyRect.width, storyRect.height, 32);
+    ctx.fillStyle = storyHot ? '#75DDB0' : '#64D3A0';
+    ctx.fill();
+    ctx.shadowColor = 'transparent';
+    ctx.strokeStyle = storyHot ? '#176E59' : COLORS.mintDeep;
+    ctx.lineWidth = storyHot ? 5 : 3;
+    ctx.stroke();
+    ctx.globalAlpha = 0.48;
+    ctx.strokeStyle = '#E9FFF1';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(storyRect.x + 38, storyRect.y + 20);
+    ctx.lineTo(storyRect.x + storyRect.width - 98, storyRect.y + 20);
+    ctx.stroke();
+    ctx.restore();
     label(ctx, '开始闯关', storyRect.x + storyRect.width / 2 - 20,
       storyRect.y + storyRect.height / 2, {
         size: 32, color: COLORS.white, weight: 950,
@@ -1822,8 +1832,13 @@ export class TowerDefenseGame {
     ));
     ctx.save();
     ctx.beginPath();
-    ctx.arc(storyRect.x + storyRect.width - 54,
-      storyRect.y + storyRect.height / 2, 28, 0, TAU);
+    const stageBadgeX = storyRect.x + storyRect.width - 54;
+    const stageBadgeY = storyRect.y + storyRect.height / 2;
+    ctx.moveTo(stageBadgeX, stageBadgeY - 31);
+    ctx.lineTo(stageBadgeX + 31, stageBadgeY);
+    ctx.lineTo(stageBadgeX, stageBadgeY + 31);
+    ctx.lineTo(stageBadgeX - 31, stageBadgeY);
+    ctx.closePath();
     ctx.fillStyle = '#FFF4C8';
     ctx.fill();
     ctx.strokeStyle = '#2C8B6E';
@@ -1834,27 +1849,52 @@ export class TowerDefenseGame {
       storyRect.x + storyRect.width - 54,
       storyRect.y + storyRect.height / 2, {
         size: allCleared ? 18 : 24, color: COLORS.mintDeep, weight: 950,
-      });
+    });
     this.addHit('start-story', storyRect, 'open-stage-select');
+
+    const secondaryShelf = {
+      x: MENU_ACTIONS.endless.x,
+      y: MENU_ACTIONS.endless.y,
+      width: MENU_ACTIONS.summon.x + MENU_ACTIONS.summon.width - MENU_ACTIONS.endless.x,
+      height: MENU_ACTIONS.endless.height,
+    };
+    ctx.save();
+    roundedPath(ctx, secondaryShelf.x, secondaryShelf.y,
+      secondaryShelf.width, secondaryShelf.height, 28);
+    ctx.fillStyle = 'rgba(245, 249, 224, 0.88)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(42, 78, 73, 0.68)';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(418, secondaryShelf.y + 18);
+    ctx.lineTo(418, secondaryShelf.y + secondaryShelf.height - 18);
+    ctx.strokeStyle = 'rgba(67, 102, 91, 0.3)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.restore();
 
     const endlessUnlocked = this.endlessUnlocked();
     const endlessRect = MENU_ACTIONS.endless;
     const endlessHot = endlessUnlocked
       && Boolean(this.hoverPoint && insideRect(this.hoverPoint, endlessRect));
-    panel(ctx, endlessRect, {
-      fill: endlessUnlocked
-        ? endlessHot ? '#9388EC' : '#8175DC'
-        : '#CED5D1',
-      stroke: endlessUnlocked ? '#4F438E' : '#929E98',
-      lineWidth: endlessHot ? 5 : 3,
-      radius: 32,
-      shadow: endlessUnlocked,
-    });
+    if (endlessHot) {
+      ctx.save();
+      ctx.strokeStyle = '#8175DC';
+      ctx.lineWidth = 7;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(endlessRect.x + 34, endlessRect.y + endlessRect.height - 13);
+      ctx.lineTo(endlessRect.x + endlessRect.width - 34,
+        endlessRect.y + endlessRect.height - 13);
+      ctx.stroke();
+      ctx.restore();
+    }
     label(ctx, endlessUnlocked ? '∞  无尽模式' : '锁  无尽模式',
       endlessRect.x + endlessRect.width / 2,
       endlessRect.y + endlessRect.height / 2 - (endlessUnlocked ? 0 : 8), {
         size: endlessUnlocked ? 27 : 24,
-        color: endlessUnlocked ? COLORS.white : '#75817B',
+        color: endlessUnlocked ? '#5B4EAA' : '#75817B',
         weight: 950,
       });
     if (!endlessUnlocked) {
@@ -1867,13 +1907,18 @@ export class TowerDefenseGame {
 
     const summonRect = MENU_ACTIONS.summon;
     const summonHot = Boolean(this.hoverPoint && insideRect(this.hoverPoint, summonRect));
-    panel(ctx, summonRect, {
-      fill: summonHot ? '#FFF1B8' : '#F7E4A0',
-      stroke: summonHot ? '#8E5B20' : '#B57A2C',
-      lineWidth: summonHot ? 5 : 3,
-      radius: 32,
-      shadow: true,
-    });
+    if (summonHot) {
+      ctx.save();
+      ctx.strokeStyle = '#D49A35';
+      ctx.lineWidth = 7;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(summonRect.x + 28, summonRect.y + summonRect.height - 13);
+      ctx.lineTo(summonRect.x + summonRect.width - 28,
+        summonRect.y + summonRect.height - 13);
+      ctx.stroke();
+      ctx.restore();
+    }
     label(ctx, '英雄召唤', summonRect.x + summonRect.width / 2,
       summonRect.y + 35, {
         size: 21, color: COLORS.ink, weight: 950,
@@ -1892,16 +1937,15 @@ export class TowerDefenseGame {
   }
 
   drawSummonPage(ctx) {
-    ctx.fillStyle = '#CBE8D0';
+    ctx.fillStyle = '#B9E4D2';
     ctx.fillRect(0, 0, TD_VIEW.width, TD_VIEW.height);
-    drawAssetOrFallback(ctx, this.assetStore, 'background-garden-base', (asset) => {
+    drawAssetOrFallback(ctx, this.assetStore, 'background-menu-portrait-v1', (asset) => {
       drawCoverImage(ctx, asset);
-    }, () => this.drawBackdrop(ctx, 'stage-1'));
-    drawAssetOrFallback(ctx, this.assetStore, 'background-cloud-overlay', (asset) => {
-      ctx.globalAlpha *= 0.18;
-      const drift = Math.sin(this.state.time * 0.08) * 20;
-      drawCoverImage(ctx, asset, { x: -18 + drift, y: -18, width: 756, height: 500 });
-    }, () => {});
+    }, () => {
+      drawAssetOrFallback(ctx, this.assetStore, 'background-garden-base', (asset) => {
+        drawCoverImage(ctx, asset);
+      }, () => this.drawBackdrop(ctx, 'stage-1'));
+    });
 
     const wash = ctx.createLinearGradient(0, 0, 0, TD_VIEW.height);
     wash.addColorStop(0, 'rgba(255, 249, 225, 0.78)');
@@ -2144,16 +2188,15 @@ export class TowerDefenseGame {
   }
 
   drawStageSelect(ctx) {
-    ctx.fillStyle = '#CBE8D0';
+    ctx.fillStyle = '#B9E4D2';
     ctx.fillRect(0, 0, TD_VIEW.width, TD_VIEW.height);
-    drawAssetOrFallback(ctx, this.assetStore, 'background-garden-base', (asset) => {
+    drawAssetOrFallback(ctx, this.assetStore, 'background-menu-portrait-v1', (asset) => {
       drawCoverImage(ctx, asset);
-    }, () => this.drawBackdrop(ctx, 'stage-1'));
-    drawAssetOrFallback(ctx, this.assetStore, 'background-cloud-overlay', (asset) => {
-      ctx.globalAlpha *= 0.2;
-      const drift = Math.sin(this.state.time * 0.08) * 20;
-      drawCoverImage(ctx, asset, { x: -18 + drift, y: -18, width: 756, height: 500 });
-    }, () => {});
+    }, () => {
+      drawAssetOrFallback(ctx, this.assetStore, 'background-garden-base', (asset) => {
+        drawCoverImage(ctx, asset);
+      }, () => this.drawBackdrop(ctx, 'stage-1'));
+    });
 
     const wash = ctx.createLinearGradient(0, 0, 0, TD_VIEW.height);
     wash.addColorStop(0, 'rgba(255, 251, 232, 0.62)');
@@ -2208,7 +2251,11 @@ export class TowerDefenseGame {
 
       ctx.save();
       ctx.beginPath();
-      ctx.arc(rect.x + 42, rect.y + 42, 25, 0, TAU);
+      ctx.moveTo(rect.x + 42, rect.y + 15);
+      ctx.lineTo(rect.x + 69, rect.y + 42);
+      ctx.lineTo(rect.x + 42, rect.y + 69);
+      ctx.lineTo(rect.x + 15, rect.y + 42);
+      ctx.closePath();
       ctx.fillStyle = unlocked ? '#FFF4C8' : '#B9C1BD';
       ctx.fill();
       ctx.strokeStyle = unlocked ? stage.accent : '#7E8A85';
@@ -2478,7 +2525,11 @@ export class TowerDefenseGame {
   }
 
   drawBattlefield(ctx, stage) {
-    this.drawBackdrop(ctx, stage.id);
+    ctx.fillStyle = '#B8DEC8';
+    ctx.fillRect(0, 0, TD_VIEW.width, TD_VIEW.height);
+    drawAssetOrFallback(ctx, this.assetStore, 'background-battle-portrait-v1', (asset) => {
+      drawCoverImage(ctx, asset);
+    }, () => this.drawBackdrop(ctx, stage.id));
     ctx.save();
     const fieldWash = ctx.createLinearGradient(0, BATTLE_FIELD.top, 0, BATTLE_FIELD.bottom);
     fieldWash.addColorStop(0, 'rgba(244,255,239,0.22)');
@@ -2503,12 +2554,10 @@ export class TowerDefenseGame {
       hit: this.shake > 0 ? 1 : 0,
       assetStore: this.assetStore,
     });
-    lanes.forEach((lane, index) => {
-      drawPortal(ctx, lane.x, 228, 84, {
-        time: this.state.time + index * 0.16,
-        open: this.state.waveActive || this.state.enemies.length ? 1 : 0.62,
-        assetStore: this.assetStore,
-      });
+    drawPortal(ctx, TD_VIEW.width / 2, 222, 112, {
+      time: this.state.time,
+      open: this.state.waveActive || this.state.enemies.length ? 1 : 0.62,
+      assetStore: this.assetStore,
     });
     this.drawTurretSlots(ctx, stage);
 
@@ -2549,53 +2598,56 @@ export class TowerDefenseGame {
     this.drawEffects(ctx);
   }
 
-  drawLaneField(ctx, lanes, stage) {
-    ctx.save();
-    for (const lane of lanes) {
-      const lanePulse = 0.5 + 0.5 * Math.sin(this.state.time * 0.8 + lane.laneIndex * 0.9);
-      const laneGradient = ctx.createLinearGradient(lane.x, 132, lane.x, 1002);
-      laneGradient.addColorStop(0, 'rgba(218,255,228,0.42)');
-      laneGradient.addColorStop(0.48, `${stage.accent}24`);
-      laneGradient.addColorStop(1, 'rgba(221,219,255,0.42)');
-      ctx.fillStyle = laneGradient;
-      roundedPath(ctx, lane.x - 34, 132, 68, 870, 32);
-      ctx.fill();
-      ctx.globalAlpha = 0.22 + lanePulse * 0.08;
-      ctx.strokeStyle = stage.accent;
-      ctx.lineWidth = 2;
-      roundedPath(ctx, lane.x - 34, 132, 68, 870, 32);
-      ctx.stroke();
-      ctx.globalAlpha = 1;
-      this.drawPath(ctx, lane.points, lane.laneIndex);
+  drawDeploymentGrid(ctx, lanes, stage) {
+    const columns = lanes.map((lane) => Number(lane.x)).filter(Number.isFinite);
+    const authoredRows = Array.isArray(stage?.pads)
+      ? [...new Set(stage.pads.map((pad) => Number(pad.y)).filter(Number.isFinite))]
+        .sort((left, right) => left - right)
+      : [];
+    const rows = authoredRows.length === 7 ? authoredRows : DEPLOY_GRID_ROWS;
+    if (columns.length !== 5 || rows.length !== 7) return;
 
-      ctx.save();
-      ctx.globalAlpha = 0.68;
-      ctx.fillStyle = '#F8FFE9';
-      ctx.strokeStyle = stage.accent;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(lane.x, 116, 14, 0, TAU);
-      ctx.fill();
-      ctx.stroke();
-      ctx.restore();
-      label(ctx, lane.laneIndex + 1, lane.x, 117, {
-        size: 12, color: COLORS.ink, weight: 950,
-      });
-    }
+    const boundariesFor = (values) => [
+      values[0] - (values[1] - values[0]) / 2,
+      ...values.slice(0, -1).map((value, index) => (
+        (value + values[index + 1]) / 2
+      )),
+      values.at(-1) + (values.at(-1) - values.at(-2)) / 2,
+    ];
+    const xBounds = boundariesFor(columns);
+    const yBounds = boundariesFor(rows);
+    ctx.save();
+    ctx.globalAlpha = this.isPreparation() ? 0.42 : 0.24;
+    ctx.strokeStyle = '#FFFFFF';
+    ctx.lineWidth = 1.25;
+    ctx.beginPath();
+    xBounds.forEach((x) => {
+      ctx.moveTo(x, yBounds[0]);
+      ctx.lineTo(x, yBounds.at(-1));
+    });
+    yBounds.forEach((y) => {
+      ctx.moveTo(xBounds[0], y);
+      ctx.lineTo(xBounds.at(-1), y);
+    });
+    ctx.stroke();
     ctx.restore();
+  }
+
+  drawLaneField(ctx, lanes, stage) {
+    this.drawDeploymentGrid(ctx, lanes, stage);
   }
 
   drawLaneGateways(ctx, lanes, stage, coreX, coreY) {
     ctx.save();
     ctx.lineCap = 'round';
+    ctx.strokeStyle = '#FFFFFF';
+    ctx.lineWidth = 1.25;
     for (const lane of lanes) {
-      const branchAlpha = 0.18 + Math.sin(this.state.time * 1.1 + lane.laneIndex) * 0.025;
-      ctx.globalAlpha = branchAlpha;
-      ctx.strokeStyle = stage.accent;
-      ctx.lineWidth = 10;
+      ctx.globalAlpha = this.isPreparation() ? 0.36 : 0.2;
       ctx.beginPath();
-      ctx.moveTo(lane.x, 998);
-      ctx.bezierCurveTo(lane.x, 1022, coreX, coreY - 36, coreX, coreY - 14);
+      ctx.moveTo(lane.x, 855);
+      ctx.lineTo(lane.x, 948);
+      ctx.bezierCurveTo(lane.x, 992, coreX, coreY - 54, coreX, coreY - 20);
       ctx.stroke();
     }
     ctx.restore();
@@ -2699,48 +2751,52 @@ export class TowerDefenseGame {
     }
     if (!tower && ['melee', 'ranged'].includes(this.selectedPurchase)) dropIntent = 'place';
     const hoverRect = {
-      x: pad.x - PAD_RADIUS,
-      y: pad.y - PAD_RADIUS,
-      width: PAD_RADIUS * 2,
-      height: PAD_RADIUS * 2,
+      x: pad.x - DEPLOY_CELL_SIZE.width / 2,
+      y: pad.y - DEPLOY_CELL_SIZE.height / 2,
+      width: DEPLOY_CELL_SIZE.width,
+      height: DEPLOY_CELL_SIZE.height,
     };
     const hot = Boolean(this.drag?.moved && this.hoverPoint && insideRect(this.hoverPoint, hoverRect));
-    const pulse = 1 + Math.sin(this.state.time * 6 + padIndex) * 0.055;
-    const visualRadius = dropIntent ? PAD_RADIUS * pulse : PAD_RADIUS;
-    ctx.save();
-    ctx.globalAlpha = dropIntent ? (hot ? 0.94 : 0.72) : tower ? 0.34 : tutorialPad ? 0.72 : 0.48;
-    ctx.fillStyle = dropIntent === 'merge'
-      ? '#FFE59A'
-      : dropIntent === 'move'
-        ? '#D8EFFF'
-        : dropIntent === 'place'
-          ? '#D8F6D9'
-          : tower ? '#D8F2DC' : '#FFF8DA';
-    ctx.strokeStyle = tutorialPad
-      ? COLORS.gold
-      : dropIntent === 'merge'
-        ? '#D79B26'
+    if (dropIntent || tower || tutorialPad) {
+      const highlightRect = {
+        x: pad.x - DEPLOY_HIGHLIGHT_SIZE.width / 2,
+        y: pad.y - DEPLOY_HIGHLIGHT_SIZE.height / 2,
+        width: DEPLOY_HIGHLIGHT_SIZE.width,
+        height: DEPLOY_HIGHLIGHT_SIZE.height,
+      };
+      ctx.save();
+      ctx.globalAlpha = dropIntent
+        ? (hot ? 0.88 : 0.64)
+        : tower ? 0.18 : 0.62;
+      ctx.fillStyle = dropIntent === 'merge'
+        ? '#FFE59A'
         : dropIntent === 'move'
-          ? '#4E9CC9'
+          ? '#D8EFFF'
           : dropIntent === 'place'
-            ? COLORS.mintDeep
-            : '#668B78';
-    ctx.lineWidth = tutorialPad || dropIntent ? (hot ? 7 : 5) : 2.5;
-    ctx.beginPath();
-    ctx.ellipse(pad.x, pad.y + 4, visualRadius, visualRadius * 0.48, 0, 0, TAU);
-    ctx.fill();
-    ctx.stroke();
-    if (dropIntent === 'merge') {
-      ctx.globalAlpha *= 0.68;
-      ctx.beginPath();
-      ctx.ellipse(pad.x, pad.y + 4, visualRadius + 9, (visualRadius + 9) * 0.48, 0, 0, TAU);
+            ? '#D8F6D9'
+            : tower ? '#D8F2DC' : '#FFF8DA';
+      ctx.strokeStyle = tutorialPad
+        ? COLORS.gold
+        : dropIntent === 'merge'
+          ? '#D79B26'
+          : dropIntent === 'move'
+            ? '#4E9CC9'
+            : dropIntent === 'place'
+              ? COLORS.mintDeep
+              : '#FFFFFF';
+      ctx.lineWidth = tutorialPad || dropIntent ? (hot ? 5 : 3.5) : 1.5;
+      roundedPath(ctx, highlightRect.x, highlightRect.y,
+        highlightRect.width, highlightRect.height, 4);
+      ctx.fill();
       ctx.stroke();
+      ctx.restore();
     }
-    ctx.restore();
 
     this.addHit(`pad-${padIndex}`, {
-      x: pad.x - PAD_RADIUS, y: pad.y - PAD_RADIUS,
-      width: PAD_RADIUS * 2, height: PAD_RADIUS * 2,
+      x: pad.x - DEPLOY_CELL_SIZE.width / 2,
+      y: pad.y - DEPLOY_CELL_SIZE.height / 2,
+      width: DEPLOY_CELL_SIZE.width,
+      height: DEPLOY_CELL_SIZE.height,
     }, 'pad', { padIndex }, preparation && !tower
       && (['melee', 'ranged'].includes(this.selectedPurchase) || Boolean(activeTower)));
 
@@ -3161,25 +3217,6 @@ export class TowerDefenseGame {
     });
   }
 
-  drawSquadPurchaseArt(ctx, rect, type, enabled = true) {
-    const assetKey = type === 'needle'
-      ? 'ui-card-ranged-squad'
-      : 'ui-card-melee-squad';
-    drawAssetOrFallback(ctx, this.assetStore, assetKey, (asset) => {
-      ctx.globalAlpha *= enabled ? 1 : 0.42;
-      ctx.drawImage(
-        asset,
-        rect.x + 9,
-        rect.y + 39,
-        rect.width - 18,
-        rect.height - 45,
-      );
-    }, () => {
-      ctx.globalAlpha *= enabled ? 1 : 0.42;
-      this.drawSquadPurchasePreview(ctx, rect, type);
-    });
-  }
-
   drawDirectPurchaseDock(ctx, stage) {
     const preparation = this.isPreparation();
     if (!preparation) {
@@ -3226,7 +3263,10 @@ export class TowerDefenseGame {
         size: 15, align: 'right', color: enabled ? COLORS.ink : COLORS.disabled, weight: 950,
       });
       if (entry.type) {
-        this.drawSquadPurchaseArt(ctx, rect, entry.type, enabled);
+        ctx.save();
+        ctx.globalAlpha *= enabled ? 1 : 0.42;
+        this.drawSquadPurchasePreview(ctx, rect, entry.type);
+        ctx.restore();
       } else {
         drawBuilding(ctx, rect.x + rect.width / 2, rect.y + 119, 88, 'tower', {
           assetKey: 'turret-gel-mortar',

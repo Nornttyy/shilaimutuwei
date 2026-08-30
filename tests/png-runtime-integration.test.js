@@ -56,7 +56,7 @@ class FakeOffscreenCanvas {
 
 globalThis.OffscreenCanvas = FakeOffscreenCanvas;
 
-const { drawMonster, drawSlime } = await import('../src/draw.js');
+const { drawMonster, drawSlime, slimeEvolutionProfile } = await import('../src/draw.js');
 const { SlimeGame } = await import('../src/game.js');
 const { TowerDefenseGame } = await import('../src/tower-defense-game.js');
 const {
@@ -174,6 +174,44 @@ const CHARACTER_DIRECTION_CASES = [
   ['enemy-stone-lump', (ctx, options) => drawMonster(ctx, 0, 0, 100, 'stone', options)],
   ['enemy-acid-shell-king', (ctx, options) => drawMonster(ctx, 0, 0, 100, 'boss', options)],
 ];
+
+test('slime evolution profiles add fixed silhouette parts and a four-star aura', () => {
+  for (const type of ['shell', 'needle', 'bubble', 'sprout']) {
+    assert.deepEqual(slimeEvolutionProfile(type, 1), {
+      type, level: 1, fixedParts: 0, aura: false, orbiters: 0,
+    });
+    assert.deepEqual(slimeEvolutionProfile(type, 2), {
+      type, level: 2, fixedParts: 1, aura: false, orbiters: 0,
+    });
+    assert.deepEqual(slimeEvolutionProfile(type, 3), {
+      type, level: 3, fixedParts: 2, aura: false, orbiters: 0,
+    });
+    assert.deepEqual(slimeEvolutionProfile(type, 4), {
+      type, level: 4, fixedParts: 3, aura: true, orbiters: 3,
+    });
+    assert.equal(Object.isFrozen(slimeEvolutionProfile(type, 4)), true);
+  }
+});
+
+test('all four layered survivors render their four-star silhouette overlays', () => {
+  const cases = [
+    ['survivor-shell-shell', 'shell'],
+    ['survivor-crystal-pin', 'needle'],
+    ['survivor-bubble-float', 'bubble'],
+    ['survivor-moss-sprout', 'sprout'],
+  ];
+  for (const [ownerId, type] of cases) {
+    resetOffscreen();
+    const ctx = createMainContext();
+    assert.doesNotThrow(() => drawSlime(ctx, 0, 0, 100, type, {
+      animate: false,
+      star: 4,
+      rigAsset: readyBundle(ownerId),
+      requireLayeredRig: true,
+    }));
+    assert.equal(ctx.compositeDraws, 1, `${ownerId} keeps one complete rig composite`);
+  }
+});
 
 test('all eight layered rigs and standalones obey the requested-by-source facing matrix', async (t) => {
   for (const [ownerId, renderCharacter] of CHARACTER_DIRECTION_CASES) {

@@ -863,6 +863,185 @@ function drawSproutSlimePosedLocal(ctx, options, colors) {
   });
 }
 
+export function slimeEvolutionProfile(variant, star = 1) {
+  const type = ['shell', 'needle', 'bubble', 'sprout'].includes(variant) ? variant : 'shell';
+  const level = clamp(Math.floor(safeNumber(star, 1)), 1, 4);
+  return Object.freeze({
+    type,
+    level,
+    fixedParts: Math.max(0, level - 1),
+    aura: level >= 4,
+    orbiters: level >= 4 ? 3 : 0,
+  });
+}
+
+function drawEvolutionCrystalLocal(ctx, x, y, width, height, color = '#8DCBFF') {
+  ctx.beginPath();
+  ctx.moveTo(x, y - height);
+  ctx.lineTo(x + width, y - height * 0.18);
+  ctx.lineTo(x + width * 0.45, y);
+  ctx.lineTo(x - width * 0.45, y);
+  ctx.lineTo(x - width, y - height * 0.18);
+  ctx.closePath();
+  ctx.fillStyle = color;
+  ctx.fill();
+  ctx.strokeStyle = '#365F83';
+  ctx.lineWidth = 2.4;
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(x - width * 0.35, y - height * 0.24);
+  ctx.lineTo(x, y - height * 0.86);
+  ctx.strokeStyle = 'rgba(255,255,255,0.82)';
+  ctx.lineWidth = 1.6;
+  ctx.stroke();
+}
+
+function drawSlimeEvolutionBack(ctx, x, y, size, profile, time, facing, alpha) {
+  if (profile.level <= 1) return;
+  ctx.save();
+  ctx.globalAlpha *= alpha;
+  ctx.translate(x, y);
+  ctx.scale(facing * size / 100, size / 100);
+
+  if (profile.aura) {
+    const pulse = 0.72 + Math.sin(time * 2.1) * 0.12;
+    ctx.globalAlpha *= pulse;
+    ctx.strokeStyle = profile.type === 'needle' ? '#A9D8FF'
+      : profile.type === 'bubble' ? '#9CEEFF'
+        : profile.type === 'sprout' ? '#C7F69B' : '#FFE1A0';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.ellipse(0, -44, 57, 47, 0, 0, TAU);
+    ctx.stroke();
+    ctx.globalAlpha /= pulse;
+  }
+
+  if (profile.type === 'shell') {
+    ctx.beginPath();
+    ctx.moveTo(-54, -57);
+    ctx.quadraticCurveTo(-38, -82, -12, -72);
+    ctx.lineTo(-19, -51);
+    ctx.quadraticCurveTo(-37, -60, -52, -42);
+    ctx.closePath();
+    ctx.fillStyle = '#76D8AE';
+    ctx.fill();
+    ctx.strokeStyle = '#286F61';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    if (profile.level >= 3) {
+      ctx.beginPath();
+      ctx.moveTo(49, -55);
+      ctx.quadraticCurveTo(34, -79, 12, -70);
+      ctx.lineTo(18, -50);
+      ctx.quadraticCurveTo(36, -58, 49, -40);
+      ctx.closePath();
+      ctx.fillStyle = '#F0C66F';
+      ctx.fill();
+      ctx.stroke();
+    }
+  } else if (profile.type === 'needle') {
+    drawEvolutionCrystalLocal(ctx, -43, -38, 9, 31, '#86DBF2');
+    if (profile.level >= 3) drawEvolutionCrystalLocal(ctx, 43, -36, 10, 35, '#A8A0FF');
+  } else if (profile.type === 'bubble') {
+    const bubbles = profile.level >= 3
+      ? [[-48, -70, 9], [49, -55, 11]]
+      : [[-48, -70, 9]];
+    for (const [bubbleX, bubbleY, radius] of bubbles) {
+      ctx.globalAlpha *= 0.72;
+      ctx.fillStyle = '#A8EEFF';
+      ctx.strokeStyle = '#397DA5';
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.arc(bubbleX, bubbleY, radius, 0, TAU);
+      ctx.fill();
+      ctx.stroke();
+      ctx.globalAlpha /= 0.72;
+    }
+  } else if (profile.type === 'sprout') {
+    const leaf = (leafX, mirror = 1) => {
+      ctx.save();
+      ctx.translate(leafX, -48);
+      ctx.scale(mirror, 1);
+      ctx.beginPath();
+      ctx.moveTo(0, 5);
+      ctx.quadraticCurveTo(-2, -22, 28, -25);
+      ctx.quadraticCurveTo(27, 0, 0, 5);
+      ctx.fillStyle = '#8DDA67';
+      ctx.fill();
+      ctx.strokeStyle = '#397B45';
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+      ctx.restore();
+    };
+    leaf(-29, -1);
+    if (profile.level >= 3) leaf(29, 1);
+  }
+
+  if (profile.orbiters) {
+    for (let index = 0; index < profile.orbiters; index += 1) {
+      const angle = time * 0.45 + index * TAU / profile.orbiters;
+      const orbitX = Math.cos(angle) * 58;
+      const orbitY = -54 + Math.sin(angle) * 31;
+      ctx.globalAlpha *= 0.66;
+      ctx.fillStyle = profile.type === 'sprout' ? '#FFF2A1'
+        : profile.type === 'bubble' ? '#C8F7FF'
+          : profile.type === 'needle' ? '#C9C4FF' : '#FFE09A';
+      ctx.beginPath();
+      ctx.arc(orbitX, orbitY, 4.5 + (index % 2), 0, TAU);
+      ctx.fill();
+      ctx.globalAlpha /= 0.66;
+    }
+  }
+  ctx.restore();
+}
+
+function drawSlimeEvolutionFront(ctx, x, y, size, profile, time, facing, alpha) {
+  if (profile.level < 3) return;
+  ctx.save();
+  ctx.globalAlpha *= alpha;
+  ctx.translate(x, y);
+  ctx.scale(facing * size / 100, size / 100);
+  if (profile.type === 'shell') {
+    for (const [rivetX, rivetY] of [[-47, -49], [43, -47]]) {
+      ctx.fillStyle = '#FFF1B6';
+      ctx.strokeStyle = '#986B35';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(rivetX, rivetY, 4.5, 0, TAU);
+      ctx.fill();
+      ctx.stroke();
+    }
+  } else if (profile.type === 'needle') {
+    drawEvolutionCrystalLocal(ctx, 0, -78, 8, 32, '#B8B3FF');
+  } else if (profile.type === 'bubble') {
+    ctx.globalAlpha *= 0.7;
+    ctx.strokeStyle = '#F3FFFF';
+    ctx.lineWidth = 2.2;
+    ctx.beginPath();
+    ctx.arc(-51, -73, 4, Math.PI * 1.05, Math.PI * 1.72);
+    ctx.stroke();
+    ctx.restore();
+    return;
+  } else if (profile.type === 'sprout') {
+    ctx.translate(0, -98);
+    ctx.fillStyle = '#FFF1A2';
+    ctx.strokeStyle = '#A56C45';
+    ctx.lineWidth = 1.8;
+    for (let index = 0; index < 5; index += 1) {
+      const angle = index * TAU / 5 - Math.PI / 2;
+      ctx.beginPath();
+      ctx.ellipse(Math.cos(angle) * 7, Math.sin(angle) * 7, 4.5, 7, angle, 0, TAU);
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.fillStyle = '#F0A94F';
+    ctx.beginPath();
+    ctx.arc(0, 0, 4, 0, TAU);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
 /**
  * Draw one of four friendly slimes.
  * `variantOrOptions`: 'shell' | 'needle' | 'bubble' | 'sprout', or an options object.
@@ -883,6 +1062,10 @@ export function drawSlime(ctx, x, y, size, variantOrOptions = 'shell', maybeOpti
     sprout: ['#82D47D', PALETTE.sproutDeep, '#DBFFD0'],
   };
   const [color, deepColor, lightColor] = colors[variant];
+  const ownerId = SLIME_OWNER_BY_VARIANT[variant];
+  const requestedFacing = resolveCharacterGameplayFacing(ownerId, options.facing);
+  const evolution = slimeEvolutionProfile(variant, options.star);
+  const evolutionAlpha = (options.disabled ? 0.48 : 1) * clamp(options.alpha ?? 1);
 
   drawSelectionRing(ctx, x, y, size, options);
   drawSoftShadow(ctx, x, y + size * 0.015, size, {
@@ -890,6 +1073,9 @@ export function drawSlime(ctx, x, y, size, variantOrOptions = 'shell', maybeOpti
     height: size * 0.15,
     alpha: 0.21 * (1 - clamp(options.hop || 0) * 0.45),
   });
+  drawSlimeEvolutionBack(
+    ctx, x, y - hop, size, evolution, time, requestedFacing, evolutionAlpha,
+  );
 
   if ((options.shield || 0) > 0) {
     drawAssetOrFallback(ctx, options.assetStore, 'effect-shield-dome', (asset) => {
@@ -908,8 +1094,6 @@ export function drawSlime(ctx, x, y, size, variantOrOptions = 'shell', maybeOpti
   ctx.globalAlpha *= options.disabled ? 0.48 : clamp(options.alpha ?? 1);
   ctx.translate(x, y - hop);
   const unit = size / 100;
-  const ownerId = SLIME_OWNER_BY_VARIANT[variant];
-  const requestedFacing = resolveCharacterGameplayFacing(ownerId, options.facing);
   const rigScale = characterWorldScale(ownerId);
   let renderedRig = false;
   const rig = SLIME_RIG_BY_VARIANT[variant];
@@ -967,6 +1151,10 @@ export function drawSlime(ctx, x, y, size, variantOrOptions = 'shell', maybeOpti
     ctx.restore();
   }
   ctx.restore();
+
+  drawSlimeEvolutionFront(
+    ctx, x, y - hop, size, evolution, time, requestedFacing, evolutionAlpha,
+  );
 
 }
 
@@ -2517,11 +2705,43 @@ export function drawProjectile(ctx, xOrProjectile, y, size, typeOrOptions = 'goo
   const knownType = ['goo', 'needle', 'bubble', 'seed', 'acid'].includes(type) ? type : 'goo';
   const rotation = safeNumber(options.rotation ?? options.angle, 0);
   const progress = clamp(options.progress ?? 0);
+  const star = clamp(Math.floor(safeNumber(options.star, 1)), 1, 4);
 
   ctx.save();
   ctx.globalAlpha *= clamp(options.alpha ?? 1);
   ctx.translate(x, y);
   ctx.rotate(rotation);
+  if (star >= 2) {
+    const glow = knownType === 'needle' ? '#AFA8FF'
+      : knownType === 'bubble' ? '#95EAFF'
+        : knownType === 'seed' ? '#B9ED7B' : '#8DE4BE';
+    ctx.shadowColor = glow;
+    ctx.shadowBlur = projectileSize * (0.34 + star * 0.12);
+  }
+  if (star >= 3) {
+    ctx.save();
+    ctx.globalAlpha *= 0.5;
+    ctx.fillStyle = knownType === 'seed' ? '#FFF0A0' : '#E9FFFF';
+    for (let index = 0; index < star - 1; index += 1) {
+      const trailX = -projectileSize * (0.75 + index * 0.48);
+      const trailY = (index % 2 ? 1 : -1) * projectileSize * 0.22;
+      ctx.beginPath();
+      ctx.arc(trailX, trailY, projectileSize * (0.14 + index * 0.025), 0, TAU);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+  if (star >= 4) {
+    ctx.save();
+    ctx.globalAlpha *= 0.42;
+    ctx.strokeStyle = knownType === 'needle' ? '#D8D4FF'
+      : knownType === 'seed' ? '#DBFFA9' : '#C8F8FF';
+    ctx.lineWidth = Math.max(1.5, projectileSize * 0.11);
+    ctx.beginPath();
+    ctx.ellipse(0, 0, projectileSize * 0.92, projectileSize * 0.6, 0, 0, TAU);
+    ctx.stroke();
+    ctx.restore();
+  }
   const imageScale = knownType === 'needle' ? 1.55 : knownType === 'bubble' ? 1.65 : 1.4;
   const renderedAsset = drawAssetOrFallback(
     ctx,

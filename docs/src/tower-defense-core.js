@@ -80,6 +80,94 @@ export const TOWER_TYPES = Object.freeze({
   }),
 });
 
+const freezeAttackSteps = (steps) => Object.freeze(steps.map((step) => Object.freeze(step)));
+
+/**
+ * Star upgrades change how attacks are delivered, not only their damage.
+ * These fields are copied onto projectiles so renderers can opt into richer
+ * star-specific visuals without changing the deterministic combat rules.
+ */
+export const TOWER_ATTACK_EVOLUTIONS = Object.freeze({
+  shell: freezeAttackSteps([
+    {
+      attackMode: 'goo-splash', projectileCount: 1, secondaryDamageScale: 0,
+      splashRadius: 49, splashDamageScale: 0.52, knockback: 0,
+    },
+    {
+      attackMode: 'goo-shockwave', projectileCount: 1, secondaryDamageScale: 0,
+      splashRadius: 62, splashDamageScale: 0.5, knockback: 2,
+    },
+    {
+      attackMode: 'goo-split', projectileCount: 2, secondaryDamageScale: 0.18,
+      splashRadius: 70, splashDamageScale: 0.46, knockback: 2.5,
+    },
+    {
+      attackMode: 'goo-cluster', projectileCount: 3, secondaryDamageScale: 0.14,
+      splashRadius: 80, splashDamageScale: 0.42, knockback: 3,
+    },
+  ]),
+  needle: freezeAttackSteps([
+    {
+      attackMode: 'needle-pierce', projectileCount: 1, secondaryDamageScale: 0,
+      pierceTargets: 1, pierceDamageScale: 0.68,
+    },
+    {
+      attackMode: 'needle-double', projectileCount: 1, secondaryDamageScale: 0,
+      pierceTargets: 2, pierceDamageScale: 0.68,
+    },
+    {
+      attackMode: 'needle-fork', projectileCount: 2, secondaryDamageScale: 0.16,
+      pierceTargets: 2, pierceDamageScale: 0.64,
+    },
+    {
+      attackMode: 'needle-fan', projectileCount: 3, secondaryDamageScale: 0.12,
+      pierceTargets: 3, pierceDamageScale: 0.6,
+    },
+  ]),
+  bubble: freezeAttackSteps([
+    {
+      attackMode: 'bubble-slow', projectileCount: 1, secondaryDamageScale: 0,
+      chainTargets: 0, chainRadius: 0, chainPower: 0,
+    },
+    {
+      attackMode: 'bubble-chain', projectileCount: 1, secondaryDamageScale: 0,
+      chainTargets: 1, chainRadius: 100, chainPower: 0.55,
+    },
+    {
+      attackMode: 'bubble-cascade', projectileCount: 1, secondaryDamageScale: 0,
+      chainTargets: 2, chainRadius: 120, chainPower: 0.5,
+    },
+    {
+      attackMode: 'bubble-tide', projectileCount: 1, secondaryDamageScale: 0,
+      chainTargets: 3, chainRadius: 145, chainPower: 0.45,
+    },
+  ]),
+  sprout: freezeAttackSteps([
+    {
+      attackMode: 'seed-poison', projectileCount: 1, secondaryDamageScale: 0,
+      spreadTargets: 0, spreadRadius: 0, spreadPoisonScale: 0,
+    },
+    {
+      attackMode: 'seed-branch', projectileCount: 1, secondaryDamageScale: 0,
+      spreadTargets: 1, spreadRadius: 96, spreadPoisonScale: 0.3,
+    },
+    {
+      attackMode: 'seed-canopy', projectileCount: 1, secondaryDamageScale: 0,
+      spreadTargets: 2, spreadRadius: 118, spreadPoisonScale: 0.28,
+    },
+    {
+      attackMode: 'seed-bloom', projectileCount: 1, secondaryDamageScale: 0,
+      spreadTargets: 3, spreadRadius: 144, spreadPoisonScale: 0.25,
+    },
+  ]),
+});
+
+export function towerAttackEvolution(towerType, star = 1) {
+  const steps = TOWER_ATTACK_EVOLUTIONS[towerType] || TOWER_ATTACK_EVOLUTIONS.shell;
+  const index = clamp(Math.floor(Number(star) || 1), 1, TD_MAX_STAR) - 1;
+  return steps[index];
+}
+
 export const TOWER_DRAW_WEIGHTS = Object.freeze([
   Object.freeze({ type: 'shell', weight: 28 }),
   Object.freeze({ type: 'needle', weight: 28 }),
@@ -653,33 +741,73 @@ function targetForTower(state, tower) {
   return best;
 }
 
+function volleyTargetsForTower(state, tower, primary, count) {
+  if (count <= 1) return [primary];
+  const definition = TOWER_TYPES[tower.type];
+  const origin = towerPosition(state, tower);
+  const range = definition.range * (1 + (tower.star - 1) * 0.035);
+  const extras = state.enemies
+    .filter((enemy) => (
+      enemy.uid !== primary.uid
+      && enemy.hp > 0
+      && distance(origin, enemy) <= range
+    ))
+    .sort((left, right) => right.travelled - left.travelled)
+    .slice(0, count - 1);
+  return [primary, ...extras];
+}
+
 function fireTower(state, tower, target) {
   const definition = TOWER_TYPES[tower.type];
   const origin = towerPosition(state, tower);
   const damage = definition.damage * starPower(tower.star);
-  const projectile = {
-    uid: nextUid(state, 'shot'),
-    type: definition.projectile,
-    effect: definition.effect,
-    towerType: tower.type,
-    star: tower.star,
-    targetUid: target.uid,
-    x: origin.x,
-    y: origin.y - 30,
-    targetX: target.x,
-    targetY: target.y - 18,
-    speed: definition.projectileSpeed,
-    damage,
-    age: 0,
-  };
-  state.projectiles.push(projectile);
+  const evolution = towerAttackEvolution(tower.type, tower.star);
+  const {
+    projectileCount: patternProjectileCount,
+    secondaryDamageScale,
+    ...effectShape
+  } = evolution;
+  const targets = volleyTargetsForTower(state, tower, target, patternProjectileCount);
+  const projectiles = targets.map((volleyTarget, volleyIndex) => {
+    const damageScale = volleyIndex === 0 ? 1 : secondaryDamageScale;
+    return {
+      uid: nextUid(state, 'shot'),
+      type: definition.projectile,
+      effect: definition.effect,
+      towerType: tower.type,
+      star: tower.star,
+      effectTier: tower.star,
+      ...effectShape,
+      patternProjectileCount,
+      volleyIndex,
+      volleyCount: targets.length,
+      secondary: volleyIndex > 0,
+      damageScale,
+      targetUid: volleyTarget.uid,
+      x: origin.x,
+      y: origin.y - 30,
+      targetX: volleyTarget.x,
+      targetY: volleyTarget.y - 18,
+      speed: definition.projectileSpeed,
+      damage: damage * damageScale,
+      age: 0,
+    };
+  });
+  state.projectiles.push(...projectiles);
   tower.attackPulse = 1;
   tower.aimAngle = Math.atan2(target.y - origin.y, target.x - origin.x);
   state.events.push({
     type: 'shot',
     towerUid: tower.uid,
     towerType: tower.type,
+    star: tower.star,
+    effectTier: tower.star,
+    attackMode: evolution.attackMode,
+    projectileCount: projectiles.length,
+    patternProjectileCount,
+    projectileUids: projectiles.map(({ uid }) => uid),
     targetUid: target.uid,
+    targetUids: targets.map(({ uid }) => uid),
   });
 }
 
@@ -716,40 +844,96 @@ function damageEnemy(state, enemy, amount, { emitHit = true } = {}) {
   return true;
 }
 
-function applyProjectileHit(state, projectile, target) {
-  if (!target || target.hp <= 0) return;
-  damageEnemy(state, target, projectile.damage);
-  if (projectile.effect === 'splash') {
-    const radius = 42 + projectile.star * 7;
-    for (const enemy of state.enemies) {
-      if (enemy.uid !== target.uid && enemy.hp > 0 && distance(enemy, target) <= radius) {
-        damageEnemy(state, enemy, projectile.damage * 0.52);
-      }
-    }
-  } else if (projectile.effect === 'pierce') {
-    const extras = state.enemies
-      .filter((enemy) => enemy.uid !== target.uid && enemy.hp > 0 && distance(enemy, target) <= 104)
-      .sort((left, right) => right.travelled - left.travelled)
-      .slice(0, Math.min(3, projectile.star));
-    extras.forEach((enemy, index) => damageEnemy(
-      state, enemy, projectile.damage * Math.max(0.38, 0.68 - index * 0.12),
-    ));
-  } else if (projectile.effect === 'slow') {
-    target.slowMultiplier = Math.min(target.slowMultiplier, Math.max(0.38, 0.7 - projectile.star * 0.055));
-    target.slowTime = Math.max(target.slowTime, 1.5 + projectile.star * 0.22);
-    target.travelled = Math.max(0, target.travelled - 5 - projectile.star * 2.5);
-  } else if (projectile.effect === 'poison') {
-    target.poisonDps = Math.max(target.poisonDps, 4.5 * starPower(projectile.star));
-    target.poisonTime = Math.max(target.poisonTime, 2.5 + projectile.star * 0.35);
-  }
+function nearbyEffectTargets(state, target, radius, count = Infinity) {
+  return state.enemies
+    .filter((enemy) => (
+      enemy.uid !== target.uid
+      && enemy.hp > 0
+      && distance(enemy, target) <= radius
+    ))
+    .sort((left, right) => right.travelled - left.travelled)
+    .slice(0, count);
+}
+
+function emitProjectileImpact(state, projectile, target, { secondary = false } = {}) {
   state.effects.push({
     uid: nextUid(state, 'fx'),
-    type: projectile.effect === 'poison' ? 'leaf-hit' : projectile.effect === 'slow' ? 'bubble-hit' : 'hit',
+    type: projectile.effect === 'poison'
+      ? 'leaf-hit'
+      : projectile.effect === 'slow' ? 'bubble-hit' : 'hit',
     age: 0,
     duration: 0.48,
     x: target.x,
     y: target.y - 18,
+    star: projectile.star,
+    effectTier: projectile.effectTier,
+    attackMode: projectile.attackMode,
+    secondary,
   });
+}
+
+function applyProjectileHit(state, projectile, target) {
+  if (!target || target.hp <= 0) return;
+  damageEnemy(state, target, projectile.damage);
+  if (projectile.effect === 'splash') {
+    const radius = projectile.splashRadius ?? 42 + projectile.star * 7;
+    const splashDamageScale = projectile.splashDamageScale ?? 0.52;
+    const knockback = Math.max(0, Number(projectile.knockback) || 0);
+    if (knockback > 0) target.travelled = Math.max(0, target.travelled - knockback);
+    for (const enemy of nearbyEffectTargets(state, target, radius)) {
+      damageEnemy(state, enemy, projectile.damage * splashDamageScale);
+    }
+  } else if (projectile.effect === 'pierce') {
+    const extras = nearbyEffectTargets(
+      state,
+      target,
+      104,
+      Math.max(0, Math.floor(projectile.pierceTargets ?? Math.min(3, projectile.star))),
+    );
+    const pierceDamageScale = projectile.pierceDamageScale ?? 0.68;
+    extras.forEach((enemy, index) => damageEnemy(
+      state, enemy, projectile.damage * Math.max(0.32, pierceDamageScale - index * 0.12),
+    ));
+  } else if (projectile.effect === 'slow') {
+    const slowMultiplier = Math.max(0.38, 0.7 - projectile.star * 0.055);
+    const slowTime = 1.5 + projectile.star * 0.22;
+    const rewind = 5 + projectile.star * 2.5;
+    target.slowMultiplier = Math.min(target.slowMultiplier, slowMultiplier);
+    target.slowTime = Math.max(target.slowTime, slowTime);
+    target.travelled = Math.max(0, target.travelled - rewind);
+    const chainTargets = nearbyEffectTargets(
+      state,
+      target,
+      Math.max(0, Number(projectile.chainRadius) || 0),
+      Math.max(0, Math.floor(Number(projectile.chainTargets) || 0)),
+    );
+    const chainPower = clamp(Number(projectile.chainPower) || 0, 0, 1);
+    for (const enemy of chainTargets) {
+      const chainedSlow = 1 - (1 - slowMultiplier) * chainPower;
+      enemy.slowMultiplier = Math.min(enemy.slowMultiplier, chainedSlow);
+      enemy.slowTime = Math.max(enemy.slowTime, slowTime * 0.72);
+      enemy.travelled = Math.max(0, enemy.travelled - rewind * chainPower);
+      emitProjectileImpact(state, projectile, enemy, { secondary: true });
+    }
+  } else if (projectile.effect === 'poison') {
+    const poisonDps = 4.5 * starPower(projectile.star);
+    const poisonTime = 2.5 + projectile.star * 0.35;
+    target.poisonDps = Math.max(target.poisonDps, poisonDps);
+    target.poisonTime = Math.max(target.poisonTime, poisonTime);
+    const spreadTargets = nearbyEffectTargets(
+      state,
+      target,
+      Math.max(0, Number(projectile.spreadRadius) || 0),
+      Math.max(0, Math.floor(Number(projectile.spreadTargets) || 0)),
+    );
+    const spreadPoisonScale = clamp(Number(projectile.spreadPoisonScale) || 0, 0, 1);
+    for (const enemy of spreadTargets) {
+      enemy.poisonDps = Math.max(enemy.poisonDps, poisonDps * spreadPoisonScale);
+      enemy.poisonTime = Math.max(enemy.poisonTime, poisonTime * 0.76);
+      emitProjectileImpact(state, projectile, enemy, { secondary: true });
+    }
+  }
+  emitProjectileImpact(state, projectile, target);
 }
 
 function updateProjectiles(state, dt) {

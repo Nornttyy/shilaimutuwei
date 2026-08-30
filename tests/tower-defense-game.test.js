@@ -193,7 +193,8 @@ test('constructs and renders its first menu frame without DOM globals', () => {
   assert.doesNotThrow(() => game.render());
   assert.equal(canvas.width, 1280);
   assert.equal(canvas.height, 720);
-  assert.ok(game.hits.some(({ id }) => id === 'stage-1'));
+  assert.ok(game.hits.some(({ id }) => id === 'start-story'));
+  assert.deepEqual(game.hits.map(({ id }) => id), ['start-story', 'endless']);
   assert.ok(canvas.context.calls.some(([kind, text]) => (
     kind === 'fillText' && text === '史莱姆融合塔防'
   )));
@@ -218,11 +219,6 @@ test('formal asset and rig stores can be replaced and are used during rendering'
   assert.ok(assets.requests.includes('background-garden-base'));
   assert.ok(assets.requests.includes('background-cloud-overlay'));
   assert.ok(assets.requests.includes('town-soft-core'));
-  assert.ok(assets.requests.includes('region-gel-meadow-field-a'));
-  assert.ok(assets.requests.includes('region-bubble-heath-field-a'));
-  assert.ok(assets.requests.includes('region-crystal-bloom-field-a'));
-  assert.ok(assets.requests.includes('expedition-route-combat'));
-  assert.ok(assets.requests.includes('expedition-route-boss'));
   assert.ok(rigs.requests.includes('survivor-shell-shell'));
   assert.ok(rigs.requests.includes('survivor-crystal-pin'));
   assert.equal(game.setGeneratedCharacterArtEnabled(true), game);
@@ -271,6 +267,27 @@ test('all four towers drive independent attack bones and replace facial layers',
       `${type}.${controlBone} moves independently`);
     assert.equal(entry.expressionMixer.sample().to, 'attack', `${type} swaps to attack face layers`);
   });
+  game.dispose();
+});
+
+test('selected evolved tower exposes its star-specific attack name', () => {
+  const canvas = createCanvas();
+  const game = new TowerDefenseGame(canvas, {
+    runtime: createRuntime({ tutorialSeen: true }),
+    pixelRatio: 1,
+  });
+  game.state.screen = 'battle';
+  game.state.hand = [];
+  game.state.towers = [{
+    uid: 'evolved-shell', type: 'shell', star: 4, padIndex: 0,
+    cooldown: 0, attackPulse: 0, aimAngle: 0,
+  }];
+  game.state.selectedTowerUid = 'evolved-shell';
+  game.render();
+
+  assert.ok(canvas.context.calls.some(([kind, text]) => (
+    kind === 'fillText' && text === '集束  ·  ↔'
+  )));
   game.dispose();
 });
 
@@ -329,7 +346,7 @@ test('moving enemies play hurt bones and leave a temporary skeletal death actor'
   game.dispose();
 });
 
-test('menu stage buttons use pointer events and respect saved unlock progress', () => {
+test('menu exposes only story and endless actions and story continues saved progress', () => {
   const canvas = createCanvas();
   const runtime = createRuntime({
     unlockedStage: 2,
@@ -339,20 +356,37 @@ test('menu stage buttons use pointer events and respect saved unlock progress', 
   const game = new TowerDefenseGame(canvas, { runtime, pixelRatio: 1 });
   game.render();
 
-  const stageHits = ['stage-1', 'stage-2', 'stage-3'].map((id) => (
-    game.hits.find((candidate) => candidate.id === id)
-  ));
-  assert.equal(stageHits.every(Boolean), true);
-  assert.notEqual(stageHits[0].y, stageHits[1].y);
-  assert.notEqual(stageHits[1].y, stageHits[2].y);
-  assert.notEqual(stageHits[0].width, stageHits[2].width);
-  assert.equal(stageHits[2].enabled, false);
+  assert.deepEqual(game.hits.map(({ id }) => id), ['start-story', 'endless']);
+  const storyHit = game.hits.find(({ id }) => id === 'start-story');
+  assert.equal(storyHit.action, 'stage');
+  assert.equal(storyHit.data.stageId, 'stage-2');
   assert.equal(game.hits.find(({ id }) => id === 'endless').enabled, false);
 
-  click(game, canvas, hitCenter(game, 'stage-2'));
+  click(game, canvas, hitCenter(game, 'start-story'));
   assert.equal(game.state.screen, 'battle');
   assert.equal(game.state.stageId, 'stage-2');
   assert.equal(game.state.mode, 'stage');
+  game.dispose();
+});
+
+test('completed story replays stage three and unlocks the endless button', () => {
+  const canvas = createCanvas();
+  const runtime = createRuntime({
+    unlockedStage: 3,
+    clearedStages: ['stage-1', 'stage-2', 'stage-3'],
+    tutorialSeen: true,
+  });
+  const game = new TowerDefenseGame(canvas, { runtime, pixelRatio: 1 });
+  game.render();
+
+  const storyHit = game.hits.find(({ id }) => id === 'start-story');
+  const endlessHit = game.hits.find(({ id }) => id === 'endless');
+  assert.equal(storyHit.data.stageId, 'stage-3');
+  assert.equal(endlessHit.enabled, true);
+
+  click(game, canvas, hitCenter(game, 'endless'));
+  assert.equal(game.state.screen, 'battle');
+  assert.equal(game.state.mode, 'endless');
   game.dispose();
 });
 
@@ -366,7 +400,7 @@ test('spotlight tutorial completes draw, placement, fusion, and wave-start chain
   });
   game.render();
 
-  click(game, canvas, { x: 194, y: 458 });
+  click(game, canvas, hitCenter(game, 'start-story'));
   game.render();
   assert.equal(game.state.tutorial.step, 'draw-1');
 
@@ -476,12 +510,12 @@ test('CSS coordinates map into the fixed view correctly at DPR 2 with letterboxi
   assert.equal(canvas.width, 1600);
   assert.equal(canvas.height, 720);
 
-  const logical = { x: 194, y: 458 };
+  game.render();
+  const logical = hitCenter(game, 'start-story');
   const mapped = game.toGamePoint(pointerEvent(game, canvas, logical));
   assert.ok(Math.abs(mapped.x - logical.x) < 1e-9);
   assert.ok(Math.abs(mapped.y - logical.y) < 1e-9);
 
-  game.render();
   click(game, canvas, logical);
   assert.equal(game.state.screen, 'battle');
   assert.equal(game.state.stageId, 'stage-1');

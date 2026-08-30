@@ -8,6 +8,7 @@ import {
   TD_MAX_STAR,
   TD_STAGE_SCALE_CAPS,
   TD_STAGES,
+  TOWER_ATTACK_EVOLUTIONS,
   TOWER_TYPES,
   beginTowerDefenseRun,
   canMergeCardIntoTower,
@@ -27,6 +28,7 @@ import {
   serializeTowerDefenseProgress,
   stageScaleForWave,
   startNextTowerDefenseWave,
+  towerAttackEvolution,
   tutorialTargetForState,
   updateTowerDefense,
 } from '../src/tower-defense-core.js';
@@ -111,6 +113,56 @@ function runUntilResult(state, { engaged = false, maxTicks = 24_000 } = {}) {
     if (engaged && tick % 10 === 0) spendSimulatedCurrency(state);
     updateTowerDefense(state, 0.05);
   }
+  return state;
+}
+
+function createAttackProbe(towerType, star, enemyCount = 5) {
+  const state = createBattleState();
+  const stage = TD_STAGES[0];
+  state.wave = 1;
+  state.waveActive = true;
+  state.spawnQueue = [{ uid: 'held-spawn', type: 'bug', at: 999 }];
+  state.towers = [{
+    uid: `probe-${towerType}-${star}`,
+    type: towerType,
+    star,
+    padIndex: 0,
+    cooldown: 0,
+    aimAngle: 0,
+    attackPulse: 0,
+  }];
+  state.enemies = Array.from({ length: enemyCount }, (_, index) => {
+    const travelled = 90 + index * 16;
+    const point = pointOnPath(stage.path, travelled);
+    return {
+      uid: `probe-enemy-${index}`,
+      type: 'boss',
+      travelled,
+      x: point.x,
+      y: point.y,
+      facing: 1,
+      hp: 100_000,
+      maxHp: 100_000,
+      speed: 0,
+      reward: 0,
+      slowMultiplier: 1,
+      slowTime: 0,
+      poisonDps: 0,
+      poisonTime: 0,
+      hitPulse: 0,
+    };
+  });
+  state.events = [];
+  updateTowerDefense(state, 0.01);
+  return state;
+}
+
+function resolveAttackProbe(state) {
+  state.towers = [];
+  for (let tick = 0; tick < 100 && state.projectiles.length; tick += 1) {
+    updateTowerDefense(state, 0.05);
+  }
+  assert.equal(state.projectiles.length, 0);
   return state;
 }
 
@@ -357,6 +409,73 @@ test('a placed tower moves only to a valid empty pad and preserves identity and 
   assert.equal(moving.padIndex, 3);
   assert.equal(moving.cooldown, 0.65, 'combat movement applies a short attack delay');
   assert.equal(moving.aimAngle, 1.25);
+});
+
+test('every tower publishes four immutable attack evolutions with distinct star mechanics', () => {
+  for (const towerType of Object.keys(TOWER_TYPES)) {
+    const steps = TOWER_ATTACK_EVOLUTIONS[towerType];
+    assert.equal(steps.length, TD_MAX_STAR);
+    assert.equal(Object.isFrozen(steps), true);
+    assert.equal(new Set(steps.map(({ attackMode }) => attackMode)).size, TD_MAX_STAR);
+    steps.forEach((step, index) => {
+      assert.equal(Object.isFrozen(step), true);
+      assert.equal(towerAttackEvolution(towerType, index + 1), step);
+    });
+  }
+
+  assert.deepEqual(TOWER_ATTACK_EVOLUTIONS.shell.map((step) => step.projectileCount), [1, 1, 2, 3]);
+  assert.deepEqual(TOWER_ATTACK_EVOLUTIONS.shell.map((step) => step.splashRadius), [49, 62, 70, 80]);
+  assert.deepEqual(TOWER_ATTACK_EVOLUTIONS.shell.map((step) => step.knockback), [0, 2, 2.5, 3]);
+  assert.deepEqual(TOWER_ATTACK_EVOLUTIONS.needle.map((step) => step.projectileCount), [1, 1, 2, 3]);
+  assert.deepEqual(TOWER_ATTACK_EVOLUTIONS.needle.map((step) => step.pierceTargets), [1, 2, 2, 3]);
+  assert.deepEqual(TOWER_ATTACK_EVOLUTIONS.bubble.map((step) => step.chainTargets), [0, 1, 2, 3]);
+  assert.deepEqual(TOWER_ATTACK_EVOLUTIONS.sprout.map((step) => step.spreadTargets), [0, 1, 2, 3]);
+});
+
+test('shot events and projectiles expose the star-specific volley and effect shape', () => {
+  const expectedProjectileCounts = {
+    shell: [1, 1, 2, 3],
+    needle: [1, 1, 2, 3],
+    bubble: [1, 1, 1, 1],
+    sprout: [1, 1, 1, 1],
+  };
+
+  for (const towerType of Object.keys(TOWER_TYPES)) {
+    for (let star = 1; star <= TD_MAX_STAR; star += 1) {
+      const state = createAttackProbe(towerType, star);
+      const evolution = towerAttackEvolution(towerType, star);
+      const shot = state.events.find(({ type }) => type === 'shot');
+      const expectedCount = expectedProjectileCounts[towerType][star - 1];
+      assert.equal(state.projectiles.length, expectedCount, `${towerType} ${star}★ projectile count`);
+      assert.equal(shot.star, star);
+      assert.equal(shot.effectTier, star);
+      assert.equal(shot.attackMode, evolution.attackMode);
+      assert.equal(shot.projectileCount, expectedCount);
+      assert.equal(shot.patternProjectileCount, evolution.projectileCount);
+      assert.equal(shot.projectileUids.length, expectedCount);
+      assert.equal(new Set(shot.targetUids).size, expectedCount);
+      for (const projectile of state.projectiles) {
+        assert.equal(projectile.star, star);
+        assert.equal(projectile.effectTier, star);
+        assert.equal(projectile.attackMode, evolution.attackMode);
+        assert.equal(projectile.patternProjectileCount, evolution.projectileCount);
+        assert.equal(projectile.volleyCount, expectedCount);
+      }
+    }
+  }
+});
+
+test('bubble chains and seed poison spread to progressively more targets', () => {
+  const bubbleCounts = [];
+  const poisonCounts = [];
+  for (let star = 1; star <= TD_MAX_STAR; star += 1) {
+    const bubbleState = resolveAttackProbe(createAttackProbe('bubble', star));
+    bubbleCounts.push(bubbleState.enemies.filter(({ slowMultiplier }) => slowMultiplier < 1).length);
+    const sproutState = resolveAttackProbe(createAttackProbe('sprout', star));
+    poisonCounts.push(sproutState.enemies.filter(({ poisonDps }) => poisonDps > 0).length);
+  }
+  assert.deepEqual(bubbleCounts, [1, 2, 3, 4]);
+  assert.deepEqual(poisonCounts, [1, 2, 3, 4]);
 });
 
 test('authored stages use sharply smaller waves with concentrated elite and boss pressure', () => {

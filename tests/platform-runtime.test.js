@@ -18,6 +18,7 @@ import {
 } from '../src/platform/runtime.js';
 import { createWechatRuntime } from '../src/platform/wechat.js';
 import {
+  MIN_WECHAT_STARTUP_LOADING_MS,
   WECHAT_CRITICAL_ASSET_KEYS,
   createWechatImageAssetStore,
   startWechatGame,
@@ -297,7 +298,11 @@ test('WeChat game bootstrap creates a canvas, starts frames, bridges touch, and 
     onForeground() { foregrounds += 1; }
   }
 
-  const boot = startWechatGame({ wxApi: host.wxApi, GameClass: FakeGame });
+  const boot = startWechatGame({
+    wxApi: host.wxApi,
+    GameClass: FakeGame,
+    minimumLoadingMs: 0,
+  });
   assert.equal(host.canvasCreations, 1);
   assert.equal(starts, 1);
   assert.equal(boot.canvas.getContext('2d'), host.context);
@@ -342,6 +347,41 @@ test('WeChat game bootstrap creates a canvas, starts frames, bridges touch, and 
   assert.ok(backgrounds >= 2, 'disposing performs one final safe background save');
 });
 
+test('WeChat keeps its animated startup gate visible for at least three seconds', async () => {
+  assert.equal(MIN_WECHAT_STARTUP_LOADING_MS, 3000);
+  const host = createFakeWechatHost();
+  const previousWindow = globalThis.window;
+  const waits = [];
+  const times = [2000, 2600];
+  let constructions = 0;
+  let starts = 0;
+  class FakeGame {
+    constructor(canvas) { constructions += 1; this.canvas = canvas; }
+    setAssetStore() {}
+    setGeneratedCharacterArtEnabled() {}
+    render() {}
+    start() { starts += 1; }
+    onBackground() {}
+  }
+
+  const boot = startWechatGame({
+    wxApi: host.wxApi,
+    GameClass: FakeGame,
+    now: () => times.shift() ?? 2600,
+    wait: async (milliseconds) => { waits.push(milliseconds); },
+  });
+  assert.equal(constructions, 0, 'even a direct cached start must keep the loader visible');
+  assert.equal(boot.loadingState.state, 'loading');
+
+  await boot.ready;
+  assert.deepEqual(waits, [2400]);
+  assert.equal(constructions, 1);
+  assert.equal(starts, 1);
+  assert.equal(boot.loadingState.state, 'ready');
+  boot.dispose();
+  assert.equal(globalThis.window, previousWindow);
+});
+
 test('WeChat waits for critical generated art before exposing the first game frame', async () => {
   const host = createFakeWechatHost();
   const previousWindow = globalThis.window;
@@ -366,6 +406,7 @@ test('WeChat waits for critical generated art before exposing the first game fra
   const boot = startWechatGame({
     wxApi: host.wxApi,
     GameClass: FakeGame,
+    minimumLoadingMs: 0,
     config: {
       assetPaths: { [criticalKey]: `https://cdn.example.com/${criticalKey}.png` },
       criticalAssetKeys: [criticalKey],
@@ -420,6 +461,7 @@ test('WeChat requires every configured formal asset and retries a failed PNG fro
   const boot = startWechatGame({
     wxApi: host.wxApi,
     GameClass: FakeGame,
+    minimumLoadingMs: 0,
     config: {
       assetBaseUrl: 'https://cdn.example.com/game',
       assetPaths: {
@@ -489,6 +531,7 @@ test('WeChat loading canvas animates at native DPR while the game does not yet e
   const boot = startWechatGame({
     wxApi: host.wxApi,
     GameClass: FakeGame,
+    minimumLoadingMs: 0,
     config: { assetPaths: { formal: 'https://cdn.example.com/formal.png' } },
   });
   assert.equal(constructions, 0);
@@ -551,6 +594,7 @@ test('WeChat unsupported or dishonest preload summaries never pass the ready gat
   const boot = startWechatGame({
     wxApi: host.wxApi,
     GameClass: UnsupportedGame,
+    minimumLoadingMs: 0,
     config: { assetPaths: { formal: 'https://cdn.example.com/formal.png' } },
   });
   assert.equal(await boot.ready, null);
@@ -587,6 +631,7 @@ test('WeChat verifies render before start and keeps the loading error page on fi
   const boot = startWechatGame({
     wxApi: host.wxApi,
     GameClass: BrokenFirstFrameGame,
+    minimumLoadingMs: 0,
     config: { assetPaths: { formal: 'https://cdn.example.com/formal.png' } },
   });
   assert.equal(await boot.ready, null);

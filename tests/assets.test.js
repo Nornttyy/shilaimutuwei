@@ -29,6 +29,7 @@ import {
   createBrowserStartup,
   createDomLoadingView,
   criticalPreloadSucceeded,
+  MIN_STARTUP_LOADING_MS,
   REQUIRED_RIG_OWNER_IDS,
   rigPreloadSucceeded,
 } from '../src/main.js';
@@ -605,6 +606,7 @@ test('browser startup gates game construction on every critical PNG and retries 
   const controller = createBrowserStartup({
     canvas: { id: 'game' },
     loadingView,
+    minimumLoadingMs: 0,
     assetStore,
     criticalKeys,
     createGame: (_canvas, options) => {
@@ -649,6 +651,51 @@ test('browser startup gates game construction on every critical PNG and retries 
   assert.equal(progressEvents.at(-1).loaded, 2);
 });
 
+test('browser startup keeps the animated loading cover visible for at least three seconds', async () => {
+  assert.equal(MIN_STARTUP_LOADING_MS, 3000);
+  const events = [];
+  const times = [1000, 1400];
+  const assetStore = {
+    async preload({ onProgress } = {}) {
+      onProgress?.({ total: 0, completed: 0, loaded: 0, failed: 0, unsupported: 0 });
+      return { total: 0, loaded: 0, failed: 0, unsupported: 0 };
+    },
+    status() { throw new Error('no asset status should be requested for an empty gate'); },
+  };
+  const controller = createBrowserStartup({
+    canvas: { id: 'game' },
+    loadingView: {
+      onRetry() {},
+      showLoading() { events.push('loading'); },
+      setProgress() {},
+      showFailure() { events.push('failure'); },
+      showReady() { events.push('ready'); },
+      hide() { events.push('hidden'); },
+    },
+    assetStore,
+    criticalKeys: [],
+    now: () => times.shift() ?? 1400,
+    wait: async (milliseconds) => { events.push(['wait', milliseconds]); },
+    createGame: () => ({
+      setAssetStore() {},
+      setGeneratedCharacterArtEnabled() {},
+      render() { events.push('render'); },
+      start() { events.push('start'); },
+    }),
+    requestFrame: (callback) => callback(),
+  });
+
+  await controller.start();
+  assert.deepEqual(events, [
+    'loading',
+    ['wait', 2600],
+    'render',
+    'start',
+    'ready',
+    'hidden',
+  ]);
+});
+
 test('generated character rigs are a required startup stage and cannot attach after game start', async () => {
   const assetStore = createAssetStore(
     { character: 'character.png' },
@@ -671,6 +718,7 @@ test('generated character rigs are a required startup stage and cannot attach af
   let attachedRigStore = null;
   const controller = createBrowserStartup({
     canvas: { id: 'game' },
+    minimumLoadingMs: 0,
     loadingView: {
       onRetry() {},
       showLoading(total) { loadingEvents.push(['loading', total]); },
@@ -727,6 +775,7 @@ test('loading cover stays up when the first fully authored frame cannot render',
   let starts = 0;
   const controller = createBrowserStartup({
     canvas: { id: 'game' },
+    minimumLoadingMs: 0,
     assetStore,
     criticalKeys: ['terrain'],
     loadingView: {

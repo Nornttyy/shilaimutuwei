@@ -346,7 +346,7 @@ test('moving enemies play hurt bones and leave a temporary skeletal death actor'
   game.dispose();
 });
 
-test('menu exposes only story and endless actions and story continues saved progress', () => {
+test('story opens stage selection with lock, clear, selectable, and back states', () => {
   const canvas = createCanvas();
   const runtime = createRuntime({
     unlockedStage: 2,
@@ -358,18 +358,41 @@ test('menu exposes only story and endless actions and story continues saved prog
 
   assert.deepEqual(game.hits.map(({ id }) => id), ['start-story', 'endless']);
   const storyHit = game.hits.find(({ id }) => id === 'start-story');
-  assert.equal(storyHit.action, 'stage');
-  assert.equal(storyHit.data.stageId, 'stage-2');
+  assert.equal(storyHit.action, 'open-stage-select');
   assert.equal(game.hits.find(({ id }) => id === 'endless').enabled, false);
 
   click(game, canvas, hitCenter(game, 'start-story'));
+  assert.equal(game.state.screen, 'menu');
+  assert.equal(game.menuPage, 'stage-select');
+  game.render();
+
+  assert.deepEqual(game.hits.map(({ id }) => id), [
+    'stage-select-back', 'select-stage-1', 'select-stage-2', 'select-stage-3',
+  ]);
+  assert.equal(game.hits.find(({ id }) => id === 'select-stage-1').enabled, true);
+  assert.equal(game.hits.find(({ id }) => id === 'select-stage-2').enabled, true);
+  assert.equal(game.hits.find(({ id }) => id === 'select-stage-3').enabled, false);
+  assert.ok(canvas.context.calls.some(([kind, text]) => kind === 'fillText' && text === '✓ 已通关'));
+  assert.ok(canvas.context.calls.some(([kind, text]) => kind === 'fillText' && text === '可挑战'));
+  assert.ok(canvas.context.calls.some(([kind, text]) => kind === 'fillText' && text === '未解锁'));
+
+  click(game, canvas, hitCenter(game, 'select-stage-3'));
+  assert.equal(game.state.screen, 'menu', 'a locked stage cannot be entered');
+  click(game, canvas, hitCenter(game, 'stage-select-back'));
+  assert.equal(game.menuPage, 'main');
+  game.render();
+  assert.deepEqual(game.hits.map(({ id }) => id), ['start-story', 'endless']);
+
+  click(game, canvas, hitCenter(game, 'start-story'));
+  game.render();
+  click(game, canvas, hitCenter(game, 'select-stage-2'));
   assert.equal(game.state.screen, 'battle');
   assert.equal(game.state.stageId, 'stage-2');
   assert.equal(game.state.mode, 'stage');
   game.dispose();
 });
 
-test('completed story replays stage three and unlocks the endless button', () => {
+test('completed story keeps two main menu actions and unlocks the endless button', () => {
   const canvas = createCanvas();
   const runtime = createRuntime({
     unlockedStage: 3,
@@ -381,7 +404,7 @@ test('completed story replays stage three and unlocks the endless button', () =>
 
   const storyHit = game.hits.find(({ id }) => id === 'start-story');
   const endlessHit = game.hits.find(({ id }) => id === 'endless');
-  assert.equal(storyHit.data.stageId, 'stage-3');
+  assert.equal(storyHit.action, 'open-stage-select');
   assert.equal(endlessHit.enabled, true);
 
   click(game, canvas, hitCenter(game, 'endless'));
@@ -401,6 +424,12 @@ test('spotlight tutorial completes draw, placement, fusion, and wave-start chain
   game.render();
 
   click(game, canvas, hitCenter(game, 'start-story'));
+  game.render();
+  assert.equal(game.menuPage, 'stage-select');
+  assert.equal(game.state.tutorial.step, 'stage');
+  assert.equal(game.hits.find(({ id }) => id === 'select-stage-1').enabled, true);
+
+  click(game, canvas, hitCenter(game, 'select-stage-1'));
   game.render();
   assert.equal(game.state.tutorial.step, 'draw-1');
 
@@ -517,6 +546,15 @@ test('CSS coordinates map into the fixed view correctly at DPR 2 with letterboxi
   assert.ok(Math.abs(mapped.y - logical.y) < 1e-9);
 
   click(game, canvas, logical);
+  assert.equal(game.state.screen, 'menu');
+  assert.equal(game.menuPage, 'stage-select');
+  game.render();
+
+  const stageLogical = hitCenter(game, 'select-stage-1');
+  const stageMapped = game.toGamePoint(pointerEvent(game, canvas, stageLogical));
+  assert.ok(Math.abs(stageMapped.x - stageLogical.x) < 1e-9);
+  assert.ok(Math.abs(stageMapped.y - stageLogical.y) < 1e-9);
+  click(game, canvas, stageLogical);
   assert.equal(game.state.screen, 'battle');
   assert.equal(game.state.stageId, 'stage-1');
   game.dispose();

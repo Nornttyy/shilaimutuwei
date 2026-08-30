@@ -84,6 +84,14 @@ const MENU_ACTIONS = Object.freeze({
   endless: Object.freeze({ x: 762, y: 565, width: 236, height: 104 }),
 });
 
+const STAGE_SELECT_CARDS = Object.freeze(TD_STAGES.map((_, index) => Object.freeze({
+  x: 185 + index * 320,
+  y: 196,
+  width: 270,
+  height: 360,
+})));
+const STAGE_SELECT_BACK = Object.freeze({ x: 36, y: 30, width: 112, height: 58 });
+
 const COLORS = Object.freeze({
   ink: '#273844',
   inkSoft: '#5E7078',
@@ -394,6 +402,7 @@ export class TowerDefenseGame {
     this.drag = null;
     this.selectedCardUid = null;
     this.hoverPoint = null;
+    this.menuPage = 'main';
     this.shake = 0;
     this.eventCursor = 0;
     this.animationTime = 0;
@@ -766,6 +775,7 @@ export class TowerDefenseGame {
     if (!target || this.state.screen === 'result') return true;
     if (!hit) return false;
     if (target.type === 'stage') {
+      if (hit.action === 'open-stage-select' || hit.action === 'stage-select-back') return true;
       return hit.action === 'stage' && hit.data.stageIndex === target.stageIndex;
     }
     if (target.type === 'draw') return hit.action === 'draw';
@@ -913,10 +923,21 @@ export class TowerDefenseGame {
 
   activateHit(hit) {
     switch (hit.action) {
+      case 'open-stage-select':
+        if (this.state.screen === 'menu') {
+          this.menuPage = 'stage-select';
+          this.selectedCardUid = null;
+          this.state.selectedTowerUid = null;
+        }
+        break;
+      case 'stage-select-back':
+        this.menuPage = 'main';
+        break;
       case 'stage':
         if (beginTowerDefenseRun(this.state, {
           mode: 'stage', stageId: hit.data.stageId,
         })) {
+          this.menuPage = 'main';
           this.selectedCardUid = null;
           this.eventCursor = 0;
         }
@@ -924,6 +945,7 @@ export class TowerDefenseGame {
       case 'endless':
         if (this.endlessUnlocked()) {
           beginTowerDefenseRun(this.state, { mode: 'endless', stageId: 'stage-3' });
+          this.menuPage = 'main';
           this.selectedCardUid = null;
           this.eventCursor = 0;
         }
@@ -956,6 +978,7 @@ export class TowerDefenseGame {
         break;
       case 'battle-menu':
         returnToTowerDefenseMenu(this.state);
+        this.menuPage = 'main';
         this.selectedCardUid = null;
         this.save();
         break;
@@ -966,6 +989,7 @@ export class TowerDefenseGame {
         break;
       case 'result-menu':
         returnToTowerDefenseMenu(this.state);
+        this.menuPage = 'main';
         this.selectedCardUid = null;
         this.save();
         break;
@@ -1006,7 +1030,10 @@ export class TowerDefenseGame {
     ctx.fillRect(0, 0, this.cssWidth, this.cssHeight);
     ctx.translate(this.offsetX, this.offsetY);
     ctx.scale(this.scale, this.scale);
-    if (this.state.screen === 'menu') this.drawMenu(ctx);
+    if (this.state.screen === 'menu') {
+      if (this.menuPage === 'stage-select') this.drawStageSelect(ctx);
+      else this.drawMenu(ctx);
+    }
     else if (this.state.screen === 'result') this.drawResult(ctx);
     else this.drawBattle(ctx);
     if (this.state.tutorial.active) this.drawTutorial(ctx);
@@ -1176,10 +1203,7 @@ export class TowerDefenseGame {
       storyRect.y + storyRect.height / 2, {
         size: allCleared ? 18 : 24, color: COLORS.mintDeep, weight: 950,
       });
-    this.addHit('start-story', storyRect, 'stage', {
-      stageId: storyStage.id,
-      stageIndex: storyStage.index - 1,
-    });
+    this.addHit('start-story', storyRect, 'open-stage-select');
 
     const endlessUnlocked = this.endlessUnlocked();
     const endlessRect = MENU_ACTIONS.endless;
@@ -1209,6 +1233,116 @@ export class TowerDefenseGame {
     }
     this.addHit('endless', endlessRect, 'endless', {}, endlessUnlocked);
   }
+
+  drawStageSelect(ctx) {
+    ctx.fillStyle = '#CBE8D0';
+    ctx.fillRect(0, 0, TD_VIEW.width, TD_VIEW.height);
+    drawAssetOrFallback(ctx, this.assetStore, 'background-garden-base', (asset) => {
+      ctx.drawImage(asset, 0, 0, TD_VIEW.width, TD_VIEW.height);
+    }, () => this.drawBackdrop(ctx, 'stage-1'));
+    drawAssetOrFallback(ctx, this.assetStore, 'background-cloud-overlay', (asset) => {
+      ctx.globalAlpha *= 0.2;
+      const drift = Math.sin(this.state.time * 0.08) * 20;
+      ctx.drawImage(asset, -18 + drift, -18, 1316, 438);
+    }, () => {});
+
+    const wash = ctx.createLinearGradient(0, 0, 0, TD_VIEW.height);
+    wash.addColorStop(0, 'rgba(255, 251, 232, 0.62)');
+    wash.addColorStop(1, 'rgba(105, 148, 126, 0.3)');
+    ctx.fillStyle = wash;
+    ctx.fillRect(0, 0, TD_VIEW.width, TD_VIEW.height);
+
+    panel(ctx, STAGE_SELECT_BACK, {
+      fill: '#FFF8E8', stroke: '#85978E', lineWidth: 3, radius: 22, shadow: true,
+    });
+    label(ctx, '返回', STAGE_SELECT_BACK.x + STAGE_SELECT_BACK.width / 2,
+      STAGE_SELECT_BACK.y + STAGE_SELECT_BACK.height / 2, {
+        size: 21, color: COLORS.ink, weight: 900,
+      });
+    this.addHit('stage-select-back', STAGE_SELECT_BACK, 'stage-select-back');
+
+    label(ctx, '选择关卡', TD_VIEW.width / 2, 92, {
+      size: 40, color: COLORS.ink, weight: 950,
+    });
+
+    TD_STAGES.forEach((stage, index) => {
+      const rect = STAGE_SELECT_CARDS[index];
+      const unlocked = stage.index <= this.state.progress.unlockedStage;
+      const cleared = this.state.progress.clearedStages.includes(stage.id);
+      const hot = unlocked && Boolean(this.hoverPoint && insideRect(this.hoverPoint, rect));
+      panel(ctx, rect, {
+        fill: unlocked ? hot ? '#FFFDF0' : '#FFF8E6' : '#D2D8D4',
+        stroke: unlocked ? stage.accent : '#929D97',
+        lineWidth: hot ? 6 : 4,
+        radius: 30,
+        shadow: unlocked,
+      });
+
+      const artRect = {
+        x: rect.x + 18,
+        y: rect.y + 18,
+        width: rect.width - 36,
+        height: 166,
+      };
+      ctx.save();
+      roundedPath(ctx, artRect.x, artRect.y, artRect.width, artRect.height, 20);
+      ctx.clip();
+      drawAssetOrFallback(ctx, this.assetStore, STAGE_REGION_ASSET[stage.id], (asset) => {
+        ctx.globalAlpha *= unlocked ? 0.94 : 0.28;
+        ctx.drawImage(asset, artRect.x, artRect.y, artRect.width, artRect.height);
+      }, () => {
+        ctx.fillStyle = unlocked ? stage.accent : '#AAB4AF';
+        ctx.globalAlpha *= unlocked ? 0.45 : 0.2;
+        ctx.fillRect(artRect.x, artRect.y, artRect.width, artRect.height);
+      });
+      ctx.restore();
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(rect.x + 42, rect.y + 42, 25, 0, TAU);
+      ctx.fillStyle = unlocked ? '#FFF4C8' : '#B9C1BD';
+      ctx.fill();
+      ctx.strokeStyle = unlocked ? stage.accent : '#7E8A85';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      ctx.restore();
+      label(ctx, unlocked ? stage.index : '锁', rect.x + 42, rect.y + 42, {
+        size: unlocked ? 22 : 16,
+        color: unlocked ? stage.accent : '#66736D',
+        weight: 950,
+      });
+
+      label(ctx, stage.name, rect.x + rect.width / 2, rect.y + 225, {
+        size: 27, color: unlocked ? COLORS.ink : '#68746E', weight: 920,
+      });
+      label(ctx, `${stage.waves.length}波`, rect.x + rect.width / 2, rect.y + 260, {
+        size: 17, color: unlocked ? COLORS.inkSoft : '#7A8580', weight: 780,
+      });
+      const statusRect = {
+        x: rect.x + 40,
+        y: rect.y + 292,
+        width: rect.width - 80,
+        height: 48,
+      };
+      panel(ctx, statusRect, {
+        fill: !unlocked ? '#BCC5C0' : cleared ? '#DDF6CD' : stage.accent,
+        stroke: !unlocked ? '#8B9791' : cleared ? '#6BAE62' : stage.accent,
+        lineWidth: 2,
+        radius: 20,
+      });
+      label(ctx, !unlocked ? '未解锁' : cleared ? '✓ 已通关' : '可挑战',
+        rect.x + rect.width / 2, statusRect.y + statusRect.height / 2, {
+          size: 18,
+          color: !unlocked ? '#68746E' : cleared ? '#397B45' : COLORS.white,
+          weight: 900,
+        });
+      this.addHit(`select-stage-${stage.index}`, rect, 'stage', {
+        stageId: stage.id,
+        stageIndex: index,
+      }, unlocked);
+    });
+  }
+
   drawBattle(ctx) {
     const stage = stageForState(this.state);
     ctx.save();
@@ -1968,6 +2102,14 @@ export class TowerDefenseGame {
   tutorialHoles(target) {
     if (!target) return [];
     if (target.type === 'stage') {
+      if (this.menuPage === 'stage-select') {
+        const card = STAGE_SELECT_CARDS[target.stageIndex];
+        return card ? [{
+          x: card.x + card.width / 2,
+          y: card.y + card.height / 2,
+          radius: 118,
+        }] : [];
+      }
       return [{
         x: MENU_ACTIONS.story.x + MENU_ACTIONS.story.width / 2,
         y: MENU_ACTIONS.story.y + MENU_ACTIONS.story.height / 2,

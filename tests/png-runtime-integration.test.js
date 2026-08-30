@@ -159,7 +159,9 @@ function createMainContext() {
     'stroke',
     'strokeRect',
     'strokeText',
-  ]) ctx[method] = () => {};
+  ]) ctx[method] = (...args) => {
+    ctx.calls.push([method, ...args]);
+  };
 
   return ctx;
 }
@@ -178,18 +180,77 @@ const CHARACTER_DIRECTION_CASES = [
 test('slime evolution profiles add fixed silhouette parts and a four-star aura', () => {
   for (const type of ['shell', 'needle', 'bubble', 'sprout']) {
     assert.deepEqual(slimeEvolutionProfile(type, 1), {
-      type, level: 1, fixedParts: 0, aura: false, orbiters: 0,
+      type, level: 1, fixedParts: 0,
+      silhouette: false, signature: false, crown: false,
+      aura: false, orbiters: 0, mainRings: type === 'bubble' ? 1 : 0,
     });
     assert.deepEqual(slimeEvolutionProfile(type, 2), {
-      type, level: 2, fixedParts: 1, aura: false, orbiters: 0,
+      type, level: 2, fixedParts: 1,
+      silhouette: true, signature: false, crown: false,
+      aura: false, orbiters: 0, mainRings: type === 'bubble' ? 1 : 0,
     });
     assert.deepEqual(slimeEvolutionProfile(type, 3), {
-      type, level: 3, fixedParts: 2, aura: false, orbiters: 0,
+      type, level: 3, fixedParts: 2,
+      silhouette: true, signature: true, crown: false,
+      aura: false, orbiters: 0, mainRings: type === 'bubble' ? 1 : 0,
     });
     assert.deepEqual(slimeEvolutionProfile(type, 4), {
-      type, level: 4, fixedParts: 3, aura: true, orbiters: 3,
+      type, level: 4, fixedParts: 3,
+      silhouette: true, signature: true, crown: true,
+      aura: true, orbiters: 3, mainRings: type === 'bubble' ? 1 : 0,
     });
     assert.equal(Object.isFrozen(slimeEvolutionProfile(type, 4)), true);
+  }
+});
+
+test('each star adds visible geometry around one complete layered survivor rig', () => {
+  const cases = [
+    ['survivor-shell-shell', 'shell'],
+    ['survivor-crystal-pin', 'needle'],
+    ['survivor-bubble-float', 'bubble'],
+    ['survivor-moss-sprout', 'sprout'],
+  ];
+  const visualMethods = new Set([
+    'arc', 'ellipse', 'fill', 'lineTo', 'moveTo', 'quadraticCurveTo', 'stroke',
+  ]);
+
+  for (const [ownerId, type] of cases) {
+    let previousGeometry = -1;
+    for (let star = 1; star <= 4; star += 1) {
+      resetOffscreen();
+      const ctx = createMainContext();
+      drawSlime(ctx, 0, 0, 90, type, {
+        animate: false,
+        time: 0.7,
+        star,
+        rigAsset: readyBundle(ownerId),
+        requireLayeredRig: true,
+      });
+      const geometry = ctx.calls.filter(([method]) => visualMethods.has(method)).length;
+      assert.equal(ctx.compositeDraws, 1, `${type} ${star}★ preserves one whole rig composite`);
+      assert.ok(geometry > previousGeometry,
+        `${type} ${star}★ adds visible geometry over ${Math.max(0, star - 1)}★`);
+      previousGeometry = geometry;
+    }
+  }
+});
+
+test('bubble upgrades keep the formal rig ring and never draw a second main ring', () => {
+  for (const star of [3, 4]) {
+    resetOffscreen();
+    const ctx = createMainContext();
+    drawSlime(ctx, 0, 0, 90, 'bubble', {
+      animate: false,
+      time: 0.7,
+      star,
+      rigAsset: readyBundle('survivor-bubble-float'),
+      requireLayeredRig: true,
+    });
+    const mainRings = ctx.calls.filter(([method, x, y]) => (
+      method === 'ellipse' && x === 0 && y === -49
+    ));
+    assert.equal(slimeEvolutionProfile('bubble', star).mainRings, 1);
+    assert.equal(mainRings.length, 0, `bubble ${star}★ adds no duplicate main ring`);
   }
 });
 

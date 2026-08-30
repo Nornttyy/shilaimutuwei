@@ -11,6 +11,12 @@ import { ENEMIES, SURVIVORS } from './catalog.js';
 
 const clampProgress = (value) => Math.max(0, Math.min(1, Number(value) || 0));
 
+export const MIN_STARTUP_LOADING_MS = 3000;
+
+const waitFor = (milliseconds) => new Promise((resolve) => {
+  globalThis.setTimeout(resolve, Math.max(0, Number(milliseconds) || 0));
+});
+
 const versionedBrowserUrl = (relativePath) => {
   const url = new URL(relativePath, import.meta.url);
   url.searchParams.set('v', ASSET_CACHE_VERSION);
@@ -122,6 +128,9 @@ export function createBrowserStartup({
   useGeneratedCharacterArt = false,
   prepareRigStore = null,
   requestFrame = (callback) => globalThis.requestAnimationFrame(callback),
+  minimumLoadingMs = MIN_STARTUP_LOADING_MS,
+  now = () => Date.now(),
+  wait = waitFor,
   exposeGame = () => {},
   bindLifecycle = () => {},
 } = {}) {
@@ -132,6 +141,7 @@ export function createBrowserStartup({
   let activeStart = null;
 
   const runStart = async () => {
+    const loadingStartedAt = Number(now()) || 0;
     const requiresRigStore = Boolean(useGeneratedCharacterArt);
     const total = keys.length + (requiresRigStore ? 1 : 0);
     let imageCompleted = 0;
@@ -193,6 +203,13 @@ export function createBrowserStartup({
       loadingView.showFailure({ failed: 1, firstFailedKey: '角色骨骼图层' });
       return null;
     }
+
+    const elapsedLoadingMs = Math.max(0, (Number(now()) || 0) - loadingStartedAt);
+    const remainingLoadingMs = Math.max(
+      0,
+      Math.floor(Number(minimumLoadingMs) || 0) - elapsedLoadingMs,
+    );
+    if (remainingLoadingMs > 0) await wait(remainingLoadingMs);
 
     try {
       const candidate = createGame(canvas, {

@@ -870,8 +870,12 @@ export function slimeEvolutionProfile(variant, star = 1) {
     type,
     level,
     fixedParts: Math.max(0, level - 1),
+    silhouette: level >= 2,
+    signature: level >= 3,
+    crown: level >= 4,
     aura: level >= 4,
     orbiters: level >= 4 ? 3 : 0,
+    mainRings: type === 'bubble' ? 1 : 0,
   });
 }
 
@@ -896,6 +900,21 @@ function drawEvolutionCrystalLocal(ctx, x, y, width, height, color = '#8DCBFF') 
   ctx.stroke();
 }
 
+function drawEvolutionCrownPlateLocal(ctx, x, baseY, width, height, color, stroke) {
+  ctx.beginPath();
+  ctx.moveTo(x - width, baseY);
+  ctx.lineTo(x - width * 0.52, baseY - height * 0.72);
+  ctx.lineTo(x, baseY - height);
+  ctx.lineTo(x + width * 0.52, baseY - height * 0.72);
+  ctx.lineTo(x + width, baseY);
+  ctx.closePath();
+  ctx.fillStyle = color;
+  ctx.fill();
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = 2.6;
+  ctx.stroke();
+}
+
 function drawSlimeEvolutionBack(ctx, x, y, size, profile, time, facing, alpha) {
   if (profile.level <= 1) return;
   ctx.save();
@@ -903,25 +922,25 @@ function drawSlimeEvolutionBack(ctx, x, y, size, profile, time, facing, alpha) {
   ctx.translate(x, y);
   ctx.scale(facing * size / 100, size / 100);
 
-  if (profile.aura) {
-    const pulse = 0.72 + Math.sin(time * 2.1) * 0.12;
+  if (profile.aura && profile.type !== 'bubble') {
+    const pulse = 0.76 + Math.sin(time * 2.1) * 0.12;
     ctx.globalAlpha *= pulse;
     ctx.strokeStyle = profile.type === 'needle' ? '#A9D8FF'
       : profile.type === 'bubble' ? '#9CEEFF'
         : profile.type === 'sprout' ? '#C7F69B' : '#FFE1A0';
-    ctx.lineWidth = 4;
+    ctx.lineWidth = 6;
     ctx.beginPath();
-    ctx.ellipse(0, -44, 57, 47, 0, 0, TAU);
+    ctx.ellipse(0, -46, 68, 57, 0, 0, TAU);
     ctx.stroke();
     ctx.globalAlpha /= pulse;
   }
 
   if (profile.type === 'shell') {
     ctx.beginPath();
-    ctx.moveTo(-54, -57);
-    ctx.quadraticCurveTo(-38, -82, -12, -72);
-    ctx.lineTo(-19, -51);
-    ctx.quadraticCurveTo(-37, -60, -52, -42);
+    ctx.moveTo(-68, -60);
+    ctx.quadraticCurveTo(-48, -91, -13, -76);
+    ctx.lineTo(-22, -46);
+    ctx.quadraticCurveTo(-45, -64, -66, -35);
     ctx.closePath();
     ctx.fillStyle = '#76D8AE';
     ctx.fill();
@@ -930,22 +949,22 @@ function drawSlimeEvolutionBack(ctx, x, y, size, profile, time, facing, alpha) {
     ctx.stroke();
     if (profile.level >= 3) {
       ctx.beginPath();
-      ctx.moveTo(49, -55);
-      ctx.quadraticCurveTo(34, -79, 12, -70);
-      ctx.lineTo(18, -50);
-      ctx.quadraticCurveTo(36, -58, 49, -40);
+      ctx.moveTo(66, -58);
+      ctx.quadraticCurveTo(47, -91, 13, -76);
+      ctx.lineTo(22, -45);
+      ctx.quadraticCurveTo(46, -62, 65, -33);
       ctx.closePath();
       ctx.fillStyle = '#F0C66F';
       ctx.fill();
       ctx.stroke();
     }
   } else if (profile.type === 'needle') {
-    drawEvolutionCrystalLocal(ctx, -43, -38, 9, 31, '#86DBF2');
-    if (profile.level >= 3) drawEvolutionCrystalLocal(ctx, 43, -36, 10, 35, '#A8A0FF');
+    drawEvolutionCrystalLocal(ctx, -52, -31, 14, 45, '#86DBF2');
+    if (profile.level >= 3) drawEvolutionCrystalLocal(ctx, 53, -29, 16, 52, '#A8A0FF');
   } else if (profile.type === 'bubble') {
     const bubbles = profile.level >= 3
-      ? [[-48, -70, 9], [49, -55, 11]]
-      : [[-48, -70, 9]];
+      ? [[-56, -72, 15], [58, -53, 18]]
+      : [[-56, -72, 15]];
     for (const [bubbleX, bubbleY, radius] of bubbles) {
       ctx.globalAlpha *= 0.72;
       ctx.fillStyle = '#A8EEFF';
@@ -960,12 +979,12 @@ function drawSlimeEvolutionBack(ctx, x, y, size, profile, time, facing, alpha) {
   } else if (profile.type === 'sprout') {
     const leaf = (leafX, mirror = 1) => {
       ctx.save();
-      ctx.translate(leafX, -48);
+      ctx.translate(leafX, -49);
       ctx.scale(mirror, 1);
       ctx.beginPath();
       ctx.moveTo(0, 5);
-      ctx.quadraticCurveTo(-2, -22, 28, -25);
-      ctx.quadraticCurveTo(27, 0, 0, 5);
+      ctx.quadraticCurveTo(-2, -32, 39, -37);
+      ctx.quadraticCurveTo(39, 3, 0, 7);
       ctx.fillStyle = '#8DDA67';
       ctx.fill();
       ctx.strokeStyle = '#397B45';
@@ -973,23 +992,26 @@ function drawSlimeEvolutionBack(ctx, x, y, size, profile, time, facing, alpha) {
       ctx.stroke();
       ctx.restore();
     };
-    leaf(-29, -1);
-    if (profile.level >= 3) leaf(29, 1);
+    leaf(-31, -1);
+    if (profile.level >= 3) leaf(31, 1);
   }
 
   if (profile.orbiters) {
     for (let index = 0; index < profile.orbiters; index += 1) {
       const angle = time * 0.45 + index * TAU / profile.orbiters;
-      const orbitX = Math.cos(angle) * 58;
-      const orbitY = -54 + Math.sin(angle) * 31;
-      ctx.globalAlpha *= 0.66;
+      const orbitX = Math.cos(angle) * 72;
+      const orbitY = -55 + Math.sin(angle) * 42;
+      ctx.globalAlpha *= 0.76;
       ctx.fillStyle = profile.type === 'sprout' ? '#FFF2A1'
         : profile.type === 'bubble' ? '#C8F7FF'
           : profile.type === 'needle' ? '#C9C4FF' : '#FFE09A';
       ctx.beginPath();
-      ctx.arc(orbitX, orbitY, 4.5 + (index % 2), 0, TAU);
+      ctx.arc(orbitX, orbitY, profile.type === 'bubble' ? 8 + index : 6.5 + index, 0, TAU);
       ctx.fill();
-      ctx.globalAlpha /= 0.66;
+      ctx.strokeStyle = 'rgba(255,255,255,0.84)';
+      ctx.lineWidth = 1.8;
+      ctx.stroke();
+      ctx.globalAlpha /= 0.76;
     }
   }
   ctx.restore();
@@ -1011,17 +1033,51 @@ function drawSlimeEvolutionFront(ctx, x, y, size, profile, time, facing, alpha) 
       ctx.fill();
       ctx.stroke();
     }
-  } else if (profile.type === 'needle') {
-    drawEvolutionCrystalLocal(ctx, 0, -78, 8, 32, '#B8B3FF');
-  } else if (profile.type === 'bubble') {
-    ctx.globalAlpha *= 0.7;
-    ctx.strokeStyle = '#F3FFFF';
-    ctx.lineWidth = 2.2;
+    ctx.save();
+    ctx.globalAlpha *= 0.86;
+    ctx.strokeStyle = '#F7D47D';
+    ctx.lineWidth = 5;
     ctx.beginPath();
-    ctx.arc(-51, -73, 4, Math.PI * 1.05, Math.PI * 1.72);
+    ctx.arc(0, -38, 53, 0.15, Math.PI - 0.12);
     ctx.stroke();
     ctx.restore();
-    return;
+    if (profile.crown) {
+      drawEvolutionCrownPlateLocal(ctx, -20, -73, 10, 24, '#FFE08A', '#93632C');
+      drawEvolutionCrownPlateLocal(ctx, 0, -75, 12, 34, '#FFF0A8', '#93632C');
+      drawEvolutionCrownPlateLocal(ctx, 20, -73, 10, 24, '#FFE08A', '#93632C');
+    }
+  } else if (profile.type === 'needle') {
+    drawEvolutionCrystalLocal(ctx, 0, -72, 14, 48, '#B8B3FF');
+    if (profile.crown) {
+      drawEvolutionCrystalLocal(ctx, -23, -76, 10, 38, '#86DBF2');
+      drawEvolutionCrystalLocal(ctx, 23, -76, 10, 38, '#D4A9FF');
+      drawEvolutionCrownPlateLocal(ctx, 0, -104, 17, 22, '#FFF0A0', '#74619A');
+    }
+  } else if (profile.type === 'bubble') {
+    ctx.globalAlpha *= 0.82;
+    ctx.fillStyle = '#F3FFFF';
+    for (const [shineX, shineY, radius] of [[-58, -76, 4], [60, -58, 5]]) {
+      ctx.beginPath();
+      ctx.arc(shineX, shineY, radius, 0, TAU);
+      ctx.fill();
+    }
+    ctx.globalAlpha /= 0.82;
+    if (profile.crown) {
+      ctx.strokeStyle = '#E9FCFF';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.arc(0, -91, 22, Math.PI * 0.1, Math.PI * 0.9, true);
+      ctx.stroke();
+      for (const [pearlX, pearlY, radius] of [[-19, -95, 7], [0, -105, 9], [19, -95, 7]]) {
+        ctx.fillStyle = '#C8F7FF';
+        ctx.strokeStyle = '#4B91AE';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(pearlX, pearlY, radius, 0, TAU);
+        ctx.fill();
+        ctx.stroke();
+      }
+    }
   } else if (profile.type === 'sprout') {
     ctx.translate(0, -98);
     ctx.fillStyle = '#FFF1A2';
@@ -1030,14 +1086,23 @@ function drawSlimeEvolutionFront(ctx, x, y, size, profile, time, facing, alpha) 
     for (let index = 0; index < 5; index += 1) {
       const angle = index * TAU / 5 - Math.PI / 2;
       ctx.beginPath();
-      ctx.ellipse(Math.cos(angle) * 7, Math.sin(angle) * 7, 4.5, 7, angle, 0, TAU);
+      ctx.ellipse(Math.cos(angle) * 11, Math.sin(angle) * 11, 7, 12, angle, 0, TAU);
       ctx.fill();
       ctx.stroke();
     }
     ctx.fillStyle = '#F0A94F';
     ctx.beginPath();
-    ctx.arc(0, 0, 4, 0, TAU);
+    ctx.arc(0, 0, 6, 0, TAU);
     ctx.fill();
+    if (profile.crown) {
+      ctx.strokeStyle = '#E7C76B';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.arc(0, 4, 30, Math.PI * 1.08, Math.PI * 1.92);
+      ctx.stroke();
+      drawEvolutionCrownPlateLocal(ctx, -24, 1, 9, 24, '#A7E879', '#397B45');
+      drawEvolutionCrownPlateLocal(ctx, 24, 1, 9, 24, '#A7E879', '#397B45');
+    }
   }
   ctx.restore();
 }

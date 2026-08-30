@@ -6,6 +6,8 @@ import {
 } from './wechat-canvas.js';
 import { createRigAssetStore } from '../animation/rig-assets.js';
 
+export const MIN_WECHAT_STARTUP_LOADING_MS = 3000;
+
 export const WECHAT_CRITICAL_ASSET_KEYS = Object.freeze([
   'survivor-shell-shell',
   'survivor-crystal-pin',
@@ -791,6 +793,11 @@ export function startWechatGame({
   createRuntime = createPlatformRuntime,
   createAssetStoreImpl = createWechatImageAssetStore,
   assetPaths = {},
+  minimumLoadingMs = MIN_WECHAT_STARTUP_LOADING_MS,
+  now = () => Date.now(),
+  wait = (milliseconds) => new Promise((resolve) => {
+    globalThis.setTimeout(resolve, Math.max(0, Number(milliseconds) || 0));
+  }),
 } = {}) {
   if (!wxApi || typeof wxApi !== 'object') {
     throw new Error('The WeChat Mini Game global wx API is unavailable.');
@@ -968,6 +975,7 @@ export function startWechatGame({
 
     const runAttempt = async () => {
       if (disposed || started) return game;
+      const loadingStartedAt = Number(now()) || 0;
       loadingView.showLoading(totalLoadingUnits);
       if (assetConfiguration.error) return showFailure({ error: assetConfiguration.error });
       if (rigConfiguration.error) return showFailure({ error: rigConfiguration.error });
@@ -1039,6 +1047,13 @@ export function startWechatGame({
           rigSummary: rigResult.summary,
         });
       }
+      const elapsedLoadingMs = Math.max(0, (Number(now()) || 0) - loadingStartedAt);
+      const remainingLoadingMs = Math.max(
+        0,
+        Math.floor(Number(minimumLoadingMs) || 0) - elapsedLoadingMs,
+      );
+      if (remainingLoadingMs > 0) await wait(remainingLoadingMs);
+      if (disposed) return null;
       try {
         const nextGame = startLoop();
         delete globalThis.__SLIME_WECHAT_BOOT_ERROR__;
@@ -1061,14 +1076,15 @@ export function startWechatGame({
     loadingView.onRetry(beginAttempt);
 
     if (
-      requiredAssetKeys.length
-      || requiredRigOwnerIds.length
-      || assetConfiguration.error
-      || rigConfiguration.error
+      Math.floor(Number(minimumLoadingMs) || 0) <= 0
+      && requiredAssetKeys.length === 0
+      && requiredRigOwnerIds.length === 0
+      && !assetConfiguration.error
+      && !rigConfiguration.error
     ) {
-      ready = beginAttempt();
-    } else {
       ready = Promise.resolve(startLoop());
+    } else {
+      ready = beginAttempt();
     }
 
     globalThis.__SLIME_PLATFORM_RUNTIME__ = runtime;

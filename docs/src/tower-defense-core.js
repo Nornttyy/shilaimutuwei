@@ -12,9 +12,11 @@ const distance = (left, right) => Math.hypot(left.x - right.x, left.y - right.y)
 const scaleValue = (value) => Math.round(value * 1000) / 1000;
 
 export const TD_VIEW = Object.freeze({ width: 1280, height: 720 });
-export const TD_FIELD = Object.freeze({ x: 0, y: 0, width: 930, height: 720 });
+export const TD_FIELD = Object.freeze({ x: 0, y: 0, width: 1280, height: 720 });
 export const TD_MAX_STAR = 4;
 export const TD_HAND_LIMIT = 4;
+export const TD_LANE_COUNT = 5;
+export const TD_COLUMN_COUNT = 7;
 export const TD_STORAGE_KEY = 'slime-fusion-defense-v1';
 export const TD_STAGE_SCALE_CAPS = Object.freeze({ hp: 3.4, speed: 1.4, reward: 2.2 });
 export const TD_ENDLESS_SCALE_CAPS = Object.freeze({
@@ -35,6 +37,7 @@ export const TOWER_TYPES = Object.freeze({
     range: 142,
     interval: 0.78,
     damage: 17,
+    maxHp: 260,
     projectile: 'goo',
     projectileSpeed: 480,
     effect: 'splash',
@@ -48,6 +51,7 @@ export const TOWER_TYPES = Object.freeze({
     range: 238,
     interval: 1.02,
     damage: 29,
+    maxHp: 130,
     projectile: 'needle',
     projectileSpeed: 670,
     effect: 'pierce',
@@ -61,6 +65,7 @@ export const TOWER_TYPES = Object.freeze({
     range: 184,
     interval: 0.58,
     damage: 10,
+    maxHp: 155,
     projectile: 'bubble',
     projectileSpeed: 430,
     effect: 'slow',
@@ -74,6 +79,7 @@ export const TOWER_TYPES = Object.freeze({
     range: 176,
     interval: 0.72,
     damage: 9,
+    maxHp: 145,
     projectile: 'seed',
     projectileSpeed: 510,
     effect: 'poison',
@@ -177,104 +183,124 @@ export const TOWER_DRAW_WEIGHTS = Object.freeze([
 
 export const TD_ENEMIES = Object.freeze({
   bug: Object.freeze({
-    id: 'bug', ownerId: 'enemy-soft-biter', hp: 30, speed: 52, reward: 6,
-    size: 58, coreDamage: 1, color: '#A77770',
+    id: 'bug', ownerId: 'enemy-soft-biter', hp: 40, speed: 36, reward: 7,
+    size: 58, coreDamage: 1, attackDamage: 9, attackInterval: 1.2, color: '#A77770',
   }),
   windcap: Object.freeze({
-    id: 'windcap', ownerId: 'enemy-windcap', hp: 26, speed: 82, reward: 8,
-    size: 55, coreDamage: 2, color: '#C18BCC',
+    id: 'windcap', ownerId: 'enemy-windcap', hp: 36, speed: 54, reward: 9,
+    size: 55, coreDamage: 2, attackDamage: 8, attackInterval: 0.85, color: '#C18BCC',
   }),
   stone: Object.freeze({
-    id: 'stone', ownerId: 'enemy-stone-lump', hp: 104, speed: 36, reward: 15,
-    size: 68, coreDamage: 3, color: '#85848D',
+    id: 'stone', ownerId: 'enemy-stone-lump', hp: 140, speed: 26, reward: 18,
+    size: 68, coreDamage: 2, attackDamage: 18, attackInterval: 1.55, color: '#85848D',
   }),
   boss: Object.freeze({
-    id: 'boss', ownerId: 'enemy-acid-shell-king', hp: 900, speed: 29, reward: 90,
-    size: 104, coreDamage: 20, color: '#778D54', boss: true,
+    id: 'boss', ownerId: 'enemy-acid-shell-king', hp: 1150, speed: 20, reward: 100,
+    size: 104, coreDamage: 10, attackDamage: 38, attackInterval: 1.35,
+    color: '#778D54', boss: true,
   }),
 });
 
 const freezePoints = (points) => Object.freeze(points.map((point) => Object.freeze(point)));
-const freezePads = (pads) => Object.freeze(pads.map((pad, index) => Object.freeze({
-  id: `pad-${index}`,
-  x: pad[0],
-  y: pad[1],
+const TD_LANE_Y = Object.freeze([156, 244, 332, 420, 508]);
+const TD_COLUMN_X = Object.freeze([200, 340, 480, 620, 760, 900, 1040]);
+const TD_LANE_INDICES = Object.freeze(Array.from({ length: TD_LANE_COUNT }, (_, index) => index));
+
+const freezeLanes = () => Object.freeze(TD_LANE_Y.map((y, index) => Object.freeze({
+  id: `lane-${index}`,
+  index,
+  y,
+  path: freezePoints([{ x: 1260, y }, { x: 96, y }]),
 })));
-const group = (type, count, interval, delay = 0) => Object.freeze({
-  type, count, interval, delay,
+
+const freezeLanePads = (lanes) => Object.freeze(lanes.flatMap((lane) => (
+  TD_COLUMN_X.map((baseX, columnIndex) => {
+    const index = lane.index * TD_COLUMN_COUNT + columnIndex;
+    return Object.freeze({
+      id: `pad-${index}`,
+      x: baseX + (lane.index % 2 === 1 ? 20 : 0),
+      y: lane.y,
+      laneIndex: lane.index,
+      columnIndex,
+    });
+  })
+)));
+
+const group = (type, count, interval, delay = 0, laneIndices = TD_LANE_INDICES) => Object.freeze({
+  type,
+  count,
+  interval,
+  delay,
+  laneIndices: Object.freeze([...laneIndices]),
 });
 const wave = (...groups) => Object.freeze(groups);
 
+const laneStage = ({ id, index, name, accent, waves }) => {
+  const lanes = freezeLanes();
+  return Object.freeze({
+    id,
+    index,
+    name,
+    accent,
+    lanes,
+    // Kept as the middle route for callers that still need generic path
+    // geometry. Combat itself always resolves the enemy's authored lane.
+    path: lanes[Math.floor(TD_LANE_COUNT / 2)].path,
+    pads: freezeLanePads(lanes),
+    base: Object.freeze({ x: 58, y: lanes[2].y, goalX: lanes[2].path.at(-1).x }),
+    tutorialPadIndex: 0,
+    waves: Object.freeze(waves),
+  });
+};
+
 export const TD_STAGES = Object.freeze([
-  Object.freeze({
+  laneStage({
     id: 'stage-1',
     index: 1,
     name: '软胶坡',
     accent: '#62D5A0',
-    path: freezePoints([
-      { x: 18, y: 122 }, { x: 252, y: 122 }, { x: 252, y: 344 },
-      { x: 494, y: 344 }, { x: 494, y: 154 }, { x: 708, y: 154 },
-      { x: 708, y: 520 }, { x: 866, y: 520 },
-    ]),
-    pads: freezePads([
-      [132, 228], [354, 234], [388, 454], [590, 250], [604, 472],
-      [804, 382], [823, 608], [148, 486], [376, 92],
-    ]),
-    waves: Object.freeze([
-      wave(group('bug', 5, 0.66)),
-      wave(group('bug', 5, 0.6), group('windcap', 2, 0.78, 1.8)),
-      wave(group('bug', 4, 0.56), group('stone', 3, 1.18, 2.2)),
-      wave(group('windcap', 3, 0.56), group('stone', 4, 1.08, 1.8)),
-      wave(group('bug', 2, 0.5), group('stone', 4, 1.02, 1.6), group('boss', 1, 0, 5.4)),
-    ]),
+    waves: [
+      // The tutorial creates one fused defender on pad 0, so the opening
+      // group deliberately teaches a single lane before pressure spreads.
+      wave(group('bug', 5, 0.9, 0, [0])),
+      wave(group('bug', 5, 0.72, 0, [0, 1]), group('windcap', 2, 0.92, 2, [1, 0])),
+      wave(group('bug', 4, 0.68, 0, [0, 2, 4]), group('stone', 3, 1.32, 2.4, [4, 2, 0])),
+      wave(group('windcap', 3, 0.66, 0, [0, 2, 4]), group('stone', 4, 1.2, 2, [1, 3])),
+      wave(
+        group('bug', 2, 0.65, 0, [1, 3]),
+        group('stone', 4, 1.15, 1.8, [0, 1, 3, 4]),
+        group('boss', 1, 0, 5.6, [2]),
+      ),
+    ],
   }),
-  Object.freeze({
+  laneStage({
     id: 'stage-2',
     index: 2,
     name: '泡泡湾',
     accent: '#67CFE8',
-    path: freezePoints([
-      { x: 18, y: 548 }, { x: 192, y: 548 }, { x: 192, y: 210 },
-      { x: 404, y: 210 }, { x: 404, y: 498 }, { x: 616, y: 498 },
-      { x: 616, y: 112 }, { x: 854, y: 112 },
-    ]),
-    pads: freezePads([
-      [94, 422], [290, 420], [302, 102], [502, 332], [512, 596],
-      [714, 276], [752, 516], [836, 212], [88, 112],
-    ]),
-    waves: Object.freeze([
-      wave(group('windcap', 8, 0.62)),
-      wave(group('bug', 4, 0.56), group('windcap', 4, 0.68, 1.4)),
-      wave(group('windcap', 4, 0.56), group('stone', 4, 1.02, 1.7)),
-      wave(group('bug', 3, 0.5), group('stone', 5, 0.96, 1.5)),
-      wave(group('windcap', 2, 0.5), group('stone', 5, 0.92, 1.5), group('boss', 1, 0, 5.2)),
-      wave(group('bug', 2, 0.46), group('stone', 5, 0.88, 1.4), group('boss', 1, 0, 4.8)),
-    ]),
+    waves: [
+      wave(group('windcap', 8, 0.72, 0, [0, 1, 2, 3, 4])),
+      wave(group('bug', 4, 0.68, 0, [0, 2, 4]), group('windcap', 4, 0.78, 1.6, [1, 3])),
+      wave(group('windcap', 4, 0.68, 0, [0, 1, 3, 4]), group('stone', 4, 1.18, 1.9, [2, 4, 0, 3])),
+      wave(group('bug', 3, 0.62, 0, [0, 2, 4]), group('stone', 5, 1.12, 1.7, [1, 3, 2, 0, 4])),
+      wave(group('windcap', 2, 0.62, 0, [1, 3]), group('stone', 5, 1.08, 1.7), group('boss', 1, 0, 5.4, [2])),
+      wave(group('bug', 2, 0.58, 0, [0, 4]), group('stone', 5, 1.04, 1.6), group('boss', 1, 0, 5, [2])),
+    ],
   }),
-  Object.freeze({
+  laneStage({
     id: 'stage-3',
     index: 3,
     name: '晶刺环',
     accent: '#8C80E8',
-    path: freezePoints([
-      { x: 18, y: 118 }, { x: 176, y: 118 }, { x: 176, y: 574 },
-      { x: 366, y: 574 }, { x: 366, y: 210 }, { x: 548, y: 210 },
-      { x: 548, y: 558 }, { x: 730, y: 558 }, { x: 730, y: 132 },
-      { x: 866, y: 132 },
-    ]),
-    pads: freezePads([
-      [84, 260], [278, 312], [274, 660], [460, 390], [460, 105],
-      [642, 358], [642, 646], [826, 320], [836, 586],
-    ]),
-    waves: Object.freeze([
-      wave(group('bug', 5, 0.52), group('windcap', 4, 0.62, 1.2)),
-      wave(group('windcap', 5, 0.52), group('stone', 4, 0.94, 1.5)),
-      wave(group('bug', 4, 0.46), group('stone', 5, 0.9, 1.4)),
-      wave(group('windcap', 4, 0.46), group('stone', 5, 0.86, 1.3)),
-      wave(group('bug', 3, 0.42), group('stone', 5, 0.82, 1.2), group('boss', 1, 0, 4.8)),
-      wave(group('windcap', 3, 0.42), group('stone', 5, 0.8, 1.2), group('boss', 1, 0, 4.4)),
-      wave(group('bug', 1, 0.4), group('stone', 6, 0.76, 1.1), group('boss', 2, 3.4, 4.2)),
-    ]),
+    waves: [
+      wave(group('bug', 5, 0.64, 0), group('windcap', 4, 0.74, 1.4, [4, 2, 0, 3, 1])),
+      wave(group('windcap', 5, 0.64, 0), group('stone', 4, 1.1, 1.7, [1, 3, 0, 4])),
+      wave(group('bug', 4, 0.58, 0, [0, 2, 4]), group('stone', 5, 1.06, 1.6)),
+      wave(group('windcap', 4, 0.58, 0, [4, 2, 0, 3]), group('stone', 5, 1.02, 1.5)),
+      wave(group('bug', 3, 0.54, 0, [0, 2, 4]), group('stone', 5, 0.98, 1.4), group('boss', 1, 0, 5, [2])),
+      wave(group('windcap', 3, 0.54, 0, [1, 3, 2]), group('stone', 5, 0.96, 1.4), group('boss', 1, 0, 4.6, [2])),
+      wave(group('bug', 1, 0.52, 0, [2]), group('stone', 6, 0.92, 1.3), group('boss', 2, 3.6, 4.4, [1, 3])),
+    ],
   }),
 ]);
 
@@ -310,6 +336,33 @@ function nextUid(state, prefix) {
   return `${prefix}-${state.uidCounter}`;
 }
 
+const TOWER_HP_STAR_MULTIPLIER = Object.freeze([0, 1, 1.65, 2.6, 4]);
+
+function maxHpForTower(type, star = 1) {
+  const definition = TOWER_TYPES[type] || TOWER_TYPES.shell;
+  const level = clamp(Math.floor(Number(star) || 1), 1, TD_MAX_STAR);
+  return Math.round(definition.maxHp * TOWER_HP_STAR_MULTIPLIER[level]);
+}
+
+function ensureTowerHealth(tower) {
+  if (!tower) return null;
+  const expectedMaxHp = maxHpForTower(tower.type, tower.star);
+  if (!(Number(tower.maxHp) > 0)) tower.maxHp = expectedMaxHp;
+  if (!Number.isFinite(Number(tower.hp))) tower.hp = tower.maxHp;
+  tower.hp = clamp(Number(tower.hp) || 0, 0, tower.maxHp);
+  tower.hitPulse = clamp(Number(tower.hitPulse) || 0, 0, 1);
+  return tower;
+}
+
+function upgradeTowerHealth(tower, nextStar) {
+  ensureTowerHealth(tower);
+  const healthRatio = tower.maxHp > 0 ? tower.hp / tower.maxHp : 1;
+  tower.star = clamp(Math.floor(Number(nextStar) || tower.star), 1, TD_MAX_STAR);
+  tower.maxHp = maxHpForTower(tower.type, tower.star);
+  tower.hp = Math.max(1, Math.round(tower.maxHp * healthRatio));
+  return tower;
+}
+
 function emptyRunState(progress, seed) {
   return {
     screen: 'menu',
@@ -328,6 +381,8 @@ function emptyRunState(progress, seed) {
     waveActive: false,
     waveElapsed: 0,
     waveBreak: 0,
+    waveEnemyTotal: 0,
+    waveEnemyResolved: 0,
     spawnQueue: [],
     hand: [],
     towers: [],
@@ -336,8 +391,8 @@ function emptyRunState(progress, seed) {
     effects: [],
     currency: 120,
     drawCount: 0,
-    coreHp: 20,
-    coreMaxHp: 20,
+    coreHp: 32,
+    coreMaxHp: 32,
     kills: 0,
     result: null,
     selectedTowerUid: null,
@@ -406,7 +461,7 @@ export function drawTowerCard(state) {
   const card = { uid: nextUid(state, 'card'), type, star: 1 };
   state.hand.push(card);
   state.effects.push({
-    uid: nextUid(state, 'fx'), type: 'summon', age: 0, duration: 0.65, x: 1074, y: 612,
+    uid: nextUid(state, 'fx'), type: 'summon', age: 0, duration: 0.65, x: 80, y: 640,
   });
   state.events.push({ type: 'draw', towerType: type });
   if (state.tutorial.active) {
@@ -425,11 +480,16 @@ export function placeTowerFromHand(state, cardUid, padIndex) {
   const handIndex = state.hand.findIndex((card) => card.uid === cardUid);
   if (handIndex < 0) return null;
   const [card] = state.hand.splice(handIndex, 1);
+  const maxHp = maxHpForTower(card.type, card.star);
+  const healthRatio = clamp(Number(card.healthRatio) || 1, 0.01, 1);
   const tower = {
     uid: nextUid(state, 'tower'),
     type: card.type,
     star: card.star,
     padIndex: index,
+    hp: Math.max(1, Math.round(maxHp * healthRatio)),
+    maxHp,
+    hitPulse: 0,
     cooldown: Math.max(0.16, Number(card.redeployCooldown) || 0),
     aimAngle: 0,
     attackPulse: 0,
@@ -463,7 +523,7 @@ export function mergeTowers(state, sourceUid, targetUid) {
   if (!canMergeTowers(source, target)) return null;
   const sourceIndex = state.towers.indexOf(source);
   state.towers.splice(sourceIndex, 1);
-  target.star += 1;
+  upgradeTowerHealth(target, target.star + 1);
   target.cooldown = Math.min(target.cooldown, 0.12);
   state.selectedTowerUid = null;
   const pad = stageForState(state).pads[target.padIndex];
@@ -499,7 +559,7 @@ export function mergeCardIntoTower(state, cardUid, targetUid) {
   if (!canMergeCardIntoTower(card, target)) return null;
 
   state.hand.splice(cardIndex, 1);
-  target.star += 1;
+  upgradeTowerHealth(target, target.star + 1);
   target.cooldown = Math.min(target.cooldown, 0.12);
   state.selectedTowerUid = null;
   const pad = stageForState(state).pads[target.padIndex];
@@ -528,11 +588,14 @@ export function reclaimTowerToHand(state, towerUid) {
   const towerIndex = state.towers.findIndex((tower) => tower.uid === towerUid);
   if (towerIndex < 0) return null;
   const tower = state.towers[towerIndex];
+  ensureTowerHealth(tower);
   const sourcePad = stageForState(state).pads[tower.padIndex];
+  const healthRatio = tower.maxHp > 0 ? tower.hp / tower.maxHp : 1;
   const card = {
     uid: nextUid(state, 'card'),
     type: tower.type,
     star: tower.star,
+    ...(healthRatio < 0.999 ? { healthRatio } : {}),
     ...(state.waveActive ? { redeployCooldown: Math.max(0.65, tower.cooldown) } : {}),
   };
 
@@ -563,6 +626,7 @@ export function moveTowerToPad(state, towerUid, padIndex) {
   const tower = state.towers.find((candidate) => candidate.uid === towerUid);
   if (!tower || tower.padIndex === targetPadIndex) return null;
   if (state.towers.some((candidate) => candidate.padIndex === targetPadIndex)) return null;
+  ensureTowerHealth(tower);
 
   const fromPadIndex = tower.padIndex;
   const sourcePad = stage.pads[fromPadIndex];
@@ -647,11 +711,16 @@ function queueForWave(state, waveNumber) {
     : (stageForState(state).waves[waveNumber - 1] || []);
   const queue = [];
   groups.forEach((entry, groupIndex) => {
+    const laneIndices = entry.laneIndices
+      .map((laneIndex) => Math.floor(Number(laneIndex)))
+      .filter((laneIndex) => laneIndex >= 0 && laneIndex < TD_LANE_COUNT);
+    const availableLanes = laneIndices.length ? laneIndices : TD_LANE_INDICES;
     for (let index = 0; index < entry.count; index += 1) {
       queue.push({
         uid: `spawn-${waveNumber}-${groupIndex}-${index}`,
         type: entry.type,
         at: entry.delay + index * entry.interval,
+        laneIndex: availableLanes[(index + groupIndex + waveNumber - 1) % availableLanes.length],
       });
     }
   });
@@ -669,6 +738,8 @@ export function startNextTowerDefenseWave(state) {
   state.waveElapsed = 0;
   state.waveBreak = 0;
   state.spawnQueue = queueForWave(state, state.wave);
+  state.waveEnemyTotal = state.spawnQueue.length;
+  state.waveEnemyResolved = 0;
   state.events.push({ type: 'wave-start', wave: state.wave });
   if (state.tutorial.active && state.tutorial.step === 'start') {
     state.tutorial.active = false;
@@ -694,26 +765,45 @@ function enemyScaleForState(state) {
   return stageScaleForWave(stageForState(state).index, state.wave);
 }
 
-function spawnEnemy(state, type) {
+function normalizedLaneIndex(stage, laneIndex, y = null) {
+  const numeric = Math.floor(Number(laneIndex));
+  if (Number.isFinite(numeric) && stage.lanes[numeric]) return numeric;
+  if (Number.isFinite(Number(y))) {
+    return stage.lanes.reduce((bestIndex, lane, index) => (
+      Math.abs(lane.y - y) < Math.abs(stage.lanes[bestIndex].y - y) ? index : bestIndex
+    ), 0);
+  }
+  return 0;
+}
+
+function spawnEnemy(state, type, laneIndex = 0) {
   const definition = TD_ENEMIES[type] || TD_ENEMIES.bug;
   const scale = enemyScaleForState(state);
   const maxHp = Math.round(definition.hp * scale.hp);
+  const stage = stageForState(state);
+  const resolvedLaneIndex = normalizedLaneIndex(stage, laneIndex);
+  const lane = stage.lanes[resolvedLaneIndex];
   const enemy = {
     uid: nextUid(state, 'enemy'),
     type: definition.id,
+    laneIndex: resolvedLaneIndex,
     travelled: 0,
-    x: stageForState(state).path[0].x,
-    y: stageForState(state).path[0].y,
-    facing: 1,
+    x: lane.path[0].x,
+    y: lane.path[0].y,
+    facing: -1,
     hp: maxHp,
     maxHp,
     speed: definition.speed * scale.speed,
     reward: Math.max(1, Math.round(definition.reward * scale.reward)),
+    attackDamage: Math.max(1, Math.round(definition.attackDamage * Math.min(2.2, Math.sqrt(scale.hp)))),
+    attackInterval: definition.attackInterval,
     slowMultiplier: 1,
     slowTime: 0,
     poisonDps: 0,
     poisonTime: 0,
     hitPulse: 0,
+    attackCooldown: definition.attackInterval,
+    blockedByTowerUid: null,
   };
   state.enemies.push(enemy);
   state.effects.push({
@@ -729,13 +819,39 @@ function towerPosition(state, tower) {
   return stageForState(state).pads[tower.padIndex];
 }
 
+function laneIndexForEnemy(state, enemy) {
+  const stage = stageForState(state);
+  const laneIndex = normalizedLaneIndex(stage, enemy.laneIndex, enemy.y);
+  enemy.laneIndex = laneIndex;
+  return laneIndex;
+}
+
+function setEnemyTravelled(state, enemy, travelled) {
+  const stage = stageForState(state);
+  const laneIndex = laneIndexForEnemy(state, enemy);
+  const lane = stage.lanes[laneIndex];
+  const pathLength = pathMetrics(lane.path).total;
+  enemy.travelled = clamp(Number(travelled) || 0, 0, pathLength);
+  const point = pointOnPath(lane.path, enemy.travelled);
+  enemy.x = point.x;
+  enemy.y = point.y;
+  enemy.facing = -1;
+  return point;
+}
+
 function targetForTower(state, tower) {
   const definition = TOWER_TYPES[tower.type];
   const origin = towerPosition(state, tower);
+  if (!origin) return null;
   const range = definition.range * (1 + (tower.star - 1) * 0.035);
   let best = null;
   for (const enemy of state.enemies) {
-    if (enemy.hp <= 0 || distance(origin, enemy) > range) continue;
+    if (
+      enemy.hp <= 0
+      || laneIndexForEnemy(state, enemy) !== origin.laneIndex
+      || enemy.x < origin.x
+      || enemy.x - origin.x > range
+    ) continue;
     if (!best || enemy.travelled > best.travelled) best = enemy;
   }
   return best;
@@ -745,12 +861,15 @@ function volleyTargetsForTower(state, tower, primary, count) {
   if (count <= 1) return [primary];
   const definition = TOWER_TYPES[tower.type];
   const origin = towerPosition(state, tower);
+  if (!origin) return [primary];
   const range = definition.range * (1 + (tower.star - 1) * 0.035);
   const extras = state.enemies
     .filter((enemy) => (
       enemy.uid !== primary.uid
       && enemy.hp > 0
-      && distance(origin, enemy) <= range
+      && laneIndexForEnemy(state, enemy) === origin.laneIndex
+      && enemy.x >= origin.x
+      && enemy.x - origin.x <= range
     ))
     .sort((left, right) => right.travelled - left.travelled)
     .slice(0, count - 1);
@@ -827,6 +946,10 @@ function damageEnemy(state, enemy, amount, { emitHit = true } = {}) {
   }
   if (enemy.hp > 0) return false;
   enemy.hp = 0;
+  state.waveEnemyResolved = Math.min(
+    Math.max(0, Number(state.waveEnemyTotal) || 0),
+    Math.max(0, Number(state.waveEnemyResolved) || 0) + 1,
+  );
   state.currency += enemy.reward;
   state.kills += 1;
   state.effects.push({
@@ -845,11 +968,13 @@ function damageEnemy(state, enemy, amount, { emitHit = true } = {}) {
 }
 
 function nearbyEffectTargets(state, target, radius, count = Infinity) {
+  const targetLaneIndex = laneIndexForEnemy(state, target);
   return state.enemies
     .filter((enemy) => (
       enemy.uid !== target.uid
       && enemy.hp > 0
-      && distance(enemy, target) <= radius
+      && laneIndexForEnemy(state, enemy) === targetLaneIndex
+      && Math.abs(enemy.x - target.x) <= radius
     ))
     .sort((left, right) => right.travelled - left.travelled)
     .slice(0, count);
@@ -879,7 +1004,7 @@ function applyProjectileHit(state, projectile, target) {
     const radius = projectile.splashRadius ?? 42 + projectile.star * 7;
     const splashDamageScale = projectile.splashDamageScale ?? 0.52;
     const knockback = Math.max(0, Number(projectile.knockback) || 0);
-    if (knockback > 0) target.travelled = Math.max(0, target.travelled - knockback);
+    if (knockback > 0) setEnemyTravelled(state, target, target.travelled - knockback);
     for (const enemy of nearbyEffectTargets(state, target, radius)) {
       damageEnemy(state, enemy, projectile.damage * splashDamageScale);
     }
@@ -900,7 +1025,7 @@ function applyProjectileHit(state, projectile, target) {
     const rewind = 5 + projectile.star * 2.5;
     target.slowMultiplier = Math.min(target.slowMultiplier, slowMultiplier);
     target.slowTime = Math.max(target.slowTime, slowTime);
-    target.travelled = Math.max(0, target.travelled - rewind);
+    setEnemyTravelled(state, target, target.travelled - rewind);
     const chainTargets = nearbyEffectTargets(
       state,
       target,
@@ -912,7 +1037,7 @@ function applyProjectileHit(state, projectile, target) {
       const chainedSlow = 1 - (1 - slowMultiplier) * chainPower;
       enemy.slowMultiplier = Math.min(enemy.slowMultiplier, chainedSlow);
       enemy.slowTime = Math.max(enemy.slowTime, slowTime * 0.72);
-      enemy.travelled = Math.max(0, enemy.travelled - rewind * chainPower);
+      setEnemyTravelled(state, enemy, enemy.travelled - rewind * chainPower);
       emitProjectileImpact(state, projectile, enemy, { secondary: true });
     }
   } else if (projectile.effect === 'poison') {
@@ -963,8 +1088,11 @@ function updateProjectiles(state, dt) {
 
 function updateTowers(state, dt) {
   for (const tower of state.towers) {
+    ensureTowerHealth(tower);
     tower.cooldown -= dt;
     tower.attackPulse = Math.max(0, tower.attackPulse - dt * 5.5);
+    tower.hitPulse = Math.max(0, tower.hitPulse - dt * 6);
+    if (tower.hp <= 0) continue;
     if (tower.cooldown > 0) continue;
     const target = targetForTower(state, tower);
     if (!target) {
@@ -977,11 +1105,92 @@ function updateTowers(state, dt) {
   }
 }
 
+function towerContactTravel(state, enemy, tower) {
+  const stage = stageForState(state);
+  const pad = stage.pads[tower.padIndex];
+  if (!pad || pad.laneIndex !== laneIndexForEnemy(state, enemy)) return null;
+  const lane = stage.lanes[pad.laneIndex];
+  const definition = TD_ENEMIES[enemy.type] || TD_ENEMIES.bug;
+  const contactOffset = 38 + definition.size * 0.18;
+  return Math.max(0, lane.path[0].x - (pad.x + contactOffset));
+}
+
+function nextBlockingTower(state, enemy) {
+  let best = null;
+  let bestTravelled = Number.POSITIVE_INFINITY;
+  for (const tower of state.towers) {
+    ensureTowerHealth(tower);
+    if (tower.hp <= 0) continue;
+    const contactTravelled = towerContactTravel(state, enemy, tower);
+    if (contactTravelled == null || contactTravelled < enemy.travelled - 0.01) continue;
+    if (contactTravelled < bestTravelled) {
+      best = tower;
+      bestTravelled = contactTravelled;
+    }
+  }
+  return best ? { tower: best, travelled: bestTravelled } : null;
+}
+
+function damageTower(state, enemy, tower, amount) {
+  ensureTowerHealth(tower);
+  const damage = Math.max(0, Number(amount) || 0);
+  if (tower.hp <= 0 || damage <= 0) return false;
+  const pad = towerPosition(state, tower);
+  tower.hp = Math.max(0, tower.hp - damage);
+  tower.hitPulse = 1;
+  state.events.push({
+    type: 'enemy-attack',
+    enemyUid: enemy.uid,
+    towerUid: tower.uid,
+    damage,
+  });
+  state.events.push({
+    type: 'tower-hit',
+    towerUid: tower.uid,
+    towerType: tower.type,
+    star: tower.star,
+    padIndex: tower.padIndex,
+    enemyUid: enemy.uid,
+    damage,
+    hp: tower.hp,
+    maxHp: tower.maxHp,
+  });
+  state.effects.push({
+    uid: nextUid(state, 'fx'), type: 'tower-hit', age: 0, duration: 0.42,
+    x: pad.x, y: pad.y - 24,
+  });
+  if (tower.hp > 0) return false;
+
+  const towerIndex = state.towers.indexOf(tower);
+  if (towerIndex >= 0) state.towers.splice(towerIndex, 1);
+  if (state.selectedTowerUid === tower.uid) state.selectedTowerUid = null;
+  enemy.blockedByTowerUid = null;
+  state.effects.push({
+    uid: nextUid(state, 'fx'), type: 'tower-defeat', age: 0, duration: 0.72,
+    x: pad.x, y: pad.y,
+  });
+  state.events.push({
+    type: 'tower-defeat',
+    towerUid: tower.uid,
+    towerType: tower.type,
+    star: tower.star,
+    padIndex: tower.padIndex,
+    enemyUid: enemy.uid,
+    x: pad.x,
+    y: pad.y,
+    laneIndex: pad.laneIndex,
+  });
+  return true;
+}
+
 function updateEnemies(state, dt) {
-  const path = stageForState(state).path;
-  const pathLength = pathMetrics(path).total;
+  const stage = stageForState(state);
   for (const enemy of state.enemies) {
     if (enemy.hp <= 0) continue;
+    const definition = TD_ENEMIES[enemy.type] || TD_ENEMIES.bug;
+    const laneIndex = laneIndexForEnemy(state, enemy);
+    const lane = stage.lanes[laneIndex];
+    const pathLength = pathMetrics(lane.path).total;
     enemy.hitPulse = Math.max(0, enemy.hitPulse - dt * 6);
     if (enemy.poisonTime > 0) {
       enemy.poisonTime -= dt;
@@ -992,15 +1201,42 @@ function updateEnemies(state, dt) {
     if (enemy.hp <= 0) continue;
     if (enemy.slowTime > 0) enemy.slowTime -= dt;
     else enemy.slowMultiplier = 1;
-    enemy.travelled += enemy.speed * enemy.slowMultiplier * dt;
-    const previousX = enemy.x;
-    const point = pointOnPath(path, enemy.travelled);
-    enemy.x = point.x;
-    enemy.y = point.y;
-    if (Math.abs(enemy.x - previousX) > 0.01) enemy.facing = enemy.x >= previousX ? 1 : -1;
+
+    const nextTravelled = Math.min(
+      pathLength,
+      enemy.travelled + enemy.speed * enemy.slowMultiplier * dt,
+    );
+    const blocker = nextBlockingTower(state, enemy);
+    if (blocker && nextTravelled >= blocker.travelled) {
+      setEnemyTravelled(state, enemy, blocker.travelled);
+      enemy.blockedByTowerUid = blocker.tower.uid;
+      const attackInterval = Math.max(
+        0.2,
+        Number(enemy.attackInterval) || definition.attackInterval,
+      );
+      if (!Number.isFinite(Number(enemy.attackCooldown))) enemy.attackCooldown = attackInterval;
+      enemy.attackCooldown -= dt;
+      while (enemy.attackCooldown <= 0 && blocker.tower.hp > 0) {
+        damageTower(
+          state,
+          enemy,
+          blocker.tower,
+          Number(enemy.attackDamage) || definition.attackDamage,
+        );
+        enemy.attackCooldown += attackInterval;
+      }
+    } else {
+      enemy.blockedByTowerUid = null;
+      setEnemyTravelled(state, enemy, nextTravelled);
+    }
+
+    const point = { x: enemy.x, y: enemy.y };
     if (enemy.travelled >= pathLength) {
       enemy.leaked = true;
-      const definition = TD_ENEMIES[enemy.type];
+      state.waveEnemyResolved = Math.min(
+        Math.max(0, Number(state.waveEnemyTotal) || 0),
+        Math.max(0, Number(state.waveEnemyResolved) || 0) + 1,
+      );
       state.coreHp = Math.max(0, state.coreHp - definition.coreDamage);
       state.effects.push({
         uid: nextUid(state, 'fx'), type: 'core-hit', age: 0, duration: 0.7,
@@ -1035,8 +1271,12 @@ function finishRun(state, result) {
 function completeWave(state) {
   state.waveActive = false;
   state.waveBreak = 2.6;
-  state.currency += 20 + state.wave * 3;
+  state.currency += 24 + state.wave * 4;
   state.coreHp = Math.min(state.coreMaxHp, state.coreHp + 1);
+  for (const tower of state.towers) {
+    ensureTowerHealth(tower);
+    tower.hp = Math.min(tower.maxHp, tower.hp + Math.round(tower.maxHp * 0.2));
+  }
   state.events.push({ type: 'wave-clear', wave: state.wave });
   if (state.mode === 'stage' && state.wave >= stageForState(state).waves.length) {
     finishRun(state, 'victory');
@@ -1075,7 +1315,7 @@ export function updateTowerDefense(state, dt) {
   state.waveElapsed += delta;
   while (state.spawnQueue.length && state.spawnQueue[0].at <= state.waveElapsed) {
     const spawn = state.spawnQueue.shift();
-    spawnEnemy(state, spawn.type);
+    spawnEnemy(state, spawn.type, spawn.laneIndex);
   }
   updateEnemies(state, delta);
   updateTowers(state, delta);

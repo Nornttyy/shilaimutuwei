@@ -3,6 +3,7 @@ import {
   drawCore,
   drawMonster,
   drawParticle,
+  drawPortal,
   drawProjectile,
   drawSlime,
 } from './draw.js';
@@ -20,7 +21,6 @@ import {
 } from './animation/clips.js';
 import {
   TD_ENEMIES,
-  TD_FIELD,
   TD_MAX_STAR,
   TD_STAGE_BY_ID,
   TD_STAGES,
@@ -56,27 +56,29 @@ import {
 const FONT = 'system-ui, -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif';
 const TAU = Math.PI * 2;
 const MAX_DPR = 2;
-const PANEL_X = TD_FIELD.width;
-const PAD_RADIUS = 46;
+const PAD_RADIUS = 38;
 const DRAG_THRESHOLD = 12;
+const BATTLE_FIELD = Object.freeze({ top: 68, bottom: 574, left: 0, right: TD_VIEW.width });
+const FALLBACK_LANE_Y = Object.freeze([156, 244, 332, 420, 508]);
 
 const COMMAND_DOCK = Object.freeze({
-  back: Object.freeze({ x: 946, y: 14, width: 50, height: 50 }),
-  wave: Object.freeze({ x: 1004, y: 14, width: 92, height: 50 }),
-  enemies: Object.freeze({ x: 1104, y: 14, width: 58, height: 50 }),
-  currency: Object.freeze({ x: 1170, y: 14, width: 94, height: 50 }),
-  core: Object.freeze({ x: 946, y: 74, width: 318, height: 34 }),
-  handZone: Object.freeze({ x: 946, y: 118, width: 318, height: 294 }),
+  back: Object.freeze({ x: 14, y: 10, width: 48, height: 48 }),
+  currency: Object.freeze({ x: 76, y: 10, width: 152, height: 48 }),
+  core: Object.freeze({ x: 242, y: 14, width: 158, height: 40 }),
+  wave: Object.freeze({ x: 414, y: 16, width: 590, height: 36 }),
+  enemies: Object.freeze({ x: 1018, y: 10, width: 96, height: 48 }),
+  mode: Object.freeze({ x: 1128, y: 10, width: 136, height: 48 }),
+  handZone: Object.freeze({ x: 154, y: 582, width: 568, height: 124 }),
   cards: Object.freeze([
-    Object.freeze({ x: 946, y: 118, width: 154, height: 142 }),
-    Object.freeze({ x: 1110, y: 118, width: 154, height: 142 }),
-    Object.freeze({ x: 946, y: 270, width: 154, height: 142 }),
-    Object.freeze({ x: 1110, y: 270, width: 154, height: 142 }),
+    Object.freeze({ x: 154, y: 582, width: 136, height: 124 }),
+    Object.freeze({ x: 298, y: 582, width: 136, height: 124 }),
+    Object.freeze({ x: 442, y: 582, width: 136, height: 124 }),
+    Object.freeze({ x: 586, y: 582, width: 136, height: 124 }),
   ]),
-  selection: Object.freeze({ x: 946, y: 424, width: 318, height: 88 }),
-  draw: Object.freeze({ x: 946, y: 524, width: 318, height: 70 }),
-  reclaim: Object.freeze({ x: 946, y: 608, width: 80, height: 80 }),
-  start: Object.freeze({ x: 1038, y: 608, width: 226, height: 80 }),
+  draw: Object.freeze({ x: 16, y: 582, width: 126, height: 124 }),
+  reclaim: Object.freeze({ x: 736, y: 596, width: 108, height: 96 }),
+  selection: Object.freeze({ x: 856, y: 582, width: 176, height: 124 }),
+  start: Object.freeze({ x: 1044, y: 582, width: 220, height: 124 }),
 });
 
 const MENU_ACTIONS = Object.freeze({
@@ -165,32 +167,59 @@ const insideRect = (point, rect) => (
   && point.y >= rect.y && point.y <= rect.y + rect.height
 );
 
-function drawDockShell(ctx, stage, time) {
-  const gradient = ctx.createLinearGradient(PANEL_X, 0, TD_VIEW.width, TD_VIEW.height);
-  gradient.addColorStop(0, '#234B50');
-  gradient.addColorStop(0.55, '#315E57');
-  gradient.addColorStop(1, '#203F4A');
-  ctx.save();
-  ctx.beginPath();
-  ctx.moveTo(PANEL_X + 18, 0);
-  ctx.bezierCurveTo(PANEL_X - 8, 112, PANEL_X + 8, 232, PANEL_X + 2, 348);
-  ctx.bezierCurveTo(PANEL_X - 5, 474, PANEL_X + 14, 602, PANEL_X + 8, TD_VIEW.height);
-  ctx.lineTo(TD_VIEW.width, TD_VIEW.height);
-  ctx.lineTo(TD_VIEW.width, 0);
-  ctx.closePath();
-  ctx.fillStyle = gradient;
-  ctx.fill();
+function laneDescriptors(stage) {
+  const lanes = Array.isArray(stage?.lanes) && stage.lanes.length
+    ? stage.lanes.slice(0, 5)
+    : FALLBACK_LANE_Y.map((y, laneIndex) => ({ y, laneIndex }));
+  return FALLBACK_LANE_Y.map((fallbackY, laneIndex) => {
+    const lane = lanes[laneIndex] || {};
+    const y = Number.isFinite(Number(lane?.y)) ? Number(lane.y) : fallbackY;
+    const providedPath = Array.isArray(lane?.path)
+      ? lane.path
+      : Array.isArray(lane?.points) ? lane.points : null;
+    const points = providedPath?.length >= 2
+      ? providedPath
+      : [{ x: 108, y }, { x: 1172, y }];
+    return { ...lane, laneIndex, y, points };
+  });
+}
 
-  ctx.globalAlpha = 0.13;
+function waveUnitCount(wave) {
+  if (!Array.isArray(wave)) return 0;
+  return wave.reduce((total, group) => total + Math.max(0, Number(group?.count) || 0), 0);
+}
+
+function drawDockShell(ctx, stage, time) {
+  ctx.save();
+  const topGradient = ctx.createLinearGradient(0, 0, TD_VIEW.width, 0);
+  topGradient.addColorStop(0, 'rgba(27, 59, 65, 0.96)');
+  topGradient.addColorStop(0.5, 'rgba(45, 86, 76, 0.96)');
+  topGradient.addColorStop(1, 'rgba(31, 54, 68, 0.96)');
+  ctx.fillStyle = topGradient;
+  ctx.fillRect(0, 0, TD_VIEW.width, BATTLE_FIELD.top);
+
+  const bottomGradient = ctx.createLinearGradient(0, BATTLE_FIELD.bottom, TD_VIEW.width, TD_VIEW.height);
+  bottomGradient.addColorStop(0, 'rgba(27, 58, 61, 0.98)');
+  bottomGradient.addColorStop(0.5, 'rgba(42, 81, 71, 0.98)');
+  bottomGradient.addColorStop(1, 'rgba(31, 51, 65, 0.98)');
+  ctx.fillStyle = bottomGradient;
+  ctx.fillRect(0, BATTLE_FIELD.bottom, TD_VIEW.width, TD_VIEW.height - BATTLE_FIELD.bottom);
+
+  ctx.globalAlpha = 0.12;
   ctx.fillStyle = stage.accent;
-  for (let index = 0; index < 7; index += 1) {
-    const radius = 22 + (index % 3) * 13;
-    const x = 972 + (index * 73) % 290;
-    const y = 60 + (index * 137) % 640 + Math.sin(time * 0.55 + index) * 5;
+  for (let index = 0; index < 10; index += 1) {
+    const radius = 15 + (index % 3) * 9;
+    const x = 24 + (index * 151) % 1240;
+    const y = BATTLE_FIELD.bottom + 18 + (index * 47) % 116
+      + Math.sin(time * 0.55 + index) * 4;
     ctx.beginPath();
     ctx.arc(x, y, radius, 0, TAU);
     ctx.fill();
   }
+  ctx.globalAlpha = 0.2;
+  ctx.fillStyle = '#DFFFF0';
+  ctx.fillRect(0, BATTLE_FIELD.top - 2, TD_VIEW.width, 2);
+  ctx.fillRect(0, BATTLE_FIELD.bottom, TD_VIEW.width, 2);
   ctx.restore();
 }
 
@@ -408,6 +437,7 @@ export class TowerDefenseGame {
     this.animationTime = 0;
     this.characterAnimations = new Map();
     this.defeatedActors = [];
+    this.defeatedTowers = [];
     this.running = false;
     this.backgrounded = false;
     this.frameId = null;
@@ -509,6 +539,7 @@ export class TowerDefenseGame {
     if (!event || typeof event.type !== 'string') return;
     if (event.type === 'run-start') {
       this.defeatedActors.length = 0;
+      this.defeatedTowers.length = 0;
       return;
     }
     if (event.type === 'shot') {
@@ -532,6 +563,53 @@ export class TowerDefenseGame {
           restart: false,
         });
       }
+      return;
+    }
+    if (event.type === 'tower-hit') {
+      const tower = this.state.towers.find(({ uid }) => uid === event.towerUid);
+      const ownerId = tower && TOWER_TYPES[tower.type]?.ownerId;
+      if (ownerId) {
+        this.playCharacterAnimation(`tower:${tower.uid}`, ownerId, 'hurt', {
+          restart: false,
+        });
+      }
+      return;
+    }
+    if (event.type === 'enemy-attack') {
+      const enemy = this.state.enemies.find(({ uid }) => uid === event.enemyUid);
+      const ownerId = enemy && TD_ENEMIES[enemy.type]?.ownerId;
+      if (ownerId) {
+        this.playCharacterAnimation(`enemy:${enemy.uid}`, ownerId, 'attack', {
+          base: 'move',
+        });
+      }
+      return;
+    }
+    if (event.type === 'tower-defeat') {
+      const tower = this.state.towers.find(({ uid }) => uid === event.towerUid);
+      const towerType = event.towerType || tower?.type;
+      const definition = TOWER_TYPES[towerType];
+      const stage = stageForState(this.state);
+      const pad = Number.isInteger(event.padIndex) ? stage.pads[event.padIndex] : null;
+      const x = Number.isFinite(event.x) ? event.x : pad?.x;
+      const y = Number.isFinite(event.y) ? event.y : pad?.y;
+      if (!definition || !Number.isFinite(x) || !Number.isFinite(y)) return;
+      const key = `defeated-tower:${event.towerUid || `${towerType}-${this.state.time}`}`;
+      const actor = {
+        key,
+        type: towerType,
+        ownerId: definition.ownerId,
+        x,
+        y,
+        star: clamp(Math.floor(Number(event.star ?? tower?.star) || 1), 1, TD_MAX_STAR),
+        age: 0,
+        duration: this.animationClipsForOwner(definition.ownerId)?.downed?.duration || 0.52,
+      };
+      this.defeatedTowers = this.defeatedTowers
+        .filter(({ key: currentKey }) => currentKey !== key);
+      this.defeatedTowers.push(actor);
+      this.playCharacterAnimation(key, actor.ownerId, 'downed');
+      this.shake = Math.min(10, this.shake + 3);
       return;
     }
     if (event.type !== 'enemy-defeat') return;
@@ -593,7 +671,12 @@ export class TowerDefenseGame {
         actor.age += delta;
         advance(actor.key, actor.ownerId, 'move');
       }
+      for (const actor of this.defeatedTowers) {
+        actor.age += delta;
+        advance(actor.key, actor.ownerId, 'idle');
+      }
       this.defeatedActors = this.defeatedActors.filter(({ age, duration }) => age < duration);
+      this.defeatedTowers = this.defeatedTowers.filter(({ age, duration }) => age < duration);
     } else {
       const victory = this.state.result === 'victory';
       const definition = victory ? TOWER_TYPES.shell : TD_ENEMIES.boss;
@@ -603,6 +686,7 @@ export class TowerDefenseGame {
         'idle',
       );
       this.defeatedActors.length = 0;
+      this.defeatedTowers.length = 0;
     }
 
     for (const key of this.characterAnimations.keys()) {
@@ -741,6 +825,7 @@ export class TowerDefenseGame {
     this.cancelInteraction();
     this.characterAnimations.clear();
     this.defeatedActors.length = 0;
+    this.defeatedTowers.length = 0;
   }
 
   toGamePoint(eventOrPoint) {
@@ -1050,14 +1135,14 @@ export class TowerDefenseGame {
     ctx.fillRect(0, 0, TD_VIEW.width, TD_VIEW.height);
     const key = STAGE_REGION_ASSET[stageId] || STAGE_REGION_ASSET['stage-1'];
     drawAssetOrFallback(ctx, this.assetStore, key, (asset) => {
-      ctx.globalAlpha *= 0.72;
-      ctx.drawImage(asset, -70, -40, 1080, 810);
+      ctx.globalAlpha *= 0.78;
+      ctx.drawImage(asset, 0, 0, TD_VIEW.width, TD_VIEW.height);
     }, () => {
       ctx.save();
       ctx.globalAlpha = 0.16;
       ctx.fillStyle = '#55AE80';
-      for (let index = 0; index < 22; index += 1) {
-        const x = (index * 173) % 960;
+      for (let index = 0; index < 28; index += 1) {
+        const x = (index * 173) % TD_VIEW.width;
         const y = (index * 97) % 720;
         ctx.beginPath();
         ctx.arc(x, y, 22 + (index % 4) * 8, 0, TAU);
@@ -1354,36 +1439,36 @@ export class TowerDefenseGame {
     }
     this.drawBattlefield(ctx, stage);
     ctx.restore();
-    this.drawSidebar(ctx, stage);
+    this.drawBattleHud(ctx, stage);
     this.drawDragPreview(ctx);
   }
 
   drawBattlefield(ctx, stage) {
     this.drawBackdrop(ctx, stage.id);
     ctx.save();
-    ctx.fillStyle = 'rgba(255,255,245,0.14)';
-    ctx.fillRect(0, 0, TD_FIELD.width, TD_FIELD.height);
+    const fieldWash = ctx.createLinearGradient(0, BATTLE_FIELD.top, 0, BATTLE_FIELD.bottom);
+    fieldWash.addColorStop(0, 'rgba(244,255,239,0.22)');
+    fieldWash.addColorStop(0.5, 'rgba(232,255,241,0.08)');
+    fieldWash.addColorStop(1, 'rgba(48,93,84,0.16)');
+    ctx.fillStyle = fieldWash;
+    ctx.fillRect(0, BATTLE_FIELD.top, TD_VIEW.width,
+      BATTLE_FIELD.bottom - BATTLE_FIELD.top);
     ctx.restore();
 
-    label(ctx, this.state.mode === 'endless' ? '无尽' : stage.name, 30, 28, {
-      size: 24, align: 'left', color: COLORS.ink, weight: 900,
-    });
-    this.drawPath(ctx, stage.path);
+    const lanes = laneDescriptors(stage);
+    const gatewayY = lanes[Math.floor(lanes.length / 2)]?.y ?? FALLBACK_LANE_Y[2];
+    this.drawLaneField(ctx, lanes, stage);
+    this.drawLaneGateways(ctx, lanes, stage, gatewayY);
 
-    const start = stage.path[0];
-    drawParticle(ctx, start.x, start.y - 4, 45, 'ring', {
-      time: this.state.time,
-      progress: (this.state.time * 0.35) % 1,
-      alpha: 0.45,
-      color: COLORS.crystal,
-      assetStore: this.assetStore,
-    });
-
-    const end = stage.path.at(-1);
-    drawCore(ctx, Math.min(TD_FIELD.width - 28, end.x + 28), end.y + 18, 96, {
+    drawCore(ctx, 76, gatewayY + 60, 118, {
       health: this.state.coreHp / Math.max(1, this.state.coreMaxHp),
       time: this.state.time,
       hit: this.shake > 0 ? 1 : 0,
+      assetStore: this.assetStore,
+    });
+    drawPortal(ctx, 1204, gatewayY + 60, 118, {
+      time: this.state.time,
+      open: this.state.waveActive || this.state.enemies.length ? 1 : 0.62,
       assetStore: this.assetStore,
     });
 
@@ -1405,16 +1490,77 @@ export class TowerDefenseGame {
       }
     }
 
-    stage.pads.forEach((pad, padIndex) => this.drawPad(ctx, pad, padIndex));
+    stage.pads
+      .map((pad, padIndex) => ({ pad, padIndex }))
+      .sort((left, right) => left.pad.y - right.pad.y || left.pad.x - right.pad.x)
+      .forEach(({ pad, padIndex }) => this.drawPad(ctx, pad, padIndex));
     [...this.state.enemies]
       .sort((left, right) => left.y - right.y || left.travelled - right.travelled)
       .forEach((enemy) => this.drawEnemy(ctx, enemy));
+    this.drawDefeatedTowers(ctx);
     this.drawDefeatedActors(ctx);
     this.state.projectiles.forEach((projectile) => this.drawShot(ctx, projectile));
     this.drawEffects(ctx);
   }
 
-  drawPath(ctx, points) {
+  drawLaneField(ctx, lanes, stage) {
+    ctx.save();
+    for (const lane of lanes) {
+      const lanePulse = 0.5 + 0.5 * Math.sin(this.state.time * 0.8 + lane.laneIndex * 0.9);
+      const laneGradient = ctx.createLinearGradient(72, lane.y, 1208, lane.y);
+      laneGradient.addColorStop(0, 'rgba(218,255,228,0.42)');
+      laneGradient.addColorStop(0.48, `${stage.accent}24`);
+      laneGradient.addColorStop(1, 'rgba(221,219,255,0.42)');
+      ctx.fillStyle = laneGradient;
+      roundedPath(ctx, 88, lane.y - 34, 1104, 68, 32);
+      ctx.fill();
+      ctx.globalAlpha = 0.22 + lanePulse * 0.08;
+      ctx.strokeStyle = stage.accent;
+      ctx.lineWidth = 2;
+      roundedPath(ctx, 88, lane.y - 34, 1104, 68, 32);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      this.drawPath(ctx, lane.points, lane.laneIndex);
+
+      ctx.save();
+      ctx.globalAlpha = 0.68;
+      ctx.fillStyle = '#F8FFE9';
+      ctx.strokeStyle = stage.accent;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(126, lane.y, 14, 0, TAU);
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+      label(ctx, lane.laneIndex + 1, 126, lane.y + 1, {
+        size: 12, color: COLORS.ink, weight: 950,
+      });
+    }
+    ctx.restore();
+  }
+
+  drawLaneGateways(ctx, lanes, stage, gatewayY) {
+    ctx.save();
+    ctx.lineCap = 'round';
+    for (const lane of lanes) {
+      const branchAlpha = 0.18 + Math.sin(this.state.time * 1.1 + lane.laneIndex) * 0.025;
+      ctx.globalAlpha = branchAlpha;
+      ctx.strokeStyle = stage.accent;
+      ctx.lineWidth = 10;
+      ctx.beginPath();
+      ctx.moveTo(76, gatewayY);
+      ctx.bezierCurveTo(98, gatewayY, 98, lane.y, 116, lane.y);
+      ctx.stroke();
+      ctx.strokeStyle = COLORS.crystal;
+      ctx.beginPath();
+      ctx.moveTo(1164, lane.y);
+      ctx.bezierCurveTo(1184, lane.y, 1180, gatewayY, 1204, gatewayY);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  drawPath(ctx, points, laneIndex = 0) {
     for (let index = 1; index < points.length; index += 1) {
       const left = points[index - 1];
       const right = points[index];
@@ -1425,20 +1571,22 @@ export class TowerDefenseGame {
       drawAssetOrFallback(ctx, this.assetStore, 'tile-route-open', (asset) => {
         ctx.translate((left.x + right.x) / 2, (left.y + right.y) / 2);
         ctx.rotate(angle);
-        ctx.globalAlpha *= 0.72;
-        ctx.drawImage(asset, -length / 2 - 8, -20, length + 16, 40);
+        ctx.globalAlpha *= 0.2;
+        ctx.drawImage(asset, -length / 2 - 8, -25, length + 16, 50);
       }, () => {
         ctx.save();
-        ctx.strokeStyle = 'rgba(76, 143, 105, 0.38)';
-        ctx.lineWidth = 28;
+        ctx.strokeStyle = laneIndex % 2
+          ? 'rgba(86, 151, 143, 0.18)'
+          : 'rgba(76, 143, 105, 0.18)';
+        ctx.lineWidth = 34;
         ctx.lineCap = 'round';
         ctx.beginPath();
         ctx.moveTo(left.x, left.y);
         ctx.lineTo(right.x, right.y);
         ctx.stroke();
-        ctx.strokeStyle = 'rgba(255, 255, 226, 0.62)';
-        ctx.lineWidth = 4;
-        ctx.setLineDash?.([11, 12]);
+        ctx.strokeStyle = 'rgba(255, 255, 236, 0.5)';
+        ctx.lineWidth = 3;
+        ctx.setLineDash?.([9, 16]);
         ctx.stroke();
         ctx.restore();
       });
@@ -1515,29 +1663,53 @@ export class TowerDefenseGame {
       `tower:${tower.uid}`,
       definition.ownerId,
     );
-    drawSlime(ctx, pad.x, pad.y + 6, 90, tower.type, {
+    drawSlime(ctx, pad.x, pad.y + 6, 76, tower.type, {
       time: this.state.time,
       phase: padIndex * 0.41,
       star: tower.star,
-      facing: Math.cos(tower.aimAngle || 0) >= 0 ? 1 : -1,
+      facing: 1,
       selected,
+      hit: clamp(Number(tower.hitPulse) || 0, 0, 1),
+      expression: Number(tower.hitPulse) > 0.35 ? 'hurt' : 'normal',
       assetStore: this.assetStore,
       ...animation,
       ...this.characterRigOptions(definition.ownerId),
       allowGeneratedStandalone: this.generatedCharacterArtEnabled,
     });
-    this.drawStars(ctx, pad.x, pad.y - 78, tower.star, definition.color);
+    const starY = Math.max(BATTLE_FIELD.top + 22, pad.y - 70);
+    this.drawStars(ctx, pad.x, starY, tower.star, definition.color);
+    if (Number.isFinite(tower.hp) && Number.isFinite(tower.maxHp) && tower.maxHp > 0) {
+      const hpRatio = clamp(tower.hp / tower.maxHp, 0, 1);
+      const bar = {
+        x: pad.x - 29,
+        y: Math.max(BATTLE_FIELD.top + 4, pad.y - 91),
+        width: 58,
+        height: 7,
+      };
+      ctx.save();
+      ctx.fillStyle = 'rgba(30, 48, 58, 0.64)';
+      roundedPath(ctx, bar.x, bar.y, bar.width, bar.height, 4);
+      ctx.fill();
+      if (hpRatio > 0) {
+        ctx.fillStyle = hpRatio < 0.3 ? COLORS.coral : COLORS.mint;
+        roundedPath(ctx, bar.x + 1, bar.y + 1,
+          Math.max(2, (bar.width - 2) * hpRatio), bar.height - 2, 3);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
     if (dropIntent === 'merge') {
-      panel(ctx, { x: pad.x - 24, y: pad.y - 116, width: 48, height: 28 }, {
+      const mergeTagY = Math.max(BATTLE_FIELD.top + 4, pad.y - 116);
+      panel(ctx, { x: pad.x - 24, y: mergeTagY, width: 48, height: 28 }, {
         fill: '#F4C94C', stroke: '#9B6E20', lineWidth: 2, radius: 14,
       });
-      label(ctx, `★${tower.star + 1}`, pad.x, pad.y - 101, {
+      label(ctx, `★${tower.star + 1}`, pad.x, mergeTagY + 15, {
         size: 13, color: COLORS.ink, weight: 950,
       });
     }
     this.addHit(`tower-${tower.uid}`, {
-      x: pad.x - PAD_RADIUS, y: pad.y - 82,
-      width: PAD_RADIUS * 2, height: 96,
+      x: pad.x - PAD_RADIUS, y: pad.y - 76,
+      width: PAD_RADIUS * 2, height: 88,
     }, 'tower', { towerUid: tower.uid, padIndex });
   }
 
@@ -1577,7 +1749,7 @@ export class TowerDefenseGame {
     drawMonster(ctx, enemy.x, enemy.y + definition.size * 0.33, definition.size, type, {
       time: this.state.time,
       phase: Number(enemy.uid.split('-').at(-1)) * 0.31 || 0,
-      facing: enemy.facing,
+      facing: -1,
       hit: enemy.hitPulse,
       expression: enemy.hitPulse > 0.35 ? 'hurt' : 'normal',
       assetStore: this.assetStore,
@@ -1598,6 +1770,42 @@ export class TowerDefenseGame {
       ctx.fill();
     }
     ctx.restore();
+  }
+
+  drawDefeatedTowers(ctx) {
+    for (const actor of this.defeatedTowers) {
+      const definition = TOWER_TYPES[actor.type];
+      if (!definition) continue;
+      const progress = clamp(actor.age / Math.max(0.001, actor.duration), 0, 1);
+      const animation = this.characterAnimationSample(actor.key, actor.ownerId);
+      ctx.save();
+      ctx.globalAlpha *= clamp(1 - Math.max(0, progress - 0.48) / 0.52, 0, 1);
+      ctx.translate(Math.sin(progress * 28) * (1 - progress) * 3, progress * 7);
+      drawSlime(ctx, actor.x, actor.y + 6, 76, actor.type, {
+        time: this.state.time,
+        star: actor.star,
+        facing: 1,
+        expression: 'hurt',
+        assetStore: this.assetStore,
+        ...animation,
+        ...this.characterRigOptions(actor.ownerId),
+        allowGeneratedStandalone: this.generatedCharacterArtEnabled,
+      });
+      ctx.restore();
+      if (progress > 0.34) {
+        for (let index = 0; index < 3; index += 1) {
+          drawParticle(ctx,
+            actor.x + (index - 1) * 16,
+            actor.y - 12 - progress * (8 + index * 5),
+            12 + index * 2,
+            'dust', {
+              progress,
+              alpha: (1 - progress) * 0.62,
+              assetStore: this.assetStore,
+            });
+        }
+      }
+    }
   }
 
   drawDefeatedActors(ctx) {
@@ -1691,67 +1899,125 @@ export class TowerDefenseGame {
     }
   }
 
-  drawSidebar(ctx, stage) {
+  drawBattleHud(ctx, stage) {
     drawDockShell(ctx, stage, this.state.time);
     drawAssetOrFallback(ctx, this.assetStore, 'ui-soft-crystal', (asset) => {
-      ctx.globalAlpha *= 0.12;
-      ctx.drawImage(asset, 1172, -20, 112, 112);
+      ctx.globalAlpha *= 0.34;
+      ctx.drawImage(asset, COMMAND_DOCK.mode.x + 4, COMMAND_DOCK.mode.y + 4, 40, 40);
     }, () => {});
 
     button(ctx, COMMAND_DOCK.back, '‹', {
-      fill: '#F5F3DF', color: COLORS.ink, accent: '#8EB2A1', size: 32,
+      fill: '#F5F3DF', color: COLORS.ink, accent: '#8EB2A1', size: 31,
     });
     this.addHit('battle-menu', COMMAND_DOCK.back, 'battle-menu');
 
-    const modeText = this.state.mode === 'endless'
-      ? `∞${Math.max(1, this.state.wave)}`
-      : `${this.state.wave}/${stage.waves.length}`;
-    panel(ctx, COMMAND_DOCK.wave, {
-      fill: '#F8F2DA', stroke: stage.accent, lineWidth: 3, radius: 18,
-    });
-    label(ctx, modeText, COMMAND_DOCK.wave.x + COMMAND_DOCK.wave.width / 2,
-      COMMAND_DOCK.wave.y + COMMAND_DOCK.wave.height / 2, {
-        size: 21, color: COLORS.ink, weight: 900,
-      });
-
-    const enemyCount = this.state.enemies.length + this.state.spawnQueue.length;
-    panel(ctx, COMMAND_DOCK.enemies, {
-      fill: '#E8E7D8', stroke: 'rgba(255,255,255,0.32)', radius: 18,
-    });
-    label(ctx, `×${enemyCount}`, COMMAND_DOCK.enemies.x + COMMAND_DOCK.enemies.width / 2,
-      COMMAND_DOCK.enemies.y + COMMAND_DOCK.enemies.height / 2, {
-        size: 18, color: enemyCount ? COLORS.coral : COLORS.inkSoft, weight: 900,
-      });
-
     panel(ctx, COMMAND_DOCK.currency, {
-      fill: '#EAF7DB', stroke: '#80B668', radius: 18,
+      fill: '#EAF7DB', stroke: '#80B668', radius: 17,
     });
     drawAssetOrFallback(ctx, this.assetStore, 'ui-gel-energy', (asset) => {
-      ctx.drawImage(asset, COMMAND_DOCK.currency.x + 4, COMMAND_DOCK.currency.y + 6, 38, 38);
+      ctx.drawImage(asset, COMMAND_DOCK.currency.x + 6, COMMAND_DOCK.currency.y + 5, 38, 38);
     }, () => {
       ctx.fillStyle = COLORS.mint;
       ctx.beginPath();
-      ctx.arc(COMMAND_DOCK.currency.x + 23, COMMAND_DOCK.currency.y + 25, 14, 0, TAU);
+      ctx.arc(COMMAND_DOCK.currency.x + 25, COMMAND_DOCK.currency.y + 24, 13, 0, TAU);
       ctx.fill();
     });
-    label(ctx, this.state.currency, COMMAND_DOCK.currency.x + COMMAND_DOCK.currency.width - 9,
+    label(ctx, this.state.currency,
+      COMMAND_DOCK.currency.x + COMMAND_DOCK.currency.width - 14,
       COMMAND_DOCK.currency.y + COMMAND_DOCK.currency.height / 2 + 1, {
-        size: 18, align: 'right', color: COLORS.ink, weight: 900,
+        size: 19, align: 'right', color: COLORS.ink, weight: 920,
       });
 
     const hpRatio = clamp(this.state.coreHp / Math.max(1, this.state.coreMaxHp), 0, 1);
     panel(ctx, COMMAND_DOCK.core, {
-      fill: '#182F37', stroke: 'rgba(255,255,255,0.22)', radius: 15,
+      fill: '#182F37', stroke: 'rgba(255,255,255,0.24)', radius: 15,
     });
-    ctx.save();
-    roundedPath(ctx, COMMAND_DOCK.core.x + 4, COMMAND_DOCK.core.y + 4,
-      Math.max(0, (COMMAND_DOCK.core.width - 8) * hpRatio), COMMAND_DOCK.core.height - 8, 11);
-    ctx.fillStyle = hpRatio < 0.3 ? COLORS.coral : COLORS.mint;
-    ctx.fill();
-    ctx.restore();
-    label(ctx, `♥  ${this.state.coreHp}`, COMMAND_DOCK.core.x + COMMAND_DOCK.core.width / 2,
+    if (hpRatio > 0) {
+      roundedPath(ctx, COMMAND_DOCK.core.x + 4, COMMAND_DOCK.core.y + 4,
+        Math.max(2, (COMMAND_DOCK.core.width - 8) * hpRatio),
+        COMMAND_DOCK.core.height - 8, 11);
+      ctx.fillStyle = hpRatio < 0.3 ? COLORS.coral : COLORS.mint;
+      ctx.fill();
+    }
+    label(ctx, `♥ ${this.state.coreHp}`, COMMAND_DOCK.core.x + COMMAND_DOCK.core.width / 2,
       COMMAND_DOCK.core.y + COMMAND_DOCK.core.height / 2 + 1, {
         size: 17, color: COLORS.white, weight: 900,
+      });
+
+    const enemyCount = this.state.enemies.length + this.state.spawnQueue.length;
+    const stageWaveCount = Math.max(1, stage.waves.length);
+    const currentWave = Math.max(0, Number(this.state.wave) || 0);
+    const activeWave = stage.waves[Math.max(0, currentWave - 1)];
+    const trackedTotal = Number(this.state.waveEnemyTotal);
+    const activeTotal = Number.isFinite(trackedTotal) && trackedTotal > 0
+      ? trackedTotal
+      : waveUnitCount(activeWave);
+    const trackedResolved = Number(this.state.waveEnemyResolved);
+    const activeProgress = this.state.waveActive && activeTotal > 0
+      ? clamp(Number.isFinite(trackedResolved)
+        ? trackedResolved / activeTotal
+        : (activeTotal - enemyCount) / activeTotal, 0, 1)
+      : currentWave > 0 ? 1 : 0;
+    const waveProgress = this.state.mode === 'endless'
+      ? activeProgress
+      : clamp(((this.state.waveActive ? Math.max(0, currentWave - 1) : currentWave)
+        + (this.state.waveActive ? activeProgress : 0)) / stageWaveCount, 0, 1);
+
+    panel(ctx, COMMAND_DOCK.wave, {
+      fill: '#17353C', stroke: 'rgba(225,255,236,0.24)', radius: 17,
+    });
+    const progressTrack = {
+      x: COMMAND_DOCK.wave.x + 68,
+      y: COMMAND_DOCK.wave.y + 9,
+      width: COMMAND_DOCK.wave.width - 82,
+      height: COMMAND_DOCK.wave.height - 18,
+    };
+    roundedPath(ctx, progressTrack.x, progressTrack.y,
+      progressTrack.width, progressTrack.height, 9);
+    ctx.fillStyle = 'rgba(230,248,226,0.15)';
+    ctx.fill();
+    if (waveProgress > 0) {
+      roundedPath(ctx, progressTrack.x, progressTrack.y,
+        Math.max(4, progressTrack.width * waveProgress), progressTrack.height, 9);
+      ctx.fillStyle = stage.accent;
+      ctx.fill();
+    }
+    const waveText = this.state.mode === 'endless'
+      ? `∞${Math.max(1, currentWave)}`
+      : `${currentWave}/${stage.waves.length}`;
+    label(ctx, waveText, COMMAND_DOCK.wave.x + 34,
+      COMMAND_DOCK.wave.y + COMMAND_DOCK.wave.height / 2 + 1, {
+        size: 16, color: COLORS.white, weight: 900,
+      });
+    if (this.state.mode !== 'endless') {
+      for (let index = 1; index < stageWaveCount; index += 1) {
+        const x = progressTrack.x + progressTrack.width * index / stageWaveCount;
+        ctx.save();
+        ctx.globalAlpha = 0.55;
+        ctx.fillStyle = '#F6FFE8';
+        ctx.beginPath();
+        ctx.arc(x, progressTrack.y + progressTrack.height / 2, 2.5, 0, TAU);
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+
+    panel(ctx, COMMAND_DOCK.enemies, {
+      fill: '#E8E7D8', stroke: 'rgba(255,255,255,0.32)', radius: 17,
+    });
+    label(ctx, `◆ ${enemyCount}`,
+      COMMAND_DOCK.enemies.x + COMMAND_DOCK.enemies.width / 2,
+      COMMAND_DOCK.enemies.y + COMMAND_DOCK.enemies.height / 2 + 1, {
+        size: 17, color: enemyCount ? COLORS.coral : COLORS.inkSoft, weight: 900,
+      });
+
+    panel(ctx, COMMAND_DOCK.mode, {
+      fill: 'rgba(235,244,225,0.9)', stroke: stage.accent, radius: 17,
+    });
+    label(ctx, this.state.mode === 'endless' ? '无尽' : stage.name,
+      COMMAND_DOCK.mode.x + COMMAND_DOCK.mode.width - 12,
+      COMMAND_DOCK.mode.y + COMMAND_DOCK.mode.height / 2 + 1, {
+        size: 15, align: 'right', color: COLORS.ink, weight: 900,
       });
 
     for (let index = 0; index < COMMAND_DOCK.cards.length; index += 1) {
@@ -1760,7 +2026,7 @@ export class TowerDefenseGame {
       if (!card) {
         panel(ctx, rect, {
           fill: 'rgba(238, 240, 220, 0.16)',
-          stroke: 'rgba(220, 246, 226, 0.24)', radius: 24,
+          stroke: 'rgba(220, 246, 226, 0.24)', radius: 20,
         });
         drawAssetOrFallback(ctx, this.assetStore, 'ui-card-frame-common', (asset) => {
           ctx.globalAlpha *= 0.12;
@@ -1771,7 +2037,8 @@ export class TowerDefenseGame {
         ctx.strokeStyle = '#DDF4DA';
         ctx.lineWidth = 3;
         ctx.beginPath();
-        ctx.ellipse(rect.x + rect.width / 2, rect.y + rect.height / 2 + 12, 27, 14, 0, 0, TAU);
+        ctx.ellipse(rect.x + rect.width / 2, rect.y + rect.height / 2 + 10,
+          24, 12, 0, 0, TAU);
         ctx.stroke();
         ctx.restore();
         continue;
@@ -1791,23 +2058,22 @@ export class TowerDefenseGame {
     const canDraw = !this.state.result
       && this.state.hand.length < 4
       && this.state.currency >= drawCost;
-    button(ctx, COMMAND_DOCK.draw, `抽  ${drawCost}`, {
-      enabled: canDraw,
-      fill: COLORS.mint,
-      accent: COLORS.mintDeep,
-      size: 25,
+    button(ctx, COMMAND_DOCK.draw, '抽', {
+      enabled: canDraw, fill: COLORS.mint, accent: COLORS.mintDeep, size: 25,
     });
     drawAssetOrFallback(ctx, this.assetStore, 'ui-gel-energy', (asset) => {
       ctx.globalAlpha *= canDraw ? 0.96 : 0.35;
-      ctx.drawImage(asset, COMMAND_DOCK.draw.x + 72, COMMAND_DOCK.draw.y + 15, 42, 42);
+      ctx.drawImage(asset, COMMAND_DOCK.draw.x + 18, COMMAND_DOCK.draw.y + 75, 32, 32);
     }, () => {});
+    label(ctx, drawCost, COMMAND_DOCK.draw.x + 82, COMMAND_DOCK.draw.y + 92, {
+      size: 17, color: canDraw ? COLORS.ink : COLORS.disabled, weight: 900,
+    });
     this.addHit('draw', COMMAND_DOCK.draw, 'draw', {}, canDraw);
 
     const reclaimableTower = this.state.towers.find((tower) => (
       tower.uid === (this.drag?.kind === 'tower' ? this.drag.uid : this.state.selectedTowerUid)
     ));
-    const canReclaim = Boolean(reclaimableTower)
-      && this.state.hand.length < 4;
+    const canReclaim = Boolean(reclaimableTower) && this.state.hand.length < 4;
     const reclaimHot = this.drag?.kind === 'tower'
       && this.drag.moved
       && insideRect(this.drag.point, COMMAND_DOCK.reclaim);
@@ -1819,24 +2085,26 @@ export class TowerDefenseGame {
       accent: '#B98C3A',
       size: 32,
     });
-    if (canReclaim) label(ctx, '收', COMMAND_DOCK.reclaim.x + COMMAND_DOCK.reclaim.width / 2,
-      COMMAND_DOCK.reclaim.y + COMMAND_DOCK.reclaim.height - 13, {
-        size: 12, color: reclaimHot ? COLORS.white : COLORS.inkSoft, weight: 900,
-      });
+    if (canReclaim) {
+      label(ctx, '收', COMMAND_DOCK.reclaim.x + COMMAND_DOCK.reclaim.width / 2,
+        COMMAND_DOCK.reclaim.y + COMMAND_DOCK.reclaim.height - 14, {
+          size: 12, color: reclaimHot ? COLORS.white : COLORS.inkSoft, weight: 900,
+        });
+    }
     this.addHit('reclaim', COMMAND_DOCK.reclaim, 'reclaim', {}, canReclaim);
 
     const canStart = !this.state.waveActive
       && !(this.state.mode === 'stage' && this.state.wave >= stage.waves.length);
     const startText = this.state.waveActive
-      ? `●  ${this.state.wave}`
+      ? `● ${this.state.wave}`
       : this.state.waveBreak > 0
-        ? `≫  ${this.state.wave + 1}`
-        : this.state.wave === 0 ? '▶  1' : `▶  ${this.state.wave + 1}`;
+        ? `≫ ${this.state.wave + 1}`
+        : `▶ ${this.state.wave + 1}`;
     button(ctx, COMMAND_DOCK.start, startText, {
       enabled: canStart,
       fill: '#F0B84E',
       accent: '#B87728',
-      size: 27,
+      size: 29,
     });
     this.addHit('start-wave', COMMAND_DOCK.start, 'start-wave', {}, canStart);
   }
@@ -1857,28 +2125,29 @@ export class TowerDefenseGame {
         `tower:${selectedTower.uid}`,
         definition.ownerId,
       );
-      drawSlime(ctx, COMMAND_DOCK.selection.x + 43, COMMAND_DOCK.selection.y + 76,
-        54, selectedTower.type, {
+      drawSlime(ctx, COMMAND_DOCK.selection.x + 38, COMMAND_DOCK.selection.y + 113,
+        45, selectedTower.type, {
           time: this.state.time,
           star: selectedTower.star,
+          facing: 1,
           assetStore: this.assetStore,
           ...animation,
           ...this.characterRigOptions(definition.ownerId),
           allowGeneratedStandalone: this.generatedCharacterArtEnabled,
         });
-      label(ctx, definition.name, COMMAND_DOCK.selection.x + 82,
+      label(ctx, definition.name, COMMAND_DOCK.selection.x + 69,
         COMMAND_DOCK.selection.y + 24, {
-          size: 20, align: 'left', color: COLORS.ink, weight: 900,
+          size: 18, align: 'left', color: COLORS.ink, weight: 900,
         });
-      label(ctx, '★'.repeat(selectedTower.star), COMMAND_DOCK.selection.x + 82,
+      label(ctx, '★'.repeat(selectedTower.star), COMMAND_DOCK.selection.x + 69,
         COMMAND_DOCK.selection.y + 49, {
-          size: 15, align: 'left', color: definition.color, weight: 900,
+          size: 13, align: 'left', color: definition.color, weight: 900,
         });
       const evolution = towerAttackEvolution(selectedTower.type, selectedTower.star);
       const attackName = ATTACK_MODE_LABEL[evolution.attackMode] || definition.glyph;
       label(ctx, `${attackName}  ·  ↔`, COMMAND_DOCK.selection.x + COMMAND_DOCK.selection.width - 18,
-        COMMAND_DOCK.selection.y + 47, {
-          size: 15, align: 'right', color: COLORS.inkSoft, weight: 800,
+        COMMAND_DOCK.selection.y + 91, {
+          size: 14, align: 'right', color: COLORS.inkSoft, weight: 800,
         });
       return;
     }
@@ -1890,12 +2159,12 @@ export class TowerDefenseGame {
         COMMAND_DOCK.selection.y + COMMAND_DOCK.selection.height / 2, {
           size: 28, color: definition.color, weight: 950,
         });
-      label(ctx, definition.name, COMMAND_DOCK.selection.x + 68,
+      label(ctx, definition.name, COMMAND_DOCK.selection.x + 64,
         COMMAND_DOCK.selection.y + 31, {
-          size: 20, align: 'left', color: COLORS.ink, weight: 900,
+          size: 18, align: 'left', color: COLORS.ink, weight: 900,
         });
-      label(ctx, matches.length ? `融  ${matches.length}` : '放', COMMAND_DOCK.selection.x + 68,
-        COMMAND_DOCK.selection.y + 59, {
+      label(ctx, matches.length ? `融  ${matches.length}` : '放', COMMAND_DOCK.selection.x + 64,
+        COMMAND_DOCK.selection.y + 66, {
           size: 16, align: 'left', color: matches.length ? COLORS.gold : COLORS.inkSoft, weight: 900,
         });
       label(ctx, '★'.repeat(selectedCard.star), COMMAND_DOCK.selection.x + COMMAND_DOCK.selection.width - 20,
@@ -1906,20 +2175,20 @@ export class TowerDefenseGame {
     }
 
     Object.values(TOWER_TYPES).forEach((tower, index) => {
-      const x = COMMAND_DOCK.selection.x + 42 + index * 78;
+      const x = COMMAND_DOCK.selection.x + 26 + index * 42;
       ctx.save();
       ctx.globalAlpha = 0.85;
       ctx.fillStyle = tower.color;
       ctx.beginPath();
-      ctx.arc(x, COMMAND_DOCK.selection.y + 34, 16, 0, TAU);
+      ctx.arc(x, COMMAND_DOCK.selection.y + 42, 14, 0, TAU);
       ctx.fill();
       ctx.restore();
-      label(ctx, tower.glyph, x, COMMAND_DOCK.selection.y + 34, {
-        size: 15, color: COLORS.white, weight: 950,
+      label(ctx, tower.glyph, x, COMMAND_DOCK.selection.y + 42, {
+        size: 13, color: COLORS.white, weight: 950,
       });
       const rate = { shell: 28, needle: 28, bubble: 24, sprout: 20 }[tower.id];
-      label(ctx, `${rate}%`, x, COMMAND_DOCK.selection.y + 65, {
-        size: 13, color: COLORS.inkSoft, weight: 800,
+      label(ctx, `${rate}%`, x, COMMAND_DOCK.selection.y + 82, {
+        size: 11, color: COLORS.inkSoft, weight: 800,
       });
     });
   }

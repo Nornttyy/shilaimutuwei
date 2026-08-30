@@ -284,10 +284,10 @@ test('skeletal armor has no legacy decal, v2 replacement, or source-atop path', 
   assert.equal(DRAW_SOURCE.includes('slimeEvolutionDecalLayout'), false);
 });
 
-test('placed tower art uses one fixed 90px size at every star', () => {
+test('placed tower art uses one fixed 76px lane-safe size at every star', () => {
   assert.match(
     TOWER_DEFENSE_SOURCE,
-    /drawSlime\(ctx,\s*pad\.x,\s*pad\.y\s*\+\s*6,\s*90,\s*tower\.type,/,
+    /drawSlime\(ctx,\s*pad\.x,\s*pad\.y\s*\+\s*6,\s*76,\s*tower\.type,/,
   );
   assert.doesNotMatch(
     TOWER_DEFENSE_SOURCE,

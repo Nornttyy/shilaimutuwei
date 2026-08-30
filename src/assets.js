@@ -6,7 +6,7 @@
  * useful to platform builds and isolated tests.
  */
 
-export const ASSET_CACHE_VERSION = 'soft-gel-20260830-v6';
+export const ASSET_CACHE_VERSION = 'soft-gel-20260830-v7';
 
 const generatedAssetUrl = (relativePath) => {
   const url = new URL(`../assets/generated/${relativePath}`, import.meta.url);
@@ -41,6 +41,11 @@ export const CRITICAL_STARTUP_ASSET_KEYS = Object.freeze([
   'building-bouncy-fence-autotile-v3',
   'building-weather-scout',
   'building-gel-foundation',
+  'turret-gel-mortar',
+  'ui-hero-control-ring',
+  'ui-hero-joystick-base',
+  'ui-hero-joystick-knob',
+  'background-cloud-overlay',
   'terrain-ground-field-v1',
   'terrain-discovery-fog-cell-v1',
   'terrain-prop-contact-shadow-v1',
@@ -163,7 +168,12 @@ export const TOWER_DEFENSE_ASSET_KEYS = Object.freeze([
   'town-soft-core',
   'rift-entry-portal',
   'building-gel-foundation',
+  'turret-gel-mortar',
+  'ui-hero-control-ring',
+  'ui-hero-joystick-base',
+  'ui-hero-joystick-knob',
   'background-garden-base',
+  'background-cloud-overlay',
   'region-gel-meadow-field-a',
   'region-bubble-heath-field-a',
   'region-crystal-bloom-field-a',
@@ -189,6 +199,11 @@ export const TOWER_DEFENSE_ASSET_KEYS = Object.freeze([
   'effect-spawn-rift-burst',
   'effect-soft-swap-arc',
   'effect-damage-cracks-overlay',
+  'skill-jelly-bounce-icon',
+  'skill-honey-line-icon',
+  'skill-soft-swap-icon',
+  'skill-sprout-renewal-icon',
+  'ui-soft-crystal',
   'ui-gel-energy',
   'ui-card-frame-common',
   'ui-audio-on',
@@ -221,6 +236,10 @@ const DECLARED_ASSET_PATHS = {
   'building-bouncy-fence-autotile-v3': generatedAssetUrl('building/building-bouncy-fence-autotile-v3.png'),
   'building-weather-scout': generatedAssetUrl('building/building-weather-scout-v2.png'),
   'building-gel-foundation': generatedAssetUrl('building/building-gel-foundation-v2.png'),
+  'turret-gel-mortar': generatedAssetUrl('turret/turret-gel-mortar-v1.png'),
+  'ui-hero-control-ring': generatedAssetUrl('ui/ui-hero-control-ring-v1.png'),
+  'ui-hero-joystick-base': generatedAssetUrl('ui/ui-hero-joystick-base-v1.png'),
+  'ui-hero-joystick-knob': generatedAssetUrl('ui/ui-hero-joystick-knob-v1.png'),
   'terrain-gel-paving-autotile-v1': generatedAssetUrl('terrain/terrain-gel-paving-autotile-v1.png'),
   'skill-jelly-bounce-icon': generatedAssetUrl('skill/skill-jelly-bounce-icon.png'),
   'skill-honey-line-icon': generatedAssetUrl('skill/skill-honey-line-icon.png'),

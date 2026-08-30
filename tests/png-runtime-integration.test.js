@@ -284,15 +284,17 @@ test('skeletal armor has no legacy decal, v2 replacement, or source-atop path', 
   assert.equal(DRAW_SOURCE.includes('slimeEvolutionDecalLayout'), false);
 });
 
-test('placed tower art uses one fixed 76px lane-safe size at every star', () => {
+test('placed squads draw up to four fixed-size lane-safe members without star scaling', () => {
+  const squadRenderer = TOWER_DEFENSE_SOURCE.match(
+    /drawSquadMembers\(ctx, squad, x, y\) \{[\s\S]*?\n  \}\n\n  drawPad/,
+  )?.[0] || '';
   assert.match(
-    TOWER_DEFENSE_SOURCE,
-    /drawSlime\(ctx,\s*pad\.x,\s*pad\.y\s*\+\s*6,\s*76,\s*tower\.type,/,
+    squadRenderer,
+    /const aliveMembers = clamp\([\s\S]*?, 0, 4\);/,
   );
-  assert.doesNotMatch(
-    TOWER_DEFENSE_SOURCE,
-    /drawSlime\(ctx,\s*pad\.x,\s*pad\.y\s*\+\s*6,[^;]*tower\.star\s*[+*\-/]/,
-  );
+  assert.match(squadRenderer, /4:\s*\[[\s\S]*?\],\n\s*\};/);
+  assert.match(squadRenderer, /44 \* position\.scale, slimeType,/);
+  assert.doesNotMatch(squadRenderer, /\.star\b/);
 });
 
 test('armor layouts map each exact star row to three fixed non-replacement skeletal slots', () => {

@@ -2153,6 +2153,14 @@ export function drawBuilding(ctx, x, y, size, typeOrOptions = 'hut', maybeOption
     && Number.isFinite(options.sourceRect.height)
     ? options.sourceRect
     : null;
+  const assetWidthScale = Number.isFinite(Number(options.assetWidthScale))
+    && Number(options.assetWidthScale) > 0
+    ? Number(options.assetWidthScale)
+    : 1;
+  const assetGroundAnchorY = Number.isFinite(Number(options.assetGroundAnchorY))
+    ? clamp(Number(options.assetGroundAnchorY), 0, 1)
+    : BUILDING_GROUND_ANCHOR_Y;
+  const assetWidth = size * assetWidthScale;
   drawSelectionRing(ctx, x, y - size * 0.25, size * footprintScale, options);
 
   ctx.save();
@@ -2169,17 +2177,17 @@ export function drawBuilding(ctx, x, y, size, typeOrOptions = 'hut', maybeOption
         sourceRect.y,
         sourceRect.width,
         sourceRect.height,
-        -size / 2,
+        -assetWidth / 2,
         -size,
-        size,
+        assetWidth,
         size,
       );
     } else {
       ctx.drawImage(
         asset,
-        -size / 2,
-        -size * BUILDING_GROUND_ANCHOR_Y,
-        size,
+        -assetWidth / 2,
+        -size * assetGroundAnchorY,
+        assetWidth,
         size,
       );
     }

@@ -194,9 +194,11 @@ test('constructs and renders its first menu frame without DOM globals', () => {
   assert.equal(canvas.width, 1280);
   assert.equal(canvas.height, 720);
   assert.ok(game.hits.some(({ id }) => id === 'start-story'));
-  assert.deepEqual(game.hits.map(({ id }) => id), ['start-story', 'endless']);
+  assert.deepEqual(game.hits.map(({ id }) => id), [
+    'start-story', 'endless', 'open-summon',
+  ]);
   assert.ok(canvas.context.calls.some(([kind, text]) => (
-    kind === 'fillText' && text === '史莱姆融合塔防'
+    kind === 'fillText' && text === '史莱姆自走防线'
   )));
   game.dispose();
 });
@@ -270,24 +272,61 @@ test('all four towers drive independent attack bones and replace facial layers',
   game.dispose();
 });
 
-test('selected evolved tower exposes its star-specific attack name', () => {
+test('summon page supports one and ten pulls, result closing, hero selection, and back', () => {
   const canvas = createCanvas();
+  const runtime = createRuntime({ tutorialSeen: true, summonCurrency: 1000 });
   const game = new TowerDefenseGame(canvas, {
-    runtime: createRuntime({ tutorialSeen: true }),
+    runtime,
     pixelRatio: 1,
+    seed: 0xC0A7A5,
   });
-  game.state.screen = 'battle';
-  game.state.hand = [];
-  game.state.towers = [{
-    uid: 'evolved-shell', type: 'shell', star: 4, padIndex: 0,
-    cooldown: 0, attackPulse: 0, aimAngle: 0,
-  }];
-  game.state.selectedTowerUid = 'evolved-shell';
   game.render();
 
-  assert.ok(canvas.context.calls.some(([kind, text]) => (
-    kind === 'fillText' && text === '集束  ·  ↔'
-  )));
+  click(game, canvas, hitCenter(game, 'open-summon'));
+  assert.equal(game.menuPage, 'summon');
+  game.render();
+  assert.deepEqual(game.hits.map(({ id }) => id), [
+    'summon-back',
+    'hero-select-shell', 'hero-select-needle', 'hero-select-bubble', 'hero-select-sprout',
+    'summon-one', 'summon-ten',
+  ]);
+  assert.equal(game.hits.find(({ id }) => id === 'hero-select-shell').enabled, true);
+  assert.equal(game.hits.find(({ id }) => id === 'hero-select-needle').enabled, false);
+
+  click(game, canvas, hitCenter(game, 'hero-select-needle'));
+  assert.equal(game.state.progress.selectedHero, 'shell', 'locked heroes cannot be selected');
+
+  click(game, canvas, hitCenter(game, 'summon-one'));
+  assert.equal(game.state.progress.summonCurrency, 900);
+  assert.equal(game.summonResults.length, 1);
+  game.render();
+  assert.deepEqual(game.hits.map(({ id }) => id), ['summon-result-close']);
+  click(game, canvas, hitCenter(game, 'summon-result-close'));
+  assert.equal(game.summonResults.length, 0);
+
+  game.render();
+  assert.equal(game.hits.find(({ id }) => id === 'summon-ten').enabled, true);
+  click(game, canvas, hitCenter(game, 'summon-ten'));
+  assert.equal(game.state.progress.summonCurrency, 0);
+  assert.equal(game.summonResults.length, 10);
+  game.render();
+  assert.deepEqual(game.hits.map(({ id }) => id), ['summon-result-close']);
+  click(game, canvas, hitCenter(game, 'summon-result-close'));
+
+  const unlocked = ['needle', 'bubble', 'sprout'].find((type) => (
+    game.state.progress.contractRanks[type] > 0
+  ));
+  assert.ok(unlocked, 'the first ten pull unlocks another selectable hero');
+  game.render();
+  click(game, canvas, hitCenter(game, `hero-select-${unlocked}`));
+  assert.equal(game.state.progress.selectedHero, unlocked);
+  assert.equal(runtime.values.get(TD_STORAGE_KEY).selectedHero, unlocked);
+
+  game.render();
+  click(game, canvas, hitCenter(game, 'summon-back'));
+  assert.equal(game.menuPage, 'main');
+  game.render();
+  assert.ok(game.hits.some(({ id }) => id === 'open-summon'));
   game.dispose();
 });
 
@@ -346,6 +385,47 @@ test('moving enemies play hurt bones and leave a temporary skeletal death actor'
   game.dispose();
 });
 
+test('a defeated squad animates only its final member instead of restoring four ghosts', () => {
+  const canvas = createCanvas();
+  const game = new TowerDefenseGame(canvas, {
+    runtime: createRuntime({ tutorialSeen: true }),
+    pixelRatio: 1,
+  });
+  game.state.screen = 'battle';
+  game.state.towers = [{
+    uid: 'fallen-squad',
+    kind: 'soldier',
+    type: 'melee',
+    squadType: 'melee',
+    aliveMembers: 0,
+    star: 1,
+    padIndex: 0,
+    x: 300,
+    y: 240,
+  }];
+  game.processCharacterAnimationEvent({
+    type: 'tower-defeat',
+    towerUid: 'fallen-squad',
+    towerType: 'melee',
+    star: 1,
+    padIndex: 0,
+    x: 300,
+    y: 240,
+  });
+
+  assert.equal(game.defeatedTowers.length, 1);
+  const actor = game.defeatedTowers[0];
+  const deathEntry = game.characterAnimations.get(actor.key);
+  assert.equal(actor.squadType, 'melee');
+  assert.equal(deathEntry.controller.actionName, 'downed');
+
+  let formationDraws = 0;
+  game.drawSquadMembers = () => { formationDraws += 1; };
+  game.drawDefeatedTowers(canvas.context);
+  assert.equal(formationDraws, 0);
+  game.dispose();
+});
+
 test('story opens stage selection with lock, clear, selectable, and back states', () => {
   const canvas = createCanvas();
   const runtime = createRuntime({
@@ -356,7 +436,9 @@ test('story opens stage selection with lock, clear, selectable, and back states'
   const game = new TowerDefenseGame(canvas, { runtime, pixelRatio: 1 });
   game.render();
 
-  assert.deepEqual(game.hits.map(({ id }) => id), ['start-story', 'endless']);
+  assert.deepEqual(game.hits.map(({ id }) => id), [
+    'start-story', 'endless', 'open-summon',
+  ]);
   const storyHit = game.hits.find(({ id }) => id === 'start-story');
   assert.equal(storyHit.action, 'open-stage-select');
   assert.equal(game.hits.find(({ id }) => id === 'endless').enabled, false);
@@ -381,7 +463,9 @@ test('story opens stage selection with lock, clear, selectable, and back states'
   click(game, canvas, hitCenter(game, 'stage-select-back'));
   assert.equal(game.menuPage, 'main');
   game.render();
-  assert.deepEqual(game.hits.map(({ id }) => id), ['start-story', 'endless']);
+  assert.deepEqual(game.hits.map(({ id }) => id), [
+    'start-story', 'endless', 'open-summon',
+  ]);
 
   click(game, canvas, hitCenter(game, 'start-story'));
   game.render();
@@ -392,7 +476,7 @@ test('story opens stage selection with lock, clear, selectable, and back states'
   game.dispose();
 });
 
-test('completed story keeps two main menu actions and unlocks the endless button', () => {
+test('completed story keeps all three main menu actions and unlocks endless', () => {
   const canvas = createCanvas();
   const runtime = createRuntime({
     unlockedStage: 3,
@@ -413,7 +497,7 @@ test('completed story keeps two main menu actions and unlocks the endless button
   game.dispose();
 });
 
-test('spotlight tutorial completes draw, placement, fusion, and wave-start chain', () => {
+test('spotlight tutorial purchases one four-member melee squad and starts the wave', () => {
   const canvas = createCanvas();
   const runtime = createRuntime();
   const game = new TowerDefenseGame(canvas, {
@@ -431,42 +515,35 @@ test('spotlight tutorial completes draw, placement, fusion, and wave-start chain
 
   click(game, canvas, hitCenter(game, 'select-stage-1'));
   game.render();
-  assert.equal(game.state.tutorial.step, 'draw-1');
+  assert.equal(game.state.tutorial.step, 'squad');
+  assert.equal(game.hits.find(({ id }) => id === 'purchase-melee').enabled, true);
 
-  click(game, canvas, hitCenter(game, 'draw'));
+  click(game, canvas, hitCenter(game, 'purchase-ranged'));
+  assert.equal(game.selectedPurchase, null, 'tutorial blocks the wrong squad choice');
+  click(game, canvas, hitCenter(game, 'purchase-melee'));
+  assert.equal(game.selectedPurchase, 'melee');
   game.render();
-  assert.equal(game.state.tutorial.step, 'place-1');
-  assert.equal(game.state.hand.length, 1);
-
+  assert.equal(game.hits.find(({ id }) => id === 'pad-0').enabled, true);
   click(game, canvas, hitCenter(game, 'pad-0'));
-  game.render();
-  assert.equal(game.state.tutorial.step, 'draw-2');
-  assert.equal(game.state.towers.length, 1);
-
-  click(game, canvas, hitCenter(game, 'draw'));
-  game.render();
-  assert.equal(game.state.tutorial.step, 'fuse');
-  assert.equal(game.state.towers.length, 1);
-  assert.equal(game.state.hand.length, 1);
-
-  drag(game, canvas, hitCenter(game, `card-${game.state.hand[0].uid}`),
-    hitCenter(game, `tower-${game.state.towers[0].uid}`));
-  game.render();
   assert.equal(game.state.tutorial.step, 'start');
   assert.equal(game.state.towers.length, 1);
-  assert.equal(game.state.hand.length, 0);
-  assert.equal(game.state.towers[0].star, 2);
+  assert.equal(game.state.towers[0].squadType, 'melee');
+  assert.equal(game.state.towers[0].squadSize, 4);
+  assert.equal(game.state.towers[0].aliveMembers, 4);
+  assert.equal(game.state.currency, 400);
 
+  game.render();
   click(game, canvas, hitCenter(game, 'start-wave'));
   assert.equal(game.state.wave, 1);
   assert.equal(game.state.waveActive, true);
+  assert.equal(game.state.phase, 'combat');
   assert.equal(game.state.tutorial.active, false);
   assert.equal(game.state.progress.tutorialSeen, true);
   assert.equal(runtime.values.get(TD_STORAGE_KEY).tutorialSeen, true);
   game.dispose();
 });
 
-test('battle dock supports direct hand fusion, tower movement, and reclaim without extra placement', () => {
+test('battle dock purchases squads and a fixed turret, moves squads in prep, then exposes hero controls', () => {
   const canvas = createCanvas();
   const game = new TowerDefenseGame(canvas, {
     runtime: createRuntime({ tutorialSeen: true }),
@@ -474,55 +551,97 @@ test('battle dock supports direct hand fusion, tower movement, and reclaim witho
   });
   const assets = createAssetStore();
   game.setAssetStore(assets);
-  game.state.screen = 'battle';
-  game.state.stageId = 'stage-1';
-  game.state.tutorial = { active: false, step: 'done', forcedDraws: 0 };
-  game.state.hand = [{ uid: 'direct-card', type: 'shell', star: 1 }];
-  game.state.towers = [{
-    uid: 'direct-tower',
-    type: 'shell',
-    star: 1,
-    padIndex: 0,
-    cooldown: 0.44,
-    aimAngle: 0.3,
-    attackPulse: 0,
-  }];
+
+  game.render();
+  click(game, canvas, hitCenter(game, 'start-story'));
+  game.render();
+  click(game, canvas, hitCenter(game, 'select-stage-1'));
+  assert.equal(game.state.screen, 'battle');
+  assert.equal(game.state.phase, 'prep');
   game.render();
 
-  const cardHit = game.hits.find(({ id }) => id === 'card-direct-card');
-  assert.ok(cardHit.width < 200 && cardHit.height > 120, 'hand uses a large 2x2 portrait card');
-  assert.ok(assets.requests.includes('ui-soft-crystal'));
+  assert.equal(game.hits.find(({ id }) => id === 'purchase-melee').action, 'select-purchase');
+  assert.equal(game.hits.find(({ id }) => id === 'purchase-ranged').action, 'select-purchase');
+  assert.equal(game.hits.find(({ id }) => id === 'purchase-turret').action, 'select-purchase');
+  assert.equal(game.hits.find(({ id }) => id === 'hero-joystick').enabled, false);
+  assert.equal(game.hits.find(({ id }) => id === 'hero-skill').enabled, false);
+  assert.ok(assets.requests.includes('ui-gel-energy'));
   assert.ok(assets.requests.includes('ui-card-frame-common'));
-  assert.equal(canvas.context.calls.some(([kind, text]) => kind === 'fillText' && text === '拖到塔位'), false);
 
-  drag(game, canvas, hitCenter(game, 'card-direct-card'), hitCenter(game, 'tower-direct-tower'));
-  assert.equal(game.state.hand.length, 0);
-  assert.equal(game.state.towers[0].star, 2);
+  click(game, canvas, hitCenter(game, 'purchase-melee'));
+  assert.equal(game.selectedPurchase, 'melee');
+  game.render();
+  click(game, canvas, hitCenter(game, 'pad-0'));
+  assert.equal(game.selectedPurchase, null);
+  assert.equal(game.state.currency, 400);
+  assert.equal(game.state.towers.length, 1);
+  const melee = game.state.towers[0];
+  assert.deepEqual({
+    kind: melee.kind,
+    squadType: melee.squadType,
+    squadSize: melee.squadSize,
+    aliveMembers: melee.aliveMembers,
+  }, {
+    kind: 'soldier', squadType: 'melee', squadSize: 4, aliveMembers: 4,
+  });
 
   game.render();
-  drag(game, canvas, hitCenter(game, 'tower-direct-tower'), hitCenter(game, 'pad-1'));
-  assert.equal(game.state.towers[0].padIndex, 1);
-  assert.equal(game.state.towers[0].cooldown, 0.12, 'fusion cooldown remains stable through movement');
+  click(game, canvas, hitCenter(game, `tower-${melee.uid}`));
+  game.render();
+  assert.equal(game.hits.find(({ id }) => id === 'pad-1').enabled, true);
+  click(game, canvas, hitCenter(game, 'pad-1'));
+  assert.equal(melee.padIndex, 1, 'a squad can be rearranged only during preparation');
 
   game.render();
-  const reclaimHit = game.hits.find(({ id }) => id === 'reclaim');
-  assert.equal(reclaimHit.enabled, true);
-  click(game, canvas, hitCenter(game, 'reclaim'));
-  assert.equal(game.state.towers.length, 0);
-  assert.equal(game.state.hand.length, 1);
-  assert.equal(game.state.hand[0].star, 2);
-
-  const returnedCard = game.state.hand[0];
-  assert.equal(game.placeCard(returnedCard.uid, 2), true);
-  game.state.waveActive = true;
+  click(game, canvas, hitCenter(game, 'purchase-ranged'));
   game.render();
-  drag(game, canvas, hitCenter(game, `tower-${game.state.towers[0].uid}`),
-    hitCenter(game, 'reclaim'));
-  assert.equal(game.state.towers.length, 0);
-  assert.equal(game.state.hand.length, 1);
-  assert.equal(game.state.hand[0].star, 2);
-  assert.ok(game.state.hand[0].redeployCooldown >= 0.65,
-    'combat drag-to-reclaim carries a redeploy delay');
+  click(game, canvas, hitCenter(game, 'pad-0'));
+  assert.equal(game.state.currency, 250);
+  assert.equal(game.state.towers[1].squadType, 'ranged');
+  assert.equal(game.state.towers[1].aliveMembers, 4);
+
+  game.render();
+  click(game, canvas, hitCenter(game, 'purchase-turret'));
+  assert.equal(game.selectedPurchase, 'turret');
+  game.render();
+  const slotId = game.state.turretSlots[0].id;
+  const turretHit = game.hits.find(({ id }) => id === slotId);
+  assert.equal(turretHit.action, 'build-turret');
+  assert.equal(turretHit.enabled, true);
+  click(game, canvas, hitCenter(game, slotId));
+  assert.equal(game.selectedPurchase, null);
+  assert.equal(game.state.currency, 75);
+  assert.equal(game.state.turrets.length, 1);
+  assert.equal(game.state.turrets[0].type, 'gel-mortar');
+  assert.equal(game.state.turrets[0].slotIndex, 0);
+
+  game.render();
+  click(game, canvas, hitCenter(game, 'start-wave'));
+  assert.equal(game.state.phase, 'combat');
+  assert.equal(game.state.waveActive, true);
+  game.render();
+  assert.equal(game.hits.find(({ id }) => id === 'purchase-melee').enabled, false);
+  assert.equal(game.hits.find(({ id }) => id === 'hero-joystick').enabled, true);
+  assert.equal(game.hits.find(({ id }) => id === 'hero-skill').enabled, true);
+
+  click(game, canvas, hitCenter(game, 'hero-skill'));
+  assert.ok(game.state.hero.skillCooldown > 0);
+  game.render();
+  assert.equal(game.hits.find(({ id }) => id === 'hero-skill').enabled, false);
+
+  const joystick = hitCenter(game, 'hero-joystick');
+  canvas.dispatch('pointerdown', pointerEvent(game, canvas, joystick));
+  canvas.dispatch('pointermove', pointerEvent(game, canvas, {
+    x: joystick.x + 44,
+    y: joystick.y,
+  }));
+  assert.ok(game.state.hero.moveX > 0);
+  canvas.dispatch('pointerup', pointerEvent(game, canvas, {
+    x: joystick.x + 44,
+    y: joystick.y,
+  }));
+  assert.equal(game.state.hero.moveX, 0);
+  assert.equal(game.state.hero.moveY, 0);
   game.dispose();
 });
 
@@ -568,12 +687,28 @@ test('save, background, and foreground use runtime storage and frame scheduler s
   game.state.progress.clearedStages.push('stage-1');
 
   assert.equal(game.save(), true);
-  assert.deepEqual(runtime.values.get(TD_STORAGE_KEY), {
+  const saved = runtime.values.get(TD_STORAGE_KEY);
+  assert.deepEqual({
+    unlockedStage: saved.unlockedStage,
+    clearedStages: saved.clearedStages,
+    bestEndlessWave: saved.bestEndlessWave,
+    tutorialSeen: saved.tutorialSeen,
+  }, {
     unlockedStage: 2,
     clearedStages: ['stage-1'],
     bestEndlessWave: 0,
     tutorialSeen: true,
   });
+  assert.equal(saved.summonCurrency, 900);
+  assert.equal(saved.summonPity, 0);
+  assert.equal(Number.isInteger(saved.summonRngState), true);
+  assert.deepEqual(saved.contractRanks, {
+    shell: 1, needle: 0, bubble: 0, sprout: 0,
+  });
+  assert.deepEqual(saved.contractShards, {
+    shell: 0, needle: 0, bubble: 0, sprout: 0,
+  });
+  assert.equal(saved.selectedHero, 'shell');
 
   game.start();
   assert.equal(game.running, true);

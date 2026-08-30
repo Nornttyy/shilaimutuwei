@@ -1548,6 +1548,29 @@ test('missing building PNGs never invoke procedural building art or building gly
   }
 });
 
+test('authored building aspect and ground-anchor overrides preserve non-square turret art', () => {
+  const recording = createTransformRecordingContext();
+  const art = { key: 'turret-gel-mortar', naturalWidth: 768, naturalHeight: 723 };
+  const widthScale = 768 / 723;
+  const groundAnchorY = 665 / 723;
+  drawBuilding(recording.ctx, 100, 200, 92, 'tower', {
+    assetKey: art.key,
+    assetStore: createReadyAssetStore({ [art.key]: art }),
+    assetWidthScale: widthScale,
+    assetGroundAnchorY: groundAnchorY,
+  });
+
+  const draw = recording.calls.find(({ method, asset }) => method === 'drawImage' && asset === art);
+  assert.ok(draw);
+  const width = 92 * widthScale;
+  assertBoundsClose(draw.bounds, {
+    minX: 100 - width / 2,
+    minY: 200 - 92 * groundAnchorY,
+    maxX: 100 + width / 2,
+    maxY: 200 + 92 * (1 - groundAnchorY),
+  }, 'turret bounds');
+});
+
 test('all building previews fill exactly one tile, use formal art, and expose no rotation UI', () => {
   const validTile = { key: 'tile-placement-valid' };
   const invalidTile = { key: 'tile-placement-invalid' };

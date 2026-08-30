@@ -20,6 +20,7 @@ import {
   PALETTE,
   drawAssetOrFallback,
   drawBuilding,
+  drawCore,
   drawParticle,
   drawStatusIcon,
 } from '../src/draw.js';
@@ -1569,6 +1570,68 @@ test('authored building aspect and ground-anchor overrides preserve non-square t
     maxX: 100 + width / 2,
     maxY: 200 + 92 * (1 - groundAnchorY),
   }, 'turret bounds');
+});
+
+test('authored core asset overrides preserve a non-square fortress while defaults stay square', () => {
+  const fortressRecording = createTransformRecordingContext();
+  const fortress = { key: 'fortress-slime-core', naturalWidth: 768, naturalHeight: 512 };
+  const cracks = {
+    key: 'effect-damage-cracks-overlay', naturalWidth: 512, naturalHeight: 512,
+  };
+  drawCore(fortressRecording.ctx, 360, 1038, 160, {
+    assetKey: fortress.key,
+    assetWidthScale: 768 / 512,
+    assetStore: createReadyAssetStore({
+      [fortress.key]: fortress,
+      [cracks.key]: cracks,
+    }),
+    time: 0,
+    health: 0.5,
+  });
+
+  const fortressDraw = fortressRecording.calls.find(({ method, asset }) => (
+    method === 'drawImage' && asset === fortress
+  ));
+  assert.ok(fortressDraw);
+  assertBoundsClose(fortressDraw.bounds, {
+    minX: 240,
+    minY: 878,
+    maxX: 480,
+    maxY: 1038,
+  }, 'fortress core bounds');
+  assert.ok(fortressRecording.calls.some(({ method, asset }) => (
+    method === 'drawImage' && asset === cracks
+  )), 'the custom fortress keeps the authored damage-crack overlay');
+
+  const townRecording = createTransformRecordingContext();
+  const town = { key: 'town-soft-core', naturalWidth: 768, naturalHeight: 768 };
+  drawCore(townRecording.ctx, 100, 200, 120, {
+    assetStore: createReadyAssetStore({ [town.key]: town }),
+    time: 0,
+    health: 1,
+  });
+  const townDraw = townRecording.calls.find(({ method, asset }) => (
+    method === 'drawImage' && asset === town
+  ));
+  assert.ok(townDraw);
+  assertBoundsClose(townDraw.bounds, {
+    minX: 40,
+    minY: 80,
+    maxX: 160,
+    maxY: 200,
+  }, 'default town core bounds');
+
+  const fallbackRecording = createDynamicEffectRecordingContext();
+  drawCore(fallbackRecording.ctx, 100, 200, 120, {
+    assetKey: fortress.key,
+    assetWidthScale: 768 / 512,
+    assetStore: createReadyAssetStore([]),
+    time: 0,
+    health: 1,
+  });
+  assert.equal(fallbackRecording.calls.some(([method]) => method === 'drawImage'), false);
+  assert.ok(fallbackRecording.calls.some(([method]) => method === 'createRadialGradient'),
+    'a missing custom fortress still reaches the procedural core fallback');
 });
 
 test('all building previews fill exactly one tile, use formal art, and expose no rotation UI', () => {

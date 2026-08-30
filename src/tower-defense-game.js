@@ -127,6 +127,13 @@ const GEL_MORTAR_ASSET_LAYOUT = Object.freeze({
   assetWidthScale: 768 / 723,
   assetGroundAnchorY: 665 / 723,
 });
+const FORTRESS_CORE_ASSET_LAYOUT = Object.freeze({
+  assetWidthScale: 768 / 512,
+});
+const GEL_MOUNT_ASSET_LAYOUT = Object.freeze({
+  width: 118,
+  height: 118 * 400 / 768,
+});
 
 const STAGE_SELECT_CARDS = Object.freeze(TD_STAGES.map((_, index) => Object.freeze({
   x: 62,
@@ -2419,6 +2426,16 @@ export class TowerDefenseGame {
       };
       const buildingType = 'tower';
       const assetKey = 'turret-gel-mortar';
+      drawAssetOrFallback(ctx, this.assetStore, 'turret-gel-mount', (asset) => {
+        ctx.globalAlpha *= turret ? 1 : this.isPreparation() ? 0.94 : 0.38;
+        ctx.drawImage(
+          asset,
+          x - GEL_MOUNT_ASSET_LAYOUT.width / 2,
+          buildingGroundY - GEL_MOUNT_ASSET_LAYOUT.height,
+          GEL_MOUNT_ASSET_LAYOUT.width,
+          GEL_MOUNT_ASSET_LAYOUT.height,
+        );
+      }, () => {});
       if (turret) {
         const pulseKey = String(turret.uid ?? slot.id ?? slotIndex);
         const pulse = clamp(Number(this.turretPulses.get(pulseKey)) || 0, 0, 1);
@@ -2444,25 +2461,10 @@ export class TowerDefenseGame {
         return;
       }
 
-      ctx.save();
-      ctx.globalAlpha = this.isPreparation() ? 0.68 : 0.28;
-      drawBuilding(ctx, x, buildingGroundY, 86, 'paver', {
-        assetKey: 'building-gel-foundation',
-        assetStore: this.assetStore,
-        ghost: true,
-      });
-      ctx.strokeStyle = '#E8FFD9';
-      ctx.lineWidth = 3;
-      ctx.setLineDash?.([8, 7]);
-      ctx.beginPath();
-      ctx.ellipse(x, buildingGroundY - 8, 48, 21, 0, 0, TAU);
-      ctx.stroke();
-      ctx.setLineDash?.([]);
-      ctx.restore();
       const cost = Math.max(0, Math.floor(Number(slot.cost) || turretDefinition.cost));
       const buildingSelected = this.selectedPurchase === 'turret';
       label(ctx, this.isPreparation() && buildingSelected
-        ? `${turretDefinition.name} ${cost}` : '炮台位', x, y - 26, {
+        ? `${turretDefinition.name} ${cost}` : '炮台位', x, y - 36, {
         size: 13, color: this.isPreparation() ? COLORS.cream : COLORS.inkSoft, weight: 900,
       });
       const slotHitId = typeof slot.id === 'string' && slot.id
@@ -2493,7 +2495,9 @@ export class TowerDefenseGame {
     this.drawLaneField(ctx, lanes, stage);
     this.drawLaneGateways(ctx, lanes, stage, coreX, coreY);
 
-    drawCore(ctx, coreX, coreY, 168, {
+    drawCore(ctx, coreX, coreY, 160, {
+      assetKey: 'fortress-slime-core',
+      ...FORTRESS_CORE_ASSET_LAYOUT,
       health: this.state.coreHp / Math.max(1, this.state.coreMaxHp),
       time: this.state.time,
       hit: this.shake > 0 ? 1 : 0,
@@ -3157,6 +3161,25 @@ export class TowerDefenseGame {
     });
   }
 
+  drawSquadPurchaseArt(ctx, rect, type, enabled = true) {
+    const assetKey = type === 'needle'
+      ? 'ui-card-ranged-squad'
+      : 'ui-card-melee-squad';
+    drawAssetOrFallback(ctx, this.assetStore, assetKey, (asset) => {
+      ctx.globalAlpha *= enabled ? 1 : 0.42;
+      ctx.drawImage(
+        asset,
+        rect.x + 9,
+        rect.y + 39,
+        rect.width - 18,
+        rect.height - 45,
+      );
+    }, () => {
+      ctx.globalAlpha *= enabled ? 1 : 0.42;
+      this.drawSquadPurchasePreview(ctx, rect, type);
+    });
+  }
+
   drawDirectPurchaseDock(ctx, stage) {
     const preparation = this.isPreparation();
     if (!preparation) {
@@ -3180,17 +3203,18 @@ export class TowerDefenseGame {
       const accent = entry.id === 'melee'
         ? TOWER_TYPES.shell.color
         : entry.id === 'ranged' ? TOWER_TYPES.needle.color : '#6BC9A0';
-      panel(ctx, rect, {
-        fill: enabled ? selected ? '#FFF2B8' : hot ? '#FFFEF1' : '#FFF8E8' : '#AEBBB5',
-        stroke: selected ? '#E0A129' : enabled ? accent : '#74837D',
-        lineWidth: selected || hot ? 5 : 2,
-        radius: 22,
-        shadow: enabled,
-      });
-      drawAssetOrFallback(ctx, this.assetStore, 'ui-card-frame-common', (asset) => {
-        ctx.globalAlpha *= enabled ? 0.23 : 0.1;
+      drawAssetOrFallback(ctx, this.assetStore, 'ui-card-frame-deploy', (asset) => {
+        ctx.globalAlpha *= enabled ? 1 : 0.48;
         ctx.drawImage(asset, rect.x, rect.y, rect.width, rect.height);
-      }, () => {});
+      }, () => {
+        panel(ctx, rect, {
+          fill: enabled ? selected ? '#FFF2B8' : hot ? '#FFFEF1' : '#FFF8E8' : '#AEBBB5',
+          stroke: selected ? '#E0A129' : enabled ? accent : '#74837D',
+          lineWidth: selected || hot ? 5 : 2,
+          radius: 22,
+          shadow: enabled,
+        });
+      });
       label(ctx, entry.label, rect.x + 14, rect.y + 20, {
         size: 17, align: 'left', color: COLORS.ink, weight: 950,
       });
@@ -3202,7 +3226,7 @@ export class TowerDefenseGame {
         size: 15, align: 'right', color: enabled ? COLORS.ink : COLORS.disabled, weight: 950,
       });
       if (entry.type) {
-        this.drawSquadPurchasePreview(ctx, rect, entry.type);
+        this.drawSquadPurchaseArt(ctx, rect, entry.type, enabled);
       } else {
         drawBuilding(ctx, rect.x + rect.width / 2, rect.y + 119, 88, 'tower', {
           assetKey: 'turret-gel-mortar',
@@ -3210,6 +3234,14 @@ export class TowerDefenseGame {
           ...GEL_MORTAR_ASSET_LAYOUT,
           disabled: !enabled,
         });
+      }
+      if (selected || hot) {
+        ctx.save();
+        ctx.strokeStyle = selected ? '#E0A129' : accent;
+        ctx.lineWidth = selected ? 5 : 4;
+        roundedPath(ctx, rect.x + 2, rect.y + 2, rect.width - 4, rect.height - 4, 21);
+        ctx.stroke();
+        ctx.restore();
       }
       this.addHit(`purchase-${entry.id}`, rect, 'select-purchase', {
         purchaseType: entry.id,

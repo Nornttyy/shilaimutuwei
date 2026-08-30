@@ -6,7 +6,7 @@
  * useful to platform builds and isolated tests.
  */
 
-export const ASSET_CACHE_VERSION = 'soft-gel-20260830-v7';
+export const ASSET_CACHE_VERSION = 'soft-gel-20260830-v8';
 
 const generatedAssetUrl = (relativePath) => {
   const url = new URL(`../assets/generated/${relativePath}`, import.meta.url);
@@ -32,6 +32,7 @@ export const CRITICAL_STARTUP_ASSET_KEYS = Object.freeze([
   'enemy-stone-lump',
   'enemy-acid-shell-king',
   'town-soft-core',
+  'fortress-slime-core',
   'rift-entry-portal',
   'building-mushroom-home',
   'building-honey-plot',
@@ -42,6 +43,7 @@ export const CRITICAL_STARTUP_ASSET_KEYS = Object.freeze([
   'building-weather-scout',
   'building-gel-foundation',
   'turret-gel-mortar',
+  'turret-gel-mount',
   'ui-hero-control-ring',
   'ui-hero-joystick-base',
   'ui-hero-joystick-knob',
@@ -111,6 +113,9 @@ export const CRITICAL_STARTUP_ASSET_KEYS = Object.freeze([
   'ui-soft-crystal',
   'ui-gel-energy',
   'ui-card-frame-common',
+  'ui-card-frame-deploy',
+  'ui-card-melee-squad',
+  'ui-card-ranged-squad',
   'ui-card-frame-item',
   'ui-audio-on',
   'ui-audio-off',
@@ -166,9 +171,11 @@ export const TOWER_DEFENSE_ASSET_KEYS = Object.freeze([
   'enemy-stone-lump',
   'enemy-acid-shell-king',
   'town-soft-core',
+  'fortress-slime-core',
   'rift-entry-portal',
   'building-gel-foundation',
   'turret-gel-mortar',
+  'turret-gel-mount',
   'ui-hero-control-ring',
   'ui-hero-joystick-base',
   'ui-hero-joystick-knob',
@@ -206,6 +213,9 @@ export const TOWER_DEFENSE_ASSET_KEYS = Object.freeze([
   'ui-soft-crystal',
   'ui-gel-energy',
   'ui-card-frame-common',
+  'ui-card-frame-deploy',
+  'ui-card-melee-squad',
+  'ui-card-ranged-squad',
   'ui-audio-on',
   'ui-audio-off',
   'ui-tutorial-hand',
@@ -237,6 +247,7 @@ const DECLARED_ASSET_PATHS = {
   'building-weather-scout': generatedAssetUrl('building/building-weather-scout-v2.png'),
   'building-gel-foundation': generatedAssetUrl('building/building-gel-foundation-v2.png'),
   'turret-gel-mortar': generatedAssetUrl('turret/turret-gel-mortar-v1.png'),
+  'turret-gel-mount': generatedAssetUrl('turret/turret-gel-mount-v1.png'),
   'ui-hero-control-ring': generatedAssetUrl('ui/ui-hero-control-ring-v1.png'),
   'ui-hero-joystick-base': generatedAssetUrl('ui/ui-hero-joystick-base-v1.png'),
   'ui-hero-joystick-knob': generatedAssetUrl('ui/ui-hero-joystick-knob-v1.png'),
@@ -260,6 +271,7 @@ const DECLARED_ASSET_PATHS = {
   'status-bubble': generatedAssetUrl('status/status-bubble.png'),
   'status-poison': generatedAssetUrl('status/status-poison.png'),
   'town-soft-core': generatedAssetUrl('core/town-soft-core.png'),
+  'fortress-slime-core': generatedAssetUrl('core/fortress-slime-core-v1.png'),
   'rift-entry-portal': generatedAssetUrl('portal/rift-entry-portal.png'),
   'tile-build-light': generatedAssetUrl('tile/tile-build-light.png'),
   'tile-build-dark': generatedAssetUrl('tile/tile-build-dark.png'),
@@ -346,6 +358,9 @@ const DECLARED_ASSET_PATHS = {
   'ui-soft-crystal': generatedAssetUrl('ui/ui-soft-crystal.png'),
   'ui-gel-energy': generatedAssetUrl('ui/ui-gel-energy.png'),
   'ui-card-frame-common': generatedAssetUrl('ui/ui-card-frame-common.png'),
+  'ui-card-frame-deploy': generatedAssetUrl('ui/ui-card-frame-deploy-v1.png'),
+  'ui-card-melee-squad': generatedAssetUrl('ui/ui-card-melee-squad-v1.png'),
+  'ui-card-ranged-squad': generatedAssetUrl('ui/ui-card-ranged-squad-v1.png'),
   'ui-card-frame-item': generatedAssetUrl('ui/ui-card-frame-item.png'),
   'ui-audio-on': generatedAssetUrl('ui/ui-audio-on.png'),
   'ui-audio-off': generatedAssetUrl('ui/ui-audio-off.png'),

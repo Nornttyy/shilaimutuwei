@@ -2235,23 +2235,35 @@ function drawCoreDamageLocal(ctx, health) {
   ctx.restore();
 }
 
-/** Draw the town core. Health is represented by `options.health` in the 0..1 range. */
+/**
+ * Draw the town core. `size` is the authored height; `assetWidthScale` allows a
+ * wider formal asset while its bottom-centre anchor and legacy square default
+ * stay unchanged. Health is represented by `options.health` in the 0..1 range.
+ */
 export function drawCore(ctx, x, y, size, options = {}) {
   const health = clamp(options.health ?? 1);
   const time = safeNumber(options.time, 0);
   const pulse = 1 + Math.sin(time * 2.7) * 0.035 * health;
+  const assetKey = typeof options.assetKey === 'string' && options.assetKey
+    ? options.assetKey
+    : 'town-soft-core';
+  const assetWidthScale = Number.isFinite(Number(options.assetWidthScale))
+    && Number(options.assetWidthScale) > 0
+    ? Number(options.assetWidthScale)
+    : 1;
+  const assetWidth = size * assetWidthScale;
   drawSelectionRing(ctx, x, y, size * 1.05, options);
   drawSoftShadow(ctx, x, y + size * 0.02, size, {
-    width: size * 0.88,
+    width: size * 0.88 * assetWidthScale,
     height: size * 0.19,
     alpha: 0.24,
   });
 
-  const renderedAsset = drawAssetOrFallback(ctx, options.assetStore, 'town-soft-core', (asset) => {
+  const renderedAsset = drawAssetOrFallback(ctx, options.assetStore, assetKey, (asset) => {
     ctx.globalAlpha *= clamp(options.alpha ?? 1);
     ctx.translate(x, y);
     ctx.scale(pulse, pulse);
-    ctx.drawImage(asset, -size * 0.5, -size, size, size);
+    ctx.drawImage(asset, -assetWidth * 0.5, -size, assetWidth, size);
   }, () => {});
   if (renderedAsset) {
     ctx.save();

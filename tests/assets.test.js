@@ -52,25 +52,44 @@ test('the workspace asset manifest strictly validates all 130 finished PNGs', as
   assert.deepEqual(result.warnings, [], formatErrors(result));
 });
 
-test('generated evolution atlases contain three strong decals and one visually empty cell', async () => {
+test('generated evolution atlases contain nine transparent structural replacement cells', async () => {
   const atlasPaths = [
-    'assets/generated/evolution/shell-evolution-atlas-v1.png',
-    'assets/generated/evolution/needle-evolution-atlas-v1.png',
-    'assets/generated/evolution/bubble-evolution-atlas-v1.png',
-    'assets/generated/evolution/sprout-evolution-atlas-v1.png',
+    'assets/generated/evolution-components/shell-evolution-components-v2.png',
+    'assets/generated/evolution-components/needle-evolution-components-v2.png',
+    'assets/generated/evolution-components/bubble-evolution-components-v2.png',
+    'assets/generated/evolution-components/sprout-evolution-components-v2.png',
   ];
   const script = [
     'import json, sys',
     'from PIL import Image',
     'result = {}',
     'for path in sys.argv[1:]:',
-    '    image = Image.open(path)',
+    '    source = Image.open(path)',
+    '    sourceMode = source.mode',
+    '    image = source.convert("RGBA")',
     '    cells = []',
-    '    for box in ((0,0,512,512),(512,0,1024,512),(0,512,512,1024),(512,512,1024,1024)):',
-    '        alpha = image.crop(box).getchannel("A")',
+    '    masks = [[None for _ in range(3)] for _ in range(3)]',
+    '    for row in range(3):',
+    '      for column in range(3):',
+    '        left, top = column * 256, row * 256',
+    '        alpha = image.crop((left, top, left + 256, top + 256)).getchannel("A")',
     '        pixels = list(alpha.getdata())',
-    '        cells.append({"strong": sum(value >= 32 for value in pixels), "max": max(pixels)})',
-    '    result[path] = {"mode": image.mode, "size": image.size, "cells": cells}',
+    '        mask = [value >= 32 for value in pixels]',
+    '        masks[row][column] = mask',
+    '        boundary = []',
+    '        boundary.extend(alpha.crop((0, 0, 256, 3)).getdata())',
+    '        boundary.extend(alpha.crop((0, 253, 256, 256)).getdata())',
+    '        boundary.extend(alpha.crop((0, 0, 3, 256)).getdata())',
+    '        boundary.extend(alpha.crop((253, 0, 256, 256)).getdata())',
+    '        cells.append({"row": row, "column": column, "strong": sum(mask), "max": max(pixels), "boundaryMax": max(boundary)})',
+    '    rowDifferences = []',
+    '    for column in range(3):',
+    '      for row in range(2):',
+    '        first, second = masks[row][column], masks[row + 1][column]',
+    '        union = sum(a or b for a, b in zip(first, second))',
+    '        difference = sum(a != b for a, b in zip(first, second))',
+    '        rowDifferences.append({"column": column, "rows": [row, row + 1], "difference": difference, "ratio": difference / max(1, union)})',
+    '    result[path] = {"mode": sourceMode, "size": image.size, "cells": cells, "rowDifferences": rowDifferences}',
     'print(json.dumps(result))',
   ].join('\n');
   const { stdout } = await execFileAsync('python3', ['-c', script, ...atlasPaths], {
@@ -79,13 +98,53 @@ test('generated evolution atlases contain three strong decals and one visually e
   const report = JSON.parse(stdout);
   for (const atlasPath of atlasPaths) {
     const atlas = report[atlasPath];
-    assert.deepEqual(atlas.size, [1024, 1024], atlasPath);
+    assert.deepEqual(atlas.size, [768, 768], atlasPath);
     assert.equal(atlas.mode, 'RGBA', atlasPath);
-    atlas.cells.slice(0, 3).forEach((cell, index) => {
-      assert.ok(cell.strong > 10000, `${atlasPath} tier ${index + 2} is visibly authored`);
-      assert.equal(cell.max, 255, `${atlasPath} tier ${index + 2} reaches full opacity`);
+    assert.equal(atlas.cells.length, 9, atlasPath);
+    atlas.cells.forEach((cell) => {
+      assert.ok(cell.strong > 4000,
+        `${atlasPath} row ${cell.row} column ${cell.column} is visibly authored`);
+      assert.equal(cell.max, 255,
+        `${atlasPath} row ${cell.row} column ${cell.column} reaches full opacity`);
+      assert.ok(cell.boundaryMax <= 1,
+        `${atlasPath} row ${cell.row} column ${cell.column} has transparent cell margins`);
     });
-    assert.ok(atlas.cells[3].max <= 1, `${atlasPath} unused cell is visually empty`);
+    atlas.rowDifferences.forEach(({ column, rows, difference, ratio }) => {
+      assert.ok(difference > 2500,
+        `${atlasPath} column ${column} rows ${rows.join('/')} changes its alpha silhouette`);
+      assert.ok(ratio >= 0.1,
+        `${atlasPath} column ${column} rows ${rows.join('/')} is a structural change, not recolor`);
+    });
+  }
+});
+
+test('runtime registers only the four v2 structural evolution atlases', () => {
+  const componentKeys = [
+    'evolution-shell-components-v2',
+    'evolution-needle-components-v2',
+    'evolution-bubble-components-v2',
+    'evolution-sprout-components-v2',
+  ];
+  const legacyKeys = [
+    'evolution-shell-atlas-v1',
+    'evolution-needle-atlas-v1',
+    'evolution-bubble-atlas-v1',
+    'evolution-sprout-atlas-v1',
+  ];
+
+  for (const key of componentKeys) {
+    assert.equal(typeof ASSET_PATHS[key], 'string', key);
+    assert.equal(ALL_RUNTIME_ASSET_KEYS.includes(key), true, key);
+    assert.equal(TOWER_DEFENSE_ASSET_KEYS.includes(key), true, key);
+    assert.equal(CRITICAL_STARTUP_ASSET_KEYS.includes(key), true, key);
+    assert.equal(WECHAT_CRITICAL_ASSET_KEYS.includes(key), true, key);
+  }
+  for (const key of legacyKeys) {
+    assert.equal(ASSET_PATHS[key], undefined, key);
+    assert.equal(ALL_RUNTIME_ASSET_KEYS.includes(key), false, key);
+    assert.equal(TOWER_DEFENSE_ASSET_KEYS.includes(key), false, key);
+    assert.equal(CRITICAL_STARTUP_ASSET_KEYS.includes(key), false, key);
+    assert.equal(WECHAT_CRITICAL_ASSET_KEYS.includes(key), false, key);
   }
 });
 

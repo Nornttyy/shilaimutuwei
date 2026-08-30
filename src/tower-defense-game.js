@@ -1515,7 +1515,7 @@ export class TowerDefenseGame {
       `tower:${tower.uid}`,
       definition.ownerId,
     );
-    drawSlime(ctx, pad.x, pad.y + 6, 88 + tower.star * 2, tower.type, {
+    drawSlime(ctx, pad.x, pad.y + 6, 90, tower.type, {
       time: this.state.time,
       phase: padIndex * 0.41,
       star: tower.star,

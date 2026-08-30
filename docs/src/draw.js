@@ -253,7 +253,6 @@ function renderCompatibleRigAsset(
   pose,
   rigAsset,
   expression = null,
-  decorateSurface = null,
 ) {
   if (!isCompatibleRigAsset(rig, rigAsset)) return false;
 
@@ -275,16 +274,6 @@ function renderCompatibleRigAsset(
       null,
       expression,
     );
-    if (rendered && typeof decorateSurface === 'function') {
-      surface.ctx.save();
-      try {
-        decorateSurface(surface.ctx);
-      } catch {
-        // The complete rig stays usable if an optional cosmetic layer fails.
-      } finally {
-        surface.ctx.restore();
-      }
-    }
   } catch {
     rendered = false;
   } finally {
@@ -886,343 +875,211 @@ export function slimeEvolutionProfile(variant, star = 1) {
   return Object.freeze({
     type,
     level,
-    surfaceLayers: Math.max(0, level - 1),
-    internalOnly: level >= 2,
-    changesSilhouette: false,
+    surfaceLayers: 0,
+    internalOnly: false,
+    changesSilhouette: level >= 2,
+    componentReplacements: level >= 2 ? 3 : 0,
     addsVolume: false,
     mainRings: type === 'bubble' ? 1 : 0,
   });
 }
 
-const SLIME_EVOLUTION_ATLAS_KEY = Object.freeze({
-  shell: 'evolution-shell-atlas-v1',
-  needle: 'evolution-needle-atlas-v1',
-  bubble: 'evolution-bubble-atlas-v1',
-  sprout: 'evolution-sprout-atlas-v1',
+const SLIME_EVOLUTION_COMPONENT_ATLAS_KEY = Object.freeze({
+  shell: 'evolution-shell-components-v2',
+  needle: 'evolution-needle-components-v2',
+  bubble: 'evolution-bubble-components-v2',
+  sprout: 'evolution-sprout-components-v2',
 });
 
-const SLIME_EVOLUTION_ATLAS_CELLS = Object.freeze({
-  2: Object.freeze({ x: 0, y: 0 }),
-  3: Object.freeze({ x: 512, y: 0 }),
-  4: Object.freeze({ x: 0, y: 512 }),
+const SLIME_EVOLUTION_ATLAS_SIZE = 768;
+const SLIME_EVOLUTION_CELL_SIZE = 256;
+const EMPTY_EVOLUTION_CELLS = Object.freeze({});
+const EMPTY_EVOLUTION_SLOTS = Object.freeze([]);
+
+function evolutionRect(x, y, width, height) {
+  return Object.freeze({ x, y, width, height });
+}
+
+function evolutionSlot(id, replaces, bone, z, bindRect) {
+  return Object.freeze({
+    id,
+    replaces: Object.freeze([...replaces]),
+    bone,
+    z,
+    bindRect: evolutionRect(bindRect.x, bindRect.y, bindRect.width, bindRect.height),
+  });
+}
+
+const SLIME_EVOLUTION_COMPONENT_SLOTS = Object.freeze({
+  shell: Object.freeze([
+    evolutionSlot('rear', ['shellBack'], 'shellBack', -10, {
+      x: -91, y: -120, width: 124, height: 110,
+    }),
+    evolutionSlot('body', ['body'], 'body', 0, {
+      x: -51, y: -70, width: 102, height: 70,
+    }),
+    evolutionSlot('front', ['shellFront'], 'shellFront', 5, {
+      x: -44, y: -92, width: 80, height: 64,
+    }),
+  ]),
+  needle: Object.freeze([
+    evolutionSlot('rear', [
+      'needleBottom',
+      'needleLower',
+      'needleMid',
+      'needleMidUpper',
+      'needleUpper',
+      'needleTall',
+      'needleRight',
+    ], 'needles', -70, {
+      x: -77.038, y: -113.835, width: 118.155, height: 106.126,
+    }),
+    evolutionSlot('body', ['body'], 'body', 0, {
+      x: -51, y: -71.228, width: 102, height: 71.25,
+    }),
+    evolutionSlot('front', ['front'], 'front', 30, {
+      x: -22.38, y: -32.709, width: 28.75, height: 22.75,
+    }),
+  ]),
+  bubble: Object.freeze([
+    evolutionSlot('rear', ['bubbleLarge', 'bubbleSmall', 'bubbleMedium'], 'bubbles', -22, {
+      x: 3, y: -104, width: 52, height: 31,
+    }),
+    evolutionSlot('body', ['body'], 'body', 0, {
+      x: -51, y: -81, width: 102, height: 89,
+    }),
+    evolutionSlot('front', ['ring'], 'ring', 30, {
+      x: -58, y: -30, width: 116, height: 50,
+    }),
+  ]),
+  sprout: Object.freeze([
+    evolutionSlot('rear', ['leafLeft', 'leafRight', 'stemCollar'], 'sprout', 30, {
+      x: -41.058, y: -123.848, width: 99.188, height: 49.048,
+    }),
+    evolutionSlot('body', ['body'], 'body', 0, {
+      x: -51, y: -84.079, width: 102, height: 84,
+    }),
+    evolutionSlot('front', ['pack'], 'pack', 40, {
+      x: 6.812, y: -55.848, width: 60, height: 53.5,
+    }),
+  ]),
 });
 
-const SLIME_EVOLUTION_DECAL_LAYOUT = Object.freeze({
-  shell: Object.freeze({
-    2: Object.freeze({ bone: 'shellBack', x: -78, y: -101, width: 50, height: 50 }),
-    3: Object.freeze({ bone: 'shellBack', x: -70, y: -112, width: 44, height: 32 }),
-    4: Object.freeze({ bone: 'shellBack', x: -71, y: -92, width: 38, height: 38 }),
-  }),
-  needle: Object.freeze({
-    2: Object.freeze({ bone: 'body', x: -46, y: -48, width: 35, height: 26 }),
-    3: Object.freeze({ bone: 'body', x: -42, y: -28, width: 35, height: 22 }),
-    4: Object.freeze({ bone: 'body', x: -35, y: -65, width: 28, height: 28 }),
-  }),
-  bubble: Object.freeze({
-    2: Object.freeze({ bone: 'body', x: -37, y: -75, width: 74, height: 16 }),
-    3: Object.freeze({ bone: 'body', x: -45, y: -48, width: 22, height: 24 }),
-    4: Object.freeze({ bone: 'body', x: 21, y: -52, width: 27, height: 30 }),
-  }),
-  sprout: Object.freeze({
-    2: Object.freeze({ bone: 'body', x: -47, y: -28, width: 38, height: 18 }),
-    3: Object.freeze({ bone: 'pack', x: 18, y: -48, width: 36, height: 18 }),
-    4: Object.freeze({ bone: 'pack', x: 20, y: -42, width: 32, height: 28 }),
-  }),
-});
+function createSlimeEvolutionComponentLayout(variant, star) {
+  const type = ['shell', 'needle', 'bubble', 'sprout'].includes(variant) ? variant : 'shell';
+  const level = clamp(Math.floor(safeNumber(star, 1)), 1, 4);
+  const key = SLIME_EVOLUTION_COMPONENT_ATLAS_KEY[type];
+  if (level <= 1) {
+    return Object.freeze({
+      type,
+      level,
+      key,
+      atlasSize: SLIME_EVOLUTION_ATLAS_SIZE,
+      cellSize: SLIME_EVOLUTION_CELL_SIZE,
+      row: null,
+      cells: EMPTY_EVOLUTION_CELLS,
+      slots: EMPTY_EVOLUTION_SLOTS,
+    });
+  }
 
-function resolveSlimeEvolutionAtlas(assetStore, profile) {
-  if (profile.level <= 1 || !assetStore || typeof assetStore.useOrFallback !== 'function') {
+  const row = level - 2;
+  const cells = {};
+  const slots = SLIME_EVOLUTION_COMPONENT_SLOTS[type].map((slot, column) => {
+    const sourceRect = evolutionRect(
+      column * SLIME_EVOLUTION_CELL_SIZE,
+      row * SLIME_EVOLUTION_CELL_SIZE,
+      SLIME_EVOLUTION_CELL_SIZE,
+      SLIME_EVOLUTION_CELL_SIZE,
+    );
+    cells[slot.id] = sourceRect;
+    return Object.freeze({
+      ...slot,
+      partId: `evolution-${type}-${slot.id}-${level}-star`,
+      sourceRect,
+    });
+  });
+  return Object.freeze({
+    type,
+    level,
+    key,
+    atlasSize: SLIME_EVOLUTION_ATLAS_SIZE,
+    cellSize: SLIME_EVOLUTION_CELL_SIZE,
+    row,
+    cells: Object.freeze(cells),
+    slots: Object.freeze(slots),
+  });
+}
+
+const SLIME_EVOLUTION_COMPONENT_LAYOUTS = Object.freeze(Object.fromEntries(
+  Object.keys(SLIME_EVOLUTION_COMPONENT_ATLAS_KEY).map((type) => [
+    type,
+    Object.freeze(Object.fromEntries(
+      [1, 2, 3, 4].map((level) => [
+        level,
+        createSlimeEvolutionComponentLayout(type, level),
+      ]),
+    )),
+  ]),
+));
+
+export function slimeEvolutionComponentLayout(variant, star = 1) {
+  const type = ['shell', 'needle', 'bubble', 'sprout'].includes(variant) ? variant : 'shell';
+  const level = clamp(Math.floor(safeNumber(star, 1)), 1, 4);
+  return SLIME_EVOLUTION_COMPONENT_LAYOUTS[type][level];
+}
+
+function resolveSlimeEvolutionComponentAtlas(assetStore, layout) {
+  if (layout.level <= 1 || !assetStore || typeof assetStore.useOrFallback !== 'function') {
     return null;
   }
   let atlas = null;
-  const key = SLIME_EVOLUTION_ATLAS_KEY[profile.type];
+  const { key } = layout;
   assetStore.useOrFallback(key, (asset) => {
     const width = Number(asset?.naturalWidth || asset?.width);
     const height = Number(asset?.naturalHeight || asset?.height);
-    if (width < 1024 || height < 1024) {
-      throw new TypeError(`Evolution atlas ${key} must be at least 1024x1024.`);
+    if (width < SLIME_EVOLUTION_ATLAS_SIZE || height < SLIME_EVOLUTION_ATLAS_SIZE) {
+      throw new TypeError(
+        `Evolution component atlas ${key} must be at least ${SLIME_EVOLUTION_ATLAS_SIZE}x${SLIME_EVOLUTION_ATLAS_SIZE}.`,
+      );
     }
     atlas = asset;
   }, () => {});
   return atlas;
 }
 
-function withRigBoneChain(ctx, rig, pose, boneName, draw) {
-  const chain = [];
-  const visited = new Set();
-  let current = boneName;
-  while (current != null) {
-    if (visited.has(current)) return;
-    visited.add(current);
-    const bone = rig.bones[current];
-    if (!bone) return;
-    chain.push([current, bone]);
-    current = bone.parent;
+const EVOLVED_RIG_ASSET_CACHE = new WeakMap();
+
+function evolvedSlimeRigAsset(rigAsset, atlas, layout) {
+  if (!rigAsset || !atlas || !Array.isArray(rigAsset.parts) || layout.level <= 1) return null;
+  let cache = EVOLVED_RIG_ASSET_CACHE.get(rigAsset);
+  if (!cache) {
+    cache = new Map();
+    EVOLVED_RIG_ASSET_CACHE.set(rigAsset, cache);
   }
-  chain.reverse();
-  const visit = (index) => {
-    if (index >= chain.length) {
-      draw();
-      return;
-    }
-    const [name, bone] = chain[index];
-    const pivot = bone.pivot || { x: 0, y: 0 };
-    withPoseBone(ctx, pose, name, pivot.x, pivot.y, () => visit(index + 1));
-  };
-  visit(0);
-}
+  const cacheKey = `${layout.type}:${layout.level}`;
+  const cached = cache.get(cacheKey);
+  if (cached?.atlas === atlas) return cached.rigAsset;
 
-function drawSlimeEvolutionSurfaceLocal(ctx, rig, pose, atlas, profile) {
-  if (!atlas || profile.level <= 1) return;
-  // `source-atop` preserves the already-rendered rig alpha exactly: the
-  // generated material may recolour opaque pixels but can never add volume.
-  ctx.globalCompositeOperation = 'source-atop';
-  ctx.globalAlpha *= 0.96;
-  for (let tier = 2; tier <= profile.level; tier += 1) {
-    const cell = SLIME_EVOLUTION_ATLAS_CELLS[tier];
-    const layout = SLIME_EVOLUTION_DECAL_LAYOUT[profile.type][tier];
-    withRigBoneChain(ctx, rig, pose, layout.bone, () => {
-      ctx.drawImage(
-        atlas,
-        cell.x,
-        cell.y,
-        512,
-        512,
-        layout.x,
-        layout.y,
-        layout.width,
-        layout.height,
-      );
-    });
+  const replacedPartIds = new Set(layout.slots.flatMap((slot) => slot.replaces));
+  const parts = rigAsset.parts.filter((part) => !replacedPartIds.has(part.id));
+  for (const slot of layout.slots) {
+    parts.push(Object.freeze({
+      id: slot.partId,
+      bone: slot.bone,
+      z: slot.z,
+      image: atlas,
+      sourceRect: slot.sourceRect,
+      bindRect: slot.bindRect,
+      required: true,
+    }));
   }
-}
-
-function drawEvolutionCrystalLocal(ctx, x, y, width, height, color = '#8DCBFF') {
-  ctx.beginPath();
-  ctx.moveTo(x, y - height);
-  ctx.lineTo(x + width, y - height * 0.18);
-  ctx.lineTo(x + width * 0.45, y);
-  ctx.lineTo(x - width * 0.45, y);
-  ctx.lineTo(x - width, y - height * 0.18);
-  ctx.closePath();
-  ctx.fillStyle = color;
-  ctx.fill();
-  ctx.strokeStyle = '#365F83';
-  ctx.lineWidth = 2.4;
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.moveTo(x - width * 0.35, y - height * 0.24);
-  ctx.lineTo(x, y - height * 0.86);
-  ctx.strokeStyle = 'rgba(255,255,255,0.82)';
-  ctx.lineWidth = 1.6;
-  ctx.stroke();
-}
-
-function drawEvolutionCrownPlateLocal(ctx, x, baseY, width, height, color, stroke) {
-  ctx.beginPath();
-  ctx.moveTo(x - width, baseY);
-  ctx.lineTo(x - width * 0.52, baseY - height * 0.72);
-  ctx.lineTo(x, baseY - height);
-  ctx.lineTo(x + width * 0.52, baseY - height * 0.72);
-  ctx.lineTo(x + width, baseY);
-  ctx.closePath();
-  ctx.fillStyle = color;
-  ctx.fill();
-  ctx.strokeStyle = stroke;
-  ctx.lineWidth = 2.6;
-  ctx.stroke();
-}
-
-function drawSlimeEvolutionBack(ctx, x, y, size, profile, time, facing, alpha) {
-  if (profile.level <= 1) return;
-  ctx.save();
-  ctx.globalAlpha *= alpha;
-  ctx.translate(x, y);
-  ctx.scale(facing * size / 100, size / 100);
-
-  if (profile.aura && profile.type !== 'bubble') {
-    const pulse = 0.76 + Math.sin(time * 2.1) * 0.12;
-    ctx.globalAlpha *= pulse;
-    ctx.strokeStyle = profile.type === 'needle' ? '#A9D8FF'
-      : profile.type === 'bubble' ? '#9CEEFF'
-        : profile.type === 'sprout' ? '#C7F69B' : '#FFE1A0';
-    ctx.lineWidth = 6;
-    ctx.beginPath();
-    ctx.ellipse(0, -46, 68, 57, 0, 0, TAU);
-    ctx.stroke();
-    ctx.globalAlpha /= pulse;
-  }
-
-  if (profile.type === 'shell') {
-    ctx.beginPath();
-    ctx.moveTo(-68, -60);
-    ctx.quadraticCurveTo(-48, -91, -13, -76);
-    ctx.lineTo(-22, -46);
-    ctx.quadraticCurveTo(-45, -64, -66, -35);
-    ctx.closePath();
-    ctx.fillStyle = '#76D8AE';
-    ctx.fill();
-    ctx.strokeStyle = '#286F61';
-    ctx.lineWidth = 3;
-    ctx.stroke();
-    if (profile.level >= 3) {
-      ctx.beginPath();
-      ctx.moveTo(66, -58);
-      ctx.quadraticCurveTo(47, -91, 13, -76);
-      ctx.lineTo(22, -45);
-      ctx.quadraticCurveTo(46, -62, 65, -33);
-      ctx.closePath();
-      ctx.fillStyle = '#F0C66F';
-      ctx.fill();
-      ctx.stroke();
-    }
-  } else if (profile.type === 'needle') {
-    drawEvolutionCrystalLocal(ctx, -52, -31, 14, 45, '#86DBF2');
-    if (profile.level >= 3) drawEvolutionCrystalLocal(ctx, 53, -29, 16, 52, '#A8A0FF');
-  } else if (profile.type === 'bubble') {
-    const bubbles = profile.level >= 3
-      ? [[-56, -72, 15], [58, -53, 18]]
-      : [[-56, -72, 15]];
-    for (const [bubbleX, bubbleY, radius] of bubbles) {
-      ctx.globalAlpha *= 0.72;
-      ctx.fillStyle = '#A8EEFF';
-      ctx.strokeStyle = '#397DA5';
-      ctx.lineWidth = 2.2;
-      ctx.beginPath();
-      ctx.arc(bubbleX, bubbleY, radius, 0, TAU);
-      ctx.fill();
-      ctx.stroke();
-      ctx.globalAlpha /= 0.72;
-    }
-  } else if (profile.type === 'sprout') {
-    const leaf = (leafX, mirror = 1) => {
-      ctx.save();
-      ctx.translate(leafX, -49);
-      ctx.scale(mirror, 1);
-      ctx.beginPath();
-      ctx.moveTo(0, 5);
-      ctx.quadraticCurveTo(-2, -32, 39, -37);
-      ctx.quadraticCurveTo(39, 3, 0, 7);
-      ctx.fillStyle = '#8DDA67';
-      ctx.fill();
-      ctx.strokeStyle = '#397B45';
-      ctx.lineWidth = 2.5;
-      ctx.stroke();
-      ctx.restore();
-    };
-    leaf(-31, -1);
-    if (profile.level >= 3) leaf(31, 1);
-  }
-
-  if (profile.orbiters) {
-    for (let index = 0; index < profile.orbiters; index += 1) {
-      const angle = time * 0.45 + index * TAU / profile.orbiters;
-      const orbitX = Math.cos(angle) * 72;
-      const orbitY = -55 + Math.sin(angle) * 42;
-      ctx.globalAlpha *= 0.76;
-      ctx.fillStyle = profile.type === 'sprout' ? '#FFF2A1'
-        : profile.type === 'bubble' ? '#C8F7FF'
-          : profile.type === 'needle' ? '#C9C4FF' : '#FFE09A';
-      ctx.beginPath();
-      ctx.arc(orbitX, orbitY, profile.type === 'bubble' ? 8 + index : 6.5 + index, 0, TAU);
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(255,255,255,0.84)';
-      ctx.lineWidth = 1.8;
-      ctx.stroke();
-      ctx.globalAlpha /= 0.76;
-    }
-  }
-  ctx.restore();
-}
-
-function drawSlimeEvolutionFront(ctx, x, y, size, profile, time, facing, alpha) {
-  if (profile.level < 3) return;
-  ctx.save();
-  ctx.globalAlpha *= alpha;
-  ctx.translate(x, y);
-  ctx.scale(facing * size / 100, size / 100);
-  if (profile.type === 'shell') {
-    for (const [rivetX, rivetY] of [[-47, -49], [43, -47]]) {
-      ctx.fillStyle = '#FFF1B6';
-      ctx.strokeStyle = '#986B35';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(rivetX, rivetY, 4.5, 0, TAU);
-      ctx.fill();
-      ctx.stroke();
-    }
-    ctx.save();
-    ctx.globalAlpha *= 0.86;
-    ctx.strokeStyle = '#F7D47D';
-    ctx.lineWidth = 5;
-    ctx.beginPath();
-    ctx.arc(0, -38, 53, 0.15, Math.PI - 0.12);
-    ctx.stroke();
-    ctx.restore();
-    if (profile.crown) {
-      drawEvolutionCrownPlateLocal(ctx, -20, -73, 10, 24, '#FFE08A', '#93632C');
-      drawEvolutionCrownPlateLocal(ctx, 0, -75, 12, 34, '#FFF0A8', '#93632C');
-      drawEvolutionCrownPlateLocal(ctx, 20, -73, 10, 24, '#FFE08A', '#93632C');
-    }
-  } else if (profile.type === 'needle') {
-    drawEvolutionCrystalLocal(ctx, 0, -72, 14, 48, '#B8B3FF');
-    if (profile.crown) {
-      drawEvolutionCrystalLocal(ctx, -23, -76, 10, 38, '#86DBF2');
-      drawEvolutionCrystalLocal(ctx, 23, -76, 10, 38, '#D4A9FF');
-      drawEvolutionCrownPlateLocal(ctx, 0, -104, 17, 22, '#FFF0A0', '#74619A');
-    }
-  } else if (profile.type === 'bubble') {
-    ctx.globalAlpha *= 0.82;
-    ctx.fillStyle = '#F3FFFF';
-    for (const [shineX, shineY, radius] of [[-58, -76, 4], [60, -58, 5]]) {
-      ctx.beginPath();
-      ctx.arc(shineX, shineY, radius, 0, TAU);
-      ctx.fill();
-    }
-    ctx.globalAlpha /= 0.82;
-    if (profile.crown) {
-      ctx.strokeStyle = '#E9FCFF';
-      ctx.lineWidth = 4;
-      ctx.beginPath();
-      ctx.arc(0, -91, 22, Math.PI * 0.1, Math.PI * 0.9, true);
-      ctx.stroke();
-      for (const [pearlX, pearlY, radius] of [[-19, -95, 7], [0, -105, 9], [19, -95, 7]]) {
-        ctx.fillStyle = '#C8F7FF';
-        ctx.strokeStyle = '#4B91AE';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(pearlX, pearlY, radius, 0, TAU);
-        ctx.fill();
-        ctx.stroke();
-      }
-    }
-  } else if (profile.type === 'sprout') {
-    ctx.translate(0, -98);
-    ctx.fillStyle = '#FFF1A2';
-    ctx.strokeStyle = '#A56C45';
-    ctx.lineWidth = 1.8;
-    for (let index = 0; index < 5; index += 1) {
-      const angle = index * TAU / 5 - Math.PI / 2;
-      ctx.beginPath();
-      ctx.ellipse(Math.cos(angle) * 11, Math.sin(angle) * 11, 7, 12, angle, 0, TAU);
-      ctx.fill();
-      ctx.stroke();
-    }
-    ctx.fillStyle = '#F0A94F';
-    ctx.beginPath();
-    ctx.arc(0, 0, 6, 0, TAU);
-    ctx.fill();
-    if (profile.crown) {
-      ctx.strokeStyle = '#E7C76B';
-      ctx.lineWidth = 4;
-      ctx.beginPath();
-      ctx.arc(0, 4, 30, Math.PI * 1.08, Math.PI * 1.92);
-      ctx.stroke();
-      drawEvolutionCrownPlateLocal(ctx, -24, 1, 9, 24, '#A7E879', '#397B45');
-      drawEvolutionCrownPlateLocal(ctx, 24, 1, 9, 24, '#A7E879', '#397B45');
-    }
-  }
-  ctx.restore();
+  parts.sort((left, right) => safeNumber(left.z, 0) - safeNumber(right.z, 0));
+  const evolved = Object.freeze({
+    ...rigAsset,
+    parts: Object.freeze(parts),
+  });
+  cache.set(cacheKey, Object.freeze({ atlas, rigAsset: evolved }));
+  return evolved;
 }
 
 /**
@@ -1248,7 +1105,14 @@ export function drawSlime(ctx, x, y, size, variantOrOptions = 'shell', maybeOpti
   const ownerId = SLIME_OWNER_BY_VARIANT[variant];
   const requestedFacing = resolveCharacterGameplayFacing(ownerId, options.facing);
   const evolution = slimeEvolutionProfile(variant, options.star);
-  const evolutionAtlas = resolveSlimeEvolutionAtlas(options.assetStore, evolution);
+  const evolutionLayout = slimeEvolutionComponentLayout(variant, evolution.level);
+  const evolutionAtlas = resolveSlimeEvolutionComponentAtlas(
+    options.assetStore,
+    evolutionLayout,
+  );
+  const rigAsset = evolution.level <= 1
+    ? options.rigAsset
+    : evolvedSlimeRigAsset(options.rigAsset, evolutionAtlas, evolutionLayout);
 
   drawSelectionRing(ctx, x, y, size, options);
   drawSoftShadow(ctx, x, y + size * 0.015, size, {
@@ -1276,12 +1140,12 @@ export function drawSlime(ctx, x, y, size, variantOrOptions = 'shell', maybeOpti
   const rigScale = characterWorldScale(ownerId);
   let renderedRig = false;
   const rig = SLIME_RIG_BY_VARIANT[variant];
-  if (isCompatibleRigAsset(rig, options.rigAsset)) {
+  if (isCompatibleRigAsset(rig, rigAsset)) {
     ctx.save();
     ctx.scale(
       unit * rigScale * characterFacingMultiplier(
         ownerId,
-        options.rigAsset.canonicalFacing,
+        rigAsset.canonicalFacing,
         requestedFacing,
       ) * (1 + squash * 0.55),
       unit * rigScale * (1 - squash),
@@ -1290,19 +1154,10 @@ export function drawSlime(ctx, x, y, size, variantOrOptions = 'shell', maybeOpti
       ctx,
       rig,
       options.pose,
-      options.rigAsset,
+      rigAsset,
       options.expressionSample
         ?? options.expression
         ?? (options.hit > 0.5 ? 'hurt' : null),
-      evolutionAtlas
-        ? (surfaceCtx) => drawSlimeEvolutionSurfaceLocal(
-          surfaceCtx,
-          rig,
-          options.pose,
-          evolutionAtlas,
-          evolution,
-        )
-        : null,
     );
     ctx.restore();
   }

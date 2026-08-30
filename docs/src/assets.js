@@ -6,7 +6,7 @@
  * useful to platform builds and isolated tests.
  */
 
-export const ASSET_CACHE_VERSION = 'soft-gel-20260829-v3';
+export const ASSET_CACHE_VERSION = 'soft-gel-20260830-v4';
 
 const generatedAssetUrl = (relativePath) => {
   const url = new URL(`../assets/generated/${relativePath}`, import.meta.url);
@@ -23,6 +23,10 @@ export const CRITICAL_STARTUP_ASSET_KEYS = Object.freeze([
   'survivor-crystal-pin',
   'survivor-bubble-float',
   'survivor-moss-sprout',
+  'evolution-shell-atlas-v1',
+  'evolution-needle-atlas-v1',
+  'evolution-bubble-atlas-v1',
+  'evolution-sprout-atlas-v1',
   'enemy-soft-biter',
   'enemy-windcap',
   'enemy-stone-lump',
@@ -148,6 +152,10 @@ export const TOWER_DEFENSE_ASSET_KEYS = Object.freeze([
   'survivor-crystal-pin',
   'survivor-bubble-float',
   'survivor-moss-sprout',
+  'evolution-shell-atlas-v1',
+  'evolution-needle-atlas-v1',
+  'evolution-bubble-atlas-v1',
+  'evolution-sprout-atlas-v1',
   'enemy-soft-biter',
   'enemy-windcap',
   'enemy-stone-lump',
@@ -197,6 +205,10 @@ const DECLARED_ASSET_PATHS = {
   'survivor-crystal-pin': generatedAssetUrl('survivor/survivor-crystal-pin.png'),
   'survivor-bubble-float': generatedAssetUrl('survivor/survivor-bubble-float.png'),
   'survivor-moss-sprout': generatedAssetUrl('survivor/survivor-moss-sprout.png'),
+  'evolution-shell-atlas-v1': generatedAssetUrl('evolution/shell-evolution-atlas-v1.png'),
+  'evolution-needle-atlas-v1': generatedAssetUrl('evolution/needle-evolution-atlas-v1.png'),
+  'evolution-bubble-atlas-v1': generatedAssetUrl('evolution/bubble-evolution-atlas-v1.png'),
+  'evolution-sprout-atlas-v1': generatedAssetUrl('evolution/sprout-evolution-atlas-v1.png'),
   'enemy-soft-biter': generatedAssetUrl('enemy/enemy-soft-biter.png'),
   'enemy-windcap': generatedAssetUrl('enemy/enemy-windcap.png'),
   'enemy-stone-lump': generatedAssetUrl('enemy/enemy-stone-lump.png'),

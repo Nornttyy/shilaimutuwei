@@ -11,19 +11,25 @@ const offscreenState = {
   clearCount: 0,
   failLayerId: null,
   layerDraws: [],
+  decalDraws: [],
 };
 
 function createOffscreenContext() {
   const stack = [];
   return {
     globalAlpha: 1,
+    globalCompositeOperation: 'source-over',
     save() {
-      stack.push({ globalAlpha: this.globalAlpha });
+      stack.push({
+        globalAlpha: this.globalAlpha,
+        globalCompositeOperation: this.globalCompositeOperation,
+      });
     },
     restore() {
       const state = stack.pop();
       if (!state) throw new Error('restore without save');
       this.globalAlpha = state.globalAlpha;
+      this.globalCompositeOperation = state.globalCompositeOperation;
     },
     translate() {},
     rotate() {},
@@ -32,7 +38,15 @@ function createOffscreenContext() {
     clearRect() {
       offscreenState.clearCount += 1;
     },
-    drawImage(image) {
+    drawImage(image, ...rect) {
+      if (String(image.kind || '').startsWith('evolution-atlas:')) {
+        offscreenState.decalDraws.push({
+          kind: image.kind,
+          rect,
+          composite: this.globalCompositeOperation,
+        });
+        return;
+      }
       offscreenState.layerDraws.push(image.id);
       if (image.id === offscreenState.failLayerId) {
         throw new Error(`rejected layer ${image.id}`);
@@ -68,6 +82,7 @@ function resetOffscreen() {
   offscreenState.clearCount = 0;
   offscreenState.failLayerId = null;
   offscreenState.layerDraws.length = 0;
+  offscreenState.decalDraws.length = 0;
 }
 
 function readyBundle(ownerId, { missing = null, canonicalFacing = null, rigId = null } = {}) {
@@ -177,33 +192,93 @@ const CHARACTER_DIRECTION_CASES = [
   ['enemy-acid-shell-king', (ctx, options) => drawMonster(ctx, 0, 0, 100, 'boss', options)],
 ];
 
-test('slime evolution profiles add fixed silhouette parts and a four-star aura', () => {
+test('slime evolution profiles add internal surface layers without changing volume', () => {
   for (const type of ['shell', 'needle', 'bubble', 'sprout']) {
     assert.deepEqual(slimeEvolutionProfile(type, 1), {
-      type, level: 1, fixedParts: 0,
-      silhouette: false, signature: false, crown: false,
-      aura: false, orbiters: 0, mainRings: type === 'bubble' ? 1 : 0,
+      type, level: 1, surfaceLayers: 0,
+      internalOnly: false, changesSilhouette: false, addsVolume: false,
+      mainRings: type === 'bubble' ? 1 : 0,
     });
     assert.deepEqual(slimeEvolutionProfile(type, 2), {
-      type, level: 2, fixedParts: 1,
-      silhouette: true, signature: false, crown: false,
-      aura: false, orbiters: 0, mainRings: type === 'bubble' ? 1 : 0,
+      type, level: 2, surfaceLayers: 1,
+      internalOnly: true, changesSilhouette: false, addsVolume: false,
+      mainRings: type === 'bubble' ? 1 : 0,
     });
     assert.deepEqual(slimeEvolutionProfile(type, 3), {
-      type, level: 3, fixedParts: 2,
-      silhouette: true, signature: true, crown: false,
-      aura: false, orbiters: 0, mainRings: type === 'bubble' ? 1 : 0,
+      type, level: 3, surfaceLayers: 2,
+      internalOnly: true, changesSilhouette: false, addsVolume: false,
+      mainRings: type === 'bubble' ? 1 : 0,
     });
     assert.deepEqual(slimeEvolutionProfile(type, 4), {
-      type, level: 4, fixedParts: 3,
-      silhouette: true, signature: true, crown: true,
-      aura: true, orbiters: 3, mainRings: type === 'bubble' ? 1 : 0,
+      type, level: 4, surfaceLayers: 3,
+      internalOnly: true, changesSilhouette: false, addsVolume: false,
+      mainRings: type === 'bubble' ? 1 : 0,
     });
     assert.equal(Object.isFrozen(slimeEvolutionProfile(type, 4)), true);
   }
 });
 
-test('each star adds visible geometry around one complete layered survivor rig', () => {
+test('ready evolution atlases draw cumulative decals inside one complete layered rig', () => {
+  const cases = [
+    ['survivor-shell-shell', 'shell', 'evolution-shell-atlas-v1'],
+    ['survivor-crystal-pin', 'needle', 'evolution-needle-atlas-v1'],
+    ['survivor-bubble-float', 'bubble', 'evolution-bubble-atlas-v1'],
+    ['survivor-moss-sprout', 'sprout', 'evolution-sprout-atlas-v1'],
+  ];
+  const expectedCells = [
+    [0, 0],
+    [512, 0],
+    [0, 512],
+  ];
+
+  for (const [ownerId, type, atlasKey] of cases) {
+    for (let star = 2; star <= 4; star += 1) {
+      resetOffscreen();
+      const requests = [];
+      const atlas = {
+        kind: `evolution-atlas:${type}`,
+        width: 1024,
+        height: 1024,
+      };
+      const assetStore = {
+        useOrFallback(key, renderAsset) {
+          requests.push(key);
+          renderAsset(atlas);
+          return true;
+        },
+      };
+      const ctx = createMainContext();
+      drawSlime(ctx, 12, 18, 90, type, {
+        animate: false,
+        alpha: 0.7,
+        facing: -1,
+        time: 1.25,
+        star,
+        assetStore,
+        rigAsset: readyBundle(ownerId),
+        requireLayeredRig: true,
+      });
+
+      assert.deepEqual(requests, [atlasKey], `${type} requests its canonical atlas once`);
+      const atlasDraws = offscreenState.decalDraws;
+      assert.equal(atlasDraws.length, star - 1, `${type} ${star}★ draws tiers 2..${star}`);
+      assert.deepEqual(atlasDraws.map(({ rect: [sx, sy, sw, sh] }) => [sx, sy, sw, sh]),
+        expectedCells.slice(0, star - 1).map(([sx, sy]) => [sx, sy, 512, 512]));
+      assert.ok(atlasDraws.every(({ composite }) => composite === 'source-atop'),
+        `${type} ${star}★ clips every decal to existing rig alpha`);
+      assert.equal(ctx.calls.filter(([method, kind]) => (
+        method === 'drawImage' && kind === 'rig-surface'
+      )).length, 1, `${type} ${star}★ keeps one atomic rig composite`);
+      const expectedFacingScale = -1 * MANIFEST.rigs[ownerId].canonicalFacing;
+      assert.ok(ctx.calls.some(([method, xScale]) => (
+        method === 'scale' && Math.sign(xScale) === expectedFacingScale
+      )),
+        `${type} atlas and rig preserve requested facing`);
+    }
+  }
+});
+
+test('missing evolution atlases never fall back to exterior vector geometry', () => {
   const cases = [
     ['survivor-shell-shell', 'shell'],
     ['survivor-crystal-pin', 'needle'],
@@ -215,7 +290,7 @@ test('each star adds visible geometry around one complete layered survivor rig',
   ]);
 
   for (const [ownerId, type] of cases) {
-    let previousGeometry = -1;
+    let baselineGeometry = null;
     for (let star = 1; star <= 4; star += 1) {
       resetOffscreen();
       const ctx = createMainContext();
@@ -228,9 +303,9 @@ test('each star adds visible geometry around one complete layered survivor rig',
       });
       const geometry = ctx.calls.filter(([method]) => visualMethods.has(method)).length;
       assert.equal(ctx.compositeDraws, 1, `${type} ${star}★ preserves one whole rig composite`);
-      assert.ok(geometry > previousGeometry,
-        `${type} ${star}★ adds visible geometry over ${Math.max(0, star - 1)}★`);
-      previousGeometry = geometry;
+      if (baselineGeometry == null) baselineGeometry = geometry;
+      assert.equal(geometry, baselineGeometry,
+        `${type} ${star}★ does not add an unmasked fallback silhouette`);
     }
   }
 });
@@ -254,7 +329,7 @@ test('bubble upgrades keep the formal rig ring and never draw a second main ring
   }
 });
 
-test('all four layered survivors render their four-star silhouette overlays', () => {
+test('all four layered survivors render their generated four-star surface layers', () => {
   const cases = [
     ['survivor-shell-shell', 'shell'],
     ['survivor-crystal-pin', 'needle'],
@@ -264,13 +339,22 @@ test('all four layered survivors render their four-star silhouette overlays', ()
   for (const [ownerId, type] of cases) {
     resetOffscreen();
     const ctx = createMainContext();
+    const atlas = { kind: `evolution-atlas:${type}`, width: 1024, height: 1024 };
+    const assetStore = {
+      useOrFallback(_key, renderAsset) {
+        renderAsset(atlas);
+        return true;
+      },
+    };
     assert.doesNotThrow(() => drawSlime(ctx, 0, 0, 100, type, {
       animate: false,
       star: 4,
+      assetStore,
       rigAsset: readyBundle(ownerId),
       requireLayeredRig: true,
     }));
     assert.equal(ctx.compositeDraws, 1, `${ownerId} keeps one complete rig composite`);
+    assert.equal(offscreenState.decalDraws.length, 3, `${ownerId} draws all three surface layers`);
   }
 });
 

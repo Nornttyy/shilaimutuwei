@@ -42,14 +42,51 @@ const PROJECT_ASSET_SPEC = JSON.parse(await readFile(
   'utf8',
 ));
 
-test('the workspace asset manifest strictly validates all 126 finished PNGs', async () => {
+test('the workspace asset manifest strictly validates all 130 finished PNGs', async () => {
   const result = await verifyAssets({ cwd: PROJECT_ROOT, allowMissingSpec: false });
   assert.equal(result.ok, true, formatErrors(result));
   assert.equal(result.skipped, false);
-  assert.equal(result.summary.declaredAssets, 126);
-  assert.equal(result.summary.checkedAssets, 126);
+  assert.equal(result.summary.declaredAssets, 130);
+  assert.equal(result.summary.checkedAssets, 130);
   assert.deepEqual(result.errors, [], formatErrors(result));
   assert.deepEqual(result.warnings, [], formatErrors(result));
+});
+
+test('generated evolution atlases contain three strong decals and one visually empty cell', async () => {
+  const atlasPaths = [
+    'assets/generated/evolution/shell-evolution-atlas-v1.png',
+    'assets/generated/evolution/needle-evolution-atlas-v1.png',
+    'assets/generated/evolution/bubble-evolution-atlas-v1.png',
+    'assets/generated/evolution/sprout-evolution-atlas-v1.png',
+  ];
+  const script = [
+    'import json, sys',
+    'from PIL import Image',
+    'result = {}',
+    'for path in sys.argv[1:]:',
+    '    image = Image.open(path)',
+    '    cells = []',
+    '    for box in ((0,0,512,512),(512,0,1024,512),(0,512,512,1024),(512,512,1024,1024)):',
+    '        alpha = image.crop(box).getchannel("A")',
+    '        pixels = list(alpha.getdata())',
+    '        cells.append({"strong": sum(value >= 32 for value in pixels), "max": max(pixels)})',
+    '    result[path] = {"mode": image.mode, "size": image.size, "cells": cells}',
+    'print(json.dumps(result))',
+  ].join('\n');
+  const { stdout } = await execFileAsync('python3', ['-c', script, ...atlasPaths], {
+    cwd: PROJECT_ROOT,
+  });
+  const report = JSON.parse(stdout);
+  for (const atlasPath of atlasPaths) {
+    const atlas = report[atlasPath];
+    assert.deepEqual(atlas.size, [1024, 1024], atlasPath);
+    assert.equal(atlas.mode, 'RGBA', atlasPath);
+    atlas.cells.slice(0, 3).forEach((cell, index) => {
+      assert.ok(cell.strong > 10000, `${atlasPath} tier ${index + 2} is visibly authored`);
+      assert.equal(cell.max, 255, `${atlasPath} tier ${index + 2} reaches full opacity`);
+    });
+    assert.ok(atlas.cells[3].max <= 1, `${atlasPath} unused cell is visually empty`);
+  }
 });
 
 test('PNG metadata parser reads dimensions, color type, and alpha', () => {
@@ -201,8 +238,8 @@ test('missing asset-spec is skippable by default and an error in strict mode', a
   }, { writeAssetsDirectory: false });
 });
 
-test('runtime asset map covers all 126 canonical nested paths and three aliases', () => {
-  assert.equal(PROJECT_ASSET_SPEC.assets.length, 126);
+test('runtime asset map covers all 130 canonical nested paths and three aliases', () => {
+  assert.equal(PROJECT_ASSET_SPEC.assets.length, 130);
   for (const asset of PROJECT_ASSET_SPEC.assets) {
     assert.equal(typeof ASSET_PATHS[asset.id], 'string', `missing runtime asset: ${asset.id}`);
     assert.ok(
@@ -211,7 +248,7 @@ test('runtime asset map covers all 126 canonical nested paths and three aliases'
     );
     assert.equal(new URL(ASSET_PATHS[asset.id]).searchParams.get('v'), ASSET_CACHE_VERSION);
   }
-  assert.equal(Object.keys(ASSET_PATHS).length, 129);
+  assert.equal(Object.keys(ASSET_PATHS).length, 133);
   assert.equal(ASSET_PATHS['scene-gel-garden'], ASSET_PATHS['background-garden-base']);
   assert.equal(ASSET_PATHS['town-core'], ASSET_PATHS['town-soft-core']);
   assert.equal(ASSET_PATHS['enemy-portal'], ASSET_PATHS['rift-entry-portal']);
@@ -558,7 +595,7 @@ test('browser startup gates game construction on every critical PNG and retries 
   assert.match(source, /resolvePath: \(assetPath\) => versionedBrowserUrl\(`\.\.\/\$\{assetPath\}`\)/);
   assert.match(source, /hostname: window\.location\.hostname/);
   assert.doesNotMatch(source, /Promise\.race/);
-  assert.equal(ALL_RUNTIME_ASSET_KEYS.length, 126);
+  assert.equal(ALL_RUNTIME_ASSET_KEYS.length, 130);
   assert.equal(new Set(ALL_RUNTIME_ASSET_KEYS).size, ALL_RUNTIME_ASSET_KEYS.length);
   ALL_RUNTIME_ASSET_KEYS.forEach((key) => {
     assert.equal(typeof ASSET_PATHS[key], 'string', `runtime asset ${key}`);

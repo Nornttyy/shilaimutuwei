@@ -247,7 +247,14 @@ function isCompatibleRigAsset(rig, rigAsset) {
   );
 }
 
-function renderCompatibleRigAsset(ctx, rig, pose, rigAsset, expression = null) {
+function renderCompatibleRigAsset(
+  ctx,
+  rig,
+  pose,
+  rigAsset,
+  expression = null,
+  decorateSurface = null,
+) {
   if (!isCompatibleRigAsset(rig, rigAsset)) return false;
 
   const surface = rigSurfaceFor(ctx);
@@ -268,6 +275,16 @@ function renderCompatibleRigAsset(ctx, rig, pose, rigAsset, expression = null) {
       null,
       expression,
     );
+    if (rendered && typeof decorateSurface === 'function') {
+      surface.ctx.save();
+      try {
+        decorateSurface(surface.ctx);
+      } catch {
+        // The complete rig stays usable if an optional cosmetic layer fails.
+      } finally {
+        surface.ctx.restore();
+      }
+    }
   } catch {
     rendered = false;
   } finally {
@@ -869,14 +886,115 @@ export function slimeEvolutionProfile(variant, star = 1) {
   return Object.freeze({
     type,
     level,
-    fixedParts: Math.max(0, level - 1),
-    silhouette: level >= 2,
-    signature: level >= 3,
-    crown: level >= 4,
-    aura: level >= 4,
-    orbiters: level >= 4 ? 3 : 0,
+    surfaceLayers: Math.max(0, level - 1),
+    internalOnly: level >= 2,
+    changesSilhouette: false,
+    addsVolume: false,
     mainRings: type === 'bubble' ? 1 : 0,
   });
+}
+
+const SLIME_EVOLUTION_ATLAS_KEY = Object.freeze({
+  shell: 'evolution-shell-atlas-v1',
+  needle: 'evolution-needle-atlas-v1',
+  bubble: 'evolution-bubble-atlas-v1',
+  sprout: 'evolution-sprout-atlas-v1',
+});
+
+const SLIME_EVOLUTION_ATLAS_CELLS = Object.freeze({
+  2: Object.freeze({ x: 0, y: 0 }),
+  3: Object.freeze({ x: 512, y: 0 }),
+  4: Object.freeze({ x: 0, y: 512 }),
+});
+
+const SLIME_EVOLUTION_DECAL_LAYOUT = Object.freeze({
+  shell: Object.freeze({
+    2: Object.freeze({ bone: 'shellBack', x: -78, y: -101, width: 50, height: 50 }),
+    3: Object.freeze({ bone: 'shellBack', x: -70, y: -112, width: 44, height: 32 }),
+    4: Object.freeze({ bone: 'shellBack', x: -71, y: -92, width: 38, height: 38 }),
+  }),
+  needle: Object.freeze({
+    2: Object.freeze({ bone: 'body', x: -46, y: -48, width: 35, height: 26 }),
+    3: Object.freeze({ bone: 'body', x: -42, y: -28, width: 35, height: 22 }),
+    4: Object.freeze({ bone: 'body', x: -35, y: -65, width: 28, height: 28 }),
+  }),
+  bubble: Object.freeze({
+    2: Object.freeze({ bone: 'body', x: -37, y: -75, width: 74, height: 16 }),
+    3: Object.freeze({ bone: 'body', x: -45, y: -48, width: 22, height: 24 }),
+    4: Object.freeze({ bone: 'body', x: 21, y: -52, width: 27, height: 30 }),
+  }),
+  sprout: Object.freeze({
+    2: Object.freeze({ bone: 'body', x: -47, y: -28, width: 38, height: 18 }),
+    3: Object.freeze({ bone: 'pack', x: 18, y: -48, width: 36, height: 18 }),
+    4: Object.freeze({ bone: 'pack', x: 20, y: -42, width: 32, height: 28 }),
+  }),
+});
+
+function resolveSlimeEvolutionAtlas(assetStore, profile) {
+  if (profile.level <= 1 || !assetStore || typeof assetStore.useOrFallback !== 'function') {
+    return null;
+  }
+  let atlas = null;
+  const key = SLIME_EVOLUTION_ATLAS_KEY[profile.type];
+  assetStore.useOrFallback(key, (asset) => {
+    const width = Number(asset?.naturalWidth || asset?.width);
+    const height = Number(asset?.naturalHeight || asset?.height);
+    if (width < 1024 || height < 1024) {
+      throw new TypeError(`Evolution atlas ${key} must be at least 1024x1024.`);
+    }
+    atlas = asset;
+  }, () => {});
+  return atlas;
+}
+
+function withRigBoneChain(ctx, rig, pose, boneName, draw) {
+  const chain = [];
+  const visited = new Set();
+  let current = boneName;
+  while (current != null) {
+    if (visited.has(current)) return;
+    visited.add(current);
+    const bone = rig.bones[current];
+    if (!bone) return;
+    chain.push([current, bone]);
+    current = bone.parent;
+  }
+  chain.reverse();
+  const visit = (index) => {
+    if (index >= chain.length) {
+      draw();
+      return;
+    }
+    const [name, bone] = chain[index];
+    const pivot = bone.pivot || { x: 0, y: 0 };
+    withPoseBone(ctx, pose, name, pivot.x, pivot.y, () => visit(index + 1));
+  };
+  visit(0);
+}
+
+function drawSlimeEvolutionSurfaceLocal(ctx, rig, pose, atlas, profile) {
+  if (!atlas || profile.level <= 1) return;
+  // `source-atop` preserves the already-rendered rig alpha exactly: the
+  // generated material may recolour opaque pixels but can never add volume.
+  ctx.globalCompositeOperation = 'source-atop';
+  ctx.globalAlpha *= 0.96;
+  for (let tier = 2; tier <= profile.level; tier += 1) {
+    const cell = SLIME_EVOLUTION_ATLAS_CELLS[tier];
+    const layout = SLIME_EVOLUTION_DECAL_LAYOUT[profile.type][tier];
+    withRigBoneChain(ctx, rig, pose, layout.bone, () => {
+      ctx.drawImage(
+        atlas,
+        cell.x,
+        cell.y,
+        512,
+        512,
+        layout.x,
+        layout.y,
+        layout.width,
+        layout.height,
+      );
+    });
+  }
 }
 
 function drawEvolutionCrystalLocal(ctx, x, y, width, height, color = '#8DCBFF') {
@@ -1130,7 +1248,7 @@ export function drawSlime(ctx, x, y, size, variantOrOptions = 'shell', maybeOpti
   const ownerId = SLIME_OWNER_BY_VARIANT[variant];
   const requestedFacing = resolveCharacterGameplayFacing(ownerId, options.facing);
   const evolution = slimeEvolutionProfile(variant, options.star);
-  const evolutionAlpha = (options.disabled ? 0.48 : 1) * clamp(options.alpha ?? 1);
+  const evolutionAtlas = resolveSlimeEvolutionAtlas(options.assetStore, evolution);
 
   drawSelectionRing(ctx, x, y, size, options);
   drawSoftShadow(ctx, x, y + size * 0.015, size, {
@@ -1138,10 +1256,6 @@ export function drawSlime(ctx, x, y, size, variantOrOptions = 'shell', maybeOpti
     height: size * 0.15,
     alpha: 0.21 * (1 - clamp(options.hop || 0) * 0.45),
   });
-  drawSlimeEvolutionBack(
-    ctx, x, y - hop, size, evolution, time, requestedFacing, evolutionAlpha,
-  );
-
   if ((options.shield || 0) > 0) {
     drawAssetOrFallback(ctx, options.assetStore, 'effect-shield-dome', (asset) => {
       ctx.globalAlpha *= clamp(options.shield) * 0.58;
@@ -1180,6 +1294,15 @@ export function drawSlime(ctx, x, y, size, variantOrOptions = 'shell', maybeOpti
       options.expressionSample
         ?? options.expression
         ?? (options.hit > 0.5 ? 'hurt' : null),
+      evolutionAtlas
+        ? (surfaceCtx) => drawSlimeEvolutionSurfaceLocal(
+          surfaceCtx,
+          rig,
+          options.pose,
+          evolutionAtlas,
+          evolution,
+        )
+        : null,
     );
     ctx.restore();
   }
@@ -1216,11 +1339,6 @@ export function drawSlime(ctx, x, y, size, variantOrOptions = 'shell', maybeOpti
     ctx.restore();
   }
   ctx.restore();
-
-  drawSlimeEvolutionFront(
-    ctx, x, y - hop, size, evolution, time, requestedFacing, evolutionAlpha,
-  );
-
 }
 
 export const drawShellSlime = (ctx, x, y, size, options = {}) => drawSlime(ctx, x, y, size, 'shell', options);

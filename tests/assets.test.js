@@ -33,6 +33,7 @@ import {
   createAssetStore,
 } from '../src/assets.js';
 import {
+  bindBrowserGameLifecycle,
   createBrowserStartup,
   createDomLoadingView,
   criticalPreloadSucceeded,
@@ -878,6 +879,63 @@ test('browser startup keeps the animated loading cover visible for at least thre
     'ready',
     'hidden',
   ]);
+});
+
+test('browser lifecycle resizes after rotation and resumes after returning to the foreground', () => {
+  const makeTarget = () => {
+    const listeners = new Map();
+    return {
+      addEventListener(name, listener) {
+        const entries = listeners.get(name) || [];
+        entries.push(listener);
+        listeners.set(name, entries);
+      },
+      removeEventListener(name, listener) {
+        listeners.set(name, (listeners.get(name) || []).filter((entry) => entry !== listener));
+      },
+      dispatch(name) {
+        for (const listener of listeners.get(name) || []) listener();
+      },
+    };
+  };
+  const windowRef = makeTarget();
+  const documentRef = { ...makeTarget(), hidden: false };
+  const frames = [];
+  const events = [];
+  const game = {
+    save() { events.push('save'); },
+    resize() { events.push('resize'); },
+    onBackground() { events.push('background'); },
+    onForeground() { events.push('foreground'); },
+  };
+  const unbind = bindBrowserGameLifecycle(game, {
+    windowRef,
+    documentRef,
+    requestFrame: (callback) => frames.push(callback),
+  });
+
+  windowRef.dispatch('resize');
+  windowRef.dispatch('orientationchange');
+  assert.equal(frames.length, 1, 'resize and orientation events coalesce into one frame');
+  assert.deepEqual(events, []);
+  frames.shift()();
+  assert.deepEqual(events, ['resize']);
+
+  documentRef.hidden = true;
+  documentRef.dispatch('visibilitychange');
+  documentRef.hidden = false;
+  documentRef.dispatch('visibilitychange');
+  windowRef.dispatch('beforeunload');
+  windowRef.dispatch('pagehide');
+  assert.deepEqual(events, [
+    'resize', 'background', 'resize', 'foreground', 'save', 'save',
+  ]);
+
+  unbind();
+  windowRef.dispatch('resize');
+  documentRef.dispatch('visibilitychange');
+  assert.equal(frames.length, 0);
+  assert.equal(events.length, 6);
 });
 
 test('generated character rigs are a required startup stage and cannot attach after game start', async () => {

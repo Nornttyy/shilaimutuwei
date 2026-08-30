@@ -11,12 +11,22 @@ const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const distance = (left, right) => Math.hypot(left.x - right.x, left.y - right.y);
 const scaleValue = (value) => Math.round(value * 1000) / 1000;
 
-export const TD_VIEW = Object.freeze({ width: 1280, height: 720 });
-export const TD_FIELD = Object.freeze({ x: 0, y: 0, width: 1280, height: 720 });
+/** Portrait gameplay coordinates shared by web and WeChat renderers. */
+export const TD_VIEW = Object.freeze({ width: 720, height: 1280 });
+export const TD_FIELD = Object.freeze({ x: 0, y: 96, width: 720, height: 992 });
+export const TD_CARD_DOCK = Object.freeze({ x: 0, y: 1096, width: 720, height: 184 });
+export const TD_HERO_BOUNDS = Object.freeze({
+  minX: 54,
+  maxX: 666,
+  minY: 158,
+  maxY: 830,
+});
 export const TD_MAX_STAR = 4;
 export const TD_HAND_LIMIT = 4;
 export const TD_LANE_COUNT = 5;
-export const TD_COLUMN_COUNT = 7;
+export const TD_ROW_COUNT = 7;
+// Kept as an alias because older renderers call a deployment row a column.
+export const TD_COLUMN_COUNT = TD_ROW_COUNT;
 export const TD_STORAGE_KEY = 'slime-fusion-defense-v1';
 export const TD_STAGE_SCALE_CAPS = Object.freeze({ hp: 3.4, speed: 1.4, reward: 2.2 });
 export const TD_ENDLESS_SCALE_CAPS = Object.freeze({
@@ -236,7 +246,7 @@ export const SQUAD_TYPES = Object.freeze({
 export const TURRET_TYPES = Object.freeze({
   'gel-mortar': Object.freeze({
     id: 'gel-mortar', name: '凝胶迫击炮', glyph: '炮', cost: 175, color: '#72D7A3',
-    range: 330, interval: 1.42, damage: 72, splashRadius: 105,
+    range: 330, interval: 1.42, damage: 72, splashRadius: 152,
     projectile: 'goo', projectileSpeed: 500,
   }),
 });
@@ -262,26 +272,29 @@ export const TD_ENEMIES = Object.freeze({
 });
 
 const freezePoints = (points) => Object.freeze(points.map((point) => Object.freeze(point)));
-const TD_LANE_Y = Object.freeze([156, 244, 332, 420, 508]);
-const TD_COLUMN_X = Object.freeze([200, 340, 480, 620, 760, 900, 1040]);
+const TD_LANE_X = Object.freeze([88, 224, 360, 496, 632]);
+const TD_ROW_Y = Object.freeze([270, 360, 450, 540, 630, 720, 810]);
+const TD_PATH_START_Y = 132;
+const TD_PATH_END_Y = 1002;
 const TD_LANE_INDICES = Object.freeze(Array.from({ length: TD_LANE_COUNT }, (_, index) => index));
 
-const freezeLanes = () => Object.freeze(TD_LANE_Y.map((y, index) => Object.freeze({
+const freezeLanes = () => Object.freeze(TD_LANE_X.map((x, index) => Object.freeze({
   id: `lane-${index}`,
   index,
-  y,
-  path: freezePoints([{ x: 1260, y }, { x: 96, y }]),
+  x,
+  path: freezePoints([{ x, y: TD_PATH_START_Y }, { x, y: TD_PATH_END_Y }]),
 })));
 
 const freezeLanePads = (lanes) => Object.freeze(lanes.flatMap((lane) => (
-  TD_COLUMN_X.map((baseX, columnIndex) => {
-    const index = lane.index * TD_COLUMN_COUNT + columnIndex;
+  TD_ROW_Y.map((y, rowIndex) => {
+    const index = lane.index * TD_ROW_COUNT + rowIndex;
     return Object.freeze({
       id: `pad-${index}`,
-      x: baseX + (lane.index % 2 === 1 ? 20 : 0),
-      y: lane.y,
+      x: lane.x,
+      y,
       laneIndex: lane.index,
-      columnIndex,
+      rowIndex,
+      columnIndex: rowIndex,
     });
   })
 )));
@@ -303,11 +316,16 @@ const laneStage = ({ id, index, name, accent, waves }) => {
     name,
     accent,
     lanes,
-    // Kept as the middle route for callers that still need generic path
-    // geometry. Combat itself always resolves the enemy's authored lane.
+    // Kept as the middle route for callers that need generic path geometry.
+    // Combat itself always resolves the enemy's authored vertical lane.
     path: lanes[Math.floor(TD_LANE_COUNT / 2)].path,
     pads: freezeLanePads(lanes),
-    base: Object.freeze({ x: 58, y: lanes[2].y, goalX: lanes[2].path.at(-1).x }),
+    base: Object.freeze({
+      x: TD_VIEW.width / 2,
+      y: 1038,
+      goalX: lanes[2].x,
+      goalY: lanes[2].path.at(-1).y,
+    }),
     tutorialPadIndex: 0,
     waves: Object.freeze(waves),
   });
@@ -373,15 +391,13 @@ const freezeTurretSlots = (slots) => Object.freeze(slots.map((slot, index) => Ob
 /** Fixed construction points; turrets never occupy soldier deployment pads. */
 export const TD_TURRET_SLOTS = Object.freeze({
   'stage-1': freezeTurretSlots([
-    { x: 465, y: 101 }, { x: 770, y: 101 }, { x: 500, y: 535 }, { x: 845, y: 535 },
+    { x: 102, y: 914 }, { x: 274, y: 914 }, { x: 446, y: 914 }, { x: 618, y: 914 },
   ]),
   'stage-2': freezeTurretSlots([
-    { x: 400, y: 101 }, { x: 680, y: 101 }, { x: 960, y: 101 },
-    { x: 515, y: 535 }, { x: 850, y: 535 },
+    { x: 88, y: 914 }, { x: 264, y: 914 }, { x: 456, y: 914 }, { x: 632, y: 914 },
   ]),
   'stage-3': freezeTurretSlots([
-    { x: 430, y: 101 }, { x: 735, y: 101 }, { x: 1010, y: 101 },
-    { x: 540, y: 535 }, { x: 875, y: 535 },
+    { x: 110, y: 914 }, { x: 280, y: 914 }, { x: 440, y: 914 }, { x: 610, y: 914 },
   ]),
 });
 
@@ -691,15 +707,16 @@ function createHeroForState(state) {
   const maxHp = Math.round(definition.maxHp * (
     selected === 'shell' ? 1 + rank * 0.022 : 1
   ));
-  const y = stageForState(state).lanes[Math.floor(TD_LANE_COUNT / 2)].y;
+  const x = stageForState(state).lanes[Math.floor(TD_LANE_COUNT / 2)].x;
+  const y = 820;
   return {
     uid: nextUid(state, 'hero'),
     kind: 'hero',
     type: selected,
     rank,
-    x: 128,
+    x,
     y,
-    spawnX: 128,
+    spawnX: x,
     spawnY: y,
     facing: 1,
     hp: maxHp,
@@ -1075,12 +1092,12 @@ function enemyScaleForState(state) {
   return stageScaleForWave(stageForState(state).index, state.wave);
 }
 
-function normalizedLaneIndex(stage, laneIndex, y = null) {
+function normalizedLaneIndex(stage, laneIndex, x = null) {
   const numeric = Math.floor(Number(laneIndex));
   if (Number.isFinite(numeric) && stage.lanes[numeric]) return numeric;
-  if (Number.isFinite(Number(y))) {
+  if (Number.isFinite(Number(x))) {
     return stage.lanes.reduce((bestIndex, lane, index) => (
-      Math.abs(lane.y - y) < Math.abs(stage.lanes[bestIndex].y - y) ? index : bestIndex
+      Math.abs(lane.x - x) < Math.abs(stage.lanes[bestIndex].x - x) ? index : bestIndex
     ), 0);
   }
   return 0;
@@ -1100,7 +1117,8 @@ function spawnEnemy(state, type, laneIndex = 0) {
     travelled: 0,
     x: lane.path[0].x,
     y: lane.path[0].y,
-    facing: -1,
+    facing: 1,
+    travelAngle: Math.PI / 2,
     hp: maxHp,
     maxHp,
     speed: definition.speed * scale.speed,
@@ -1142,7 +1160,7 @@ function rangeForTowerState(state, tower) {
 
 function laneIndexForEnemy(state, enemy) {
   const stage = stageForState(state);
-  const laneIndex = normalizedLaneIndex(stage, enemy.laneIndex, enemy.y);
+  const laneIndex = normalizedLaneIndex(stage, enemy.laneIndex, enemy.x);
   enemy.laneIndex = laneIndex;
   return laneIndex;
 }
@@ -1156,7 +1174,7 @@ function setEnemyTravelled(state, enemy, travelled) {
   const point = pointOnPath(lane.path, enemy.travelled);
   enemy.x = point.x;
   enemy.y = point.y;
-  enemy.facing = -1;
+  enemy.travelAngle = point.angle;
   return point;
 }
 
@@ -1169,8 +1187,8 @@ function targetForTower(state, tower) {
     if (
       enemy.hp <= 0
       || laneIndexForEnemy(state, enemy) !== origin.laneIndex
-      || enemy.x < origin.x
-      || enemy.x - origin.x > range
+      || enemy.y > origin.y
+      || origin.y - enemy.y > range
     ) continue;
     if (!best || enemy.travelled > best.travelled) best = enemy;
   }
@@ -1187,8 +1205,8 @@ function volleyTargetsForTower(state, tower, primary, count) {
       enemy.uid !== primary.uid
       && enemy.hp > 0
       && laneIndexForEnemy(state, enemy) === origin.laneIndex
-      && enemy.x >= origin.x
-      && enemy.x - origin.x <= range
+      && enemy.y <= origin.y
+      && origin.y - enemy.y <= range
     ))
     .sort((left, right) => right.travelled - left.travelled)
     .slice(0, count - 1);
@@ -1305,7 +1323,7 @@ function nearbyEffectTargets(state, target, radius, count = Infinity, allLanes =
       && (allLanes
         ? distance(enemy, target) <= radius
         : laneIndexForEnemy(state, enemy) === targetLaneIndex
-          && Math.abs(enemy.x - target.x) <= radius)
+          && Math.abs(enemy.y - target.y) <= radius)
     ))
     .sort((left, right) => right.travelled - left.travelled)
     .slice(0, count);
@@ -1442,24 +1460,25 @@ function updateTowers(state, dt) {
       .filter((enemy) => (
         enemy.hp > 0
         && laneIndexForEnemy(state, enemy) === origin.laneIndex
-        && enemy.x >= origin.x
+        && enemy.y <= origin.y
       ))
-      .sort((left, right) => left.x - right.x)[0];
+      .sort((left, right) => right.y - left.y)[0];
     const preferredGap = definition.id === 'melee'
       ? 60
       : Math.max(62, rangeForTowerState(state, tower) * 0.72);
-    const shouldMove = approachTarget && approachTarget.x - origin.x > preferredGap;
+    const shouldMove = approachTarget && origin.y - approachTarget.y > preferredGap;
     if (shouldMove) {
-      const previousX = tower.x;
-      tower.x = Math.min(
-        approachTarget.x - preferredGap,
-        origin.x + (Number(tower.moveSpeed) || definition.speed) * dt,
-        1160,
+      const previousY = tower.y;
+      tower.y = Math.max(
+        approachTarget.y + preferredGap,
+        origin.y - (Number(tower.moveSpeed) || definition.speed) * dt,
+        TD_HERO_BOUNDS.minY,
       );
       if (!tower.moving) {
         state.events.push({
           type: 'soldier-move', soldierUid: tower.uid, soldierType: tower.type,
-          fromX: previousX, toX: approachTarget.x - preferredGap,
+          fromX: tower.x, toX: tower.x,
+          fromY: previousY, toY: approachTarget.y + preferredGap,
           laneIndex: origin.laneIndex,
         });
       }
@@ -1547,8 +1566,16 @@ function updateHero(state, dt) {
   hero.attackPulse = Math.max(0, hero.attackPulse - dt * 5.5);
   hero.skillPulse = Math.max(0, hero.skillPulse - dt * 2.5);
   hero.hitPulse = Math.max(0, hero.hitPulse - dt * 6);
-  hero.x = clamp(hero.x + hero.moveX * definition.speed * dt, 72, 1190);
-  hero.y = clamp(hero.y + hero.moveY * definition.speed * dt, 108, 535);
+  hero.x = clamp(
+    hero.x + hero.moveX * definition.speed * dt,
+    TD_HERO_BOUNDS.minX,
+    TD_HERO_BOUNDS.maxX,
+  );
+  hero.y = clamp(
+    hero.y + hero.moveY * definition.speed * dt,
+    TD_HERO_BOUNDS.minY,
+    TD_HERO_BOUNDS.maxY,
+  );
   if (hero.cooldown > 0) return;
   const target = targetForHero(state, hero, definition.range);
   if (!target) {
@@ -1615,7 +1642,7 @@ function towerContactTravel(state, enemy, tower) {
   const lane = stage.lanes[origin.laneIndex];
   const definition = TD_ENEMIES[enemy.type] || TD_ENEMIES.bug;
   const contactOffset = 38 + definition.size * 0.18;
-  return Math.max(0, lane.path[0].x - (origin.x + contactOffset));
+  return Math.max(0, origin.y - contactOffset - lane.path[0].y);
 }
 
 function nextBlockingTower(state, enemy) {
@@ -1637,9 +1664,9 @@ function nextBlockingTower(state, enemy) {
     const laneIndex = laneIndexForEnemy(state, enemy);
     const lane = stage.lanes[laneIndex];
     const enemyDefinition = TD_ENEMIES[enemy.type] || TD_ENEMIES.bug;
-    if (Math.abs(hero.y - lane.y) <= 42) {
+    if (Math.abs(hero.x - lane.x) <= 42) {
       const contactOffset = 36 + enemyDefinition.size * 0.18;
-      const heroTravelled = Math.max(0, lane.path[0].x - (hero.x + contactOffset));
+      const heroTravelled = Math.max(0, hero.y - contactOffset - lane.path[0].y);
       if (heroTravelled >= enemy.travelled - 0.01 && heroTravelled < bestTravelled) {
         best = hero;
         bestTravelled = heroTravelled;

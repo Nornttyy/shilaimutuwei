@@ -21,10 +21,10 @@ const MANIFEST = JSON.parse(await readFile(
 ));
 
 const EXPECTED_COLUMNS = Object.freeze({
-  shell: ['bind', 'idle', 'attack', 'hurt', 'downed'],
-  crystal: ['bind', 'idle', 'attack', 'hurt', 'downed'],
-  bubble: ['bind', 'idle', 'attack', 'hurt', 'downed'],
-  sprout: ['bind', 'idle', 'attack', 'hurt', 'downed'],
+  shell: ['bind', 'idle', 'move', 'attack', 'hurt', 'downed'],
+  crystal: ['bind', 'idle', 'move', 'attack', 'hurt', 'downed'],
+  bubble: ['bind', 'idle', 'move', 'attack', 'hurt', 'downed'],
+  sprout: ['bind', 'idle', 'move', 'attack', 'hurt', 'downed'],
   bug: ['bind', 'idle', 'move', 'attack', 'hurt', 'death'],
   windcap: ['bind', 'idle', 'move', 'attack', 'hurt', 'death'],
   stone: ['bind', 'idle', 'move', 'attack', 'hurt', 'death'],

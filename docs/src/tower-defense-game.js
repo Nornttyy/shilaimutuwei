@@ -67,74 +67,74 @@ const TAU = Math.PI * 2;
 const MAX_DPR = 2;
 const PAD_RADIUS = 38;
 const DRAG_THRESHOLD = 12;
-const BATTLE_FIELD = Object.freeze({ top: 68, bottom: 574, left: 0, right: TD_VIEW.width });
-const FALLBACK_LANE_Y = Object.freeze([156, 244, 332, 420, 508]);
+const BATTLE_FIELD = Object.freeze({ top: 96, bottom: 1088, left: 0, right: TD_VIEW.width });
+const FALLBACK_LANE_X = Object.freeze([88, 224, 360, 496, 632]);
 
 const COMMAND_DOCK = Object.freeze({
-  back: Object.freeze({ x: 14, y: 10, width: 48, height: 48 }),
-  currency: Object.freeze({ x: 76, y: 10, width: 152, height: 48 }),
-  core: Object.freeze({ x: 242, y: 14, width: 158, height: 40 }),
-  wave: Object.freeze({ x: 414, y: 16, width: 590, height: 36 }),
-  enemies: Object.freeze({ x: 1018, y: 10, width: 96, height: 48 }),
-  mode: Object.freeze({ x: 1128, y: 10, width: 136, height: 48 }),
-  refresh: Object.freeze({ x: 16, y: 582, width: 104, height: 124 }),
+  back: Object.freeze({ x: 12, y: 18, width: 48, height: 56 }),
+  currency: Object.freeze({ x: 72, y: 18, width: 138, height: 56 }),
+  core: Object.freeze({ x: 222, y: 22, width: 132, height: 48 }),
+  wave: Object.freeze({ x: 366, y: 24, width: 214, height: 44 }),
+  enemies: Object.freeze({ x: 592, y: 18, width: 116, height: 56 }),
+  mode: Object.freeze({ x: 484, y: 71, width: 96, height: 20 }),
+  refresh: Object.freeze({ x: 12, y: 1104, width: 156, height: 164 }),
   shop: Object.freeze([
-    Object.freeze({ x: 132, y: 582, width: 140, height: 124 }),
-    Object.freeze({ x: 282, y: 582, width: 140, height: 124 }),
-    Object.freeze({ x: 432, y: 582, width: 140, height: 124 }),
+    Object.freeze({ x: 12, y: 1104, width: 156, height: 164 }),
+    Object.freeze({ x: 180, y: 1104, width: 156, height: 164 }),
+    Object.freeze({ x: 348, y: 1104, width: 156, height: 164 }),
   ]),
-  handZone: Object.freeze({ x: 588, y: 582, width: 376, height: 124 }),
+  handZone: Object.freeze({ x: 12, y: 1104, width: 492, height: 164 }),
   purchase: Object.freeze({
-    melee: Object.freeze({ x: 180, y: 582, width: 240, height: 124 }),
-    ranged: Object.freeze({ x: 432, y: 582, width: 240, height: 124 }),
-    turret: Object.freeze({ x: 684, y: 582, width: 240, height: 124 }),
+    melee: Object.freeze({ x: 12, y: 1104, width: 156, height: 164 }),
+    ranged: Object.freeze({ x: 180, y: 1104, width: 156, height: 164 }),
+    turret: Object.freeze({ x: 348, y: 1104, width: 156, height: 164 }),
   }),
   cards: Object.freeze([
-    Object.freeze({ x: 588, y: 582, width: 88, height: 124 }),
-    Object.freeze({ x: 684, y: 582, width: 88, height: 124 }),
-    Object.freeze({ x: 780, y: 582, width: 88, height: 124 }),
-    Object.freeze({ x: 876, y: 582, width: 88, height: 124 }),
+    Object.freeze({ x: 12, y: 1104, width: 114, height: 164 }),
+    Object.freeze({ x: 132, y: 1104, width: 114, height: 164 }),
+    Object.freeze({ x: 252, y: 1104, width: 114, height: 164 }),
+    Object.freeze({ x: 372, y: 1104, width: 114, height: 164 }),
   ]),
-  draw: Object.freeze({ x: 16, y: 582, width: 104, height: 124 }),
-  reclaim: Object.freeze({ x: 974, y: 596, width: 78, height: 96 }),
-  selection: Object.freeze({ x: 974, y: 582, width: 78, height: 124 }),
-  start: Object.freeze({ x: 1010, y: 582, width: 254, height: 124 }),
+  draw: Object.freeze({ x: 12, y: 1104, width: 156, height: 164 }),
+  reclaim: Object.freeze({ x: 512, y: 1104, width: 84, height: 72 }),
+  selection: Object.freeze({ x: 512, y: 1184, width: 196, height: 84 }),
+  start: Object.freeze({ x: 512, y: 1104, width: 196, height: 164 }),
 });
 
 const MENU_ACTIONS = Object.freeze({
-  story: Object.freeze({ x: 282, y: 565, width: 456, height: 104 }),
-  endless: Object.freeze({ x: 762, y: 565, width: 236, height: 104 }),
-  summon: Object.freeze({ x: 1018, y: 565, width: 180, height: 104 }),
+  story: Object.freeze({ x: 48, y: 898, width: 624, height: 108 }),
+  endless: Object.freeze({ x: 48, y: 1026, width: 360, height: 98 }),
+  summon: Object.freeze({ x: 428, y: 1026, width: 244, height: 98 }),
 });
 
-const SUMMON_BACK_RECT = Object.freeze({ x: 36, y: 30, width: 112, height: 58 });
-const SUMMON_CURRENCY_RECT = Object.freeze({ x: 1012, y: 28, width: 220, height: 62 });
+const SUMMON_BACK_RECT = Object.freeze({ x: 22, y: 28, width: 104, height: 58 });
+const SUMMON_CURRENCY_RECT = Object.freeze({ x: 490, y: 28, width: 208, height: 62 });
 const SUMMON_CONTRACT_RECTS = Object.freeze([
-  Object.freeze({ x: 76, y: 174, width: 250, height: 326 }),
-  Object.freeze({ x: 369, y: 174, width: 250, height: 326 }),
-  Object.freeze({ x: 662, y: 174, width: 250, height: 326 }),
-  Object.freeze({ x: 955, y: 174, width: 250, height: 326 }),
+  Object.freeze({ x: 30, y: 164, width: 315, height: 388 }),
+  Object.freeze({ x: 375, y: 164, width: 315, height: 388 }),
+  Object.freeze({ x: 30, y: 574, width: 315, height: 388 }),
+  Object.freeze({ x: 375, y: 574, width: 315, height: 388 }),
 ]);
-const SUMMON_ONE_RECT = Object.freeze({ x: 370, y: 552, width: 250, height: 92 });
-const SUMMON_TEN_RECT = Object.freeze({ x: 660, y: 552, width: 250, height: 92 });
-const SUMMON_RESULT_CLOSE_RECT = Object.freeze({ x: 490, y: 620, width: 300, height: 62 });
+const SUMMON_ONE_RECT = Object.freeze({ x: 54, y: 1006, width: 286, height: 104 });
+const SUMMON_TEN_RECT = Object.freeze({ x: 380, y: 1006, width: 286, height: 104 });
+const SUMMON_RESULT_CLOSE_RECT = Object.freeze({ x: 210, y: 1158, width: 300, height: 72 });
 const HERO_JOYSTICK = Object.freeze({
-  x: 108, y: 480, radius: 62,
-  hit: Object.freeze({ x: 38, y: 410, width: 140, height: 140 }),
+  x: 102, y: 1190, radius: 64,
+  hit: Object.freeze({ x: 30, y: 1118, width: 144, height: 144 }),
 });
-const HERO_SKILL_RECT = Object.freeze({ x: 1110, y: 420, width: 116, height: 116 });
+const HERO_SKILL_RECT = Object.freeze({ x: 578, y: 1132, width: 116, height: 116 });
 const GEL_MORTAR_ASSET_LAYOUT = Object.freeze({
   assetWidthScale: 768 / 723,
   assetGroundAnchorY: 665 / 723,
 });
 
 const STAGE_SELECT_CARDS = Object.freeze(TD_STAGES.map((_, index) => Object.freeze({
-  x: 185 + index * 320,
-  y: 196,
-  width: 270,
-  height: 360,
+  x: 62,
+  y: 170 + index * 330,
+  width: 596,
+  height: 290,
 })));
-const STAGE_SELECT_BACK = Object.freeze({ x: 36, y: 30, width: 112, height: 58 });
+const STAGE_SELECT_BACK = Object.freeze({ x: 22, y: 28, width: 104, height: 58 });
 
 const COLORS = Object.freeze({
   ink: '#273844',
@@ -285,17 +285,17 @@ const slimeVisualType = (type, squadType = null) => {
 function laneDescriptors(stage) {
   const lanes = Array.isArray(stage?.lanes) && stage.lanes.length
     ? stage.lanes.slice(0, 5)
-    : FALLBACK_LANE_Y.map((y, laneIndex) => ({ y, laneIndex }));
-  return FALLBACK_LANE_Y.map((fallbackY, laneIndex) => {
+    : FALLBACK_LANE_X.map((x, laneIndex) => ({ x, laneIndex }));
+  return FALLBACK_LANE_X.map((fallbackX, laneIndex) => {
     const lane = lanes[laneIndex] || {};
-    const y = Number.isFinite(Number(lane?.y)) ? Number(lane.y) : fallbackY;
+    const x = Number.isFinite(Number(lane?.x)) ? Number(lane.x) : fallbackX;
     const providedPath = Array.isArray(lane?.path)
       ? lane.path
       : Array.isArray(lane?.points) ? lane.points : null;
     const points = providedPath?.length >= 2
       ? providedPath
-      : [{ x: 108, y }, { x: 1172, y }];
-    return { ...lane, laneIndex, y, points };
+      : [{ x, y: 132 }, { x, y: 1002 }];
+    return { ...lane, laneIndex, x, points };
   });
 }
 
@@ -322,10 +322,10 @@ function drawDockShell(ctx, stage, time) {
 
   ctx.globalAlpha = 0.12;
   ctx.fillStyle = stage.accent;
-  for (let index = 0; index < 10; index += 1) {
+  for (let index = 0; index < 7; index += 1) {
     const radius = 15 + (index % 3) * 9;
-    const x = 24 + (index * 151) % 1240;
-    const y = BATTLE_FIELD.bottom + 18 + (index * 47) % 116
+    const x = 24 + (index * 113) % 690;
+    const y = BATTLE_FIELD.bottom + 18 + (index * 47) % 166
       + Math.sin(time * 0.55 + index) * 4;
     ctx.beginPath();
     ctx.arc(x, y, radius, 0, TAU);
@@ -385,6 +385,24 @@ function panel(ctx, rect, {
     ctx.stroke();
   }
   ctx.restore();
+}
+
+function drawCoverImage(ctx, asset, rect = {
+  x: 0, y: 0, width: TD_VIEW.width, height: TD_VIEW.height,
+}) {
+  const sourceWidth = Number(asset?.naturalWidth || asset?.videoWidth || asset?.width);
+  const sourceHeight = Number(asset?.naturalHeight || asset?.videoHeight || asset?.height);
+  if (!(sourceWidth > 0) || !(sourceHeight > 0)) {
+    ctx.drawImage(asset, rect.x, rect.y, rect.width, rect.height);
+    return;
+  }
+  const scale = Math.max(rect.width / sourceWidth, rect.height / sourceHeight);
+  const cropWidth = rect.width / scale;
+  const cropHeight = rect.height / scale;
+  const cropX = (sourceWidth - cropWidth) / 2;
+  const cropY = (sourceHeight - cropHeight) / 2;
+  ctx.drawImage(asset, cropX, cropY, cropWidth, cropHeight,
+    rect.x, rect.y, rect.width, rect.height);
 }
 
 function label(ctx, text, x, y, {
@@ -833,16 +851,19 @@ export class TowerDefenseGame {
       const heroType = hero?.type || hero?.heroId || this.state.selectedHeroId;
       const heroDefinition = TOWER_TYPES[heroType];
       if (hero && heroDefinition) {
-        advance(`hero:${hero.uid || heroType}`, heroDefinition.ownerId, 'idle');
+        const heroBase = Math.hypot(Number(hero.moveX) || 0, Number(hero.moveY) || 0) > 0.01
+          ? 'move' : 'idle';
+        advance(`hero:${hero.uid || heroType}`, heroDefinition.ownerId, heroBase);
       }
       for (const tower of this.state.towers) {
         const visualType = tower.squadType === 'ranged' || tower.type === 'needle'
           ? 'needle' : tower.type === 'shell' ? 'shell' : 'shell';
         const definition = TOWER_TYPES[tower.type] || TOWER_TYPES[visualType];
-        advance(`tower:${tower.uid}`, definition.ownerId, 'idle');
+        const towerBase = tower.moving ? 'move' : 'idle';
+        advance(`tower:${tower.uid}`, definition.ownerId, towerBase);
         if (tower.kind === 'soldier' || Number.isFinite(Number(tower.aliveMembers))) {
           for (let memberIndex = 0; memberIndex < 4; memberIndex += 1) {
-            advance(`squad:${tower.uid}:${memberIndex}`, definition.ownerId, 'idle');
+            advance(`squad:${tower.uid}:${memberIndex}`, definition.ownerId, towerBase);
           }
         }
       }
@@ -1177,6 +1198,31 @@ export class TowerDefenseGame {
     return best;
   }
 
+  emptyTurretSlotHitAt(point) {
+    if (!this.isPreparation()) return null;
+    const stage = stageForState(this.state);
+    const slots = this.turretSlots(stage);
+    const turrets = Array.isArray(this.state.turrets) ? this.state.turrets : [];
+    for (let slotIndex = slots.length - 1; slotIndex >= 0; slotIndex -= 1) {
+      const slot = slots[slotIndex];
+      if (turrets.some((turret) => (
+        turret.slotIndex === slotIndex || (slot.id && turret.slotId === slot.id)
+      ))) continue;
+      const x = Number.isFinite(Number(slot.x)) ? Number(slot.x) : 102 + slotIndex * 172;
+      const y = Number.isFinite(Number(slot.y)) ? Number(slot.y) : 914;
+      const rect = { x: x - 54, y: y - 42, width: 108, height: 100 };
+      if (!insideRect(point, rect)) continue;
+      return {
+        id: typeof slot.id === 'string' && slot.id ? slot.id : `turret-slot-${slotIndex}`,
+        ...rect,
+        action: 'build-turret',
+        data: { slotIndex, slotId: slot.id, turretType: 'gel-mortar' },
+        enabled: true,
+      };
+    }
+    return null;
+  }
+
   addHit(id, rect, action, data = {}, enabled = true) {
     this.hits.push({ id, ...rect, action, data, enabled });
   }
@@ -1234,6 +1280,11 @@ export class TowerDefenseGame {
         start: point, point, moved: true,
       };
       this.updateJoystick(point);
+    } else if (hit?.action === 'select-purchase') {
+      this.drag = {
+        kind: 'purchase', purchaseType: hit.data.purchaseType,
+        hit, start: point, point, moved: false,
+      };
     } else if (hit?.action === 'card') {
       this.drag = {
         kind: 'card', uid: hit.data.cardUid, start: point, point, moved: false,
@@ -1289,6 +1340,31 @@ export class TowerDefenseGame {
       this.joystick.x = 0;
       this.joystick.y = 0;
       this.syncHeroMovement();
+      return;
+    }
+
+    if (drag.kind === 'purchase') {
+      if (!drag.moved) {
+        if (drag.hit && this.tutorialAllows(drag.hit)) this.activateHit(drag.hit);
+        return;
+      }
+      const purchaseType = drag.purchaseType;
+      if (purchaseType === 'turret') {
+        const turretHit = this.emptyTurretSlotHitAt(point);
+        if (turretHit) buildTowerDefenseTurret(
+          this.state, turretHit.data.slotIndex, 'gel-mortar',
+        );
+      } else if (['melee', 'ranged'].includes(purchaseType)) {
+        const padHit = this.emptyPadHitAt(point);
+        const target = tutorialTargetForState(this.state);
+        const tutorialMatches = !target || target.type !== 'squad'
+          || (target.squadType === purchaseType && target.padIndex === padHit?.data.padIndex);
+        if (padHit && tutorialMatches) {
+          buyTowerDefenseSquad(this.state, purchaseType, padHit.data.padIndex);
+        }
+      }
+      this.selectedPurchase = null;
+      this.processEvents();
       return;
     }
 
@@ -1599,14 +1675,14 @@ export class TowerDefenseGame {
     const key = STAGE_REGION_ASSET[stageId] || STAGE_REGION_ASSET['stage-1'];
     drawAssetOrFallback(ctx, this.assetStore, key, (asset) => {
       ctx.globalAlpha *= 0.78;
-      ctx.drawImage(asset, 0, 0, TD_VIEW.width, TD_VIEW.height);
+      drawCoverImage(ctx, asset);
     }, () => {
       ctx.save();
       ctx.globalAlpha = 0.16;
       ctx.fillStyle = '#55AE80';
       for (let index = 0; index < 28; index += 1) {
         const x = (index * 173) % TD_VIEW.width;
-        const y = (index * 97) % 720;
+        const y = (index * 97) % TD_VIEW.height;
         ctx.beginPath();
         ctx.arc(x, y, 22 + (index % 4) * 8, 0, TAU);
         ctx.fill();
@@ -1630,12 +1706,12 @@ export class TowerDefenseGame {
     ctx.fillStyle = '#CBE8D0';
     ctx.fillRect(0, 0, TD_VIEW.width, TD_VIEW.height);
     drawAssetOrFallback(ctx, this.assetStore, 'background-garden-base', (asset) => {
-      ctx.drawImage(asset, 0, 0, TD_VIEW.width, TD_VIEW.height);
+      drawCoverImage(ctx, asset);
     }, () => this.drawBackdrop(ctx, 'stage-1'));
     drawAssetOrFallback(ctx, this.assetStore, 'background-cloud-overlay', (asset) => {
       ctx.globalAlpha *= 0.24;
       const drift = Math.sin(this.state.time * 0.08) * 20;
-      ctx.drawImage(asset, -18 + drift, -18, 1316, 438);
+      drawCoverImage(ctx, asset, { x: -18 + drift, y: -18, width: 756, height: 500 });
     }, () => {});
 
     const wash = ctx.createLinearGradient(0, 0, 0, TD_VIEW.height);
@@ -1645,11 +1721,11 @@ export class TowerDefenseGame {
     ctx.fillStyle = wash;
     ctx.fillRect(0, 0, TD_VIEW.width, TD_VIEW.height);
 
-    label(ctx, '史莱姆自走防线', TD_VIEW.width / 2, 58, {
-      size: 42, color: COLORS.ink, weight: 950,
+    label(ctx, '史莱姆自走防线', TD_VIEW.width / 2, 112, {
+      size: 46, color: COLORS.ink, weight: 950,
     });
     TD_STAGES.forEach((stage, index) => {
-      const x = 612 + index * 28;
+      const x = TD_VIEW.width / 2 - 28 + index * 28;
       const cleared = this.state.progress.clearedStages.includes(stage.id);
       const unlocked = stage.index <= this.state.progress.unlockedStage;
       ctx.save();
@@ -1658,7 +1734,7 @@ export class TowerDefenseGame {
         ctx.shadowBlur = 11;
       }
       ctx.beginPath();
-      ctx.arc(x, 108, 7, 0, TAU);
+      ctx.arc(x, 170, 7, 0, TAU);
       ctx.fillStyle = cleared ? stage.accent : unlocked ? '#FFF8DF' : '#AAB5AF';
       ctx.fill();
       ctx.strokeStyle = unlocked ? stage.accent : '#87948E';
@@ -1669,7 +1745,7 @@ export class TowerDefenseGame {
 
     const corePulse = 1 + Math.sin(this.state.time * 1.8) * 0.018;
     ctx.save();
-    ctx.translate(640, 314);
+    ctx.translate(TD_VIEW.width / 2, 520);
     ctx.scale(corePulse, corePulse);
     const halo = ctx.createRadialGradient(0, 0, 18, 0, 0, 164);
     halo.addColorStop(0, 'rgba(214, 255, 236, 0.58)');
@@ -1687,21 +1763,22 @@ export class TowerDefenseGame {
     ctx.strokeStyle = '#D8FFE9';
     ctx.lineWidth = 6;
     ctx.beginPath();
-    ctx.ellipse(640, 314, 95 + ringPhase * 80, 74 + ringPhase * 62, 0, 0, TAU);
+    ctx.ellipse(TD_VIEW.width / 2, 520,
+      95 + ringPhase * 80, 74 + ringPhase * 62, 0, 0, TAU);
     ctx.stroke();
     ctx.restore();
 
-    drawCore(ctx, 640, 414, 260, {
+    drawCore(ctx, TD_VIEW.width / 2, 668, 270, {
       time: this.state.time,
       health: 1,
       assetStore: this.assetStore,
     });
 
     const squad = [
-      { type: 'shell', x: 360, y: 486, size: 142, facing: 1 },
-      { type: 'bubble', x: 505, y: 498, size: 132, facing: 1 },
-      { type: 'sprout', x: 775, y: 498, size: 132, facing: -1 },
-      { type: 'needle', x: 920, y: 486, size: 142, facing: -1 },
+      { type: 'shell', x: 128, y: 822, size: 118, facing: 1 },
+      { type: 'bubble', x: 278, y: 838, size: 108, facing: 1 },
+      { type: 'sprout', x: 442, y: 838, size: 108, facing: -1 },
+      { type: 'needle', x: 592, y: 822, size: 118, facing: -1 },
     ];
     squad.forEach((member, index) => {
       const tower = TOWER_TYPES[member.type];
@@ -1811,12 +1888,12 @@ export class TowerDefenseGame {
     ctx.fillStyle = '#CBE8D0';
     ctx.fillRect(0, 0, TD_VIEW.width, TD_VIEW.height);
     drawAssetOrFallback(ctx, this.assetStore, 'background-garden-base', (asset) => {
-      ctx.drawImage(asset, 0, 0, TD_VIEW.width, TD_VIEW.height);
+      drawCoverImage(ctx, asset);
     }, () => this.drawBackdrop(ctx, 'stage-1'));
     drawAssetOrFallback(ctx, this.assetStore, 'background-cloud-overlay', (asset) => {
       ctx.globalAlpha *= 0.18;
       const drift = Math.sin(this.state.time * 0.08) * 20;
-      ctx.drawImage(asset, -18 + drift, -18, 1316, 438);
+      drawCoverImage(ctx, asset, { x: -18 + drift, y: -18, width: 756, height: 500 });
     }, () => {});
 
     const wash = ctx.createLinearGradient(0, 0, 0, TD_VIEW.height);
@@ -1926,26 +2003,40 @@ export class TowerDefenseGame {
     });
 
     const currency = this.summonCurrency();
-    button(ctx, SUMMON_ONE_RECT, '召唤 1次', {
+    button(ctx, SUMMON_ONE_RECT, '', {
       enabled: currency >= 100, fill: '#62CFA0', accent: '#277C62', size: 25,
     });
+    label(ctx, '召唤 1次', SUMMON_ONE_RECT.x + SUMMON_ONE_RECT.width / 2,
+      SUMMON_ONE_RECT.y + 31, {
+        size: 22, color: currency >= 100 ? COLORS.white : COLORS.disabled, weight: 950,
+      });
     drawAssetOrFallback(ctx, this.assetStore, 'ui-soft-crystal', (asset) => {
       ctx.globalAlpha *= currency >= 100 ? 0.95 : 0.35;
-      ctx.drawImage(asset, SUMMON_ONE_RECT.x + 62, SUMMON_ONE_RECT.y + 57, 25, 25);
+      ctx.drawImage(asset,
+        SUMMON_ONE_RECT.x + SUMMON_ONE_RECT.width / 2 - 38,
+        SUMMON_ONE_RECT.y + 53, 25, 25);
     }, () => {});
-    label(ctx, '100', SUMMON_ONE_RECT.x + 99, SUMMON_ONE_RECT.y + 70, {
+    label(ctx, '100', SUMMON_ONE_RECT.x + SUMMON_ONE_RECT.width / 2 - 5,
+      SUMMON_ONE_RECT.y + 66, {
       size: 15, align: 'left', color: currency >= 100 ? COLORS.ink : COLORS.disabled, weight: 900,
     });
     this.addHit('summon-one', SUMMON_ONE_RECT, 'summon-one', {}, currency >= 100);
 
-    button(ctx, SUMMON_TEN_RECT, '召唤 10次', {
+    button(ctx, SUMMON_TEN_RECT, '', {
       enabled: currency >= 900, fill: '#8E7FE2', accent: '#51438F', size: 25,
     });
+    label(ctx, '召唤 10次', SUMMON_TEN_RECT.x + SUMMON_TEN_RECT.width / 2,
+      SUMMON_TEN_RECT.y + 31, {
+        size: 22, color: currency >= 900 ? COLORS.white : COLORS.disabled, weight: 950,
+      });
     drawAssetOrFallback(ctx, this.assetStore, 'ui-soft-crystal', (asset) => {
       ctx.globalAlpha *= currency >= 900 ? 0.95 : 0.35;
-      ctx.drawImage(asset, SUMMON_TEN_RECT.x + 62, SUMMON_TEN_RECT.y + 57, 25, 25);
+      ctx.drawImage(asset,
+        SUMMON_TEN_RECT.x + SUMMON_TEN_RECT.width / 2 - 38,
+        SUMMON_TEN_RECT.y + 53, 25, 25);
     }, () => {});
-    label(ctx, '900', SUMMON_TEN_RECT.x + 99, SUMMON_TEN_RECT.y + 70, {
+    label(ctx, '900', SUMMON_TEN_RECT.x + SUMMON_TEN_RECT.width / 2 - 5,
+      SUMMON_TEN_RECT.y + 66, {
       size: 15, align: 'left', color: currency >= 900 ? COLORS.ink : COLORS.disabled, weight: 900,
     });
     this.addHit('summon-ten', SUMMON_TEN_RECT, 'summon-ten', {}, currency >= 900);
@@ -1961,22 +2052,22 @@ export class TowerDefenseGame {
     ctx.fillRect(0, 0, TD_VIEW.width, TD_VIEW.height);
     ctx.restore();
 
-    const modal = { x: 104, y: 52, width: 1072, height: 646 };
+    const modal = { x: 24, y: 54, width: 672, height: 1194 };
     panel(ctx, modal, {
       fill: '#FFF9E9', stroke: '#B88635', lineWidth: 5, radius: 34, shadow: true,
     });
-    label(ctx, '召唤结果', TD_VIEW.width / 2, 104, {
+    label(ctx, '召唤结果', TD_VIEW.width / 2, 112, {
       size: 37, color: COLORS.ink, weight: 950,
     });
 
     const single = results.length === 1;
     const cards = single
-      ? [{ x: 470, y: 150, width: 340, height: 404 }]
+      ? [{ x: 150, y: 212, width: 420, height: 690 }]
       : results.map((_, index) => ({
-        x: 146 + (index % 5) * 198,
-        y: 144 + Math.floor(index / 5) * 214,
-        width: 174,
-        height: 190,
+        x: 64 + (index % 2) * 304,
+        y: 156 + Math.floor(index / 2) * 180,
+        width: 288,
+        height: 164,
       }));
 
     results.forEach((result, index) => {
@@ -2003,7 +2094,7 @@ export class TowerDefenseGame {
         definition.ownerId,
       );
       drawSlime(ctx, rect.x + rect.width / 2,
-        rect.y + (single ? 272 : 135), single ? 138 : 67, definition.id, {
+        rect.y + (single ? 430 : 112), single ? 168 : 53, definition.id, {
           time: this.state.time + index * 0.11,
           facing: index % 2 ? -1 : 1,
           assetStore: this.assetStore,
@@ -2018,8 +2109,8 @@ export class TowerDefenseGame {
         ? '新英雄'
         : converted ? `◆ +${converted}` : rankUps ? `升阶 +${rankUps}` : `碎片 +${shards}`;
       label(ctx, rewardText,
-        rect.x + rect.width / 2, rect.y + rect.height - (single ? 54 : 28), {
-          size: single ? 21 : 14,
+        rect.x + rect.width / 2, rect.y + rect.height - (single ? 68 : 18), {
+          size: single ? 23 : 13,
           color: result.unlocked ? COLORS.mintDeep : converted ? COLORS.crystal : COLORS.ink,
           weight: 950,
         });
@@ -2049,12 +2140,12 @@ export class TowerDefenseGame {
     ctx.fillStyle = '#CBE8D0';
     ctx.fillRect(0, 0, TD_VIEW.width, TD_VIEW.height);
     drawAssetOrFallback(ctx, this.assetStore, 'background-garden-base', (asset) => {
-      ctx.drawImage(asset, 0, 0, TD_VIEW.width, TD_VIEW.height);
+      drawCoverImage(ctx, asset);
     }, () => this.drawBackdrop(ctx, 'stage-1'));
     drawAssetOrFallback(ctx, this.assetStore, 'background-cloud-overlay', (asset) => {
       ctx.globalAlpha *= 0.2;
       const drift = Math.sin(this.state.time * 0.08) * 20;
-      ctx.drawImage(asset, -18 + drift, -18, 1316, 438);
+      drawCoverImage(ctx, asset, { x: -18 + drift, y: -18, width: 756, height: 500 });
     }, () => {});
 
     const wash = ctx.createLinearGradient(0, 0, 0, TD_VIEW.height);
@@ -2092,15 +2183,15 @@ export class TowerDefenseGame {
       const artRect = {
         x: rect.x + 18,
         y: rect.y + 18,
-        width: rect.width - 36,
-        height: 166,
+        width: 244,
+        height: rect.height - 36,
       };
       ctx.save();
       roundedPath(ctx, artRect.x, artRect.y, artRect.width, artRect.height, 20);
       ctx.clip();
       drawAssetOrFallback(ctx, this.assetStore, STAGE_REGION_ASSET[stage.id], (asset) => {
         ctx.globalAlpha *= unlocked ? 0.94 : 0.28;
-        ctx.drawImage(asset, artRect.x, artRect.y, artRect.width, artRect.height);
+        drawCoverImage(ctx, asset, artRect);
       }, () => {
         ctx.fillStyle = unlocked ? stage.accent : '#AAB4AF';
         ctx.globalAlpha *= unlocked ? 0.45 : 0.2;
@@ -2123,17 +2214,18 @@ export class TowerDefenseGame {
         weight: 950,
       });
 
-      label(ctx, stage.name, rect.x + rect.width / 2, rect.y + 225, {
+      const infoCenterX = rect.x + 420;
+      label(ctx, stage.name, infoCenterX, rect.y + 70, {
         size: 27, color: unlocked ? COLORS.ink : '#68746E', weight: 920,
       });
-      label(ctx, `${stage.waves.length}波`, rect.x + rect.width / 2, rect.y + 260, {
+      label(ctx, `${stage.waves.length}波`, infoCenterX, rect.y + 112, {
         size: 17, color: unlocked ? COLORS.inkSoft : '#7A8580', weight: 780,
       });
       const statusRect = {
-        x: rect.x + 40,
-        y: rect.y + 292,
-        width: rect.width - 80,
-        height: 48,
+        x: rect.x + 292,
+        y: rect.y + 158,
+        width: 256,
+        height: 70,
       };
       panel(ctx, statusRect, {
         fill: !unlocked ? '#BCC5C0' : cleared ? '#DDF6CD' : stage.accent,
@@ -2142,7 +2234,7 @@ export class TowerDefenseGame {
         radius: 20,
       });
       label(ctx, !unlocked ? '未解锁' : cleared ? '✓ 已通关' : '可挑战',
-        rect.x + rect.width / 2, statusRect.y + statusRect.height / 2, {
+        infoCenterX, statusRect.y + statusRect.height / 2, {
           size: 18,
           color: !unlocked ? '#68746E' : cleared ? '#397B45' : COLORS.white,
           weight: 900,
@@ -2175,6 +2267,12 @@ export class TowerDefenseGame {
     const hero = this.state.hero || {};
     const heroType = hero.type || hero.heroId || this.state.selectedHeroId || 'shell';
     const definition = TOWER_TYPES[heroType] || TOWER_TYPES.shell;
+
+    if (!this.state.waveActive) {
+      this.addHit('hero-joystick', HERO_JOYSTICK.hit, 'hero-joystick', {}, false);
+      this.addHit('hero-skill', HERO_SKILL_RECT, 'hero-skill', {}, false);
+      return;
+    }
 
     ctx.save();
     ctx.globalAlpha = active ? 0.78 : 0.34;
@@ -2249,18 +2347,19 @@ export class TowerDefenseGame {
     const type = hero.type || hero.heroId || this.state.selectedHeroId || 'shell';
     const definition = TOWER_TYPES[type] || TOWER_TYPES.shell;
     const key = `hero:${hero.uid || type}`;
-    const animation = this.characterAnimationSample(key, definition.ownerId,
-      this.state.waveActive ? 'idle' : 'idle');
+    const heroBase = Math.hypot(Number(hero.moveX) || 0, Number(hero.moveY) || 0) > 0.01
+      ? 'move' : 'idle';
+    const animation = this.characterAnimationSample(key, definition.ownerId, heroBase);
     const pulse = 1 + Math.sin(this.state.time * 3.4) * 0.05;
     ctx.save();
     ctx.globalAlpha = 0.82;
     drawAssetOrFallback(ctx, this.assetStore, 'ui-hero-control-ring', (asset) => {
-      const width = 150 * pulse;
-      const height = 67 * pulse;
-      ctx.drawImage(asset, hero.x - width / 2, hero.y - height / 2 + 8, width, height);
+      const width = 106 * pulse;
+      const height = 47 * pulse;
+      ctx.drawImage(asset, hero.x - width / 2, hero.y - height / 2 + 6, width, height);
     }, () => {});
     ctx.restore();
-    drawSlime(ctx, hero.x, hero.y + 10, 98, type, {
+    drawSlime(ctx, hero.x, hero.y + 7, 68, type, {
       time: this.state.time,
       facing: hero.facing === -1 ? -1 : 1,
       hit: clamp(Number(hero.hitPulse) || 0, 0, 1),
@@ -2270,15 +2369,15 @@ export class TowerDefenseGame {
       ...this.characterRigOptions(definition.ownerId),
       allowGeneratedStandalone: this.generatedCharacterArtEnabled,
     });
-    panel(ctx, { x: hero.x - 30, y: hero.y - 96, width: 60, height: 25 }, {
+    panel(ctx, { x: hero.x - 27, y: hero.y - 70, width: 54, height: 22 }, {
       fill: definition.color, stroke: '#FFFFFF', lineWidth: 2, radius: 12,
     });
-    label(ctx, '英雄', hero.x, hero.y - 83, {
-      size: 12, color: COLORS.white, weight: 950,
+    label(ctx, '英雄', hero.x, hero.y - 59, {
+      size: 11, color: COLORS.white, weight: 950,
     });
     if (Number.isFinite(hero.hp) && Number.isFinite(hero.maxHp) && hero.maxHp > 0) {
       const ratio = clamp(hero.hp / hero.maxHp, 0, 1);
-      const bar = { x: hero.x - 43, y: hero.y - 67, width: 86, height: 8 };
+      const bar = { x: hero.x - 34, y: hero.y - 43, width: 68, height: 7 };
       ctx.fillStyle = 'rgba(28,44,50,0.68)';
       roundedPath(ctx, bar.x, bar.y, bar.width, bar.height, 4);
       ctx.fill();
@@ -2297,8 +2396,10 @@ export class TowerDefenseGame {
     }
     if (Array.isArray(stage?.turretSlots) && stage.turretSlots.length) return stage.turretSlots;
     return [
-      { x: 408, y: 116, type: 'gel-mortar' },
-      { x: 872, y: 116, type: 'gel-mortar' },
+      { x: 102, y: 914, type: 'gel-mortar' },
+      { x: 274, y: 914, type: 'gel-mortar' },
+      { x: 446, y: 914, type: 'gel-mortar' },
+      { x: 618, y: 914, type: 'gel-mortar' },
     ];
   }
 
@@ -2309,9 +2410,9 @@ export class TowerDefenseGame {
       const turret = slot.turret || turrets.find((entry) => (
         entry.slotIndex === slotIndex || entry.slotId === slot.id
       ));
-      const x = Number.isFinite(Number(slot.x)) ? Number(slot.x) : 408 + slotIndex * 464;
-      const y = Number.isFinite(Number(slot.y)) ? Number(slot.y) : 116;
-      const buildingGroundY = y < 200 ? y + 50 : y + 28;
+      const x = Number.isFinite(Number(slot.x)) ? Number(slot.x) : 102 + slotIndex * 172;
+      const y = Number.isFinite(Number(slot.y)) ? Number(slot.y) : 914;
+      const buildingGroundY = y + 28;
       const type = 'gel-mortar';
       const turretDefinition = TURRET_TYPES[type] || {
         id: type, name: '凝胶迫击炮', cost: 175, color: '#72D7A3',
@@ -2387,20 +2488,23 @@ export class TowerDefenseGame {
     ctx.restore();
 
     const lanes = laneDescriptors(stage);
-    const gatewayY = lanes[Math.floor(lanes.length / 2)]?.y ?? FALLBACK_LANE_Y[2];
+    const coreX = Number.isFinite(Number(stage?.base?.x)) ? Number(stage.base.x) : 360;
+    const coreY = Number.isFinite(Number(stage?.base?.y)) ? Number(stage.base.y) : 1038;
     this.drawLaneField(ctx, lanes, stage);
-    this.drawLaneGateways(ctx, lanes, stage, gatewayY);
+    this.drawLaneGateways(ctx, lanes, stage, coreX, coreY);
 
-    drawCore(ctx, 76, gatewayY + 60, 118, {
+    drawCore(ctx, coreX, coreY, 168, {
       health: this.state.coreHp / Math.max(1, this.state.coreMaxHp),
       time: this.state.time,
       hit: this.shake > 0 ? 1 : 0,
       assetStore: this.assetStore,
     });
-    drawPortal(ctx, 1204, gatewayY + 60, 118, {
-      time: this.state.time,
-      open: this.state.waveActive || this.state.enemies.length ? 1 : 0.62,
-      assetStore: this.assetStore,
+    lanes.forEach((lane, index) => {
+      drawPortal(ctx, lane.x, 228, 84, {
+        time: this.state.time + index * 0.16,
+        open: this.state.waveActive || this.state.enemies.length ? 1 : 0.62,
+        assetStore: this.assetStore,
+      });
     });
     this.drawTurretSlots(ctx, stage);
 
@@ -2445,17 +2549,17 @@ export class TowerDefenseGame {
     ctx.save();
     for (const lane of lanes) {
       const lanePulse = 0.5 + 0.5 * Math.sin(this.state.time * 0.8 + lane.laneIndex * 0.9);
-      const laneGradient = ctx.createLinearGradient(72, lane.y, 1208, lane.y);
+      const laneGradient = ctx.createLinearGradient(lane.x, 132, lane.x, 1002);
       laneGradient.addColorStop(0, 'rgba(218,255,228,0.42)');
       laneGradient.addColorStop(0.48, `${stage.accent}24`);
       laneGradient.addColorStop(1, 'rgba(221,219,255,0.42)');
       ctx.fillStyle = laneGradient;
-      roundedPath(ctx, 88, lane.y - 34, 1104, 68, 32);
+      roundedPath(ctx, lane.x - 34, 132, 68, 870, 32);
       ctx.fill();
       ctx.globalAlpha = 0.22 + lanePulse * 0.08;
       ctx.strokeStyle = stage.accent;
       ctx.lineWidth = 2;
-      roundedPath(ctx, 88, lane.y - 34, 1104, 68, 32);
+      roundedPath(ctx, lane.x - 34, 132, 68, 870, 32);
       ctx.stroke();
       ctx.globalAlpha = 1;
       this.drawPath(ctx, lane.points, lane.laneIndex);
@@ -2466,18 +2570,18 @@ export class TowerDefenseGame {
       ctx.strokeStyle = stage.accent;
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.arc(126, lane.y, 14, 0, TAU);
+      ctx.arc(lane.x, 116, 14, 0, TAU);
       ctx.fill();
       ctx.stroke();
       ctx.restore();
-      label(ctx, lane.laneIndex + 1, 126, lane.y + 1, {
+      label(ctx, lane.laneIndex + 1, lane.x, 117, {
         size: 12, color: COLORS.ink, weight: 950,
       });
     }
     ctx.restore();
   }
 
-  drawLaneGateways(ctx, lanes, stage, gatewayY) {
+  drawLaneGateways(ctx, lanes, stage, coreX, coreY) {
     ctx.save();
     ctx.lineCap = 'round';
     for (const lane of lanes) {
@@ -2486,13 +2590,8 @@ export class TowerDefenseGame {
       ctx.strokeStyle = stage.accent;
       ctx.lineWidth = 10;
       ctx.beginPath();
-      ctx.moveTo(76, gatewayY);
-      ctx.bezierCurveTo(98, gatewayY, 98, lane.y, 116, lane.y);
-      ctx.stroke();
-      ctx.strokeStyle = COLORS.crystal;
-      ctx.beginPath();
-      ctx.moveTo(1164, lane.y);
-      ctx.bezierCurveTo(1184, lane.y, 1180, gatewayY, 1204, gatewayY);
+      ctx.moveTo(lane.x, 998);
+      ctx.bezierCurveTo(lane.x, 1022, coreX, coreY - 36, coreX, coreY - 14);
       ctx.stroke();
     }
     ctx.restore();
@@ -2557,6 +2656,7 @@ export class TowerDefenseGame {
       const animation = this.characterAnimationSample(
         `squad:${squad.uid}:${memberIndex}`,
         definition.ownerId,
+        squad.moving ? 'move' : 'idle',
       );
       drawSlime(ctx, x + position.x, y + position.y + 13,
         44 * position.scale, slimeType, {
@@ -2743,7 +2843,7 @@ export class TowerDefenseGame {
     drawMonster(ctx, enemy.x, enemy.y + definition.size * 0.33, definition.size, type, {
       time: this.state.time,
       phase: Number(enemy.uid.split('-').at(-1)) * 0.31 || 0,
-      facing: -1,
+      facing: enemy.facing === -1 ? -1 : 1,
       hit: enemy.hitPulse,
       expression: enemy.hitPulse > 0.35 ? 'hurt' : 'normal',
       assetStore: this.assetStore,
@@ -2909,7 +3009,7 @@ export class TowerDefenseGame {
     drawDockShell(ctx, stage, this.state.time);
     drawAssetOrFallback(ctx, this.assetStore, 'ui-soft-crystal', (asset) => {
       ctx.globalAlpha *= 0.34;
-      ctx.drawImage(asset, COMMAND_DOCK.mode.x + 4, COMMAND_DOCK.mode.y + 4, 40, 40);
+      ctx.drawImage(asset, COMMAND_DOCK.mode.x + 3, COMMAND_DOCK.mode.y + 1, 18, 18);
     }, () => {});
 
     button(ctx, COMMAND_DOCK.back, '‹', {
@@ -3023,7 +3123,7 @@ export class TowerDefenseGame {
     label(ctx, this.state.mode === 'endless' ? '无尽' : stage.name,
       COMMAND_DOCK.mode.x + COMMAND_DOCK.mode.width - 12,
       COMMAND_DOCK.mode.y + COMMAND_DOCK.mode.height / 2 + 1, {
-        size: 15, align: 'right', color: COLORS.ink, weight: 900,
+        size: 12, align: 'right', color: COLORS.ink, weight: 900,
       });
 
     this.drawPreparationDock(ctx, stage);
@@ -3059,41 +3159,14 @@ export class TowerDefenseGame {
 
   drawDirectPurchaseDock(ctx, stage) {
     const preparation = this.isPreparation();
-    if (preparation) {
-      panel(ctx, { x: 96, y: 76, width: 274, height: 40 }, {
-        fill: 'rgba(255,248,220,0.92)', stroke: '#A57930', lineWidth: 2, radius: 18,
-        shadow: true,
+    if (!preparation) {
+      ['melee', 'ranged', 'turret'].forEach((purchaseType) => {
+        this.addHit(`purchase-${purchaseType}`, COMMAND_DOCK.purchase[purchaseType],
+          'select-purchase', { purchaseType }, false);
       });
-      const prepText = this.selectedPurchase === 'melee' || this.selectedPurchase === 'ranged'
-        ? '选择空兵位'
-        : this.selectedPurchase === 'turret' ? '选择固定炮台位' : '备战';
-      label(ctx, prepText, 233, 97, {
-        size: 16, color: COLORS.ink, weight: 900,
-      });
+      this.addHit('start-wave', COMMAND_DOCK.start, 'start-wave', {}, false);
+      return;
     }
-
-    const heroType = this.state.hero?.type || this.state.selectedHeroId || 'shell';
-    const heroDefinition = TOWER_TYPES[heroType] || TOWER_TYPES.shell;
-    panel(ctx, { x: 16, y: 582, width: 148, height: 124 }, {
-      fill: 'rgba(244,250,226,0.88)', stroke: heroDefinition.color,
-      lineWidth: 3, radius: 22,
-    });
-    const heroAnimation = this.characterAnimationSample(
-      this.state.hero ? `hero:${this.state.hero.uid || heroType}` : `preview:menu:${heroType}`,
-      heroDefinition.ownerId,
-    );
-    drawSlime(ctx, 90, 701, 66, heroType, {
-      time: this.state.time,
-      facing: 1,
-      assetStore: this.assetStore,
-      ...heroAnimation,
-      ...this.characterRigOptions(heroDefinition.ownerId),
-      allowGeneratedStandalone: this.generatedCharacterArtEnabled,
-    });
-    label(ctx, '英雄', 90, 600, {
-      size: 15, color: COLORS.ink, weight: 950,
-    });
-
     const entries = [
       { id: 'melee', label: '近战小队', cost: 100, type: 'shell' },
       { id: 'ranged', label: '远程小队', cost: 150, type: 'needle' },
@@ -3293,6 +3366,27 @@ export class TowerDefenseGame {
 
   drawDragPreview(ctx) {
     if (!this.drag?.moved || !this.drag.point) return;
+    if (this.drag.kind === 'purchase') {
+      ctx.save();
+      ctx.globalAlpha = 0.82;
+      if (this.drag.purchaseType === 'turret') {
+        drawBuilding(ctx, this.drag.point.x, this.drag.point.y + 38, 86, 'tower', {
+          assetKey: 'turret-gel-mortar',
+          assetStore: this.assetStore,
+          ...GEL_MORTAR_ASSET_LAYOUT,
+        });
+      } else {
+        const slimeType = this.drag.purchaseType === 'ranged' ? 'needle' : 'shell';
+        this.drawSquadPurchasePreview(ctx, {
+          x: this.drag.point.x - 78,
+          y: this.drag.point.y - 94,
+          width: 156,
+          height: 164,
+        }, slimeType);
+      }
+      ctx.restore();
+      return;
+    }
     if (this.drag.kind === 'card') {
       const card = this.state.hand.find((candidate) => candidate.uid === this.drag.uid);
       const definition = card && TOWER_TYPES[card.type];
@@ -3360,7 +3454,7 @@ export class TowerDefenseGame {
     ctx.fillRect(0, 0, TD_VIEW.width, TD_VIEW.height);
     ctx.restore();
 
-    const rect = { x: 365, y: 94, width: 550, height: 532 };
+    const rect = { x: 56, y: 196, width: 608, height: 884 };
     panel(ctx, rect, {
       fill: '#FFF9EA',
       stroke: this.state.result === 'victory' ? COLORS.mintDeep : COLORS.coral,
@@ -3369,7 +3463,7 @@ export class TowerDefenseGame {
       shadow: true,
     });
     const victory = this.state.result === 'victory';
-    label(ctx, victory ? '守住了' : '再来一次', TD_VIEW.width / 2, 174, {
+    label(ctx, victory ? '守住了' : '再来一次', TD_VIEW.width / 2, 294, {
       size: 45,
       color: victory ? COLORS.mintDeep : COLORS.coral,
       weight: 950,
@@ -3381,7 +3475,7 @@ export class TowerDefenseGame {
         'preview:result:shell',
         definition.ownerId,
       );
-      drawSlime(ctx, TD_VIEW.width / 2, 350, 142, 'shell', {
+      drawSlime(ctx, TD_VIEW.width / 2, 600, 164, 'shell', {
         time: this.state.time,
         star: TD_MAX_STAR,
         assetStore: this.assetStore,
@@ -3395,7 +3489,7 @@ export class TowerDefenseGame {
         'preview:result:boss',
         definition.ownerId,
       );
-      drawMonster(ctx, TD_VIEW.width / 2, 365, 142, 'boss', {
+      drawMonster(ctx, TD_VIEW.width / 2, 620, 164, 'boss', {
         time: this.state.time,
         facing: -1,
         assetStore: this.assetStore,
@@ -3404,17 +3498,17 @@ export class TowerDefenseGame {
         allowGeneratedStandalone: this.generatedCharacterArtEnabled,
       });
     }
-    label(ctx, `波次 ${this.state.wave}   击破 ${this.state.kills}`, TD_VIEW.width / 2, 404, {
+    label(ctx, `波次 ${this.state.wave}   击破 ${this.state.kills}`, TD_VIEW.width / 2, 730, {
       size: 22, color: COLORS.inkSoft, weight: 750,
     });
     if (this.state.mode === 'endless') {
-      label(ctx, `最高 ${this.state.progress.bestEndlessWave}`, TD_VIEW.width / 2, 442, {
+      label(ctx, `最高 ${this.state.progress.bestEndlessWave}`, TD_VIEW.width / 2, 778, {
         size: 20, color: COLORS.crystal, weight: 800,
       });
     }
 
-    const primaryRect = { x: 430, y: 486, width: 260, height: 76 };
-    const menuRect = { x: 710, y: 486, width: 140, height: 76 };
+    const primaryRect = { x: 106, y: 874, width: 330, height: 92 };
+    const menuRect = { x: 456, y: 874, width: 158, height: 92 };
     const nextStage = victory && this.state.mode === 'stage' && TD_STAGES[stage.index];
     button(ctx, primaryRect, nextStage ? '下一关' : '再来', {
       fill: victory ? COLORS.mint : '#E99B72',

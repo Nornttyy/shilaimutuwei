@@ -927,12 +927,12 @@ test('tower-defense attack controllers reach the real layered rig pipeline for a
   };
   const context = createMainContext();
   const canvas = {
-    width: 1280,
-    height: 720,
-    clientWidth: 1280,
-    clientHeight: 720,
+    width: 720,
+    height: 1280,
+    clientWidth: 720,
+    clientHeight: 1280,
     getContext: () => context,
-    getBoundingClientRect: () => ({ left: 0, top: 0, width: 1280, height: 720 }),
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 720, height: 1280 }),
     addEventListener() {},
     removeEventListener() {},
   };

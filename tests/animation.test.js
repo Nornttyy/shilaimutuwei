@@ -58,11 +58,11 @@ function constantClip(x, { mode = 'loop', priority = 0, duration = 1 } = {}) {
 }
 
 const RIG_CASES = [
-  ['shell', SHELL_RIG, SHELL_CLIPS, ['idle', 'attack', 'hurt', 'downed']],
+  ['shell', SHELL_RIG, SHELL_CLIPS, ['idle', 'move', 'attack', 'hurt', 'downed']],
   ['bug', BUG_RIG, BUG_CLIPS, ['idle', 'move', 'attack', 'hurt', 'death']],
-  ['crystal', CRYSTAL_RIG, CRYSTAL_CLIPS, ['idle', 'attack', 'hurt', 'downed']],
-  ['bubble', BUBBLE_RIG, BUBBLE_CLIPS, ['idle', 'attack', 'hurt', 'downed']],
-  ['sprout', SPROUT_RIG, SPROUT_CLIPS, ['idle', 'attack', 'hurt', 'downed']],
+  ['crystal', CRYSTAL_RIG, CRYSTAL_CLIPS, ['idle', 'move', 'attack', 'hurt', 'downed']],
+  ['bubble', BUBBLE_RIG, BUBBLE_CLIPS, ['idle', 'move', 'attack', 'hurt', 'downed']],
+  ['sprout', SPROUT_RIG, SPROUT_CLIPS, ['idle', 'move', 'attack', 'hurt', 'downed']],
   ['windcap', WINDCAP_RIG, WINDCAP_CLIPS, ['idle', 'move', 'attack', 'hurt', 'death']],
   ['stone', STONE_RIG, STONE_CLIPS, ['idle', 'move', 'attack', 'hurt', 'death']],
   ['boss', BOSS_RIG, BOSS_CLIPS, ['idle', 'move', 'attack', 'hurt', 'death', 'charge']],
@@ -98,7 +98,7 @@ function assertDeepFrozen(value, label) {
 }
 
 test('exports matching shell and bug clip/rig definitions', () => {
-  assert.deepEqual(Object.keys(SHELL_CLIPS), ['idle', 'attack', 'hurt', 'downed']);
+  assert.deepEqual(Object.keys(SHELL_CLIPS), ['idle', 'move', 'attack', 'hurt', 'downed']);
   assert.deepEqual(Object.keys(BUG_CLIPS), ['idle', 'move', 'attack', 'hurt', 'death']);
   assert.deepEqual(
     Object.keys(SHELL_RIG.bones),

@@ -1,6 +1,6 @@
 # 史莱姆自走防线
 
-零依赖的横屏 2D 塔防游戏，可直接发布到浏览器、GitHub Pages 和微信小游戏 Canvas。
+零依赖的竖屏 2D 塔防游戏，可直接发布到浏览器、GitHub Pages 和微信小游戏 Canvas。
 
 在线版：<https://nornttyy.github.io/shilaimutuwei/>
 
@@ -21,7 +21,7 @@
 python3 -m http.server 8080
 ```
 
-打开 `http://localhost:8080`，建议使用横屏或桌面浏览器。
+打开 `http://localhost:8080`，建议使用手机竖屏或将浏览器窗口调整为竖屏比例。
 
 ## 测试与构建
 

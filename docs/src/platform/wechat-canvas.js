@@ -22,8 +22,8 @@ function readWindowInfo(wxApi, hint = null) {
   }
   const pixelRatio = finitePositive(info.pixelRatio, 1);
   return {
-    width: finitePositive(info.windowWidth ?? info.screenWidth, 1280),
-    height: finitePositive(info.windowHeight ?? info.screenHeight, 720),
+    width: finitePositive(info.windowWidth ?? info.screenWidth, 720),
+    height: finitePositive(info.windowHeight ?? info.screenHeight, 1280),
     pixelRatio,
   };
 }

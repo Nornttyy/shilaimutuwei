@@ -7,11 +7,15 @@ import {
   TD_CONTRACT_START_CURRENCY,
   TD_CONTRACT_SUMMON_COSTS,
   TD_CONTRACT_TYPES,
+  TD_CARD_DOCK,
   TD_ENDLESS_SCALE_CAPS,
   TD_ENEMIES,
+  TD_FIELD,
+  TD_HERO_BOUNDS,
   TD_STAGE_SCALE_CAPS,
   TD_STAGES,
   TD_TURRET_SLOTS,
+  TD_VIEW,
   TOWER_ATTACK_EVOLUTIONS,
   TOWER_TYPES,
   TURRET_TYPES,
@@ -56,18 +60,18 @@ function createBattleState({
   return state;
 }
 
-function travelledForX(lane, x) {
-  const direction = Math.sign(lane.path.at(-1).x - lane.path[0].x) || -1;
-  return Math.max(0, (x - lane.path[0].x) * direction);
+function travelledForY(lane, y) {
+  const direction = Math.sign(lane.path.at(-1).y - lane.path[0].y) || 1;
+  return Math.max(0, (y - lane.path[0].y) * direction);
 }
 
 function enemyAt({
-  stage = TD_STAGES[0], laneIndex = 0, x, uid = 'probe-enemy',
+  stage = TD_STAGES[0], laneIndex = 0, y, uid = 'probe-enemy',
   type = 'bug', hp = 100_000, speed = 0,
 } = {}) {
   const lane = stage.lanes.find(({ index }) => index === laneIndex);
   assert.ok(lane, `expected lane ${laneIndex}`);
-  const travelled = travelledForX(lane, x ?? lane.path[0].x);
+  const travelled = travelledForY(lane, y ?? lane.path[0].y);
   const point = pointOnPath(lane.path, travelled);
   const definition = TD_ENEMIES[type];
   return {
@@ -161,7 +165,7 @@ test('member losses reduce aliveMembers and squad damage linearly', () => {
     holdCombat(state);
     const enemy = enemyAt({
       laneIndex: pad.laneIndex,
-      x: pad.x + (squadType === 'melee' ? 48 : 180),
+      y: pad.y - (squadType === 'melee' ? 48 : 180),
       uid: `${squadType}-damage-target`, hp: 1_000_000,
     });
     state.enemies = [enemy];
@@ -194,11 +198,11 @@ test('melee closes to contact while ranged fires a long-distance projectile', ()
   const melee = buyTowerDefenseSquad(meleeState, 'melee', 0);
   const pad = TD_STAGES[0].pads[0];
   holdCombat(meleeState);
-  const meleeEnemy = enemyAt({ laneIndex: 0, x: pad.x + 190, uid: 'melee-target', hp: 1e6 });
+  const meleeEnemy = enemyAt({ laneIndex: 0, y: pad.y - 190, uid: 'melee-target', hp: 1e6 });
   meleeState.enemies = [meleeEnemy];
   melee.cooldown = 0;
   updateTowerDefense(meleeState, 0.05);
-  assert.ok(melee.x > melee.deployX);
+  assert.ok(melee.y < melee.deployY);
   assert.equal(meleeState.events.some(({ type }) => type === 'shot'), false);
   for (let tick = 0; tick < 80; tick += 1) updateTowerDefense(meleeState, 0.05);
   const meleeShot = meleeState.events.find(({ type }) => type === 'shot');
@@ -209,7 +213,7 @@ test('melee closes to contact while ranged fires a long-distance projectile', ()
   const rangedState = createBattleState();
   const ranged = buyTowerDefenseSquad(rangedState, 'ranged', 0);
   holdCombat(rangedState);
-  const rangedEnemy = enemyAt({ laneIndex: 0, x: pad.x + 190, uid: 'ranged-target', hp: 1e6 });
+  const rangedEnemy = enemyAt({ laneIndex: 0, y: pad.y - 190, uid: 'ranged-target', hp: 1e6 });
   rangedState.enemies = [rangedEnemy];
   ranged.cooldown = 0;
   rangedState.events = [];
@@ -232,7 +236,7 @@ test('contact damage downs members once and wave clear revives the retained squa
   state.spawnQueue = [{ uid: 'held-spawn', type: 'boss', laneIndex: 0, at: 999 }];
   state.hero.hp = 0;
   const enemy = enemyAt({
-    laneIndex: 0, x: pad.x + 70, uid: 'squad-breaker', type: 'boss',
+    laneIndex: 0, y: pad.y - 70, uid: 'squad-breaker', type: 'boss',
     hp: 1e6, speed: TD_ENEMIES.boss.speed,
   });
   enemy.attackDamage = SQUAD_TYPES.melee.memberHp + 1;
@@ -258,7 +262,7 @@ test('contact damage downs members once and wave clear revives the retained squa
   updateTowerDefense(state, 0.05);
   assert.equal(state.events.filter(({ type }) => type === 'tower-defeat').length, 1);
 
-  squad.x = pad.x + 160;
+  squad.y = pad.y - 160;
   state.spawnQueue = [];
   state.enemies = [];
   updateTowerDefense(state, 0.05);
@@ -266,7 +270,7 @@ test('contact damage downs members once and wave clear revives the retained squa
   assert.equal(squad.hp, squad.maxHp);
   assert.equal(squad.aliveMembers, 4);
   assert.equal(squad.downed, false);
-  assert.equal(squad.x, squad.deployX);
+  assert.equal(squad.y, squad.deployY);
 });
 
 test('gel mortar costs 175, uses fixed slots, cannot move, and splashes across lanes', () => {
@@ -291,8 +295,8 @@ test('gel mortar costs 175, uses fixed slots, cannot move, and splashes across l
   assert.equal(startNextTowerDefenseWave(state), true);
   state.spawnQueue = [{ uid: 'held-spawn', type: 'bug', laneIndex: 0, at: 999 }];
   state.hero.hp = 0;
-  const primary = enemyAt({ laneIndex: 0, x: turret.x + 35, uid: 'mortar-primary' });
-  const splash = enemyAt({ laneIndex: 1, x: turret.x + 35, uid: 'mortar-splash' });
+  const primary = enemyAt({ laneIndex: 0, y: turret.y - 100, uid: 'mortar-primary' });
+  const splash = enemyAt({ laneIndex: 1, y: turret.y - 100, uid: 'mortar-splash' });
   state.enemies = [primary, splash];
   turret.cooldown = 0;
   state.events = [];
@@ -317,15 +321,19 @@ test('hero movement is combat-only, normalized, and clamped to the field', () =>
   state.spawnQueue = [{ uid: 'held-spawn', type: 'bug', laneIndex: 0, at: 999 }];
   assert.equal(setTowerDefenseHeroMovement(state, 1, 1), state.hero);
   assert.ok(Math.abs(Math.hypot(state.hero.moveX, state.hero.moveY) - 1) < 1e-9);
-  state.hero.x = 1189;
-  state.hero.y = 534;
+  state.hero.x = TD_HERO_BOUNDS.maxX - 1;
+  state.hero.y = TD_HERO_BOUNDS.maxY - 1;
   updateTowerDefense(state, 0.05);
-  assert.deepEqual({ x: state.hero.x, y: state.hero.y }, { x: 1190, y: 535 });
-  state.hero.x = 73;
-  state.hero.y = 109;
+  assert.deepEqual({ x: state.hero.x, y: state.hero.y }, {
+    x: TD_HERO_BOUNDS.maxX, y: TD_HERO_BOUNDS.maxY,
+  });
+  state.hero.x = TD_HERO_BOUNDS.minX + 1;
+  state.hero.y = TD_HERO_BOUNDS.minY + 1;
   setTowerDefenseHeroMovement(state, -1, -1);
   updateTowerDefense(state, 0.05);
-  assert.deepEqual({ x: state.hero.x, y: state.hero.y }, { x: 72, y: 108 });
+  assert.deepEqual({ x: state.hero.x, y: state.hero.y }, {
+    x: TD_HERO_BOUNDS.minX, y: TD_HERO_BOUNDS.minY,
+  });
   assert.equal(state.hero.facing, -1);
   state.phase = 'prep';
   const ended = clone(state.hero);
@@ -338,9 +346,9 @@ test('hero auto-attacks and its active skill has cooldown and bounded area', () 
   assert.equal(startNextTowerDefenseWave(state), true);
   state.spawnQueue = [{ uid: 'held-spawn', type: 'bug', laneIndex: 0, at: 999 }];
   const hero = state.hero;
-  const near = enemyAt({ laneIndex: 2, x: hero.x + 90, uid: 'hero-near', hp: 1e6 });
+  const near = enemyAt({ laneIndex: 2, y: hero.y - 90, uid: 'hero-near', hp: 1e6 });
   const far = enemyAt({
-    laneIndex: 2, x: hero.x + HERO_TYPES.shell.skillRadius + 80,
+    laneIndex: 2, y: hero.y - HERO_TYPES.shell.skillRadius - 80,
     uid: 'hero-far', hp: 1e6,
   });
   state.enemies = [near, far];
@@ -371,10 +379,10 @@ test('wave clear returns to prep, restores actors, and never auto-starts', () =>
   const state = createBattleState();
   const squad = buyTowerDefenseSquad(state, 'ranged', 0);
   assert.equal(startNextTowerDefenseWave(state), true);
-  squad.x += 140;
+  squad.y -= 140;
   squad.hp = squad.memberHp;
   squad.aliveMembers = 1;
-  state.hero.x += 200;
+  state.hero.y -= 200;
   state.spawnQueue = [];
   state.enemies = [];
   updateTowerDefense(state, 0.05);
@@ -382,10 +390,10 @@ test('wave clear returns to prep, restores actors, and never auto-starts', () =>
   assert.equal(state.phase, 'prep');
   assert.equal(state.waveActive, false);
   assert.equal(state.waveBreak, 0);
-  assert.equal(squad.x, squad.deployX);
+  assert.equal(squad.y, squad.deployY);
   assert.equal(squad.hp, squad.maxHp);
   assert.equal(squad.aliveMembers, 4);
-  assert.equal(state.hero.x, state.hero.spawnX);
+  assert.equal(state.hero.y, state.hero.spawnY);
   for (let tick = 0; tick < 300; tick += 1) updateTowerDefense(state, 0.05);
   assert.equal(state.wave, 1);
   assert.equal(state.waveActive, false);
@@ -394,28 +402,39 @@ test('wave clear returns to prep, restores actors, and never auto-starts', () =>
   assert.equal(state.phase, 'combat');
 });
 
-test('stages retain five right-to-left lanes, 35 pads, and fixed turret slots', () => {
+test('portrait stages use five top-to-bottom lanes with soldiers, turrets, core, then cards', () => {
+  assert.deepEqual(TD_VIEW, { width: 720, height: 1280 });
+  assert.equal(TD_FIELD.y + TD_FIELD.height < TD_CARD_DOCK.y, true);
   for (const stage of TD_STAGES) {
     assert.equal(stage.lanes.length, 5);
     assert.equal(stage.pads.length, 35);
     assert.equal(stage.path, stage.lanes[2].path);
     for (const lane of stage.lanes) {
-      assert.ok(lane.path[0].x > lane.path.at(-1).x);
-      assert.equal(lane.path.every(({ y }) => y === lane.y), true);
+      assert.ok(lane.path[0].y < lane.path.at(-1).y);
+      assert.equal(lane.path.every(({ x }) => x === lane.x), true);
       assert.deepEqual(
         stage.pads.filter(({ laneIndex }) => laneIndex === lane.index)
-          .map(({ columnIndex }) => columnIndex),
+          .map(({ rowIndex }) => rowIndex),
         [0, 1, 2, 3, 4, 5, 6],
       );
+      assert.equal(stage.pads.filter(({ laneIndex }) => laneIndex === lane.index)
+        .every(({ x }) => x === lane.x), true);
     }
-    assert.equal(new Set(stage.pads.map(({ laneIndex, columnIndex }) => (
-      `${laneIndex}:${columnIndex}`
+    assert.equal(new Set(stage.pads.map(({ laneIndex, rowIndex }) => (
+      `${laneIndex}:${rowIndex}`
     ))).size, 35);
     assert.ok(TD_TURRET_SLOTS[stage.id].length >= 4);
+    const lowestSoldierY = Math.max(...stage.pads.map(({ y }) => y));
+    assert.equal(TD_TURRET_SLOTS[stage.id].every(({ y }) => (
+      y > lowestSoldierY && y < stage.base.y
+    )), true);
+    assert.equal(stage.path.at(-1).y < stage.base.y, true);
+    assert.equal(stage.base.y < TD_CARD_DOCK.y, true);
+    assert.equal(stage.base.goalY, stage.path.at(-1).y);
   }
 });
 
-test('ranged squads target only enemies to their right on the same lane', () => {
+test('ranged squads target only upstream enemies on the same vertical lane', () => {
   const state = createBattleState();
   const stage = TD_STAGES[0];
   const padIndex = stage.pads.findIndex(({ laneIndex, columnIndex }) => (
@@ -426,23 +445,26 @@ test('ranged squads target only enemies to their right on the same lane', () => 
   holdCombat(state);
   squad.cooldown = 0;
   state.enemies = [
-    enemyAt({ laneIndex: 0, x: pad.x + 72, uid: 'same-lane-right' }),
-    enemyAt({ laneIndex: 0, x: pad.x - 20, uid: 'same-lane-left' }),
-    enemyAt({ laneIndex: 1, x: pad.x + 24, uid: 'other-lane-right' }),
+    enemyAt({ laneIndex: 0, y: pad.y - 72, uid: 'same-lane-upstream' }),
+    enemyAt({ laneIndex: 0, y: pad.y + 20, uid: 'same-lane-downstream' }),
+    enemyAt({ laneIndex: 1, y: pad.y - 24, uid: 'other-lane-upstream' }),
   ];
   state.events = [];
   updateTowerDefense(state, 0.01);
-  assert.equal(state.events.find(({ type }) => type === 'shot').targetUid, 'same-lane-right');
+  assert.equal(
+    state.events.find(({ type }) => type === 'shot').targetUid,
+    'same-lane-upstream',
+  );
 });
 
-test('an unblocked enemy leaks at the left endpoint and damages the base', () => {
+test('an unblocked enemy leaks at the bottom endpoint and damages the base', () => {
   const state = createBattleState();
   const lane = TD_STAGES[0].lanes[4];
   const metrics = pathMetrics(lane.path);
   holdCombat(state);
   const enemy = enemyAt({
-    laneIndex: 4, x: lane.path.at(-1).x + 0.5,
-    uid: 'left-leaker', speed: TD_ENEMIES.bug.speed,
+    laneIndex: 4, y: lane.path.at(-1).y - 0.5,
+    uid: 'bottom-leaker', speed: TD_ENEMIES.bug.speed,
   });
   state.enemies = [enemy];
   state.events = [];

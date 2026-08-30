@@ -529,9 +529,9 @@ function reviewFrames(ownerId, clips) {
   const declaredNames = Object.keys(clips);
   const expectedNames = clips.charge
     ? ['idle', 'move', 'attack', 'hurt', 'death', 'charge']
-    : (clips.move
-      ? ['idle', 'move', 'attack', 'hurt', 'death']
-      : ['idle', 'attack', 'hurt', 'downed']);
+    : (clips.downed
+      ? ['idle', 'move', 'attack', 'hurt', 'downed']
+      : ['idle', 'move', 'attack', 'hurt', 'death']);
   if (
     declaredNames.length !== expectedNames.length
     || declaredNames.some((name) => !expectedNames.includes(name))

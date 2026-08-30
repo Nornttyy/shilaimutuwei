@@ -238,7 +238,7 @@ try {
 
 function gameConfiguration() {
   return {
-    deviceOrientation: 'landscape',
+    deviceOrientation: 'portrait',
     showStatusBar: false,
     networkTimeout: {
       request: 15000,

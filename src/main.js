@@ -119,6 +119,46 @@ export function createDomLoadingView({ root, canvas }) {
   });
 }
 
+export function bindBrowserGameLifecycle(game, {
+  windowRef = globalThis.window,
+  documentRef = globalThis.document,
+  requestFrame = (callback) => (
+    windowRef?.requestAnimationFrame?.(callback) ?? globalThis.setTimeout(callback, 0)
+  ),
+} = {}) {
+  let resizeQueued = false;
+  const save = () => game?.save?.();
+  const resize = () => {
+    if (resizeQueued) return;
+    resizeQueued = true;
+    requestFrame(() => {
+      resizeQueued = false;
+      game?.resize?.();
+    });
+  };
+  const visibility = () => {
+    if (documentRef?.hidden) game?.onBackground?.();
+    else {
+      game?.resize?.();
+      game?.onForeground?.();
+    }
+  };
+
+  windowRef?.addEventListener?.('beforeunload', save);
+  windowRef?.addEventListener?.('pagehide', save);
+  windowRef?.addEventListener?.('resize', resize);
+  windowRef?.addEventListener?.('orientationchange', resize);
+  documentRef?.addEventListener?.('visibilitychange', visibility);
+
+  return () => {
+    windowRef?.removeEventListener?.('beforeunload', save);
+    windowRef?.removeEventListener?.('pagehide', save);
+    windowRef?.removeEventListener?.('resize', resize);
+    windowRef?.removeEventListener?.('orientationchange', resize);
+    documentRef?.removeEventListener?.('visibilitychange', visibility);
+  };
+}
+
 export function createBrowserStartup({
   canvas,
   loadingView,
@@ -285,13 +325,7 @@ function installBrowserEntry() {
     },
     requestFrame: (callback) => window.requestAnimationFrame(callback),
     exposeGame: (game) => { window.slimeGame = game; },
-    bindLifecycle: (game) => {
-      window.addEventListener('beforeunload', () => game.save());
-      window.addEventListener('pagehide', () => game.save());
-      document.addEventListener('visibilitychange', () => {
-        if (document.hidden) game.onBackground();
-      });
-    },
+    bindLifecycle: (game) => bindBrowserGameLifecycle(game),
   });
   void controller.start();
   return controller;

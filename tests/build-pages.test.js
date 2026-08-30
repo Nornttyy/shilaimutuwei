@@ -116,7 +116,12 @@ test('the browser shell loads formal loading and rotation art without JavaScript
   assert.match(css, /#game\.is-ready/);
   assert.match(css, /#loading\s*\{[^}]*z-index:\s*6/s,
     'loading failures and retry must stay above the portrait rotation hint');
-  assert.match(css, /@media \(orientation:\s*portrait\) and \(max-width:\s*900px\)/);
+  assert.match(html, /<canvas id="game" width="720" height="1280"/);
+  assert.match(html, /<strong>请旋转为竖屏<\/strong>/);
+  assert.match(css, /#app\s*\{[^}]*position:\s*fixed[^}]*inset:\s*0[^}]*height:\s*100dvh/s);
+  assert.match(css, /#game\s*\{[^}]*position:\s*absolute[^}]*inset:\s*0[^}]*width:\s*100%[^}]*height:\s*100%/s);
+  assert.match(css, /@media \(orientation:\s*landscape\)\s+and\s+\(pointer:\s*coarse\)/);
+  assert.doesNotMatch(css, /@media \(orientation:\s*portrait\)/);
 });
 
 test('the project asset whitelist covers all 134 canonical nested PNG paths', () => {

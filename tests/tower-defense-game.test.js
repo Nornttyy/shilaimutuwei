@@ -30,8 +30,8 @@ function createContext() {
 function createCanvas({
   left = 0,
   top = 0,
-  width = 1280,
-  height = 720,
+  width = 720,
+  height = 1280,
 } = {}) {
   const context = createContext();
   const listeners = new Map();
@@ -191,8 +191,8 @@ test('constructs and renders its first menu frame without DOM globals', () => {
 
   assert.equal(game.state.screen, 'menu');
   assert.doesNotThrow(() => game.render());
-  assert.equal(canvas.width, 1280);
-  assert.equal(canvas.height, 720);
+  assert.equal(canvas.width, 720);
+  assert.equal(canvas.height, 1280);
   assert.ok(game.hits.some(({ id }) => id === 'start-story'));
   assert.deepEqual(game.hits.map(({ id }) => id), [
     'start-story', 'endless', 'open-summon',
@@ -382,6 +382,54 @@ test('moving enemies play hurt bones and leave a temporary skeletal death actor'
   for (let index = 0; index < 12; index += 1) game.updateCharacterAnimations(0.05);
   assert.equal(game.defeatedActors.length, 0);
   assert.equal(game.characterAnimations.has('defeated:animated-enemy'), false);
+  game.dispose();
+});
+
+test('moving heroes and squads use their move clips instead of sliding in idle', () => {
+  const canvas = createCanvas();
+  const game = new TowerDefenseGame(canvas, {
+    runtime: createRuntime({ tutorialSeen: true }),
+    pixelRatio: 1,
+  });
+  game.render();
+  click(game, canvas, hitCenter(game, 'start-story'));
+  game.render();
+  click(game, canvas, hitCenter(game, 'select-stage-1'));
+
+  game.state.hero.moveX = 1;
+  game.state.hero.moveY = 0;
+  game.state.towers = [{
+    uid: 'moving-squad', kind: 'soldier', type: 'melee', squadType: 'melee',
+    aliveMembers: 4, star: 1, padIndex: 0, x: 88, y: 260, moving: true,
+  }];
+  game.updateCharacterAnimations(0.12);
+  game.render();
+
+  const heroKey = [...game.characterAnimations.keys()].find((key) => key.startsWith('hero:'));
+  assert.ok(heroKey);
+  assert.equal(
+    game.characterAnimations.get(heroKey).controller.baseName,
+    'move',
+  );
+  for (let memberIndex = 0; memberIndex < 4; memberIndex += 1) {
+    assert.equal(
+      game.characterAnimations.get(`squad:moving-squad:${memberIndex}`).controller.baseName,
+      'move',
+    );
+  }
+
+  game.state.hero.moveX = 0;
+  game.state.towers[0].moving = false;
+  game.updateCharacterAnimations(0.12);
+  game.render();
+  assert.equal(
+    game.characterAnimations.get(heroKey).controller.baseName,
+    'idle',
+  );
+  assert.equal(
+    game.characterAnimations.get('squad:moving-squad:0').controller.baseName,
+    'idle',
+  );
   game.dispose();
 });
 
@@ -645,18 +693,78 @@ test('battle dock purchases squads and a fixed turret, moves squads in prep, the
   game.dispose();
 });
 
-test('CSS coordinates map into the fixed view correctly at DPR 2 with letterboxing', () => {
-  const canvas = createCanvas({ left: 40, top: 30, width: 800, height: 360 });
+test('portrait battle keeps deployment cards below the fortress and supports direct drag placement', () => {
+  const canvas = createCanvas();
+  const game = new TowerDefenseGame(canvas, {
+    runtime: createRuntime({ tutorialSeen: true }),
+    pixelRatio: 1,
+  });
+  const assets = createAssetStore();
+  game.setAssetStore(assets);
+  game.render();
+  click(game, canvas, hitCenter(game, 'start-story'));
+  game.render();
+  click(game, canvas, hitCenter(game, 'select-stage-1'));
+  game.render();
+
+  const purchaseHits = ['purchase-melee', 'purchase-ranged', 'purchase-turret']
+    .map((id) => game.hits.find((hit) => hit.id === id));
+  purchaseHits.forEach((hit) => {
+    assert.ok(hit.y >= 1096, `${hit.id} is in the portrait card dock`);
+    assert.ok(hit.y + hit.height <= 1280, `${hit.id} stays inside the portrait view`);
+  });
+  const padZero = game.hits.find(({ id }) => id === 'pad-0');
+  assert.ok(padZero.y > 200 && padZero.y + padZero.height < 900,
+    'soldier cells stay in the middle field');
+  const slotId = game.state.turretSlots[0].id;
+  const turretSlot = game.hits.find(({ id }) => id === slotId);
+  assert.ok(turretSlot.y > 850 && turretSlot.y + turretSlot.height < 1020,
+    'turret construction sits directly above the lower fortress');
+  assert.ok(assets.requests.includes('town-soft-core'));
+  assert.ok(assets.requests.includes('building-gel-foundation'));
+  assert.ok(assets.requests.includes('turret-gel-mortar'));
+
+  drag(game, canvas, hitCenter(game, 'purchase-melee'), hitCenter(game, 'pad-0'));
+  assert.equal(game.state.towers.length, 1);
+  assert.equal(game.state.towers[0].squadType, 'melee');
+  assert.equal(game.state.currency, 400);
+
+  game.render();
+  drag(game, canvas, hitCenter(game, 'purchase-turret'), hitCenter(game, slotId));
+  assert.equal(game.state.turrets.length, 1);
+  assert.equal(game.state.turrets[0].type, 'gel-mortar');
+  assert.equal(game.state.currency, 225);
+
+  game.render();
+  click(game, canvas, hitCenter(game, 'start-wave'));
+  canvas.context.calls.length = 0;
+  game.render();
+  const joystick = game.hits.find(({ id }) => id === 'hero-joystick');
+  const skill = game.hits.find(({ id }) => id === 'hero-skill');
+  assert.ok(joystick.enabled && joystick.y >= 1096);
+  assert.ok(skill.enabled && skill.y >= 1096);
+  assert.equal(game.hits.find(({ id }) => id === 'purchase-melee').enabled, false);
+  assert.ok(assets.requests.includes('ui-hero-joystick-base'));
+  assert.ok(assets.requests.includes('ui-hero-joystick-knob'));
+  assert.ok(assets.requests.includes('ui-hero-control-ring'));
+  assert.equal(canvas.context.calls.some(([kind, text]) => (
+    kind === 'fillText' && ['近战小队', '远程小队', '固定炮台'].includes(text)
+  )), false, 'purchase cards are hidden during combat');
+  game.dispose();
+});
+
+test('CSS coordinates map into the portrait view correctly at DPR 2 with letterboxing', () => {
+  const canvas = createCanvas({ left: 40, top: 30, width: 360, height: 800 });
   const game = new TowerDefenseGame(canvas, {
     runtime: createRuntime({ tutorialSeen: true }),
     pixelRatio: 2,
   });
 
   assert.equal(game.scale, 0.5);
-  assert.equal(game.offsetX, 80);
-  assert.equal(game.offsetY, 0);
-  assert.equal(canvas.width, 1600);
-  assert.equal(canvas.height, 720);
+  assert.equal(game.offsetX, 0);
+  assert.equal(game.offsetY, 80);
+  assert.equal(canvas.width, 720);
+  assert.equal(canvas.height, 1600);
 
   game.render();
   const logical = hitCenter(game, 'start-story');

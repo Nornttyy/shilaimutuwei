@@ -97,7 +97,7 @@ function createFakeWechatHost() {
       canvasCreations += 1;
       return nativeCanvas;
     },
-    getWindowInfo: () => ({ windowWidth: 1280, windowHeight: 720, pixelRatio: 2 }),
+    getWindowInfo: () => ({ windowWidth: 720, windowHeight: 1280, pixelRatio: 2 }),
     getDeviceInfo: () => ({ platform: 'android' }),
     getStorageSync: (key) => storage.get(key),
     setStorageSync: (key, value) => storage.set(key, value),
@@ -274,8 +274,8 @@ test('WeChat game bootstrap creates a canvas, starts frames, bridges touch, and 
   class FakeGame {
     constructor(canvas) {
       this.canvas = canvas;
-      canvas.width = 2560;
-      canvas.height = 1440;
+      canvas.width = 1440;
+      canvas.height = 2560;
       for (const name of ['pointerdown', 'pointermove', 'pointerup', 'pointercancel']) {
         canvas.addEventListener(name, (event) => pointerEvents.push([
           name,
@@ -307,10 +307,10 @@ test('WeChat game bootstrap creates a canvas, starts frames, bridges touch, and 
   assert.equal(starts, 1);
   assert.equal(boot.canvas.getContext('2d'), host.context);
   assert.deepEqual(boot.canvas.getBoundingClientRect(), {
-    x: 0, y: 0, left: 0, top: 0, right: 1280, bottom: 720, width: 1280, height: 720,
+    x: 0, y: 0, left: 0, top: 0, right: 720, bottom: 1280, width: 720, height: 1280,
   });
-  assert.equal(host.nativeCanvas.width, 2560);
-  assert.equal(host.nativeCanvas.height, 1440);
+  assert.equal(host.nativeCanvas.width, 1440);
+  assert.equal(host.nativeCanvas.height, 2560);
   assert.equal(host.fireFrame(32), true);
   assert.deepEqual(frameTimes, [32]);
 
@@ -536,8 +536,8 @@ test('WeChat loading canvas animates at native DPR while the game does not yet e
   });
   assert.equal(constructions, 0);
   assert.equal(boot.loadingState.state, 'loading');
-  assert.equal(host.nativeCanvas.width, 2560);
-  assert.equal(host.nativeCanvas.height, 1440);
+  assert.equal(host.nativeCanvas.width, 1440);
+  assert.equal(host.nativeCanvas.height, 2560);
   assert.ok(calls.some(([name, ratio]) => name === 'setTransform' && ratio === 2));
   assert.ok(calls.some(([name]) => name === 'bezierCurveTo'));
   assert.ok(calls.some(([name]) => name === 'fillText'));
@@ -1131,6 +1131,8 @@ test('WeChat build emits and executes a playable canvas bootstrap with zero pack
   assert.ok(manifest.assets.every(({ url }) => /\?v=[a-f0-9]{12}$/.test(url)));
   assert.ok(manifest.assets.every(({ bytes, sha256 }) => bytes > 0 && /^[a-f0-9]{64}$/.test(sha256)));
 
+  const gameConfig = JSON.parse(await readFile(path.join(output, 'game.json'), 'utf8'));
+  assert.equal(gameConfig.deviceOrientation, 'portrait');
   const project = JSON.parse(await readFile(path.join(output, 'project.config.json'), 'utf8'));
   assert.equal(project.appid, 'wx-test-app');
   assert.equal(project.compileType, 'game');

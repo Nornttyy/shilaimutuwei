@@ -2,7 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { deflateSync } from 'node:zlib';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import {
+  access,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -52,16 +59,59 @@ test('the workspace asset manifest strictly validates all 130 finished PNGs', as
   assert.deepEqual(result.warnings, [], formatErrors(result));
 });
 
-test('generated evolution atlases contain nine transparent structural replacement cells', async () => {
+test('generated v3 armor atlases contain nine sparse transparent physical layers', async () => {
   const atlasPaths = [
-    'assets/generated/evolution-components/shell-evolution-components-v2.png',
-    'assets/generated/evolution-components/needle-evolution-components-v2.png',
-    'assets/generated/evolution-components/bubble-evolution-components-v2.png',
-    'assets/generated/evolution-components/sprout-evolution-components-v2.png',
+    'assets/generated/evolution-armor/shell-evolution-armor-v3.png',
+    'assets/generated/evolution-armor/needle-evolution-armor-v3.png',
+    'assets/generated/evolution-armor/bubble-evolution-armor-v3.png',
+    'assets/generated/evolution-armor/sprout-evolution-armor-v3.png',
   ];
   const script = [
     'import json, sys',
+    'from collections import deque',
     'from PIL import Image',
+    'def enclosed_transparent_pixels(mask):',
+    '    width = height = 256',
+    '    reached = [False] * (width * height)',
+    '    queue = deque()',
+    '    def enqueue(x, y):',
+    '      index = y * width + x',
+    '      if not mask[index] and not reached[index]:',
+    '        reached[index] = True',
+    '        queue.append((x, y))',
+    '    for x in range(width):',
+    '      enqueue(x, 0)',
+    '      enqueue(x, height - 1)',
+    '    for y in range(height):',
+    '      enqueue(0, y)',
+    '      enqueue(width - 1, y)',
+    '    while queue:',
+    '      x, y = queue.popleft()',
+    '      if x > 0: enqueue(x - 1, y)',
+    '      if x + 1 < width: enqueue(x + 1, y)',
+    '      if y > 0: enqueue(x, y - 1)',
+    '      if y + 1 < height: enqueue(x, y + 1)',
+    '    return sum(not opaque and not reached[index] for index, opaque in enumerate(mask))',
+    'def opaque_component_count(mask):',
+    '    width = height = 256',
+    '    reached = [False] * (width * height)',
+    '    component_sizes = []',
+    '    for start, opaque in enumerate(mask):',
+    '      if not opaque or reached[start]: continue',
+    '      reached[start] = True',
+    '      queue = deque([(start % width, start // width)])',
+    '      size = 0',
+    '      while queue:',
+    '        x, y = queue.popleft()',
+    '        size += 1',
+    '        for next_x, next_y in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):',
+    '          if next_x < 0 or next_x >= width or next_y < 0 or next_y >= height: continue',
+    '          index = next_y * width + next_x',
+    '          if mask[index] and not reached[index]:',
+    '            reached[index] = True',
+    '            queue.append((next_x, next_y))',
+    '      component_sizes.append(size)',
+    '    return sum(size >= 32 for size in component_sizes)',
     'result = {}',
     'for path in sys.argv[1:]:',
     '    source = Image.open(path)',
@@ -81,7 +131,8 @@ test('generated evolution atlases contain nine transparent structural replacemen
     '        boundary.extend(alpha.crop((0, 253, 256, 256)).getdata())',
     '        boundary.extend(alpha.crop((0, 0, 3, 256)).getdata())',
     '        boundary.extend(alpha.crop((253, 0, 256, 256)).getdata())',
-    '        cells.append({"row": row, "column": column, "strong": sum(mask), "max": max(pixels), "boundaryMax": max(boundary)})',
+    '        strong = sum(mask)',
+    '        cells.append({"row": row, "column": column, "strong": strong, "occupancy": strong / (256 * 256), "max": max(pixels), "boundaryMax": max(boundary), "enclosedTransparent": enclosed_transparent_pixels(mask), "opaqueComponents": opaque_component_count(mask)})',
     '    rowDifferences = []',
     '    for column in range(3):',
     '      for row in range(2):',
@@ -102,42 +153,69 @@ test('generated evolution atlases contain nine transparent structural replacemen
     assert.equal(atlas.mode, 'RGBA', atlasPath);
     assert.equal(atlas.cells.length, 9, atlasPath);
     atlas.cells.forEach((cell) => {
-      assert.ok(cell.strong > 4000,
+      assert.ok(cell.occupancy >= 0.02,
         `${atlasPath} row ${cell.row} column ${cell.column} is visibly authored`);
+      assert.ok(cell.occupancy <= 0.42,
+        `${atlasPath} row ${cell.row} column ${cell.column} remains sparse armor, not a body replacement`);
       assert.equal(cell.max, 255,
         `${atlasPath} row ${cell.row} column ${cell.column} reaches full opacity`);
       assert.ok(cell.boundaryMax <= 1,
         `${atlasPath} row ${cell.row} column ${cell.column} has transparent cell margins`);
+      if (atlasPath.includes('/bubble-')) {
+        assert.ok(cell.enclosedTransparent <= 32,
+          `${atlasPath} row ${cell.row} column ${cell.column} cannot contain a closed second ring`);
+        if (cell.column === 2) {
+          assert.ok(cell.opaqueComponents >= 2,
+            `${atlasPath} row ${cell.row} ring armor must remain separated clamps`);
+        }
+      }
     });
     atlas.rowDifferences.forEach(({ column, rows, difference, ratio }) => {
-      assert.ok(difference > 2500,
+      assert.ok(difference >= 600,
         `${atlasPath} column ${column} rows ${rows.join('/')} changes its alpha silhouette`);
-      assert.ok(ratio >= 0.1,
-        `${atlasPath} column ${column} rows ${rows.join('/')} is a structural change, not recolor`);
+      assert.ok(ratio >= 0.12,
+        `${atlasPath} column ${column} rows ${rows.join('/')} physically changes, not merely recolors`);
     });
   }
 });
 
-test('runtime registers only the four v2 structural evolution atlases', () => {
-  const componentKeys = [
-    'evolution-shell-components-v2',
-    'evolution-needle-components-v2',
-    'evolution-bubble-components-v2',
-    'evolution-sprout-components-v2',
+test('runtime registers only the four v3 armor atlases and removes every v2 path', async () => {
+  const armorAssets = [
+    ['evolution-shell-armor-v3', 'evolution-armor/shell-evolution-armor-v3.png'],
+    ['evolution-needle-armor-v3', 'evolution-armor/needle-evolution-armor-v3.png'],
+    ['evolution-bubble-armor-v3', 'evolution-armor/bubble-evolution-armor-v3.png'],
+    ['evolution-sprout-armor-v3', 'evolution-armor/sprout-evolution-armor-v3.png'],
   ];
   const legacyKeys = [
     'evolution-shell-atlas-v1',
     'evolution-needle-atlas-v1',
     'evolution-bubble-atlas-v1',
     'evolution-sprout-atlas-v1',
+    'evolution-shell-components-v2',
+    'evolution-needle-components-v2',
+    'evolution-bubble-components-v2',
+    'evolution-sprout-components-v2',
+  ];
+  const legacyPaths = [
+    'assets/generated/evolution-components/shell-evolution-components-v2.png',
+    'assets/generated/evolution-components/needle-evolution-components-v2.png',
+    'assets/generated/evolution-components/bubble-evolution-components-v2.png',
+    'assets/generated/evolution-components/sprout-evolution-components-v2.png',
   ];
 
-  for (const key of componentKeys) {
+  for (const [key, relativePath] of armorAssets) {
     assert.equal(typeof ASSET_PATHS[key], 'string', key);
+    assert.equal(ASSET_PATHS[key].includes(`/assets/generated/${relativePath}`), true, key);
     assert.equal(ALL_RUNTIME_ASSET_KEYS.includes(key), true, key);
     assert.equal(TOWER_DEFENSE_ASSET_KEYS.includes(key), true, key);
     assert.equal(CRITICAL_STARTUP_ASSET_KEYS.includes(key), true, key);
     assert.equal(WECHAT_CRITICAL_ASSET_KEYS.includes(key), true, key);
+    const specEntry = PROJECT_ASSET_SPEC.assets.find(({ id }) => id === key);
+    assert.equal(specEntry?.path, `assets/generated/${relativePath}`, key);
+    assert.equal(specEntry?.category, 'evolution-armor', key);
+    assert.match(specEntry?.brief || '', /独立物理盔甲/, `${key} documents additive armor`);
+    assert.match(specEntry?.brief || '', /不得.*替换/, `${key} preserves the original character`);
+    assert.match(specEntry?.brief || '', /禁止.*写实纹理/, `${key} forbids realistic texture`);
   }
   for (const key of legacyKeys) {
     assert.equal(ASSET_PATHS[key], undefined, key);
@@ -145,6 +223,16 @@ test('runtime registers only the four v2 structural evolution atlases', () => {
     assert.equal(TOWER_DEFENSE_ASSET_KEYS.includes(key), false, key);
     assert.equal(CRITICAL_STARTUP_ASSET_KEYS.includes(key), false, key);
     assert.equal(WECHAT_CRITICAL_ASSET_KEYS.includes(key), false, key);
+    assert.equal(PROJECT_ASSET_SPEC.assets.some(({ id }) => id === key), false, key);
+  }
+  for (const legacyPath of legacyPaths) {
+    assert.equal(PROJECT_ASSET_SPEC.assets.some(({ path: assetPath }) => assetPath === legacyPath), false,
+      legacyPath);
+    await assert.rejects(
+      access(path.join(PROJECT_ROOT, legacyPath)),
+      (error) => error?.code === 'ENOENT',
+      `${legacyPath} must be physically removed`,
+    );
   }
 });
 

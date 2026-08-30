@@ -875,20 +875,22 @@ export function slimeEvolutionProfile(variant, star = 1) {
   return Object.freeze({
     type,
     level,
-    surfaceLayers: 0,
+    surfaceLayers: level >= 2 ? 3 : 0,
     internalOnly: false,
-    changesSilhouette: level >= 2,
-    componentReplacements: level >= 2 ? 3 : 0,
+    changesSilhouette: false,
+    componentReplacements: 0,
+    armorLayers: level >= 2 ? 3 : 0,
+    basePartsPreserved: true,
     addsVolume: false,
     mainRings: type === 'bubble' ? 1 : 0,
   });
 }
 
-const SLIME_EVOLUTION_COMPONENT_ATLAS_KEY = Object.freeze({
-  shell: 'evolution-shell-components-v2',
-  needle: 'evolution-needle-components-v2',
-  bubble: 'evolution-bubble-components-v2',
-  sprout: 'evolution-sprout-components-v2',
+const SLIME_EVOLUTION_ARMOR_ATLAS_KEY = Object.freeze({
+  shell: 'evolution-shell-armor-v3',
+  needle: 'evolution-needle-armor-v3',
+  bubble: 'evolution-bubble-armor-v3',
+  sprout: 'evolution-sprout-armor-v3',
 });
 
 const SLIME_EVOLUTION_ATLAS_SIZE = 768;
@@ -900,75 +902,73 @@ function evolutionRect(x, y, width, height) {
   return Object.freeze({ x, y, width, height });
 }
 
-function evolutionSlot(id, replaces, bone, z, bindRect) {
+function evolutionArmorSlot(id, bone, z, bindRect) {
   return Object.freeze({
     id,
-    replaces: Object.freeze([...replaces]),
     bone,
     z,
     bindRect: evolutionRect(bindRect.x, bindRect.y, bindRect.width, bindRect.height),
   });
 }
 
-const SLIME_EVOLUTION_COMPONENT_SLOTS = Object.freeze({
+// Every slot is an additive, physical armour cutout. The original rig parts
+// remain present at every star, so upgrading never redraws the slime, its
+// expression, or its signature accessory. Z values place each guard directly
+// above the authored part it protects while keeping body armour below the
+// independent eyes and mouth layers.
+const SLIME_EVOLUTION_ARMOR_SLOTS = Object.freeze({
   shell: Object.freeze([
-    evolutionSlot('rear', ['shellBack'], 'shellBack', -10, {
+    evolutionArmorSlot('rear', 'shellBack', -9, {
       x: -91, y: -120, width: 124, height: 110,
     }),
-    evolutionSlot('body', ['body'], 'body', 0, {
-      x: -51, y: -70, width: 102, height: 70,
+    evolutionArmorSlot('body', 'body', 4, {
+      x: -48, y: -24, width: 96, height: 24,
     }),
-    evolutionSlot('front', ['shellFront'], 'shellFront', 5, {
-      x: -44, y: -92, width: 80, height: 64,
+    evolutionArmorSlot('front', 'shellFront', 6, {
+      x: -54, y: -91, width: 58, height: 46,
     }),
   ]),
   needle: Object.freeze([
-    evolutionSlot('rear', [
-      'needleBottom',
-      'needleLower',
-      'needleMid',
-      'needleMidUpper',
-      'needleUpper',
-      'needleTall',
-      'needleRight',
-    ], 'needles', -70, {
+    evolutionArmorSlot('rear', 'needles', -5, {
       x: -77.038, y: -113.835, width: 118.155, height: 106.126,
     }),
-    evolutionSlot('body', ['body'], 'body', 0, {
-      x: -51, y: -71.228, width: 102, height: 71.25,
+    evolutionArmorSlot('body', 'body', 5, {
+      x: -46, y: -22, width: 92, height: 22,
     }),
-    evolutionSlot('front', ['front'], 'front', 30, {
+    evolutionArmorSlot('front', 'front', 31, {
       x: -22.38, y: -32.709, width: 28.75, height: 22.75,
     }),
   ]),
   bubble: Object.freeze([
-    evolutionSlot('rear', ['bubbleLarge', 'bubbleSmall', 'bubbleMedium'], 'bubbles', -22, {
+    evolutionArmorSlot('rear', 'bubbles', -23, {
       x: 3, y: -104, width: 52, height: 31,
     }),
-    evolutionSlot('body', ['body'], 'body', 0, {
-      x: -51, y: -81, width: 102, height: 89,
+    evolutionArmorSlot('body', 'body', 5, {
+      x: -47, y: -24, width: 94, height: 32,
     }),
-    evolutionSlot('front', ['ring'], 'ring', 30, {
+    // The base ring stays in the rig. This cell contains disconnected clamp
+    // plates only, never another closed ring.
+    evolutionArmorSlot('front', 'ring', 31, {
       x: -58, y: -30, width: 116, height: 50,
     }),
   ]),
   sprout: Object.freeze([
-    evolutionSlot('rear', ['leafLeft', 'leafRight', 'stemCollar'], 'sprout', 30, {
-      x: -41.058, y: -123.848, width: 99.188, height: 49.048,
+    evolutionArmorSlot('rear', 'sprout', 33, {
+      x: -31, y: -112, width: 76, height: 38,
     }),
-    evolutionSlot('body', ['body'], 'body', 0, {
-      x: -51, y: -84.079, width: 102, height: 84,
+    evolutionArmorSlot('body', 'body', 5, {
+      x: -47, y: -26.079, width: 94, height: 26,
     }),
-    evolutionSlot('front', ['pack'], 'pack', 40, {
-      x: 6.812, y: -55.848, width: 60, height: 53.5,
+    evolutionArmorSlot('front', 'pack', 41, {
+      x: 12.812, y: -52.348, width: 48, height: 43,
     }),
   ]),
 });
 
-function createSlimeEvolutionComponentLayout(variant, star) {
+function createSlimeEvolutionArmorLayout(variant, star) {
   const type = ['shell', 'needle', 'bubble', 'sprout'].includes(variant) ? variant : 'shell';
   const level = clamp(Math.floor(safeNumber(star, 1)), 1, 4);
-  const key = SLIME_EVOLUTION_COMPONENT_ATLAS_KEY[type];
+  const key = SLIME_EVOLUTION_ARMOR_ATLAS_KEY[type];
   if (level <= 1) {
     return Object.freeze({
       type,
@@ -984,7 +984,7 @@ function createSlimeEvolutionComponentLayout(variant, star) {
 
   const row = level - 2;
   const cells = {};
-  const slots = SLIME_EVOLUTION_COMPONENT_SLOTS[type].map((slot, column) => {
+  const slots = SLIME_EVOLUTION_ARMOR_SLOTS[type].map((slot, column) => {
     const sourceRect = evolutionRect(
       column * SLIME_EVOLUTION_CELL_SIZE,
       row * SLIME_EVOLUTION_CELL_SIZE,
@@ -994,7 +994,7 @@ function createSlimeEvolutionComponentLayout(variant, star) {
     cells[slot.id] = sourceRect;
     return Object.freeze({
       ...slot,
-      partId: `evolution-${type}-${slot.id}-${level}-star`,
+      partId: `armor-${type}-${slot.id}-${level}-star`,
       sourceRect,
     });
   });
@@ -1010,25 +1010,29 @@ function createSlimeEvolutionComponentLayout(variant, star) {
   });
 }
 
-const SLIME_EVOLUTION_COMPONENT_LAYOUTS = Object.freeze(Object.fromEntries(
-  Object.keys(SLIME_EVOLUTION_COMPONENT_ATLAS_KEY).map((type) => [
+const SLIME_EVOLUTION_ARMOR_LAYOUTS = Object.freeze(Object.fromEntries(
+  Object.keys(SLIME_EVOLUTION_ARMOR_ATLAS_KEY).map((type) => [
     type,
     Object.freeze(Object.fromEntries(
       [1, 2, 3, 4].map((level) => [
         level,
-        createSlimeEvolutionComponentLayout(type, level),
+        createSlimeEvolutionArmorLayout(type, level),
       ]),
     )),
   ]),
 ));
 
-export function slimeEvolutionComponentLayout(variant, star = 1) {
+export function slimeEvolutionArmorLayout(variant, star = 1) {
   const type = ['shell', 'needle', 'bubble', 'sprout'].includes(variant) ? variant : 'shell';
   const level = clamp(Math.floor(safeNumber(star, 1)), 1, 4);
-  return SLIME_EVOLUTION_COMPONENT_LAYOUTS[type][level];
+  return SLIME_EVOLUTION_ARMOR_LAYOUTS[type][level];
 }
 
-function resolveSlimeEvolutionComponentAtlas(assetStore, layout) {
+// Compatibility alias for callers that consumed the earlier layout helper.
+// The returned v3 slots are additive armour and never contain `replaces`.
+export const slimeEvolutionComponentLayout = slimeEvolutionArmorLayout;
+
+function resolveSlimeEvolutionArmorAtlas(assetStore, layout) {
   if (layout.level <= 1 || !assetStore || typeof assetStore.useOrFallback !== 'function') {
     return null;
   }
@@ -1039,7 +1043,7 @@ function resolveSlimeEvolutionComponentAtlas(assetStore, layout) {
     const height = Number(asset?.naturalHeight || asset?.height);
     if (width < SLIME_EVOLUTION_ATLAS_SIZE || height < SLIME_EVOLUTION_ATLAS_SIZE) {
       throw new TypeError(
-        `Evolution component atlas ${key} must be at least ${SLIME_EVOLUTION_ATLAS_SIZE}x${SLIME_EVOLUTION_ATLAS_SIZE}.`,
+        `Evolution armor atlas ${key} must be at least ${SLIME_EVOLUTION_ATLAS_SIZE}x${SLIME_EVOLUTION_ATLAS_SIZE}.`,
       );
     }
     atlas = asset;
@@ -1047,21 +1051,20 @@ function resolveSlimeEvolutionComponentAtlas(assetStore, layout) {
   return atlas;
 }
 
-const EVOLVED_RIG_ASSET_CACHE = new WeakMap();
+const ARMORED_RIG_ASSET_CACHE = new WeakMap();
 
-function evolvedSlimeRigAsset(rigAsset, atlas, layout) {
+function armoredSlimeRigAsset(rigAsset, atlas, layout) {
   if (!rigAsset || !atlas || !Array.isArray(rigAsset.parts) || layout.level <= 1) return null;
-  let cache = EVOLVED_RIG_ASSET_CACHE.get(rigAsset);
+  let cache = ARMORED_RIG_ASSET_CACHE.get(rigAsset);
   if (!cache) {
     cache = new Map();
-    EVOLVED_RIG_ASSET_CACHE.set(rigAsset, cache);
+    ARMORED_RIG_ASSET_CACHE.set(rigAsset, cache);
   }
   const cacheKey = `${layout.type}:${layout.level}`;
   const cached = cache.get(cacheKey);
   if (cached?.atlas === atlas) return cached.rigAsset;
 
-  const replacedPartIds = new Set(layout.slots.flatMap((slot) => slot.replaces));
-  const parts = rigAsset.parts.filter((part) => !replacedPartIds.has(part.id));
+  const parts = [...rigAsset.parts];
   for (const slot of layout.slots) {
     parts.push(Object.freeze({
       id: slot.partId,
@@ -1074,12 +1077,12 @@ function evolvedSlimeRigAsset(rigAsset, atlas, layout) {
     }));
   }
   parts.sort((left, right) => safeNumber(left.z, 0) - safeNumber(right.z, 0));
-  const evolved = Object.freeze({
+  const armored = Object.freeze({
     ...rigAsset,
     parts: Object.freeze(parts),
   });
-  cache.set(cacheKey, Object.freeze({ atlas, rigAsset: evolved }));
-  return evolved;
+  cache.set(cacheKey, Object.freeze({ atlas, rigAsset: armored }));
+  return armored;
 }
 
 /**
@@ -1105,14 +1108,14 @@ export function drawSlime(ctx, x, y, size, variantOrOptions = 'shell', maybeOpti
   const ownerId = SLIME_OWNER_BY_VARIANT[variant];
   const requestedFacing = resolveCharacterGameplayFacing(ownerId, options.facing);
   const evolution = slimeEvolutionProfile(variant, options.star);
-  const evolutionLayout = slimeEvolutionComponentLayout(variant, evolution.level);
-  const evolutionAtlas = resolveSlimeEvolutionComponentAtlas(
+  const evolutionLayout = slimeEvolutionArmorLayout(variant, evolution.level);
+  const evolutionAtlas = resolveSlimeEvolutionArmorAtlas(
     options.assetStore,
     evolutionLayout,
   );
   const rigAsset = evolution.level <= 1
     ? options.rigAsset
-    : evolvedSlimeRigAsset(options.rigAsset, evolutionAtlas, evolutionLayout);
+    : armoredSlimeRigAsset(options.rigAsset, evolutionAtlas, evolutionLayout);
 
   drawSelectionRing(ctx, x, y, size, options);
   drawSoftShadow(ctx, x, y + size * 0.015, size, {

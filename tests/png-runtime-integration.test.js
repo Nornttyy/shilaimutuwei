@@ -16,7 +16,8 @@ const offscreenState = {
   clearCount: 0,
   failLayerId: null,
   layerDraws: [],
-  componentDraws: [],
+  layerDrawDetails: [],
+  armorDraws: [],
 };
 
 function createOffscreenContext() {
@@ -44,8 +45,8 @@ function createOffscreenContext() {
       offscreenState.clearCount += 1;
     },
     drawImage(image, ...rect) {
-      if (String(image.kind || '').startsWith('evolution-components:')) {
-        offscreenState.componentDraws.push({
+      if (String(image.kind || '').startsWith('evolution-armor:')) {
+        offscreenState.armorDraws.push({
           kind: image.kind,
           rect,
           composite: this.globalCompositeOperation,
@@ -53,6 +54,12 @@ function createOffscreenContext() {
         return;
       }
       offscreenState.layerDraws.push(image.id);
+      offscreenState.layerDrawDetails.push({
+        id: image.id,
+        image,
+        rect,
+        composite: this.globalCompositeOperation,
+      });
       if (image.id === offscreenState.failLayerId) {
         throw new Error(`rejected layer ${image.id}`);
       }
@@ -78,7 +85,7 @@ globalThis.OffscreenCanvas = FakeOffscreenCanvas;
 const {
   drawMonster,
   drawSlime,
-  slimeEvolutionComponentLayout,
+  slimeEvolutionArmorLayout,
   slimeEvolutionProfile,
 } = await import('../src/draw.js');
 const { SlimeGame } = await import('../src/game.js');
@@ -92,7 +99,8 @@ function resetOffscreen() {
   offscreenState.clearCount = 0;
   offscreenState.failLayerId = null;
   offscreenState.layerDraws.length = 0;
-  offscreenState.componentDraws.length = 0;
+  offscreenState.layerDrawDetails.length = 0;
+  offscreenState.armorDraws.length = 0;
 }
 
 function readyBundle(ownerId, { missing = null, canonicalFacing = null, rigId = null } = {}) {
@@ -203,46 +211,37 @@ const CHARACTER_DIRECTION_CASES = [
 ];
 
 const EVOLUTION_CASES = [
-  ['survivor-shell-shell', 'shell', 'evolution-shell-components-v2'],
-  ['survivor-crystal-pin', 'needle', 'evolution-needle-components-v2'],
-  ['survivor-bubble-float', 'bubble', 'evolution-bubble-components-v2'],
-  ['survivor-moss-sprout', 'sprout', 'evolution-sprout-components-v2'],
+  ['survivor-shell-shell', 'shell', 'evolution-shell-armor-v3'],
+  ['survivor-crystal-pin', 'needle', 'evolution-needle-armor-v3'],
+  ['survivor-bubble-float', 'bubble', 'evolution-bubble-armor-v3'],
+  ['survivor-moss-sprout', 'sprout', 'evolution-sprout-armor-v3'],
 ];
 
-const EVOLUTION_REPLACEMENTS = Object.freeze({
-  shell: Object.freeze({
-    rear: ['shellBack'],
-    body: ['body'],
-    front: ['shellFront'],
-  }),
-  needle: Object.freeze({
-    rear: [
-      'needleBottom', 'needleLower', 'needleMid', 'needleMidUpper',
-      'needleUpper', 'needleTall', 'needleRight',
-    ],
-    body: ['body'],
-    front: ['front'],
-  }),
-  bubble: Object.freeze({
-    rear: ['bubbleLarge', 'bubbleSmall', 'bubbleMedium'],
-    body: ['body'],
-    front: ['ring'],
-  }),
-  sprout: Object.freeze({
-    rear: ['leafLeft', 'leafRight', 'stemCollar'],
-    body: ['body'],
-    front: ['pack'],
-  }),
-});
+const IDENTITY_PROTECTED_PART_IDS = Object.freeze(['body', 'eyes', 'mouth']);
 
 function unionBindRects(ownerId, partIds) {
   const parts = MANIFEST.rigs[ownerId].parts.filter(({ id }) => partIds.includes(id));
-  assert.equal(parts.length, partIds.length, `${ownerId}: every replacement part exists`);
+  assert.equal(parts.length, partIds.length, `${ownerId}: every base part exists`);
   const left = Math.min(...parts.map(({ bindRect }) => bindRect.x));
   const top = Math.min(...parts.map(({ bindRect }) => bindRect.y));
   const right = Math.max(...parts.map(({ bindRect }) => bindRect.x + bindRect.width));
   const bottom = Math.max(...parts.map(({ bindRect }) => bindRect.y + bindRect.height));
   return { x: left, y: top, width: right - left, height: bottom - top };
+}
+
+function detailForLayer(id) {
+  const matches = offscreenState.layerDrawDetails.filter((detail) => detail.id === id);
+  assert.equal(matches.length, 1, `${id} is drawn exactly once`);
+  return matches[0];
+}
+
+function expressionLayerIds(ownerId, expression) {
+  return MANIFEST.rigs[ownerId].parts.map(({ id }) => {
+    if (id === 'eyes' && expression === 'blink') return `${ownerId}:eyes:blink`;
+    if (id === 'eyes' && expression === 'attack') return `${ownerId}:eyes:attack`;
+    if (id === 'mouth' && expression === 'attack') return `${ownerId}:mouth:open`;
+    return `${ownerId}:${id}`;
+  });
 }
 
 function rectContains(outer, inner, epsilon = 1e-6) {
@@ -252,26 +251,34 @@ function rectContains(outer, inner, epsilon = 1e-6) {
     && outer.y + outer.height + epsilon >= inner.y + inner.height;
 }
 
-test('slime evolution profiles change structure without increasing the actor volume', () => {
+test('slime evolution profiles preserve the base rig and add only three armor parts', () => {
   for (const type of ['shell', 'needle', 'bubble', 'sprout']) {
     for (let star = 1; star <= 4; star += 1) {
       const profile = slimeEvolutionProfile(type, star);
       assert.equal(profile.type, type);
       assert.equal(profile.level, star);
+      assert.equal(profile.basePartsPreserved, true);
+      assert.equal(profile.armorLayers, star >= 2 ? 3 : 0);
+      assert.equal(profile.surfaceLayers, star >= 2 ? 3 : 0);
+      assert.equal(profile.componentReplacements, 0);
       assert.equal(profile.addsVolume, false);
-      assert.equal(profile.changesSilhouette, star >= 2);
+      assert.equal(profile.changesSilhouette, false);
       assert.equal(profile.mainRings, type === 'bubble' ? 1 : 0);
       assert.equal(Object.isFrozen(profile), true);
     }
   }
 });
 
-test('component evolution has no legacy decal atlas or source-atop compositing path', () => {
+test('skeletal armor has no legacy decal, v2 replacement, or source-atop path', () => {
   for (const legacyKey of [
     'evolution-shell-atlas-v1',
     'evolution-needle-atlas-v1',
     'evolution-bubble-atlas-v1',
     'evolution-sprout-atlas-v1',
+    'evolution-shell-components-v2',
+    'evolution-needle-components-v2',
+    'evolution-bubble-components-v2',
+    'evolution-sprout-components-v2',
   ]) assert.equal(DRAW_SOURCE.includes(legacyKey), false, legacyKey);
   assert.equal(DRAW_SOURCE.includes('source-atop'), false);
   assert.equal(DRAW_SOURCE.includes('slimeEvolutionDecalLayout'), false);
@@ -288,11 +295,11 @@ test('placed tower art uses one fixed 90px size at every star', () => {
   );
 });
 
-test('component layouts map each exact star row to three fixed skeletal replacement slots', () => {
+test('armor layouts map each exact star row to three fixed non-replacement skeletal slots', () => {
   for (const [ownerId, type, key] of EVOLUTION_CASES) {
     const ownerPartIds = MANIFEST.rigs[ownerId].parts.map(({ id }) => id);
     const originalActorBounds = unionBindRects(ownerId, ownerPartIds);
-    const baseLayout = slimeEvolutionComponentLayout(type, 1);
+    const baseLayout = slimeEvolutionArmorLayout(type, 1);
     assert.equal(baseLayout.type, type);
     assert.equal(baseLayout.level, 1);
     assert.equal(baseLayout.key, key);
@@ -307,7 +314,7 @@ test('component layouts map each exact star row to three fixed skeletal replacem
 
     let fixedBindRects = null;
     for (let star = 2; star <= 4; star += 1) {
-      const layout = slimeEvolutionComponentLayout(type, star);
+      const layout = slimeEvolutionArmorLayout(type, star);
       const row = star - 2;
       assert.equal(layout.type, type);
       assert.equal(layout.level, star);
@@ -315,26 +322,29 @@ test('component layouts map each exact star row to three fixed skeletal replacem
       assert.equal(layout.atlasSize, 768);
       assert.equal(layout.cellSize, 256);
       assert.equal(layout.row, row);
-      assert.deepEqual(layout.cells, {
-        rear: { x: 0, y: row * 256, width: 256, height: 256 },
-        body: { x: 256, y: row * 256, width: 256, height: 256 },
-        front: { x: 512, y: row * 256, width: 256, height: 256 },
-      });
-      assert.deepEqual(layout.slots.map(({ id }) => id), ['rear', 'body', 'front']);
+      assert.equal(layout.slots.length, 3);
+      assert.equal(new Set(layout.slots.map(({ id }) => id)).size, 3);
       assert.equal(new Set(layout.slots.map(({ partId }) => partId)).size, 3);
 
-      for (const slot of layout.slots) {
-        assert.equal(slot.partId, `evolution-${type}-${slot.id}-${star}-star`);
-        assert.deepEqual(slot.replaces, EVOLUTION_REPLACEMENTS[type][slot.id]);
-        assert.deepEqual(slot.sourceRect, layout.cells[slot.id]);
-        const replacedBounds = unionBindRects(ownerId, slot.replaces);
-        assert.equal(rectContains(slot.bindRect, replacedBounds), true,
-          `${type}.${slot.id} covers the original structural parts`);
+      for (const [column, slot] of layout.slots.entries()) {
+        assert.equal(slot.partId, `armor-${type}-${slot.id}-${star}-star`);
+        assert.equal(Object.hasOwn(slot, 'replaces'), false,
+          `${type}.${slot.id} is additive armor and cannot replace a base part`);
+        assert.deepEqual(slot.sourceRect, {
+          x: column * 256,
+          y: row * 256,
+          width: 256,
+          height: 256,
+        });
         assert.equal(rectContains(originalActorBounds, slot.bindRect), true,
           `${type}.${slot.id} stays inside the original actor volume`);
-        assert.ok(!slot.replaces.includes('eyes') && !slot.replaces.includes('mouth'));
+        assert.equal(ownerPartIds.includes(slot.partId), false);
+        assert.equal(typeof slot.bone, 'string');
+        assert.ok(slot.bone.length > 0);
+        assert.equal(['face', 'eyes', 'mouth'].includes(slot.bone), false,
+          `${type}.${slot.id} is a skeletal armor layer, never a face layer`);
+        assert.equal(Number.isFinite(slot.z), true);
         assert.equal(Object.isFrozen(slot), true);
-        assert.equal(Object.isFrozen(slot.replaces), true);
         assert.equal(Object.isFrozen(slot.bindRect), true);
         assert.equal(Object.isFrozen(slot.sourceRect), true);
       }
@@ -342,18 +352,25 @@ test('component layouts map each exact star row to three fixed skeletal replacem
       assert.equal(Object.isFrozen(layout.cells), true);
       assert.equal(Object.isFrozen(layout.slots), true);
 
-      const bindRects = layout.slots.map(({ id, bindRect }) => ({ id, ...bindRect }));
+      const bindRects = layout.slots.map(({ id, bone, z, bindRect }) => ({
+        id,
+        bone,
+        z,
+        ...bindRect,
+      }));
       if (fixedBindRects == null) fixedBindRects = bindRects;
-      assert.deepEqual(bindRects, fixedBindRects, `${type} uses fixed bind slots at every star`);
+      assert.deepEqual(bindRects, fixedBindRects,
+        `${type} uses fixed armor bones and bind slots at every star`);
     }
   }
 });
 
-test('each exact evolved star replaces base geometry with three component cells once', () => {
+test('each evolved star keeps every original rig part once and adds three armor layers', () => {
   for (const [ownerId, type, atlasKey] of EVOLUTION_CASES) {
     resetOffscreen();
     const baseRequests = [];
     const baseContext = createMainContext();
+    const rigAsset = readyBundle(ownerId);
     drawSlime(baseContext, 12, 18, 90, type, {
       animate: false,
       alpha: 0.7,
@@ -363,7 +380,7 @@ test('each exact evolved star replaces base geometry with three component cells 
       assetStore: {
         useOrFallback(key) { baseRequests.push(key); },
       },
-      rigAsset: readyBundle(ownerId),
+      rigAsset,
       requireLayeredRig: true,
     });
     assert.deepEqual(baseRequests, [], `${type} 1★ does not request an evolution atlas`);
@@ -372,7 +389,12 @@ test('each exact evolved star replaces base geometry with three component cells 
       MANIFEST.rigs[ownerId].parts.map(({ id }) => `${ownerId}:${id}`),
       `${type} 1★ uses every authored base part`,
     );
-    assert.equal(offscreenState.componentDraws.length, 0);
+    assert.equal(offscreenState.armorDraws.length, 0);
+    const baseLayerIds = [...offscreenState.layerDraws];
+    const protectedBaseDetails = new Map(IDENTITY_PROTECTED_PART_IDS.map((partId) => {
+      const id = `${ownerId}:${partId}`;
+      return [partId, detailForLayer(id)];
+    }));
     const baseMainScale = baseContext.calls.find(([method]) => method === 'scale');
     const baseComposite = baseContext.calls.find(([method, kind]) => (
       method === 'drawImage' && kind === 'rig-surface'
@@ -382,7 +404,7 @@ test('each exact evolved star replaces base geometry with three component cells 
       resetOffscreen();
       const requests = [];
       const atlas = {
-        kind: `evolution-components:${type}`,
+        kind: `evolution-armor:${type}`,
         width: 768,
         height: 768,
       };
@@ -401,16 +423,16 @@ test('each exact evolved star replaces base geometry with three component cells 
         time: 1.25,
         star,
         assetStore,
-        rigAsset: readyBundle(ownerId),
+        rigAsset,
         requireLayeredRig: true,
       });
 
       assert.deepEqual(requests, [atlasKey], `${type} requests its canonical atlas once`);
-      const layout = slimeEvolutionComponentLayout(type, star);
-      const componentDraws = offscreenState.componentDraws;
-      assert.equal(componentDraws.length, 3, `${type} ${star}★ draws exactly three replacements`);
+      const layout = slimeEvolutionArmorLayout(type, star);
+      const armorDraws = offscreenState.armorDraws;
+      assert.equal(armorDraws.length, 3, `${type} ${star}★ draws exactly three armor parts`);
       assert.deepEqual(
-        componentDraws.map(({ rect: [sx, sy, sw, sh] }) => ({
+        armorDraws.map(({ rect: [sx, sy, sw, sh] }) => ({
           x: sx, y: sy, width: sw, height: sh,
         })),
         [...layout.slots]
@@ -418,12 +440,23 @@ test('each exact evolved star replaces base geometry with three component cells 
           .map(({ sourceRect }) => sourceRect),
         `${type} ${star}★ draws only its own atlas row`,
       );
-      assert.ok(componentDraws.every(({ composite }) => composite === 'source-over'),
-        `${type} ${star}★ uses ordinary skeletal parts, not compositing decals`);
-      assert.deepEqual(offscreenState.layerDraws, [
-        `${ownerId}:eyes`,
-        `${ownerId}:mouth`,
-      ], `${type} ${star}★ retains each independent face layer exactly once`);
+      assert.ok(armorDraws.every(({ composite }) => composite === 'source-over'),
+        `${type} ${star}★ armor uses ordinary skeletal source-over parts`);
+      assert.deepEqual(offscreenState.layerDraws, baseLayerIds,
+        `${type} ${star}★ preserves every original rig layer in its original order`);
+      for (const layerId of baseLayerIds) {
+        assert.equal(offscreenState.layerDraws.filter((id) => id === layerId).length, 1,
+          `${type} ${star}★ keeps ${layerId} exactly once`);
+      }
+      for (const partId of IDENTITY_PROTECTED_PART_IDS) {
+        const baseDetail = protectedBaseDetails.get(partId);
+        const evolvedDetail = detailForLayer(`${ownerId}:${partId}`);
+        assert.equal(evolvedDetail.image, baseDetail.image,
+          `${type} ${star}★ keeps the exact original ${partId} image object`);
+        assert.deepEqual(evolvedDetail.rect, baseDetail.rect,
+          `${type} ${star}★ keeps the original ${partId} crop and bind rectangle`);
+        assert.equal(evolvedDetail.composite, 'source-over');
+      }
       assert.equal(ctx.calls.filter(([method, kind]) => (
         method === 'drawImage' && kind === 'rig-surface'
       )).length, 1, `${type} ${star}★ keeps one atomic rig composite`);
@@ -441,7 +474,7 @@ test('each exact evolved star replaces base geometry with three component cells 
   }
 });
 
-test('missing strict component atlases fail atomically without base, standalone, or vector art', () => {
+test('missing strict armor atlases fail atomically without base, standalone, or vector art', () => {
   const visualMethods = new Set([
     'arc', 'ellipse', 'fill', 'lineTo', 'moveTo', 'quadraticCurveTo', 'stroke',
   ]);
@@ -472,35 +505,54 @@ test('missing strict component atlases fail atomically without base, standalone,
       assert.equal(ctx.compositeDraws, 0, `${type} ${star}★ exposes no character composite`);
       assert.equal(offscreenState.layerDraws.length, 0,
         `${type} ${star}★ does not expose base rig layers`);
-      assert.equal(offscreenState.componentDraws.length, 0);
+      assert.equal(offscreenState.armorDraws.length, 0);
       assert.equal(geometry, baselineGeometry,
         `${type} ${star}★ adds no fallback character geometry beyond the normal shadow`);
     }
   }
 });
 
-test('bubble evolution has exactly one ring replacement slot at every star', () => {
-  for (const star of [2, 3, 4]) {
-    const layout = slimeEvolutionComponentLayout('bubble', star);
-    const ringSlots = layout.slots.filter(({ replaces }) => replaces.includes('ring'));
+test('bubble keeps its one original ring while all v3 armor remains additive', () => {
+  const ownerId = 'survivor-bubble-float';
+  const rigAsset = readyBundle(ownerId);
+  let baseRing = null;
+  for (let star = 1; star <= 4; star += 1) {
+    resetOffscreen();
+    const atlas = { kind: 'evolution-armor:bubble', width: 768, height: 768 };
+    drawSlime(createMainContext(), 0, 0, 90, 'bubble', {
+      animate: false,
+      star,
+      assetStore: star === 1 ? undefined : {
+        useOrFallback(_key, renderAsset) {
+          renderAsset(atlas);
+          return true;
+        },
+      },
+      rigAsset,
+      requireLayeredRig: true,
+    });
     assert.equal(slimeEvolutionProfile('bubble', star).mainRings, 1);
-    assert.equal(ringSlots.length, 1, `bubble ${star}★ has one ring slot`);
-    assert.equal(ringSlots[0].id, 'front');
-    assert.deepEqual(ringSlots[0].replaces, ['ring']);
-    assert.equal(layout.slots.flatMap(({ replaces }) => replaces)
-      .filter((partId) => partId === 'ring').length, 1);
+    assert.equal(offscreenState.layerDraws.filter((id) => id === `${ownerId}:ring`).length, 1,
+      `bubble ${star}★ draws the original ring exactly once`);
+    const ring = detailForLayer(`${ownerId}:ring`);
+    if (baseRing == null) baseRing = ring;
+    else {
+      assert.equal(ring.image, baseRing.image, `bubble ${star}★ keeps the original ring image`);
+      assert.deepEqual(ring.rect, baseRing.rect, `bubble ${star}★ keeps the original ring crop and bind`);
+      assert.equal(slimeEvolutionArmorLayout('bubble', star).slots.some(
+        (slot) => Object.hasOwn(slot, 'replaces'),
+      ), false, `bubble ${star}★ armor cannot replace or duplicate the ring`);
+    }
   }
 });
 
-test('evolved components preserve blink and attack as separate eyes and mouth images', () => {
+test('evolved armor preserves every base layer while blink and attack replace only face images', () => {
   for (const [ownerId, type] of EVOLUTION_CASES) {
-    for (const [expression, expectedFaceLayers] of [
-      ['blink', [`${ownerId}:eyes:blink`, `${ownerId}:mouth`]],
-      ['attack', [`${ownerId}:eyes:attack`, `${ownerId}:mouth:open`]],
-    ]) {
+    const rigAsset = readyBundle(ownerId);
+    for (const expression of ['blink', 'attack']) {
       resetOffscreen();
       const ctx = createMainContext();
-      const atlas = { kind: `evolution-components:${type}`, width: 768, height: 768 };
+      const atlas = { kind: `evolution-armor:${type}`, width: 768, height: 768 };
       const assetStore = {
         useOrFallback(_key, renderAsset) {
           renderAsset(atlas);
@@ -512,14 +564,14 @@ test('evolved components preserve blink and attack as separate eyes and mouth im
         star: 4,
         expression,
         assetStore,
-        rigAsset: readyBundle(ownerId),
+        rigAsset,
         requireLayeredRig: true,
       }));
       assert.equal(ctx.compositeDraws, 1, `${ownerId} keeps one complete rig composite`);
-      assert.equal(offscreenState.componentDraws.length, 3,
-        `${ownerId} keeps exactly three structural parts`);
-      assert.deepEqual(offscreenState.layerDraws, expectedFaceLayers,
-        `${ownerId} ${expression} keeps face images independent from the body`);
+      assert.equal(offscreenState.armorDraws.length, 3,
+        `${ownerId} adds exactly three armor parts`);
+      assert.deepEqual(offscreenState.layerDraws, expressionLayerIds(ownerId, expression),
+        `${ownerId} ${expression} preserves every non-face base image exactly once`);
     }
   }
 });

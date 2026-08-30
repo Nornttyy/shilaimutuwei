@@ -1,0 +1,307 @@
+{
+  "schemaVersion": 1,
+  "generator": "scripts/build-evolution-armor-atlases.py",
+  "contract": "additive armor only; original rig parts remain unchanged",
+  "atlases": [
+    {
+      "owner": "shell",
+      "source": "assets/generated-v2/evolution-armor/shell-armor-master-v3.png",
+      "sourceSha256": "81bfe50a27b5ad90cb497f4e230eade5a6a150cd6fa4bbf93e6ee4cb14e1e7e8",
+      "sourceMode": "RGBA",
+      "bakedCheckerRemoved": false,
+      "output": "assets/generated/evolution-armor/shell-evolution-armor-v3.png",
+      "outputSha256": "003f63e1bc2f306380bb2d41ff73e22c5328c0b69cda612d89b88075a3e36a98",
+      "outputBytes": 410259,
+      "cells": [
+        {
+          "row": 0,
+          "column": 0,
+          "visiblePixels": 15100,
+          "occupancy": 0.230408,
+          "substantialComponents": 2
+        },
+        {
+          "row": 0,
+          "column": 1,
+          "visiblePixels": 16303,
+          "occupancy": 0.248764,
+          "substantialComponents": 3
+        },
+        {
+          "row": 0,
+          "column": 2,
+          "visiblePixels": 13672,
+          "occupancy": 0.208618,
+          "substantialComponents": 2
+        },
+        {
+          "row": 1,
+          "column": 0,
+          "visiblePixels": 14381,
+          "occupancy": 0.219437,
+          "substantialComponents": 4
+        },
+        {
+          "row": 1,
+          "column": 1,
+          "visiblePixels": 16761,
+          "occupancy": 0.255753,
+          "substantialComponents": 3
+        },
+        {
+          "row": 1,
+          "column": 2,
+          "visiblePixels": 14714,
+          "occupancy": 0.224518,
+          "substantialComponents": 3
+        },
+        {
+          "row": 2,
+          "column": 0,
+          "visiblePixels": 15809,
+          "occupancy": 0.241226,
+          "substantialComponents": 4
+        },
+        {
+          "row": 2,
+          "column": 1,
+          "visiblePixels": 20803,
+          "occupancy": 0.317429,
+          "substantialComponents": 4
+        },
+        {
+          "row": 2,
+          "column": 2,
+          "visiblePixels": 17781,
+          "occupancy": 0.271317,
+          "substantialComponents": 4
+        }
+      ]
+    },
+    {
+      "owner": "needle",
+      "source": "assets/generated-v2/evolution-armor/needle-armor-master-v3.png",
+      "sourceSha256": "bd418d6b3993fd297b526e412338aabd99190812e17ba22b63829319d6df68e1",
+      "sourceMode": "RGBA",
+      "bakedCheckerRemoved": false,
+      "output": "assets/generated/evolution-armor/needle-evolution-armor-v3.png",
+      "outputSha256": "42132b606c7b1b88467955a401dc2c65ad60290217e6e61ea034f0328f01021e",
+      "outputBytes": 437659,
+      "cells": [
+        {
+          "row": 0,
+          "column": 0,
+          "visiblePixels": 11945,
+          "occupancy": 0.182266,
+          "substantialComponents": 1
+        },
+        {
+          "row": 0,
+          "column": 1,
+          "visiblePixels": 17487,
+          "occupancy": 0.26683,
+          "substantialComponents": 3
+        },
+        {
+          "row": 0,
+          "column": 2,
+          "visiblePixels": 13590,
+          "occupancy": 0.207367,
+          "substantialComponents": 2
+        },
+        {
+          "row": 1,
+          "column": 0,
+          "visiblePixels": 12190,
+          "occupancy": 0.186005,
+          "substantialComponents": 1
+        },
+        {
+          "row": 1,
+          "column": 1,
+          "visiblePixels": 19527,
+          "occupancy": 0.297958,
+          "substantialComponents": 6
+        },
+        {
+          "row": 1,
+          "column": 2,
+          "visiblePixels": 15465,
+          "occupancy": 0.235977,
+          "substantialComponents": 5
+        },
+        {
+          "row": 2,
+          "column": 0,
+          "visiblePixels": 14595,
+          "occupancy": 0.222702,
+          "substantialComponents": 1
+        },
+        {
+          "row": 2,
+          "column": 1,
+          "visiblePixels": 25104,
+          "occupancy": 0.383057,
+          "substantialComponents": 4
+        },
+        {
+          "row": 2,
+          "column": 2,
+          "visiblePixels": 22987,
+          "occupancy": 0.350754,
+          "substantialComponents": 4
+        }
+      ]
+    },
+    {
+      "owner": "bubble",
+      "source": "assets/generated-v2/evolution-armor/bubble-armor-master-v3.png",
+      "sourceSha256": "bb9639aa4808209bdad82ef2a42b6902c783399f20c59ebf59e4dd8e6d12c94f",
+      "sourceMode": "RGB",
+      "bakedCheckerRemoved": true,
+      "output": "assets/generated/evolution-armor/bubble-evolution-armor-v3.png",
+      "outputSha256": "d563872c20acac4c031b31625057a3db7f00345f8246a8315c513b386f61814a",
+      "outputBytes": 254786,
+      "cells": [
+        {
+          "row": 0,
+          "column": 0,
+          "visiblePixels": 4758,
+          "occupancy": 0.072601,
+          "substantialComponents": 3
+        },
+        {
+          "row": 0,
+          "column": 1,
+          "visiblePixels": 11884,
+          "occupancy": 0.181335,
+          "substantialComponents": 2
+        },
+        {
+          "row": 0,
+          "column": 2,
+          "visiblePixels": 3553,
+          "occupancy": 0.054214,
+          "substantialComponents": 4
+        },
+        {
+          "row": 1,
+          "column": 0,
+          "visiblePixels": 7561,
+          "occupancy": 0.115372,
+          "substantialComponents": 3
+        },
+        {
+          "row": 1,
+          "column": 1,
+          "visiblePixels": 13371,
+          "occupancy": 0.204025,
+          "substantialComponents": 2
+        },
+        {
+          "row": 1,
+          "column": 2,
+          "visiblePixels": 7596,
+          "occupancy": 0.115906,
+          "substantialComponents": 4
+        },
+        {
+          "row": 2,
+          "column": 0,
+          "visiblePixels": 8594,
+          "occupancy": 0.131134,
+          "substantialComponents": 3
+        },
+        {
+          "row": 2,
+          "column": 1,
+          "visiblePixels": 17150,
+          "occupancy": 0.261688,
+          "substantialComponents": 2
+        },
+        {
+          "row": 2,
+          "column": 2,
+          "visiblePixels": 6795,
+          "occupancy": 0.103683,
+          "substantialComponents": 6
+        }
+      ]
+    },
+    {
+      "owner": "sprout",
+      "source": "assets/generated-v2/evolution-armor/sprout-armor-master-v3.png",
+      "sourceSha256": "0b84afa45f3ac2f78c41d3af0b4f95523097bb4ca055f0a760fa7c9158c08dc9",
+      "sourceMode": "RGBA",
+      "bakedCheckerRemoved": false,
+      "output": "assets/generated/evolution-armor/sprout-evolution-armor-v3.png",
+      "outputSha256": "66b4b9dba155f6e0f51eac1df3807c5ffde6f36273f1feba039b22f0f0d7bb5b",
+      "outputBytes": 487625,
+      "cells": [
+        {
+          "row": 0,
+          "column": 0,
+          "visiblePixels": 13876,
+          "occupancy": 0.211731,
+          "substantialComponents": 2
+        },
+        {
+          "row": 0,
+          "column": 1,
+          "visiblePixels": 16917,
+          "occupancy": 0.258133,
+          "substantialComponents": 3
+        },
+        {
+          "row": 0,
+          "column": 2,
+          "visiblePixels": 13489,
+          "occupancy": 0.205826,
+          "substantialComponents": 4
+        },
+        {
+          "row": 1,
+          "column": 0,
+          "visiblePixels": 18402,
+          "occupancy": 0.280792,
+          "substantialComponents": 3
+        },
+        {
+          "row": 1,
+          "column": 1,
+          "visiblePixels": 20721,
+          "occupancy": 0.316177,
+          "substantialComponents": 3
+        },
+        {
+          "row": 1,
+          "column": 2,
+          "visiblePixels": 16343,
+          "occupancy": 0.249374,
+          "substantialComponents": 4
+        },
+        {
+          "row": 2,
+          "column": 0,
+          "visiblePixels": 18798,
+          "occupancy": 0.286835,
+          "substantialComponents": 3
+        },
+        {
+          "row": 2,
+          "column": 1,
+          "visiblePixels": 25707,
+          "occupancy": 0.392258,
+          "substantialComponents": 5
+        },
+        {
+          "row": 2,
+          "column": 2,
+          "visiblePixels": 20336,
+          "occupancy": 0.310303,
+          "substantialComponents": 4
+        }
+      ]
+    }
+  ]
+}

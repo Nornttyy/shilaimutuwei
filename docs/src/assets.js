@@ -6,7 +6,7 @@
  * useful to platform builds and isolated tests.
  */
 
-export const ASSET_CACHE_VERSION = 'soft-gel-20260830-v5';
+export const ASSET_CACHE_VERSION = 'soft-gel-20260830-v6';
 
 const generatedAssetUrl = (relativePath) => {
   const url = new URL(`../assets/generated/${relativePath}`, import.meta.url);
@@ -23,10 +23,10 @@ export const CRITICAL_STARTUP_ASSET_KEYS = Object.freeze([
   'survivor-crystal-pin',
   'survivor-bubble-float',
   'survivor-moss-sprout',
-  'evolution-shell-components-v2',
-  'evolution-needle-components-v2',
-  'evolution-bubble-components-v2',
-  'evolution-sprout-components-v2',
+  'evolution-shell-armor-v3',
+  'evolution-needle-armor-v3',
+  'evolution-bubble-armor-v3',
+  'evolution-sprout-armor-v3',
   'enemy-soft-biter',
   'enemy-windcap',
   'enemy-stone-lump',
@@ -152,10 +152,10 @@ export const TOWER_DEFENSE_ASSET_KEYS = Object.freeze([
   'survivor-crystal-pin',
   'survivor-bubble-float',
   'survivor-moss-sprout',
-  'evolution-shell-components-v2',
-  'evolution-needle-components-v2',
-  'evolution-bubble-components-v2',
-  'evolution-sprout-components-v2',
+  'evolution-shell-armor-v3',
+  'evolution-needle-armor-v3',
+  'evolution-bubble-armor-v3',
+  'evolution-sprout-armor-v3',
   'enemy-soft-biter',
   'enemy-windcap',
   'enemy-stone-lump',
@@ -205,10 +205,10 @@ const DECLARED_ASSET_PATHS = {
   'survivor-crystal-pin': generatedAssetUrl('survivor/survivor-crystal-pin.png'),
   'survivor-bubble-float': generatedAssetUrl('survivor/survivor-bubble-float.png'),
   'survivor-moss-sprout': generatedAssetUrl('survivor/survivor-moss-sprout.png'),
-  'evolution-shell-components-v2': generatedAssetUrl('evolution-components/shell-evolution-components-v2.png'),
-  'evolution-needle-components-v2': generatedAssetUrl('evolution-components/needle-evolution-components-v2.png'),
-  'evolution-bubble-components-v2': generatedAssetUrl('evolution-components/bubble-evolution-components-v2.png'),
-  'evolution-sprout-components-v2': generatedAssetUrl('evolution-components/sprout-evolution-components-v2.png'),
+  'evolution-shell-armor-v3': generatedAssetUrl('evolution-armor/shell-evolution-armor-v3.png'),
+  'evolution-needle-armor-v3': generatedAssetUrl('evolution-armor/needle-evolution-armor-v3.png'),
+  'evolution-bubble-armor-v3': generatedAssetUrl('evolution-armor/bubble-evolution-armor-v3.png'),
+  'evolution-sprout-armor-v3': generatedAssetUrl('evolution-armor/sprout-evolution-armor-v3.png'),
   'enemy-soft-biter': generatedAssetUrl('enemy/enemy-soft-biter.png'),
   'enemy-windcap': generatedAssetUrl('enemy/enemy-windcap.png'),
   'enemy-stone-lump': generatedAssetUrl('enemy/enemy-stone-lump.png'),

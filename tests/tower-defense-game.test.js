@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import { TowerDefenseGame } from '../src/tower-defense-game.js';
 import { TD_STORAGE_KEY } from '../src/tower-defense-core.js';
+import { SOLDIER_RIG } from '../src/animation/rigs.js';
 
 function createContext() {
   const gradient = () => ({ addColorStop() {} });
@@ -128,7 +129,8 @@ function createAssetStore(availableKeys = []) {
     useOrFallback(key, drawAsset, drawFallback) {
       requests.push(key);
       if (available.has(key)) {
-        drawAsset?.({ width: 768, height: 768, naturalWidth: 768, naturalHeight: 768 });
+        const size = key.startsWith('soldier-') ? 1254 : 768;
+        drawAsset?.({ width: size, height: size, naturalWidth: size, naturalHeight: size });
         return true;
       }
       drawFallback?.();
@@ -296,6 +298,7 @@ test('summon page supports one and ten pulls, result closing, hero selection, an
 
   click(game, canvas, hitCenter(game, 'open-summon'));
   assert.equal(game.menuPage, 'summon');
+  canvas.context.calls.length = 0;
   game.render();
   assert.deepEqual(game.hits.map(({ id }) => id), [
     'summon-back',
@@ -304,12 +307,32 @@ test('summon page supports one and ten pulls, result closing, hero selection, an
   ]);
   assert.equal(game.hits.find(({ id }) => id === 'hero-select-shell').enabled, true);
   assert.equal(game.hits.find(({ id }) => id === 'hero-select-needle').enabled, false);
+  const summonLabels = canvas.context.calls
+    .filter(([kind]) => kind === 'fillText')
+    .map(([, text]) => text);
+  assert.ok(summonLabels.includes('史莱姆招募'));
+  for (const rarity of ['R', 'SR', 'SSR', 'UR']) assert.ok(summonLabels.includes(rarity));
+  assert.equal(summonLabels.includes('英雄召唤'), false,
+    'the roster presents slime names and letter rarities rather than hero stars');
 
   click(game, canvas, hitCenter(game, 'hero-select-needle'));
   assert.equal(game.state.progress.selectedHero, 'shell', 'locked heroes cannot be selected');
 
-  click(game, canvas, hitCenter(game, 'summon-one'));
+  const summonOnePoint = hitCenter(game, 'summon-one');
+  click(game, canvas, summonOnePoint);
   assert.equal(game.state.progress.summonCurrency, 900);
+  assert.equal(game.summonResults.length, 0);
+  assert.equal(game.summonAnimation.results.length, 1);
+  click(game, canvas, summonOnePoint);
+  assert.equal(game.state.progress.summonCurrency, 900,
+    'a stale summon hit cannot buy again while the ceremony is running');
+  game.render();
+  assert.deepEqual(game.hits.map(({ id }) => id), ['summon-animation-skip']);
+  assert.ok(canvas.context.calls.some(([kind, text]) => (
+    kind === 'fillText' && text === '能量汇聚'
+  )), 'the first ceremony stage gathers energy');
+  click(game, canvas, hitCenter(game, 'summon-animation-skip'));
+  assert.equal(game.summonAnimation, null);
   assert.equal(game.summonResults.length, 1);
   game.render();
   assert.deepEqual(game.hits.map(({ id }) => id), ['summon-result-close']);
@@ -320,6 +343,25 @@ test('summon page supports one and ten pulls, result closing, hero selection, an
   assert.equal(game.hits.find(({ id }) => id === 'summon-ten').enabled, true);
   click(game, canvas, hitCenter(game, 'summon-ten'));
   assert.equal(game.state.progress.summonCurrency, 0);
+  assert.equal(game.summonAnimation.results.length, 10);
+  for (let index = 0; index < 15; index += 1) game.updateCharacterAnimations(0.05);
+  canvas.context.calls.length = 0;
+  game.render();
+  assert.deepEqual(game.hits.map(({ id }) => id), ['summon-animation-skip']);
+  assert.ok(canvas.context.calls.some(([kind, text]) => (
+    kind === 'fillText' && text === '契约裂隙开启'
+  )), 'the second ceremony stage opens the rift and flips a card');
+
+  for (let index = 0; index < 16; index += 1) game.updateCharacterAnimations(0.05);
+  canvas.context.calls.length = 0;
+  game.render();
+  assert.ok(canvas.context.calls.some(([kind, text]) => (
+    kind === 'fillText' && text === '契约显现'
+  )), 'the third ceremony stage reveals the results in sequence');
+  assert.deepEqual(game.hits.map(({ id }) => id), ['summon-animation-skip']);
+
+  for (let index = 0; index < 24; index += 1) game.updateCharacterAnimations(0.05);
+  assert.equal(game.summonAnimation, null);
   assert.equal(game.summonResults.length, 10);
   game.render();
   assert.deepEqual(game.hits.map(({ id }) => id), ['summon-result-close']);
@@ -462,6 +504,7 @@ test('a defeated squad animates only its final member instead of restoring four 
     padIndex: 0,
     x: 300,
     y: 240,
+    facing: -1,
   }];
   game.processCharacterAnimationEvent({
     type: 'tower-defeat',
@@ -477,7 +520,9 @@ test('a defeated squad animates only its final member instead of restoring four 
   const actor = game.defeatedTowers[0];
   const deathEntry = game.characterAnimations.get(actor.key);
   assert.equal(actor.squadType, 'melee');
+  assert.equal(actor.facing, -1);
   assert.equal(deathEntry.controller.actionName, 'downed');
+  assert.equal(deathEntry.expressionMixer.spec, SOLDIER_RIG.expression);
 
   let formationDraws = 0;
   game.drawSquadMembers = () => { formationDraws += 1; };
@@ -605,9 +650,11 @@ test('spotlight tutorial purchases one four-member melee squad and starts the wa
 
 test('battle dock purchases squads and a fixed turret, moves squads in prep, then exposes hero controls', () => {
   const canvas = createCanvas();
+  let interactionTime = 0;
   const game = new TowerDefenseGame(canvas, {
     runtime: createRuntime({ tutorialSeen: true }),
     pixelRatio: 1,
+    now: () => interactionTime,
   });
   const assets = createAssetStore();
   game.setAssetStore(assets);
@@ -651,9 +698,34 @@ test('battle dock purchases squads and a fixed turret, moves squads in prep, the
   game.render();
   click(game, canvas, hitCenter(game, `tower-${melee.uid}`));
   game.render();
-  assert.equal(game.hits.find(({ id }) => id === 'pad-1').enabled, true);
+  assert.equal(game.hits.find(({ id }) => id === 'pad-1').enabled, false,
+    'selecting a deployed squad does not enable tap-to-move');
   click(game, canvas, hitCenter(game, 'pad-1'));
-  assert.equal(melee.padIndex, 1, 'a squad can be rearranged only during preparation');
+  assert.equal(melee.padIndex, 0, 'a short tap on another cell cannot move a squad');
+
+  game.render();
+  const quickDragStart = hitCenter(game, `tower-${melee.uid}`);
+  const moveTarget = hitCenter(game, 'pad-1');
+  drag(game, canvas, quickDragStart, moveTarget);
+  assert.equal(melee.padIndex, 0, 'dragging before the hold threshold is ignored');
+
+  game.render();
+  const longPressStart = hitCenter(game, `tower-${melee.uid}`);
+  canvas.dispatch('pointerdown', pointerEvent(game, canvas, longPressStart));
+  interactionTime = 225;
+  canvas.context.calls.length = 0;
+  game.render();
+  assert.ok(canvas.context.calls.some(([kind, text]) => (
+    kind === 'fillText' && text === '长按移动'
+  )), 'holding a deployed squad shows a compact progress indicator');
+  assert.equal(game.hits.find(({ id }) => id === 'pad-1').enabled, false);
+  interactionTime = 460;
+  game.render();
+  assert.equal(game.drag.longPressReady, true);
+  assert.equal(game.hits.find(({ id }) => id === 'pad-1').enabled, true);
+  canvas.dispatch('pointermove', pointerEvent(game, canvas, moveTarget));
+  canvas.dispatch('pointerup', pointerEvent(game, canvas, moveTarget));
+  assert.equal(melee.padIndex, 1, 'a squad moves after a 450ms hold arms dragging');
 
   game.render();
   click(game, canvas, hitCenter(game, 'purchase-ranged'));
@@ -682,10 +754,14 @@ test('battle dock purchases squads and a fixed turret, moves squads in prep, the
   click(game, canvas, hitCenter(game, 'start-wave'));
   assert.equal(game.state.phase, 'combat');
   assert.equal(game.state.waveActive, true);
+  canvas.context.calls.length = 0;
   game.render();
   assert.equal(game.hits.find(({ id }) => id === 'purchase-melee').enabled, false);
   assert.equal(game.hits.find(({ id }) => id === 'hero-joystick').enabled, true);
   assert.equal(game.hits.find(({ id }) => id === 'hero-skill').enabled, true);
+  assert.ok(canvas.context.calls.some(([kind, text]) => (
+    kind === 'fillText' && text === '壳壳'
+  )), 'the controlled slime is labeled by its own name instead of a generic hero tag');
 
   click(game, canvas, hitCenter(game, 'hero-skill'));
   assert.ok(game.state.hero.skillCooldown > 0);
@@ -835,12 +911,23 @@ test('portrait battle keeps deployment cards below the fortress and supports dir
   assert.ok(assets.requests.includes('ui-hero-joystick-knob'));
   assert.ok(assets.requests.includes('ui-hero-control-ring'));
   assert.equal(canvas.context.calls.some(([kind, text]) => (
-    kind === 'fillText' && ['近战小队', '远程小队', '固定炮台'].includes(text)
+    kind === 'fillText' && ['盾墩小队', '豆弩小队', '固定炮台'].includes(text)
   )), false, 'purchase cards are hidden during combat');
   game.dispose();
 });
 
-test('portrait deployment cards synthesize both four-member squads without baked card art', () => {
+test('portrait deployment cards use both formal nine-layer four-member soldier atlases', () => {
+  const previousOffscreenCanvas = globalThis.OffscreenCanvas;
+  globalThis.OffscreenCanvas = class {
+    constructor(width, height) {
+      this.width = width;
+      this.height = height;
+      this.context = createContext();
+      this.context.canvas = this;
+    }
+    getContext() { return this.context; }
+  };
+  try {
   const canvas = createCanvas();
   const game = new TowerDefenseGame(canvas, {
     runtime: createRuntime({ tutorialSeen: true }),
@@ -848,8 +935,8 @@ test('portrait deployment cards synthesize both four-member squads without baked
   });
   const assets = createAssetStore([
     'ui-card-frame-deploy',
-    'ui-card-melee-squad',
-    'ui-card-ranged-squad',
+    'soldier-shield-dun-atlas-v1',
+    'soldier-bean-bow-atlas-v1',
   ]);
   const rigs = createRigStore();
   game.setAssetStore(assets);
@@ -860,12 +947,15 @@ test('portrait deployment cards synthesize both four-member squads without baked
   click(game, canvas, hitCenter(game, 'select-stage-1'));
 
   let rigPreviewCount = 0;
+  const previewAssetRequests = [];
   const previewRigRequests = [];
   const drawRigPreview = game.drawSquadPurchasePreview.bind(game);
   game.drawSquadPurchasePreview = (...args) => {
     rigPreviewCount += 1;
+    const assetRequestStart = assets.requests.length;
     const requestStart = rigs.requests.length;
     const result = drawRigPreview(...args);
+    previewAssetRequests.push(assets.requests.slice(assetRequestStart));
     previewRigRequests.push(rigs.requests.slice(requestStart));
     return result;
   };
@@ -874,17 +964,21 @@ test('portrait deployment cards synthesize both four-member squads without baked
   game.render();
 
   assert.ok(assets.requests.includes('ui-card-frame-deploy'));
-  assert.equal(assets.requests.includes('ui-card-melee-squad'), false);
-  assert.equal(assets.requests.includes('ui-card-ranged-squad'), false);
   assert.equal(rigPreviewCount, 2,
     'melee and ranged cards each render one four-member skeletal preview');
-  assert.deepEqual(previewRigRequests.map((requests) => requests.length), [4, 4],
+  assert.deepEqual(previewAssetRequests.map((requests) => requests.length), [4, 4],
     'each purchase-card preview resolves four independent layered soldiers');
-  assert.deepEqual(previewRigRequests.map((requests) => [...new Set(requests)]), [
-    ['survivor-shell-shell'],
-    ['survivor-crystal-pin'],
+  assert.deepEqual(previewAssetRequests.map((requests) => [...new Set(requests)]), [
+    ['soldier-shield-dun-atlas-v1'],
+    ['soldier-bean-bow-atlas-v1'],
   ]);
+  assert.deepEqual(previewRigRequests, [[], []],
+    'soldier cards never ask the hero rig store for shell or crystal art');
   game.dispose();
+  } finally {
+    if (previousOffscreenCanvas === undefined) delete globalThis.OffscreenCanvas;
+    else globalThis.OffscreenCanvas = previousOffscreenCanvas;
+  }
 });
 
 test('CSS coordinates map into the portrait view correctly at DPR 2 with letterboxing', () => {

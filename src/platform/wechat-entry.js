@@ -13,6 +13,8 @@ export const WECHAT_CRITICAL_ASSET_KEYS = Object.freeze([
   'survivor-crystal-pin',
   'survivor-bubble-float',
   'survivor-moss-sprout',
+  'soldier-shield-dun-atlas-v1',
+  'soldier-bean-bow-atlas-v1',
   'evolution-shell-armor-v3',
   'evolution-needle-armor-v3',
   'evolution-bubble-armor-v3',

@@ -293,7 +293,9 @@ test('placed squads draw up to four fixed-size lane-safe members without star sc
     /const aliveMembers = clamp\([\s\S]*?, 0, 4\);/,
   );
   assert.match(squadRenderer, /4:\s*\[[\s\S]*?\],\n\s*\};/);
-  assert.match(squadRenderer, /44 \* position\.scale, slimeType,/);
+  assert.match(squadRenderer, /drawSoldier\(ctx,[\s\S]*?44 \* position\.scale, \{/);
+  assert.match(squadRenderer, /assetKey: visual\.assetKey/);
+  assert.doesNotMatch(squadRenderer, /drawSlime\(/);
   assert.doesNotMatch(squadRenderer, /\.star\b/);
 });
 

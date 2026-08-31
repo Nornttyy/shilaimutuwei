@@ -981,3 +981,91 @@ export const SPROUT_CLIPS = deepFreeze(withIndependentExpressionLayers(SPROUT_BO
 export const WINDCAP_CLIPS = deepFreeze(withIndependentExpressionLayers(WINDCAP_BONES, windcapClips));
 export const STONE_CLIPS = deepFreeze(withIndependentExpressionLayers(STONE_BONES, stoneClips));
 export const BOSS_CLIPS = deepFreeze(withIndependentExpressionLayers(BOSS_BONES, bossClips));
+
+const SOLDIER_BONES = [
+  'root', 'motion', 'deform', 'body', 'face', 'eyes', 'mouth', 'headgear', 'equipment',
+];
+
+export const SOLDIER_CLIPS = deepFreeze(completeClipTracks(SOLDIER_BONES, {
+  idle: {
+    duration: 1.2, mode: 'loop', priority: 0, expression: 'normal',
+    tracks: {
+      root: { y: [[0, 0], [0.6, -1], [1.2, 0]] },
+      deform: {
+        scaleX: [[0, 1], [0.6, 1.018], [1.2, 1]],
+        scaleY: [[0, 1], [0.6, 0.982], [1.2, 1]],
+      },
+      face: { y: [[0, 0], [0.6, -0.25], [1.2, 0]] },
+      headgear: { rotation: [[0, -0.012], [0.6, 0.014], [1.2, -0.012]] },
+      equipment: { rotation: [[0, 0.008], [0.6, -0.01], [1.2, 0.008]] },
+    },
+  },
+  move: {
+    duration: 0.5, mode: 'loop', priority: 0, expression: 'normal',
+    tracks: {
+      root: { y: [[0, 0], [0.125, -2], [0.25, 0], [0.375, -2], [0.5, 0]] },
+      motion: { rotation: [[0, -0.025], [0.25, 0.025], [0.5, -0.025]] },
+      deform: {
+        scaleX: [[0, 1.025], [0.125, 0.98], [0.25, 1.025], [0.375, 0.98], [0.5, 1.025]],
+        scaleY: [[0, 0.975], [0.125, 1.02], [0.25, 0.975], [0.375, 1.02], [0.5, 0.975]],
+      },
+      headgear: { rotation: [[0, 0.025], [0.125, -0.035], [0.25, 0.025], [0.375, -0.035], [0.5, 0.025]] },
+      equipment: { x: [[0, 0], [0.125, -1], [0.25, 0], [0.375, -1], [0.5, 0]] },
+    },
+  },
+  attack: {
+    duration: 0.42, mode: 'once', priority: 20, expression: 'attack',
+    tracks: {
+      root: { x: [[0, 0], [0.14, -2], [0.25, 4], [0.42, 0]] },
+      deform: {
+        scaleX: [[0, 1], [0.14, 0.96], [0.25, 1.05], [0.42, 1]],
+        scaleY: [[0, 1], [0.14, 1.04], [0.25, 0.96], [0.42, 1]],
+      },
+      headgear: { rotation: [[0, 0], [0.14, -0.045], [0.25, 0.035], [0.42, 0]] },
+      equipment: { x: [[0, 0], [0.14, -4], [0.25, 3], [0.42, 0]], rotation: [[0, 0], [0.14, -0.08], [0.25, 0.06], [0.42, 0]] },
+    },
+    events: [{ time: 0.25, name: 'hit' }],
+  },
+  hurt: {
+    duration: 0.3, mode: 'once', priority: 40, expression: 'hurt',
+    tracks: {
+      root: { x: [[0, 0], [0.07, -3], [0.16, 1.5], [0.3, 0]] },
+      deform: {
+        scaleX: [[0, 1], [0.07, 0.95], [0.16, 1.04], [0.3, 1]],
+        scaleY: [[0, 1], [0.07, 1.05], [0.16, 0.97], [0.3, 1]],
+      },
+      headgear: { rotation: [[0, 0], [0.07, 0.07], [0.16, -0.04], [0.3, 0]] },
+      equipment: { x: [[0, 0], [0.07, 3], [0.16, -1], [0.3, 0]], rotation: [[0, 0], [0.07, 0.1], [0.16, -0.04], [0.3, 0]] },
+    },
+    events: [{ time: 0.07, name: 'hurt-flash' }],
+  },
+  downed: {
+    duration: 0.52, mode: 'once', priority: 90, expression: 'hurt',
+    tracks: {
+      root: {
+        x: [[0, 0], [0.16, -1.5], [0.32, 1], [0.52, 2.5]],
+        y: [[0, 0], [0.16, -1], [0.32, 2], [0.52, 7]],
+        rotation: [[0, 0], [0.16, -0.035], [0.32, 0.055], [0.52, 0.12]],
+      },
+      deform: {
+        scaleX: [[0, 1], [0.16, 0.97], [0.32, 1.06], [0.52, 1.12]],
+        scaleY: [[0, 1], [0.16, 1.03], [0.32, 0.91], [0.52, 0.78]],
+      },
+      face: {
+        y: [[0, 0], [0.32, 1], [0.52, 3]],
+        rotation: [[0, 0], [0.32, 0.025], [0.52, 0.06]],
+      },
+      headgear: {
+        x: [[0, 0], [0.16, 2], [0.32, -1.5], [0.52, -4]],
+        y: [[0, 0], [0.16, -2], [0.32, -0.5], [0.52, 2]],
+        rotation: [[0, 0], [0.16, 0.11], [0.32, -0.07], [0.52, -0.15]],
+      },
+      equipment: {
+        x: [[0, 0], [0.16, -3], [0.32, 2], [0.52, 5]],
+        y: [[0, 0], [0.16, 1], [0.32, 3], [0.52, 6]],
+        rotation: [[0, 0], [0.16, -0.13], [0.32, 0.09], [0.52, 0.18]],
+      },
+    },
+    events: [{ time: 0.52, name: 'downed' }],
+  },
+}));

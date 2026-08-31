@@ -50,12 +50,12 @@ const PROJECT_ASSET_SPEC = JSON.parse(await readFile(
   'utf8',
 ));
 
-test('the workspace asset manifest strictly validates all 139 finished PNGs', async () => {
+test('the workspace asset manifest strictly validates all 141 finished PNGs', async () => {
   const result = await verifyAssets({ cwd: PROJECT_ROOT, allowMissingSpec: false });
   assert.equal(result.ok, true, formatErrors(result));
   assert.equal(result.skipped, false);
-  assert.equal(result.summary.declaredAssets, 139);
-  assert.equal(result.summary.checkedAssets, 139);
+  assert.equal(result.summary.declaredAssets, 141);
+  assert.equal(result.summary.checkedAssets, 141);
   assert.deepEqual(result.errors, [], formatErrors(result));
   assert.deepEqual(result.warnings, [], formatErrors(result));
 });
@@ -386,8 +386,8 @@ test('missing asset-spec is skippable by default and an error in strict mode', a
   }, { writeAssetsDirectory: false });
 });
 
-test('runtime asset map covers all 139 canonical nested paths and three aliases', () => {
-  assert.equal(PROJECT_ASSET_SPEC.assets.length, 139);
+test('runtime asset map covers all 141 canonical nested paths and three aliases', () => {
+  assert.equal(PROJECT_ASSET_SPEC.assets.length, 141);
   for (const asset of PROJECT_ASSET_SPEC.assets) {
     assert.equal(typeof ASSET_PATHS[asset.id], 'string', `missing runtime asset: ${asset.id}`);
     assert.ok(
@@ -396,7 +396,7 @@ test('runtime asset map covers all 139 canonical nested paths and three aliases'
     );
     assert.equal(new URL(ASSET_PATHS[asset.id]).searchParams.get('v'), ASSET_CACHE_VERSION);
   }
-  assert.equal(Object.keys(ASSET_PATHS).length, 142);
+  assert.equal(Object.keys(ASSET_PATHS).length, 144);
   assert.equal(ASSET_PATHS['scene-gel-garden'], ASSET_PATHS['background-garden-base']);
   assert.equal(ASSET_PATHS['town-core'], ASSET_PATHS['town-soft-core']);
   assert.equal(ASSET_PATHS['enemy-portal'], ASSET_PATHS['rift-entry-portal']);
@@ -412,6 +412,8 @@ test('tower-defense startup preloads every formal image used by its public rende
   for (const key of [
     'ui-tutorial-hand',
     'survivor-shell-shell',
+    'soldier-shield-dun-atlas-v1',
+    'soldier-bean-bow-atlas-v1',
     'enemy-acid-shell-king',
     'fortress-slime-core',
     'turret-gel-mount',
@@ -748,7 +750,7 @@ test('browser startup gates game construction on every critical PNG and retries 
   assert.match(source, /resolvePath: \(assetPath\) => versionedBrowserUrl\(`\.\.\/\$\{assetPath\}`\)/);
   assert.match(source, /hostname: window\.location\.hostname/);
   assert.doesNotMatch(source, /Promise\.race/);
-  assert.equal(ALL_RUNTIME_ASSET_KEYS.length, 139);
+  assert.equal(ALL_RUNTIME_ASSET_KEYS.length, 141);
   assert.equal(new Set(ALL_RUNTIME_ASSET_KEYS).size, ALL_RUNTIME_ASSET_KEYS.length);
   ALL_RUNTIME_ASSET_KEYS.forEach((key) => {
     assert.equal(typeof ASSET_PATHS[key], 'string', `runtime asset ${key}`);

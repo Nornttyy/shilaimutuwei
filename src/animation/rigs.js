@@ -547,3 +547,46 @@ export const BOSS_RIG = deepFreeze({
     ...expressionBones(40, { x: 0.5, y: -61 }, { x: 1, y: -19.5 }),
   },
 });
+
+/** Lightweight rig shared by the melee and ranged four-member soldier atlases. */
+export const SOLDIER_RIG = deepFreeze({
+  id: 'soldier',
+  root: 'root',
+  facing: 1,
+  expression: {
+    defaultState: 'normal',
+    faceBone: 'face',
+    slots: {
+      eyes: { bone: 'eyes', variants: ['normal', 'attack', 'hurt'] },
+      mouth: { bone: 'mouth', variants: ['normal', 'attack', 'hurt'] },
+    },
+    states: {
+      normal: { eyes: 'normal', mouth: 'normal' },
+      attack: { eyes: 'attack', mouth: 'attack' },
+      hurt: { eyes: 'hurt', mouth: 'hurt' },
+    },
+    clipStates: { attack: 'attack', hurt: 'hurt' },
+  },
+  bones: {
+    root: { parent: null, children: ['motion'], pivot: { x: 0, y: 0 }, layer: -20 },
+    motion: {
+      parent: 'root', children: ['deform', 'headgear', 'equipment'],
+      pivot: { x: 0, y: -48 }, layer: -10,
+    },
+    deform: {
+      parent: 'motion', children: ['body', 'face'], pivot: { x: 0, y: -40 }, layer: 0,
+    },
+    body: { parent: 'deform', children: [], pivot: { x: 0, y: -40 }, layer: 0 },
+    face: {
+      parent: 'deform', children: ['eyes', 'mouth'], pivot: { x: 0, y: -42 }, layer: 30,
+    },
+    eyes: { parent: 'face', children: [], pivot: { x: 0, y: -47 }, layer: 30 },
+    mouth: { parent: 'face', children: [], pivot: { x: 0, y: -30 }, layer: 31 },
+    headgear: {
+      parent: 'motion', children: [], pivot: { x: 0, y: -73 }, layer: 10,
+    },
+    equipment: {
+      parent: 'motion', children: [], pivot: { x: 24, y: -42 }, layer: 20,
+    },
+  },
+});

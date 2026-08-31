@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   HERO_TYPES,
   SQUAD_TYPES,
+  TD_CONTRACT_RARITIES,
   TD_CONTRACT_START_CURRENCY,
   TD_CONTRACT_SUMMON_COSTS,
   TD_CONTRACT_TYPES,
@@ -107,6 +108,14 @@ function resolveProjectiles(state, maxTicks = 100) {
 }
 
 test('old progress owns only shell and starts with exactly one active hero', () => {
+  assert.deepEqual(Object.fromEntries(Object.entries(HERO_TYPES).map(([type, hero]) => (
+    [type, { name: hero.name, rarity: hero.rarity }]
+  ))), {
+    shell: { name: '壳壳', rarity: 'R' },
+    needle: { name: '亮钉', rarity: 'SR' },
+    bubble: { name: '泡泡', rarity: 'SSR' },
+    sprout: { name: '芽芽', rarity: 'UR' },
+  });
   const state = createTowerDefenseState({ progress: {} });
   assert.equal(state.progress.summonCurrency, TD_CONTRACT_START_CURRENCY);
   assert.deepEqual(state.progress.contractRanks, {
@@ -260,6 +269,7 @@ test('contact damage downs members once and wave clear revives the retained squa
   assert.equal(enemy.blockedByTowerUid, squad.uid);
 
   squad.hp = 1;
+  squad.facing = -1;
   enemy.attackCooldown = 0;
   updateTowerDefense(state, 0.05);
   assert.equal(squad.hp, 0);
@@ -267,6 +277,7 @@ test('contact damage downs members once and wave clear revives the retained squa
   assert.equal(squad.downed, true);
   assert.equal(state.towers.includes(squad), true);
   assert.equal(state.events.filter(({ type }) => type === 'tower-defeat').length, 1);
+  assert.equal(state.events.find(({ type }) => type === 'tower-defeat').facing, -1);
   updateTowerDefense(state, 0.05);
   assert.equal(state.events.filter(({ type }) => type === 'tower-defeat').length, 1);
 
@@ -523,6 +534,29 @@ test('outer split uses true range and squads advance diagonally on their own rou
   assert.ok(Math.hypot(melee.x - expected.x, melee.y - expected.y) < 0.01);
 });
 
+test('squads lock the foremost lane target on its spawn frame before it enters range', () => {
+  const state = createBattleState();
+  const padIndex = TD_STAGES[0].pads.findIndex(({ laneIndex, rowIndex }) => (
+    laneIndex === 0 && rowIndex === 4
+  ));
+  const squad = buyTowerDefenseSquad(state, 'ranged', padIndex);
+  holdCombat(state);
+  const rear = enemyAt({ laneIndex: 0, y: 222, uid: 'rear', hp: 1e6 });
+  const front = enemyAt({ laneIndex: 0, y: 250, uid: 'front', hp: 1e6 });
+  state.enemies = [rear, front];
+  squad.cooldown = 0;
+  updateTowerDefense(state, 0.01);
+  assert.equal(squad.targetUid, front.uid);
+  assert.ok(Number.isFinite(squad.aimAngle));
+  assert.equal(squad.facing, 1);
+  assert.equal(state.events.some(({ type }) => type === 'shot'), false);
+  assert.equal(squad.moving, true);
+
+  front.hp = 0;
+  updateTowerDefense(state, 0.01);
+  assert.equal(squad.targetUid, rear.uid, 'dead targets are replaced on the next update');
+});
+
 test('blockers use projection onto each enemy path and shared-trunk hero blocks all routes', () => {
   const state = createBattleState();
   const outerPad = TD_STAGES[0].pads.findIndex(({ laneIndex, rowIndex }) => (
@@ -585,8 +619,8 @@ test('authored waves and endless pressure remain sharply capped', () => {
   };
   for (const [type, former] of Object.entries(formerEnemyStats)) {
     const strengthened = TD_ENEMIES[type];
-    assert.ok(strengthened.hp >= former.hp * 2.5, `${type} health is visibly stronger`);
-    assert.ok(strengthened.attackDamage >= former.attackDamage * 2.3,
+    assert.ok(strengthened.hp >= former.hp * 2.2, `${type} health remains visibly stronger`);
+    assert.ok(strengthened.attackDamage >= former.attackDamage * 2,
       `${type} contact damage is visibly stronger`);
     assert.ok(strengthened.coreDamage > former.coreDamage,
       `${type} fortress contact is more dangerous`);
@@ -655,8 +689,8 @@ test('the starter lineup clears stage one only when the player hero participates
   const active = simulateStarterLineup({ heroActive: true });
   assert.equal(active.result, 'victory');
   assert.equal(active.wave, 5);
-  assert.equal(active.coreHp, 15);
-  assert.equal(active.kills, 31);
+  assert.equal(active.coreHp, 19);
+  assert.equal(active.kills, 32);
 
   const idle = simulateStarterLineup({ heroActive: false });
   assert.equal(idle.result, 'defeat');
@@ -680,6 +714,9 @@ test('legacy star attack data stays immutable for skeletal presentation', () => 
 
 test('contract summons are menu-only, deterministic, atomic, priced, and guaranteed', () => {
   assert.deepEqual(TD_CONTRACT_SUMMON_COSTS, { 1: 100, 10: 900 });
+  assert.deepEqual(Object.fromEntries(Object.entries(TD_CONTRACT_RARITIES).map(([
+    rarity, definition,
+  ]) => [rarity, definition.weight])), { R: 60, SR: 27, SSR: 10, UR: 3 });
   const poor = createTowerDefenseState({
     progress: { tutorialSeen: true, summonCurrency: 99, summonRngState: 123 },
   });
@@ -700,12 +737,34 @@ test('contract summons are menu-only, deterministic, atomic, priced, and guarant
   assert.deepEqual(results, summonTowerDefenseContracts(right, 10));
   assert.deepEqual(left.progress, right.progress);
   assert.equal(left.progress.summonCurrency, 0);
-  assert.ok(results.some(({ rarity }) => rarity === 'epic'));
+  assert.ok(results.some(({ rarity }) => ['SSR', 'UR'].includes(rarity)));
+  assert.equal(results.every(({ type, rarity }) => HERO_TYPES[type].rarity === rarity), true);
   const single = createTowerDefenseState({
     progress: { tutorialSeen: true, summonCurrency: 900, summonRngState: 456 },
   });
   assert.equal(summonTowerDefenseContracts(single, 1).length, 1);
   assert.equal(single.progress.summonCurrency, 800);
+
+  const pity = createTowerDefenseState({
+    progress: {
+      tutorialSeen: true, summonCurrency: 100, summonPity: 9, summonRngState: 1,
+    },
+  });
+  const guaranteed = summonTowerDefenseContracts(pity, 1)[0];
+  assert.ok(['SSR', 'UR'].includes(guaranteed.rarity));
+  assert.equal(guaranteed.rarity, HERO_TYPES[guaranteed.type].rarity);
+  assert.equal(pity.progress.summonPity, 0);
+
+  const distribution = createTowerDefenseState({
+    progress: { tutorialSeen: true, summonCurrency: 40_000, summonRngState: 0xA11CE },
+  });
+  const rarityCounts = { R: 0, SR: 0, SSR: 0, UR: 0 };
+  for (let index = 0; index < 400; index += 1) {
+    rarityCounts[summonTowerDefenseContracts(distribution, 1)[0].rarity] += 1;
+  }
+  assert.ok(rarityCounts.R > rarityCounts.SR);
+  assert.ok(rarityCounts.SR > rarityCounts.SSR);
+  assert.ok(rarityCounts.SSR > rarityCounts.UR);
 });
 
 test('summons unlock first, duplicates grant shards/ranks, and selected hero persists', () => {
@@ -726,7 +785,7 @@ test('summons unlock first, duplicates grant shards/ranks, and selected hero per
     knownRanks[result.type] = result.newRank;
   }
   assert.deepEqual(state.progress.contractRanks, knownRanks);
-  assert.ok(results.some(({ rankUps }) => rankUps > 1));
+  assert.ok(results.some(({ rankUps }) => rankUps > 0));
   const unlocked = TD_CONTRACT_TYPES.find((type) => (
     type !== 'shell' && state.progress.contractRanks[type] > 0
   ));

@@ -5,10 +5,13 @@ import {
   BUG_RIG,
   CRYSTAL_RIG,
   SHELL_RIG,
+  SOLDIER_RIG,
   SPROUT_RIG,
   STONE_RIG,
   WINDCAP_RIG,
 } from './animation/rigs.js';
+import { SOLDIER_CLIPS } from './animation/clips.js';
+import { AnimationController } from './animation/controller.js';
 import {
   characterExportedFacing,
   characterFacingMultiplier,
@@ -1203,6 +1206,168 @@ export const drawShellSlime = (ctx, x, y, size, options = {}) => drawSlime(ctx, 
 export const drawNeedleSlime = (ctx, x, y, size, options = {}) => drawSlime(ctx, x, y, size, 'needle', options);
 export const drawBubbleSlime = (ctx, x, y, size, options = {}) => drawSlime(ctx, x, y, size, 'bubble', options);
 export const drawSproutSlime = (ctx, x, y, size, options = {}) => drawSlime(ctx, x, y, size, 'sprout', options);
+
+const SOLDIER_ATLAS_SIZE = 1254;
+const SOLDIER_ATLAS_CELL = 418;
+const SOLDIER_ATLAS_CACHE = new WeakMap();
+const SOLDIER_LAYER_INDEX = Object.freeze({
+  body: 0,
+  headgear: 1,
+  equipment: 2,
+  normalEyes: 3,
+  normalMouth: 4,
+  attackEyes: 5,
+  attackMouth: 6,
+  hurtEyes: 7,
+  hurtMouth: 8,
+});
+const SOLDIER_BIND_RECT = Object.freeze({ x: -60, y: -120, width: 120, height: 120 });
+
+function soldierSourceRect(index) {
+  return Object.freeze({
+    x: (index % 3) * SOLDIER_ATLAS_CELL,
+    y: Math.floor(index / 3) * SOLDIER_ATLAS_CELL,
+    width: SOLDIER_ATLAS_CELL,
+    height: SOLDIER_ATLAS_CELL,
+  });
+}
+
+function soldierAtlasPart(id, bone, index, z, bindRect) {
+  return Object.freeze({
+    id, bone, z, required: true,
+    sourceRect: soldierSourceRect(index),
+    bindRect,
+  });
+}
+
+function soldierRigAssetFor(atlas) {
+  let rigAsset = SOLDIER_ATLAS_CACHE.get(atlas);
+  if (rigAsset) return rigAsset;
+  const faceVariant = (index) => Object.freeze({
+    image: atlas,
+    sourceRect: soldierSourceRect(index),
+    bindRect: SOLDIER_BIND_RECT,
+  });
+  rigAsset = Object.freeze({
+    rigId: SOLDIER_RIG.id,
+    canonicalFacing: 1,
+    parts: Object.freeze([
+      { ...soldierAtlasPart('body', 'body', SOLDIER_LAYER_INDEX.body, 0, SOLDIER_BIND_RECT), image: atlas },
+      { ...soldierAtlasPart('headgear', 'headgear', SOLDIER_LAYER_INDEX.headgear, 10, SOLDIER_BIND_RECT), image: atlas },
+      { ...soldierAtlasPart('equipment', 'equipment', SOLDIER_LAYER_INDEX.equipment, 20, SOLDIER_BIND_RECT), image: atlas },
+      Object.freeze({
+        id: 'eyes', bone: 'eyes', z: 30, required: true, image: atlas,
+        variants: Object.freeze({
+          normal: faceVariant(SOLDIER_LAYER_INDEX.normalEyes),
+          attack: faceVariant(SOLDIER_LAYER_INDEX.attackEyes),
+          hurt: faceVariant(SOLDIER_LAYER_INDEX.hurtEyes),
+        }),
+      }),
+      Object.freeze({
+        id: 'mouth', bone: 'mouth', z: 31, required: true, image: atlas,
+        variants: Object.freeze({
+          normal: faceVariant(SOLDIER_LAYER_INDEX.normalMouth),
+          attack: faceVariant(SOLDIER_LAYER_INDEX.attackMouth),
+          hurt: faceVariant(SOLDIER_LAYER_INDEX.hurtMouth),
+        }),
+      }),
+    ]),
+  });
+  SOLDIER_ATLAS_CACHE.set(atlas, rigAsset);
+  return rigAsset;
+}
+
+function soldierAnimationSample(options) {
+  if (options.pose && typeof options.pose === 'object') {
+    const expression = options.expressionSample
+      ?? options.expression
+      ?? (options.hit > 0 ? 'hurt' : options.attackPulse > 0 ? 'attack' : 'normal');
+    return { pose: options.pose, expression };
+  }
+  const requested = typeof options.state === 'string'
+    ? options.state
+    : options.hit > 0
+      ? 'hurt'
+      : options.attackPulse > 0
+        ? 'attack'
+        : options.moving
+          ? 'move'
+          : 'idle';
+  const state = Object.hasOwn(SOLDIER_CLIPS, requested) ? requested : 'idle';
+  const clip = SOLDIER_CLIPS[state];
+  const pulse = state === 'hurt'
+    ? clamp(safeNumber(options.hit, 1))
+    : state === 'attack'
+      ? clamp(safeNumber(options.attackPulse, 1))
+      : null;
+  const sampleTime = pulse == null
+    ? clip.mode === 'loop'
+      ? ((safeNumber(options.time, 0) % clip.duration) + clip.duration) % clip.duration
+      : clamp(safeNumber(options.time, 0), 0, clip.duration)
+    : (1 - pulse) * clip.duration;
+  const controller = new AnimationController(SOLDIER_CLIPS, {
+    base: state,
+    transitionDuration: 0,
+  });
+  controller.update(sampleTime);
+  return {
+    pose: controller.sample(),
+    expression: options.expression || clip.expression || 'normal',
+  };
+}
+
+/**
+ * Draw a formal 3x3 soldier skeletal atlas. The caller supplies the ordinary
+ * asset-store key, so melee/ranged art stays independent from hero rig assets.
+ */
+export function drawSoldier(ctx, x, y, size, options = {}) {
+  const assetKey = options.assetKey;
+  const facing = safeNumber(options.facing, 1) < 0 ? -1 : 1;
+  const fallbackVariant = options.variant === 'needle' || options.squadType === 'ranged'
+    ? 'needle'
+    : 'shell';
+  const kind = fallbackVariant === 'needle' ? 'ranged' : 'melee';
+  const fallback = () => drawSlime(ctx, x, y, size, fallbackVariant, {
+    time: options.time,
+    facing,
+    hit: options.hit,
+    attackPulse: options.attackPulse,
+    animate: options.animate,
+    assetStore: null,
+    allowGeneratedStandalone: false,
+  });
+  if (!assetKey || !options.assetStore || typeof options.assetStore.useOrFallback !== 'function') {
+    fallback();
+    return false;
+  }
+  let rendered = false;
+  const result = options.assetStore.useOrFallback(assetKey, (atlas) => {
+    const width = Number(atlas?.naturalWidth || atlas?.width);
+    const height = Number(atlas?.naturalHeight || atlas?.height);
+    if (width !== SOLDIER_ATLAS_SIZE || height !== SOLDIER_ATLAS_SIZE) {
+      throw new TypeError(
+        `Soldier atlas ${assetKey} must be exactly ${SOLDIER_ATLAS_SIZE}x${SOLDIER_ATLAS_SIZE}.`,
+      );
+    }
+    const sample = soldierAnimationSample(options);
+    ctx.save();
+    try {
+      ctx.translate(x, y);
+      ctx.scale((size / 100) * facing, size / 100);
+      rendered = renderCompatibleRigAsset(
+        ctx,
+        SOLDIER_RIG,
+        sample.pose,
+        soldierRigAssetFor(atlas),
+        sample.expression,
+      );
+    } finally {
+      ctx.restore();
+    }
+    if (!rendered) throw new Error(`Soldier atlas ${assetKey} could not render atomically.`);
+  }, fallback);
+  return rendered && result !== false;
+}
 
 function drawEnemyEye(ctx, x, y, radius = 5, pupilOffset = -1) {
   ctx.save();

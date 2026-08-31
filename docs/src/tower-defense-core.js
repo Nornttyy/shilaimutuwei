@@ -197,32 +197,33 @@ export const TD_CONTRACT_SHARDS_PER_RANK = 6;
 export const TD_CONTRACT_START_CURRENCY = 900;
 export const TD_CONTRACT_SUMMON_COSTS = Object.freeze({ 1: 100, 10: 900 });
 export const TD_CONTRACT_RARITIES = Object.freeze({
-  common: Object.freeze({ id: 'common', weight: 72, shards: 1 }),
-  rare: Object.freeze({ id: 'rare', weight: 23, shards: 3 }),
-  epic: Object.freeze({ id: 'epic', weight: 5, shards: 8 }),
+  R: Object.freeze({ id: 'R', weight: 60, shards: 1 }),
+  SR: Object.freeze({ id: 'SR', weight: 27, shards: 2 }),
+  SSR: Object.freeze({ id: 'SSR', weight: 10, shards: 4 }),
+  UR: Object.freeze({ id: 'UR', weight: 3, shards: 8 }),
 });
 
 export const HERO_TYPES = Object.freeze({
   shell: Object.freeze({
-    id: 'shell', ownerId: TOWER_TYPES.shell.ownerId, name: '壳壳英雄', glyph: '盾',
+    id: 'shell', ownerId: TOWER_TYPES.shell.ownerId, name: '壳壳', rarity: 'R', glyph: '盾',
     color: TOWER_TYPES.shell.color, maxHp: 900, speed: 165, range: 220,
     interval: 0.72, damage: 28, projectile: 'goo', projectileSpeed: 560,
     effect: 'splash', skillCooldown: 10, skillRadius: 165, skillDamage: 92,
   }),
   needle: Object.freeze({
-    id: 'needle', ownerId: TOWER_TYPES.needle.ownerId, name: '亮钉英雄', glyph: '晶',
+    id: 'needle', ownerId: TOWER_TYPES.needle.ownerId, name: '亮钉', rarity: 'SR', glyph: '晶',
     color: TOWER_TYPES.needle.color, maxHp: 650, speed: 180, range: 315,
     interval: 0.88, damage: 48, projectile: 'needle', projectileSpeed: 760,
     effect: 'pierce', skillCooldown: 11, skillRadius: 195, skillDamage: 145,
   }),
   bubble: Object.freeze({
-    id: 'bubble', ownerId: TOWER_TYPES.bubble.ownerId, name: '浮浮英雄', glyph: '泡',
+    id: 'bubble', ownerId: TOWER_TYPES.bubble.ownerId, name: '泡泡', rarity: 'SSR', glyph: '泡',
     color: TOWER_TYPES.bubble.color, maxHp: 710, speed: 192, range: 245,
     interval: 0.48, damage: 18, projectile: 'bubble', projectileSpeed: 500,
     effect: 'slow', skillCooldown: 9, skillRadius: 215, skillDamage: 58,
   }),
   sprout: Object.freeze({
-    id: 'sprout', ownerId: TOWER_TYPES.sprout.ownerId, name: '芽芽英雄', glyph: '芽',
+    id: 'sprout', ownerId: TOWER_TYPES.sprout.ownerId, name: '芽芽', rarity: 'UR', glyph: '芽',
     color: TOWER_TYPES.sprout.color, maxHp: 680, speed: 176, range: 255,
     interval: 0.64, damage: 22, projectile: 'seed', projectileSpeed: 590,
     effect: 'poison', skillCooldown: 9.5, skillRadius: 205, skillDamage: 52,
@@ -231,12 +232,12 @@ export const HERO_TYPES = Object.freeze({
 
 export const SQUAD_TYPES = Object.freeze({
   melee: Object.freeze({
-    id: 'melee', name: '近战小队', glyph: '近', cost: 100,
+    id: 'melee', name: '盾墩小队', glyph: '盾', cost: 100,
     squadSize: 4, memberHp: 72, range: 70, interval: 0.62,
     damagePerMember: 11, speed: 88, color: '#62D5A0', attackMode: 'melee-contact',
   }),
   ranged: Object.freeze({
-    id: 'ranged', name: '远程小队', glyph: '远', cost: 150,
+    id: 'ranged', name: '豆弩小队', glyph: '弩', cost: 150,
     squadSize: 4, memberHp: 48, range: 265, interval: 0.92,
     damagePerMember: 10, speed: 68, color: '#75CFF4', attackMode: 'ranged-volley',
     projectile: 'needle', projectileSpeed: 590,
@@ -253,20 +254,20 @@ export const TURRET_TYPES = Object.freeze({
 
 export const TD_ENEMIES = Object.freeze({
   bug: Object.freeze({
-    id: 'bug', ownerId: 'enemy-soft-biter', hp: 110, speed: 38, reward: 7,
-    size: 58, coreDamage: 2, attackDamage: 22, attackInterval: 1.2, color: '#A77770',
+    id: 'bug', ownerId: 'enemy-soft-biter', hp: 97, speed: 38, reward: 7,
+    size: 58, coreDamage: 2, attackDamage: 19, attackInterval: 1.2, color: '#A77770',
   }),
   windcap: Object.freeze({
-    id: 'windcap', ownerId: 'enemy-windcap', hp: 95, speed: 56, reward: 9,
-    size: 55, coreDamage: 4, attackDamage: 20, attackInterval: 0.85, color: '#C18BCC',
+    id: 'windcap', ownerId: 'enemy-windcap', hp: 84, speed: 56, reward: 9,
+    size: 55, coreDamage: 4, attackDamage: 18, attackInterval: 0.85, color: '#C18BCC',
   }),
   stone: Object.freeze({
-    id: 'stone', ownerId: 'enemy-stone-lump', hp: 360, speed: 27.5, reward: 18,
-    size: 68, coreDamage: 4, attackDamage: 45, attackInterval: 1.55, color: '#85848D',
+    id: 'stone', ownerId: 'enemy-stone-lump', hp: 317, speed: 27.5, reward: 18,
+    size: 68, coreDamage: 4, attackDamage: 40, attackInterval: 1.55, color: '#85848D',
   }),
   boss: Object.freeze({
-    id: 'boss', ownerId: 'enemy-acid-shell-king', hp: 2900, speed: 21, reward: 100,
-    size: 104, coreDamage: 14, attackDamage: 90, attackInterval: 1.35,
+    id: 'boss', ownerId: 'enemy-acid-shell-king', hp: 2550, speed: 21, reward: 100,
+    size: 104, coreDamage: 14, attackDamage: 79, attackInterval: 1.35,
     color: '#778D54', boss: true,
   }),
 });
@@ -529,6 +530,8 @@ function ensureTowerHealth(tower, state = null) {
 function heroRosterForProgress(progress) {
   return TD_CONTRACT_TYPES.map((type) => ({
     type,
+    name: HERO_TYPES[type].name,
+    rarity: HERO_TYPES[type].rarity,
     rank: progress.contractRanks[type],
     shards: progress.contractShards[type],
     owned: progress.contractRanks[type] > 0,
@@ -594,21 +597,28 @@ export function drawCostForState(state) {
   return Math.min(40, 20 + Math.floor(Math.max(0, state.drawCount) / 4) * 4);
 }
 
-function rollContractRarity(progress) {
-  const forcedEpic = progress.summonPity >= 9;
-  let roll = summonSeededStep(progress) * 100;
-  let rarity = 'epic';
-  if (!forcedEpic) {
-    for (const definition of Object.values(TD_CONTRACT_RARITIES)) {
-      roll -= definition.weight;
-      if (roll < 0) {
-        rarity = definition.id;
-        break;
-      }
+function rollContractType(progress) {
+  const guaranteedHighRarity = progress.summonPity >= 9;
+  const pool = TD_CONTRACT_TYPES.filter((type) => (
+    !guaranteedHighRarity || ['SSR', 'UR'].includes(HERO_TYPES[type].rarity)
+  ));
+  const totalWeight = pool.reduce((total, type) => (
+    total + TD_CONTRACT_RARITIES[HERO_TYPES[type].rarity].weight
+  ), 0);
+  let roll = summonSeededStep(progress) * totalWeight;
+  let type = pool.at(-1);
+  for (const candidate of pool) {
+    roll -= TD_CONTRACT_RARITIES[HERO_TYPES[candidate].rarity].weight;
+    if (roll < 0) {
+      type = candidate;
+      break;
     }
   }
-  progress.summonPity = rarity === 'epic' ? 0 : Math.min(9, progress.summonPity + 1);
-  return rarity;
+  const rarity = HERO_TYPES[type].rarity;
+  progress.summonPity = ['SSR', 'UR'].includes(rarity)
+    ? 0
+    : Math.min(9, progress.summonPity + 1);
+  return type;
 }
 
 /**
@@ -625,12 +635,8 @@ export function summonTowerDefenseContracts(state, count = 1) {
   progress.summonCurrency -= cost;
   const results = [];
   for (let index = 0; index < summonCount; index += 1) {
-    const rarity = rollContractRarity(progress);
-    const typeIndex = Math.min(
-      TD_CONTRACT_TYPES.length - 1,
-      Math.floor(summonSeededStep(progress) * TD_CONTRACT_TYPES.length),
-    );
-    const type = TD_CONTRACT_TYPES[typeIndex];
+    const type = rollContractType(progress);
+    const rarity = HERO_TYPES[type].rarity;
     const drawShards = TD_CONTRACT_RARITIES[rarity].shards;
     const rank = progress.contractRanks[type];
     const unlocked = rank <= 0;
@@ -782,6 +788,8 @@ export function buyTowerDefenseSquad(state, squadType, padIndex) {
     maxHp,
     hitPulse: 0,
     cooldown: 0.12,
+    targetUid: null,
+    facing: 1,
     aimAngle: 0,
     attackPulse: 0,
     x: pad.x,
@@ -1535,6 +1543,13 @@ function updateTowers(state, dt) {
         && enemy.travelled <= actorProjection.travelled + 0.01
       ))
       .sort((left, right) => right.travelled - left.travelled)[0];
+    tower.targetUid = approachTarget?.uid || null;
+    if (approachTarget) {
+      tower.aimAngle = Math.atan2(approachTarget.y - origin.y, approachTarget.x - origin.x);
+      if (Math.abs(approachTarget.x - origin.x) > 1) {
+        tower.facing = approachTarget.x < origin.x ? -1 : 1;
+      }
+    }
     const preferredGap = definition.id === 'melee'
       ? 60
       : Math.max(62, rangeForTowerState(state, tower) * 0.72);
@@ -1551,6 +1566,10 @@ function updateTowers(state, dt) {
       const nextPoint = pointOnPath(lane.path, nextTravelled);
       tower.x = nextPoint.x;
       tower.y = nextPoint.y;
+      tower.aimAngle = Math.atan2(approachTarget.y - tower.y, approachTarget.x - tower.x);
+      if (Math.abs(approachTarget.x - tower.x) > 1) {
+        tower.facing = approachTarget.x < tower.x ? -1 : 1;
+      }
       if (!tower.moving) {
         state.events.push({
           type: 'soldier-move', soldierUid: tower.uid, soldierType: tower.type,
@@ -1564,7 +1583,9 @@ function updateTowers(state, dt) {
       tower.moving = false;
     }
     if (tower.cooldown > 0) continue;
-    const target = targetForTower(state, tower);
+    const target = approachTarget && distance(tower, approachTarget) <= rangeForTowerState(state, tower)
+      ? approachTarget
+      : null;
     if (!target) {
       tower.cooldown = Math.min(0.12, tower.cooldown + 0.08);
       continue;
@@ -1845,9 +1866,10 @@ function damageTower(state, enemy, tower, amount) {
     star: tower.star,
     padIndex: tower.padIndex,
     enemyUid: enemy.uid,
-    x: pad.x,
-    y: pad.y,
-    laneIndex: pad.laneIndex,
+      x: pad.x,
+      y: pad.y,
+      facing: tower.facing === -1 ? -1 : 1,
+      laneIndex: pad.laneIndex,
   });
   return true;
 }

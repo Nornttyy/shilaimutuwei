@@ -206,10 +206,10 @@ test('constructs and renders its first menu frame without DOM globals', () => {
   assert.equal(canvas.height, 1280);
   assert.ok(game.hits.some(({ id }) => id === 'start-story'));
   assert.deepEqual(game.hits.map(({ id }) => id), [
-    'start-story', 'endless', 'open-summon',
+    'start-story', 'endless', 'open-roster', 'open-summon',
   ]);
   assert.ok(canvas.context.calls.some(([kind, text]) => (
-    kind === 'fillText' && text === '史莱姆自走防线'
+    kind === 'fillText' && text === '史莱姆守望团'
   )));
   game.dispose();
 });
@@ -286,7 +286,7 @@ test('all four towers drive independent attack bones and replace facial layers',
   game.dispose();
 });
 
-test('summon page supports one and ten pulls, result closing, hero selection, and back', () => {
+test('summoning and hero formation are separate portrait menu flows', () => {
   const canvas = createCanvas();
   const runtime = createRuntime({ tutorialSeen: true, summonCurrency: 1000 });
   const game = new TowerDefenseGame(canvas, {
@@ -301,22 +301,18 @@ test('summon page supports one and ten pulls, result closing, hero selection, an
   canvas.context.calls.length = 0;
   game.render();
   assert.deepEqual(game.hits.map(({ id }) => id), [
-    'summon-back',
-    'hero-select-shell', 'hero-select-needle', 'hero-select-bubble', 'hero-select-sprout',
-    'summon-one', 'summon-ten',
+    'summon-back', 'summon-one', 'summon-ten',
   ]);
-  assert.equal(game.hits.find(({ id }) => id === 'hero-select-shell').enabled, true);
-  assert.equal(game.hits.find(({ id }) => id === 'hero-select-needle').enabled, false);
+  assert.equal(game.hits.some(({ id }) => id.startsWith('hero-select-')), false,
+    'the summon page cannot switch the active hero');
   const summonLabels = canvas.context.calls
     .filter(([kind]) => kind === 'fillText')
     .map(([, text]) => text);
   assert.ok(summonLabels.includes('史莱姆招募'));
+  assert.ok(summonLabels.includes('稀有度概率'));
+  assert.ok(summonLabels.includes('高稀有保底  0/10'));
+  assert.ok(summonLabels.includes('最多再 10 次获得 SSR / UR'));
   for (const rarity of ['R', 'SR', 'SSR', 'UR']) assert.ok(summonLabels.includes(rarity));
-  assert.equal(summonLabels.includes('英雄召唤'), false,
-    'the roster presents slime names and letter rarities rather than hero stars');
-
-  click(game, canvas, hitCenter(game, 'hero-select-needle'));
-  assert.equal(game.state.progress.selectedHero, 'shell', 'locked heroes cannot be selected');
 
   const summonOnePoint = hitCenter(game, 'summon-one');
   click(game, canvas, summonOnePoint);
@@ -371,13 +367,34 @@ test('summon page supports one and ten pulls, result closing, hero selection, an
     game.state.progress.contractRanks[type] > 0
   ));
   assert.ok(unlocked, 'the first ten pull unlocks another selectable hero');
+  game.activateHit({ action: 'select-hero', data: { heroType: unlocked } });
+  assert.equal(game.state.progress.selectedHero, 'shell',
+    'even a stale direct select action is ignored outside the formation page');
+
   game.render();
+  click(game, canvas, hitCenter(game, 'summon-back'));
+  assert.equal(game.menuPage, 'main');
+  game.render();
+  click(game, canvas, hitCenter(game, 'open-roster'));
+  assert.equal(game.menuPage, 'roster');
+  canvas.context.calls.length = 0;
+  game.render();
+  assert.deepEqual(game.hits.map(({ id }) => id), [
+    'roster-back',
+    'hero-select-shell', 'hero-select-needle', 'hero-select-bubble', 'hero-select-sprout',
+  ]);
+  assert.equal(game.hits.find(({ id }) => id === `hero-select-${unlocked}`).enabled, true);
+  assert.ok(game.hits.some(({ id, enabled }) => id.startsWith('hero-select-') && !enabled),
+    'unowned heroes remain visibly locked in formation');
+  assert.ok(canvas.context.calls.some(([kind, text]) => (
+    kind === 'fillText' && text === '英雄编队'
+  )));
   click(game, canvas, hitCenter(game, `hero-select-${unlocked}`));
   assert.equal(game.state.progress.selectedHero, unlocked);
   assert.equal(runtime.values.get(TD_STORAGE_KEY).selectedHero, unlocked);
 
   game.render();
-  click(game, canvas, hitCenter(game, 'summon-back'));
+  click(game, canvas, hitCenter(game, 'roster-back'));
   assert.equal(game.menuPage, 'main');
   game.render();
   assert.ok(game.hits.some(({ id }) => id === 'open-summon'));
@@ -531,6 +548,113 @@ test('a defeated squad animates only its final member instead of restoring four 
   game.dispose();
 });
 
+test('squad rendering prefers independent core member coordinates when available', () => {
+  const canvas = createCanvas();
+  const game = new TowerDefenseGame(canvas, {
+    runtime: createRuntime({ tutorialSeen: true }),
+    pixelRatio: 1,
+  });
+  game.state.screen = 'battle';
+  const translations = [];
+  canvas.context.translate = (x, y) => translations.push([x, y]);
+  game.drawSquadMembers(canvas.context, {
+    uid: 'independent-squad',
+    squadType: 'melee',
+    aliveMembers: 4,
+    deployX: 500,
+    deployY: 600,
+    members: [
+      { uid: 'front', x: 111, y: 222, hp: 20, facing: 1, moving: true },
+      { uid: 'downed', x: 222, y: 333, hp: 0, facing: -1 },
+      { uid: 'rear', x: 444, y: 555, hp: 12, facing: -1 },
+    ],
+  }, 500, 600);
+
+  assert.ok(translations.some(([x, y]) => x === 111 && y === 222));
+  assert.ok(translations.some(([x, y]) => x === 444 && y === 555));
+  assert.equal(translations.some(([x, y]) => x === 222 && y === 333), false,
+    'downed independent members are not rendered');
+  assert.equal(translations.some(([x, y]) => x === 482 && y === 596), false,
+    'the legacy four-member formation is not used when members are authored');
+  assert.ok(game.characterAnimations.has('squad:independent-squad:front'));
+  assert.ok(game.characterAnimations.has('squad:independent-squad:rear'));
+
+  translations.length = 0;
+  game.drawSquadMembers(canvas.context, {
+    uid: 'dragged-squad',
+    squadType: 'melee',
+    deployX: 500,
+    deployY: 600,
+    members: [{ uid: 'dragged-front', memberIndex: 0, x: 511, y: 622, hp: 20 }],
+  }, 700, 800, { anchorIndependentMembers: true });
+  assert.ok(translations.some(([x, y]) => x === 711 && y === 822),
+    'long-press previews preserve member offsets around the pointer');
+  game.dispose();
+});
+
+test('independent squad events animate only the acting member and show its downed pose', () => {
+  const canvas = createCanvas();
+  const game = new TowerDefenseGame(canvas, {
+    runtime: createRuntime({ tutorialSeen: true }),
+    pixelRatio: 1,
+  });
+  game.state.screen = 'battle';
+  game.state.hand = [];
+  const squad = {
+    uid: 'event-squad', kind: 'soldier', type: 'melee', squadType: 'melee',
+    aliveMembers: 4, deployX: 300, deployY: 400,
+    members: Array.from({ length: 4 }, (_, memberIndex) => ({
+      uid: `event-member-${memberIndex}`,
+      memberIndex,
+      x: 282 + memberIndex * 12,
+      y: 390 + memberIndex * 4,
+      hp: 72,
+      alive: true,
+      moving: false,
+    })),
+  };
+  game.state.towers = [squad];
+  game.state.enemies = [];
+  game.updateCharacterAnimations(0.01);
+
+  const keyFor = (memberIndex) => `squad:event-squad:event-member-${memberIndex}`;
+  game.processCharacterAnimationEvent({
+    type: 'shot', towerUid: squad.uid,
+    soldierUid: squad.members[2].uid, memberIndex: 2,
+  });
+  assert.equal(game.characterAnimations.get(keyFor(2)).controller.actionName, 'attack');
+  for (const memberIndex of [0, 1, 3]) {
+    assert.notEqual(game.characterAnimations.get(keyFor(memberIndex)).controller.actionName, 'attack');
+  }
+
+  game.processCharacterAnimationEvent({
+    type: 'tower-hit', towerUid: squad.uid,
+    soldierUid: squad.members[1].uid, memberIndex: 1,
+  });
+  assert.equal(game.characterAnimations.get(keyFor(1)).controller.actionName, 'hurt');
+  assert.notEqual(game.characterAnimations.get(keyFor(0)).controller.actionName, 'hurt');
+  assert.notEqual(game.characterAnimations.get(keyFor(3)).controller.actionName, 'hurt');
+
+  game.processCharacterAnimationEvent({
+    type: 'squad-member-down', squadUid: squad.uid, squadType: 'melee',
+    soldierUid: squad.members[1].uid, memberIndex: 1,
+    x: squad.members[1].x, y: squad.members[1].y, facing: -1,
+  });
+  assert.equal(game.defeatedTowers.length, 1);
+  assert.equal(game.defeatedTowers[0].x, squad.members[1].x);
+  assert.equal(
+    game.characterAnimations.get(`defeated-member:${squad.members[1].uid}`).controller.actionName,
+    'downed',
+  );
+  game.processCharacterAnimationEvent({
+    type: 'tower-defeat', towerUid: squad.uid, towerType: 'melee',
+    x: squad.deployX, y: squad.deployY,
+  });
+  assert.equal(game.defeatedTowers.length, 1,
+    'the last member down event is not duplicated by the aggregate squad defeat event');
+  game.dispose();
+});
+
 test('story opens stage selection with lock, clear, selectable, and back states', () => {
   const canvas = createCanvas();
   const runtime = createRuntime({
@@ -542,7 +666,7 @@ test('story opens stage selection with lock, clear, selectable, and back states'
   game.render();
 
   assert.deepEqual(game.hits.map(({ id }) => id), [
-    'start-story', 'endless', 'open-summon',
+    'start-story', 'endless', 'open-roster', 'open-summon',
   ]);
   const storyHit = game.hits.find(({ id }) => id === 'start-story');
   assert.equal(storyHit.action, 'open-stage-select');
@@ -569,7 +693,7 @@ test('story opens stage selection with lock, clear, selectable, and back states'
   assert.equal(game.menuPage, 'main');
   game.render();
   assert.deepEqual(game.hits.map(({ id }) => id), [
-    'start-story', 'endless', 'open-summon',
+    'start-story', 'endless', 'open-roster', 'open-summon',
   ]);
 
   click(game, canvas, hitCenter(game, 'start-story'));

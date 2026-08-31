@@ -284,16 +284,18 @@ test('skeletal armor has no legacy decal, v2 replacement, or source-atop path', 
   assert.equal(DRAW_SOURCE.includes('slimeEvolutionDecalLayout'), false);
 });
 
-test('placed squads draw up to four fixed-size lane-safe members without star scaling', () => {
+test('placed squads draw four fixed-size independent members without star scaling', () => {
   const squadRenderer = TOWER_DEFENSE_SOURCE.match(
-    /drawSquadMembers\(ctx, squad, x, y\) \{[\s\S]*?\n  \}\n\n  drawPad/,
+    /drawSquadMembers\(ctx, squad, x, y, \{ anchorIndependentMembers = false \} = \{\}\) \{[\s\S]*?\n  \}\n\n  drawPad/,
   )?.[0] || '';
   assert.match(
     squadRenderer,
-    /const aliveMembers = clamp\([\s\S]*?, 0, 4\);/,
+    /const hasIndependentMembers = Array\.isArray\(squad\.members\);/,
   );
+  assert.match(squadRenderer, /squad\.members\.filter\(\(member\) => \(/);
   assert.match(squadRenderer, /4:\s*\[[\s\S]*?\],\n\s*\};/);
-  assert.match(squadRenderer, /drawSoldier\(ctx,[\s\S]*?44 \* position\.scale, \{/);
+  assert.match(squadRenderer, /drawSoldier\(ctx,[\s\S]*?44 \* memberScale, \{/);
+  assert.match(squadRenderer, /squadMemberAnimationKey\(squad, member, memberIndex\)/);
   assert.match(squadRenderer, /assetKey: visual\.assetKey/);
   assert.doesNotMatch(squadRenderer, /drawSlime\(/);
   assert.doesNotMatch(squadRenderer, /\.star\b/);

@@ -156,6 +156,27 @@ test('direct squad purchase is prep-only, correctly priced, one-cell, and atomic
     maxMembers: 4, aliveMembers: 4, padIndex: 0,
   });
   assert.equal(melee.maxHp, SQUAD_TYPES.melee.memberHp * 4);
+  assert.equal(melee.members.length, 4);
+  assert.equal(new Set(melee.members.map(({ uid }) => uid)).size, 4);
+  assert.equal(new Set(melee.members.map(({ x, y }) => `${x}:${y}`)).size, 4);
+  for (const member of melee.members) {
+    assert.deepEqual({
+      facing: member.facing,
+      targetId: member.targetId,
+      hp: member.hp,
+      alive: member.alive,
+      moving: member.moving,
+    }, {
+      facing: 1,
+      targetId: null,
+      hp: SQUAD_TYPES.melee.memberHp,
+      alive: true,
+      moving: false,
+    });
+    assert.ok(Number.isFinite(member.x));
+    assert.ok(Number.isFinite(member.y));
+    assert.ok(Number.isFinite(member.attackCooldown));
+  }
 
   const occupied = clone(state);
   assert.equal(buyTowerDefenseSquad(state, 'ranged', 0), null);
@@ -182,32 +203,52 @@ test('member losses reduce aliveMembers and squad damage linearly', () => {
     holdCombat(state);
     const enemy = enemyAt({
       laneIndex: pad.laneIndex,
-      y: pad.y - (squadType === 'melee' ? 20 : 120),
+      y: pad.y - 20,
       uid: `${squadType}-damage-target`, hp: 1_000_000,
     });
     state.enemies = [enemy];
-    squad.cooldown = 0;
+    squad.members.forEach((member) => { member.attackCooldown = 0; });
     state.events = [];
     updateTowerDefense(state, 0.01);
-    const full = state.events.find(({ type }) => type === 'shot');
-    assert.ok(full);
-    assert.equal(full.aliveMembers, 4);
-    assert.equal(full.damage, SQUAD_TYPES[squadType].damagePerMember * 4);
+    const full = state.events.filter(({ type }) => type === 'shot');
+    assert.equal(full.length, 4);
+    assert.equal(new Set(full.map(({ soldierUid }) => soldierUid)).size, 4);
+    assert.equal(full.reduce((sum, event) => sum + event.damage, 0),
+      SQUAD_TYPES[squadType].damagePerMember * 4);
 
+    // Aggregate HP is deliberately written here to cover old battle saves and
+    // callers that predate per-member health.
     squad.hp = SQUAD_TYPES[squadType].memberHp * 2;
-    squad.cooldown = 0;
+    squad.members.forEach((member) => { member.attackCooldown = 0; });
     enemy.hp = enemy.maxHp;
     state.projectiles = [];
     state.events = [];
     updateTowerDefense(state, 0.01);
-    const reduced = state.events.find(({ type }) => type === 'shot');
-    assert.ok(reduced);
+    const reduced = state.events.filter(({ type }) => type === 'shot');
     assert.equal(squad.aliveMembers, 2);
-    assert.equal(reduced.aliveMembers, 2);
-    assert.equal(reduced.damage, full.damage / 2);
-    assert.equal(reduced.projectileCount, squadType === 'ranged' ? 2 : 0);
+    assert.equal(reduced.length, 2);
+    assert.equal(reduced.reduce((sum, event) => sum + event.damage, 0),
+      SQUAD_TYPES[squadType].damagePerMember * 2);
+    assert.equal(reduced.every(({ aliveMembers }) => aliveMembers === 2), true);
     assert.equal(state.projectiles.length, squadType === 'ranged' ? 2 : 0);
   }
+});
+
+test('legacy aggregate squads migrate into independent serialisable members', () => {
+  const state = createBattleState();
+  const squad = buyTowerDefenseSquad(state, 'ranged', 3);
+  const retainedHp = SQUAD_TYPES.ranged.memberHp * 2 + 7;
+  delete squad.members;
+  squad.hp = retainedHp;
+  squad.aliveMembers = 3;
+  holdCombat(state);
+  updateTowerDefense(state, 0.01);
+  assert.equal(squad.members.length, 4);
+  assert.equal(squad.hp, retainedHp);
+  assert.equal(squad.aliveMembers, 3);
+  assert.deepEqual(squad.members.map(({ hp }) => hp), [48, 48, 7, 0]);
+  assert.equal(new Set(squad.members.map(({ x, y }) => `${x}:${y}`)).size, 4);
+  assert.doesNotThrow(() => JSON.stringify(state));
 });
 
 test('melee closes to contact while ranged fires a long-distance projectile', () => {
@@ -217,14 +258,19 @@ test('melee closes to contact while ranged fires a long-distance projectile', ()
   holdCombat(meleeState);
   const meleeEnemy = enemyAt({ laneIndex: 0, y: pad.y - 80, uid: 'melee-target', hp: 1e6 });
   meleeState.enemies = [meleeEnemy];
-  melee.cooldown = 0;
+  melee.members.forEach((member) => { member.attackCooldown = 0; });
+  const meleeStarts = melee.members.map(({ x, y }) => ({ x, y }));
   updateTowerDefense(meleeState, 0.05);
   assert.ok(melee.y < melee.deployY);
-  assert.equal(meleeState.events.some(({ type }) => type === 'shot'), false);
   for (let tick = 0; tick < 80; tick += 1) updateTowerDefense(meleeState, 0.05);
-  const meleeShot = meleeState.events.find(({ type }) => type === 'shot');
+  const meleeShots = meleeState.events.filter(({ type }) => type === 'shot');
+  const meleeShot = meleeShots[0];
+  assert.ok(meleeShot);
   assert.equal(meleeShot.attackMode, 'melee-contact');
   assert.equal(meleeShot.projectileCount, 0);
+  assert.ok(melee.members.every((member, index) => (
+    Math.hypot(member.x - meleeStarts[index].x, member.y - meleeStarts[index].y) > 0
+  )));
   assert.ok(meleeEnemy.hp < meleeEnemy.maxHp);
 
   const rangedState = createBattleState();
@@ -232,12 +278,13 @@ test('melee closes to contact while ranged fires a long-distance projectile', ()
   holdCombat(rangedState);
   const rangedEnemy = enemyAt({ laneIndex: 0, y: pad.y - 74, uid: 'ranged-target', hp: 1e6 });
   rangedState.enemies = [rangedEnemy];
-  ranged.cooldown = 0;
+  ranged.members.forEach((member) => { member.attackCooldown = 0; });
   rangedState.events = [];
   updateTowerDefense(rangedState, 0.01);
-  const rangedShot = rangedState.events.find(({ type }) => type === 'shot');
-  assert.equal(rangedShot.attackMode, 'ranged-volley');
-  assert.equal(rangedShot.projectileCount, 4);
+  const rangedShots = rangedState.events.filter(({ type }) => type === 'shot');
+  assert.equal(rangedShots.length, 4);
+  assert.equal(rangedShots.every(({ attackMode }) => attackMode === 'ranged-volley'), true);
+  assert.equal(rangedShots.every(({ projectileCount }) => projectileCount === 1), true);
   assert.equal(rangedState.projectiles.length, 4);
   assert.equal(rangedState.projectiles[0].sourceKind, 'squad');
   assert.equal(rangedState.projectiles[0].damage, SQUAD_TYPES.ranged.damagePerMember);
@@ -265,7 +312,12 @@ test('contact damage downs members once and wave clear revives the retained squa
     updateTowerDefense(state, 0.05);
   }
   assert.ok(squad.aliveMembers < 4);
-  assert.ok(state.events.some(({ type }) => type === 'squad-member-down'));
+  const memberDown = state.events.find(({ type }) => type === 'squad-member-down');
+  assert.ok(memberDown);
+  assert.ok(memberDown.soldierUid);
+  assert.ok(Number.isInteger(memberDown.memberIndex));
+  assert.equal(squad.members[memberDown.memberIndex].alive, false);
+  assert.equal(squad.members[memberDown.memberIndex].downed, true);
   assert.equal(enemy.blockedByTowerUid, squad.uid);
 
   squad.hp = 1;
@@ -290,6 +342,50 @@ test('contact damage downs members once and wave clear revives the retained squa
   assert.equal(squad.aliveMembers, 4);
   assert.equal(squad.downed, false);
   assert.equal(squad.y, squad.deployY);
+  assert.equal(squad.members.every((member) => (
+    member.alive && !member.downed && member.hp === member.maxHp
+    && member.x === member.deployX && member.y === member.deployY
+    && member.targetId === null && member.moving === false
+  )), true);
+});
+
+test('contact damage keeps the original member index after an earlier member is down', () => {
+  const state = createBattleState();
+  const squad = buyTowerDefenseSquad(state, 'melee', 0);
+  const pad = TD_STAGES[0].pads[0];
+  holdCombat(state);
+  const enemy = enemyAt({
+    laneIndex: 0, y: pad.y, uid: 'index-probe', hp: 1e6, speed: 0,
+  });
+  enemy.attackDamage = 19;
+  enemy.attackCooldown = 0;
+  state.enemies = [enemy];
+  state.events = [];
+
+  squad.members[0].hp = 0;
+  squad.members[0].alive = false;
+  squad.members[0].downed = true;
+  for (const member of squad.members.slice(1)) {
+    member.hp = member.maxHp;
+    member.alive = true;
+    member.attackCooldown = 999;
+  }
+  squad.members[1].x = TD_HERO_BOUNDS.maxX;
+  squad.members[1].y = TD_HERO_BOUNDS.maxY;
+  squad.members[2].x = enemy.x;
+  squad.members[2].y = enemy.y;
+  squad.members[3].x = TD_HERO_BOUNDS.maxX;
+  squad.members[3].y = TD_HERO_BOUNDS.maxY - 80;
+  squad.hp = squad.members.reduce((total, member) => total + member.hp, 0);
+
+  const fullMemberHp = squad.members[2].maxHp;
+  updateTowerDefense(state, 0.01);
+  assert.deepEqual(squad.members.map(({ hp }) => hp), [
+    0, fullMemberHp, fullMemberHp - 19, fullMemberHp,
+  ]);
+  const hit = state.events.find(({ type }) => type === 'tower-hit');
+  assert.equal(hit?.soldierUid, squad.members[2].uid);
+  assert.equal(hit?.memberIndex, 2);
 });
 
 test('gel mortar costs 175, uses fixed slots, cannot move, and splashes across lanes', () => {
@@ -412,6 +508,10 @@ test('wave clear returns to prep, restores actors, and never auto-starts', () =>
   assert.equal(squad.y, squad.deployY);
   assert.equal(squad.hp, squad.maxHp);
   assert.equal(squad.aliveMembers, 4);
+  assert.equal(squad.members.every((member) => (
+    member.hp === member.maxHp && member.alive && !member.downed
+    && member.x === member.deployX && member.y === member.deployY
+  )), true);
   assert.equal(state.hero.y, state.hero.spawnY);
   for (let tick = 0; tick < 300; tick += 1) updateTowerDefense(state, 0.05);
   assert.equal(state.wave, 1);
@@ -480,30 +580,40 @@ test('portrait stages share one top entrance, smoothly split into five lanes, th
   }
 });
 
-test('ranged squads target only upstream enemies on the same vertical lane', () => {
+test('four members keep separate positions and acquire targets in every direction', () => {
   const state = createBattleState();
   const stage = TD_STAGES[0];
-  const padIndex = stage.pads.findIndex(({ laneIndex, columnIndex }) => (
-    laneIndex === 0 && columnIndex === 3
+  const padIndex = stage.pads.findIndex(({ laneIndex, rowIndex }) => (
+    laneIndex === 2 && rowIndex === 3
   ));
   const squad = buyTowerDefenseSquad(state, 'ranged', padIndex);
   const pad = stage.pads[padIndex];
   holdCombat(state);
-  squad.cooldown = 0;
+  squad.members.forEach((member) => { member.attackCooldown = 999; });
   state.enemies = [
-    enemyAt({ laneIndex: 0, y: pad.y - 72, uid: 'same-lane-upstream' }),
-    enemyAt({ laneIndex: 0, y: pad.y + 20, uid: 'same-lane-downstream' }),
-    enemyAt({ laneIndex: 1, y: pad.y - 24, uid: 'other-lane-upstream' }),
+    enemyAt({ laneIndex: 2, y: pad.y - 80, uid: 'north' }),
+    enemyAt({ laneIndex: 2, y: pad.y + 80, uid: 'south' }),
+    enemyAt({ laneIndex: 1, y: pad.y, uid: 'west' }),
+    enemyAt({ laneIndex: 3, y: pad.y, uid: 'east' }),
   ];
-  state.events = [];
   updateTowerDefense(state, 0.01);
-  assert.equal(
-    state.events.find(({ type }) => type === 'shot').targetUid,
-    'same-lane-upstream',
+  assert.equal(new Set(squad.members.map(({ x, y }) => `${x}:${y}`)).size, 4);
+  assert.deepEqual(
+    [...squad.members.map(({ targetId }) => targetId)].sort(),
+    ['east', 'north', 'south', 'west'],
   );
+  const lockedTargets = squad.members.map(({ targetId }) => targetId);
+  state.enemies.reverse();
+  updateTowerDefense(state, 0.05);
+  assert.deepEqual(squad.members.map(({ targetId }) => targetId), lockedTargets,
+    'a living target stays locked instead of being replaced by a nearer enemy');
+  assert.ok(squad.members.every(({ x, y }) => (
+    x >= TD_HERO_BOUNDS.minX && x <= TD_HERO_BOUNDS.maxX
+    && y >= TD_HERO_BOUNDS.minY && y <= TD_HERO_BOUNDS.maxY
+  )));
 });
 
-test('outer split uses true range and squads advance diagonally on their own route', () => {
+test('squad members pursue targets directly without leaving the combat bounds', () => {
   const state = createBattleState();
   const outerPad = TD_STAGES[0].pads.findIndex(({ laneIndex, rowIndex }) => (
     laneIndex === 0 && rowIndex === 0
@@ -512,10 +622,9 @@ test('outer split uses true range and squads advance diagonally on their own rou
   holdCombat(state);
   const trunkEnemy = enemyAt({ laneIndex: 0, y: 222, uid: 'trunk-out-of-range' });
   state.enemies = [trunkEnemy];
-  squad.cooldown = 0;
+  squad.members.forEach((member) => { member.attackCooldown = 0; });
   updateTowerDefense(state, 0.01);
-  assert.equal(state.events.some(({ type }) => type === 'shot'), false,
-    'route progress alone must not bridge the 272px lateral split');
+  assert.equal(squad.members.some(({ moving }) => moving), true);
 
   const movingState = createBattleState();
   const movingPad = TD_STAGES[0].pads.findIndex(({ laneIndex, rowIndex }) => (
@@ -524,17 +633,17 @@ test('outer split uses true range and squads advance diagonally on their own rou
   const melee = buyTowerDefenseSquad(movingState, 'melee', movingPad);
   holdCombat(movingState);
   movingState.enemies = [enemyAt({ laneIndex: 0, y: 222, uid: 'split-target' })];
-  const before = { x: melee.x, y: melee.y };
+  const before = melee.members.map(({ x, y }) => ({ x, y }));
   for (let tick = 0; tick < 30; tick += 1) updateTowerDefense(movingState, 0.05);
-  assert.ok(melee.y < before.y);
-  assert.ok(melee.x > before.x, 'outer squad follows the diagonal branch toward the trunk');
-  const lane = TD_STAGES[0].lanes[0];
-  const travelled = travelledForY(lane, melee.y);
-  const expected = pointOnPath(lane.path, travelled);
-  assert.ok(Math.hypot(melee.x - expected.x, melee.y - expected.y) < 0.01);
+  melee.members.forEach((member, index) => {
+    assert.ok(member.y < before[index].y);
+    assert.ok(member.x > before[index].x, 'each member follows its own direct pursuit vector');
+    assert.ok(member.x >= TD_HERO_BOUNDS.minX && member.x <= TD_HERO_BOUNDS.maxX);
+    assert.ok(member.y >= TD_HERO_BOUNDS.minY && member.y <= TD_HERO_BOUNDS.maxY);
+  });
 });
 
-test('squads lock the foremost lane target on its spawn frame before it enters range', () => {
+test('members lock targets on their first frame and replace only defeated targets', () => {
   const state = createBattleState();
   const padIndex = TD_STAGES[0].pads.findIndex(({ laneIndex, rowIndex }) => (
     laneIndex === 0 && rowIndex === 4
@@ -544,9 +653,10 @@ test('squads lock the foremost lane target on its spawn frame before it enters r
   const rear = enemyAt({ laneIndex: 0, y: 222, uid: 'rear', hp: 1e6 });
   const front = enemyAt({ laneIndex: 0, y: 250, uid: 'front', hp: 1e6 });
   state.enemies = [rear, front];
-  squad.cooldown = 0;
+  squad.members.forEach((member) => { member.attackCooldown = 0; });
   updateTowerDefense(state, 0.01);
   assert.equal(squad.targetUid, front.uid);
+  assert.ok(squad.members.every(({ targetId }) => [front.uid, rear.uid].includes(targetId)));
   assert.ok(Number.isFinite(squad.aimAngle));
   assert.equal(squad.facing, 1);
   assert.equal(state.events.some(({ type }) => type === 'shot'), false);
@@ -685,7 +795,7 @@ function simulateStarterLineup({ heroActive }) {
   return state;
 }
 
-test('the starter lineup clears stage one only when the player hero participates', () => {
+test('the autonomous starter lineup clears stage one and the hero improves the result', () => {
   const active = simulateStarterLineup({ heroActive: true });
   assert.equal(active.result, 'victory');
   assert.equal(active.wave, 5);
@@ -693,9 +803,10 @@ test('the starter lineup clears stage one only when the player hero participates
   assert.equal(active.kills, 32);
 
   const idle = simulateStarterLineup({ heroActive: false });
-  assert.equal(idle.result, 'defeat');
+  assert.equal(idle.result, 'victory');
   assert.equal(idle.wave, 5);
-  assert.equal(idle.coreHp, 0);
+  assert.ok(idle.coreHp > 0);
+  assert.ok(idle.coreHp < active.coreHp);
   assert.ok(idle.kills < active.kills);
 });
 

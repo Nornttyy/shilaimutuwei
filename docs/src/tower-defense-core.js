@@ -244,6 +244,13 @@ export const SQUAD_TYPES = Object.freeze({
   }),
 });
 
+const SQUAD_MEMBER_OFFSETS = Object.freeze([
+  Object.freeze({ x: -12, y: -8 }),
+  Object.freeze({ x: 12, y: -8 }),
+  Object.freeze({ x: -14, y: 10 }),
+  Object.freeze({ x: 14, y: 10 }),
+]);
+
 export const TURRET_TYPES = Object.freeze({
   'gel-mortar': Object.freeze({
     id: 'gel-mortar', name: '凝胶迫击炮', glyph: '炮', cost: 175, color: '#72D7A3',
@@ -800,7 +807,9 @@ export function buyTowerDefenseSquad(state, squadType, padIndex) {
     moveSpeed: definition.speed,
     moving: false,
     downed: false,
+    members: [],
   };
+  syncSquadMembers(squad, definition, { reset: true });
   state.currency -= definition.cost;
   state.towers.push(squad);
   state.effects.push({
@@ -877,6 +886,9 @@ export function moveTowerToPad(state, towerUid, padIndex) {
   tower.deployX = pad.x;
   tower.deployY = pad.y;
   tower.laneIndex = pad.laneIndex;
+  syncSquadMembers(tower, SQUAD_TYPES[tower.squadType || tower.type] || SQUAD_TYPES.ranged, {
+    reset: true,
+  });
   state.effects.push({
     uid: nextUid(state, 'fx'), type: 'move-out', age: 0, duration: 0.4,
     x: sourcePad.x, y: sourcePad.y,
@@ -1133,6 +1145,11 @@ export function startNextTowerDefenseWave(state) {
     soldier.y = Number.isFinite(Number(soldier.deployY))
       ? soldier.deployY : stage.pads[soldier.padIndex]?.y;
     soldier.moving = false;
+    syncSquadMembers(
+      soldier,
+      SQUAD_TYPES[soldier.squadType || soldier.type] || SQUAD_TYPES.ranged,
+      { reset: true },
+    );
   }
   if (state.hero) {
     state.hero.x = state.hero.spawnX;
@@ -1226,11 +1243,6 @@ function towerPosition(state, tower) {
   };
 }
 
-function rangeForTowerState(state, tower) {
-  const definition = SQUAD_TYPES[tower.squadType || tower.type] || SQUAD_TYPES.ranged;
-  return definition.range;
-}
-
 function laneIndexForEnemy(state, enemy) {
   const stage = stageForState(state);
   const laneIndex = normalizedLaneIndex(stage, enemy.laneIndex, enemy.x);
@@ -1249,110 +1261,6 @@ function setEnemyTravelled(state, enemy, travelled) {
   enemy.y = point.y;
   enemy.travelAngle = point.angle;
   return point;
-}
-
-function targetForTower(state, tower) {
-  const origin = towerPosition(state, tower);
-  if (!origin) return null;
-  const range = rangeForTowerState(state, tower);
-  const lane = stageForState(state).lanes[origin.laneIndex];
-  const actorTravelled = projectPointToPath(lane.path, origin).travelled;
-  let best = null;
-  for (const enemy of state.enemies) {
-    if (
-      enemy.hp <= 0
-      || laneIndexForEnemy(state, enemy) !== origin.laneIndex
-      || enemy.travelled > actorTravelled + 0.01
-      || distance(origin, enemy) > range
-    ) continue;
-    if (!best || enemy.travelled > best.travelled) best = enemy;
-  }
-  return best;
-}
-
-function volleyTargetsForTower(state, tower, primary, count) {
-  if (count <= 1) return [primary];
-  const origin = towerPosition(state, tower);
-  if (!origin) return [primary];
-  const range = rangeForTowerState(state, tower);
-  const actorTravelled = projectPointToPath(
-    stageForState(state).lanes[origin.laneIndex].path, origin,
-  ).travelled;
-  const extras = state.enemies
-    .filter((enemy) => (
-      enemy.uid !== primary.uid
-      && enemy.hp > 0
-      && laneIndexForEnemy(state, enemy) === origin.laneIndex
-      && enemy.travelled <= actorTravelled + 0.01
-      && distance(origin, enemy) <= range
-    ))
-    .sort((left, right) => right.travelled - left.travelled)
-    .slice(0, count - 1);
-  return [primary, ...extras];
-}
-
-function fireTower(state, tower, target) {
-  const definition = SQUAD_TYPES[tower.squadType || tower.type] || SQUAD_TYPES.ranged;
-  const origin = towerPosition(state, tower);
-  const aliveMembers = clamp(
-    Math.floor(Number(tower.aliveMembers) || 0), 0, definition.squadSize,
-  );
-  const damage = definition.damagePerMember * aliveMembers;
-  const projectiles = [];
-  if (definition.id === 'melee') {
-    damageEnemy(state, target, damage);
-    state.effects.push({
-      uid: nextUid(state, 'fx'), type: 'hit', age: 0, duration: 0.36,
-      x: target.x, y: target.y - 18,
-    });
-  } else {
-    for (let memberIndex = 0; memberIndex < aliveMembers; memberIndex += 1) {
-      const formationOffset = (memberIndex - (aliveMembers - 1) / 2) * 8;
-      projectiles.push({
-        uid: nextUid(state, 'shot'),
-        type: definition.projectile,
-        effect: 'direct',
-        sourceKind: 'squad',
-        squadType: definition.id,
-        towerType: definition.id,
-        star: 1,
-        effectTier: 1,
-        attackMode: definition.attackMode,
-        patternProjectileCount: aliveMembers,
-        volleyIndex: memberIndex,
-        volleyCount: aliveMembers,
-        secondary: memberIndex > 0,
-        damageScale: 1 / definition.squadSize,
-        targetUid: target.uid,
-        x: origin.x + formationOffset,
-        y: origin.y - 24 - Math.abs(formationOffset) * 0.12,
-        targetX: target.x,
-        targetY: target.y - 18,
-        speed: definition.projectileSpeed,
-        damage: definition.damagePerMember,
-        age: memberIndex * -0.018,
-      });
-    }
-    state.projectiles.push(...projectiles);
-  }
-  tower.attackPulse = 1;
-  tower.aimAngle = Math.atan2(target.y - origin.y, target.x - origin.x);
-  state.events.push({
-    type: 'shot',
-    towerUid: tower.uid,
-    towerType: definition.id,
-    squadType: definition.id,
-    aliveMembers,
-    star: 1,
-    effectTier: 1,
-    attackMode: definition.attackMode,
-    projectileCount: projectiles.length,
-    patternProjectileCount: aliveMembers,
-    projectileUids: projectiles.map(({ uid }) => uid),
-    targetUid: target.uid,
-    targetUids: [target.uid],
-    damage,
-  });
 }
 
 function damageEnemy(state, enemy, amount, { emitHit = true } = {}) {
@@ -1519,6 +1427,135 @@ function updateProjectiles(state, dt) {
   state.projectiles = state.projectiles.filter((projectile) => !projectile.done && projectile.age < 2.4);
 }
 
+function syncSquadMembers(tower, definition, { reset = false } = {}) {
+  const baseX = Number.isFinite(Number(tower.deployX))
+    ? Number(tower.deployX) : Number(tower.x) || 0;
+  const baseY = Number.isFinite(Number(tower.deployY))
+    ? Number(tower.deployY) : Number(tower.y) || 0;
+  const aggregateHp = clamp(
+    Number.isFinite(Number(tower.hp)) ? Number(tower.hp) : definition.memberHp * definition.squadSize,
+    0,
+    definition.memberHp * definition.squadSize,
+  );
+  const previousMembers = Array.isArray(tower.members) ? tower.members : [];
+  const hadCompleteMemberState = previousMembers.length === definition.squadSize
+    && previousMembers.every((member) => Number.isFinite(Number(member?.hp)));
+  tower.members = SQUAD_MEMBER_OFFSETS.slice(0, definition.squadSize).map(
+    (offset, memberIndex) => {
+      const source = previousMembers.find((member) => member?.memberIndex === memberIndex)
+        || previousMembers[memberIndex] || {};
+      const deployX = baseX + offset.x;
+      const deployY = baseY + offset.y;
+      const hp = clamp(
+        Number.isFinite(Number(source.hp)) ? Number(source.hp) : definition.memberHp,
+        0,
+        definition.memberHp,
+      );
+      return {
+        ...source,
+        uid: source.uid || `${tower.uid}:member-${memberIndex + 1}`,
+        memberIndex,
+        x: Number.isFinite(Number(source.x)) ? Number(source.x) : deployX,
+        y: Number.isFinite(Number(source.y)) ? Number(source.y) : deployY,
+        deployX,
+        deployY,
+        facing: source.facing === -1 ? -1 : 1,
+        targetId: source.targetId ?? null,
+        attackCooldown: Number.isFinite(Number(source.attackCooldown))
+          ? Math.max(0, Number(source.attackCooldown))
+          : Math.max(0, Number(tower.cooldown) || 0.12) + memberIndex * 0.035,
+        hp,
+        maxHp: definition.memberHp,
+        alive: source.alive !== false && hp > 0,
+        moving: Boolean(source.moving),
+        downed: source.downed === true || hp <= 0,
+        aimAngle: Number.isFinite(Number(source.aimAngle)) ? Number(source.aimAngle) : 0,
+        attackPulse: clamp(Number(source.attackPulse) || 0, 0, 1),
+        hitPulse: clamp(Number(source.hitPulse) || 0, 0, 1),
+      };
+    },
+  );
+  if (reset) {
+    tower.members.forEach((member, memberIndex) => {
+      const offset = SQUAD_MEMBER_OFFSETS[memberIndex];
+      member.x = baseX + offset.x;
+      member.y = baseY + offset.y;
+      member.deployX = baseX + offset.x;
+      member.deployY = baseY + offset.y;
+      member.hp = definition.memberHp;
+      member.maxHp = definition.memberHp;
+      member.alive = true;
+      member.downed = false;
+      member.targetId = null;
+      member.moving = false;
+      member.aimAngle = 0;
+      member.attackPulse = 0;
+      member.hitPulse = 0;
+      member.attackCooldown = 0.12 + memberIndex * 0.035;
+    });
+  } else {
+    const memberHpTotal = tower.members.reduce((sum, member) => sum + Math.max(0, member.hp), 0);
+    // Old saves only have aggregate squad HP. Honour that value on migration,
+    // and also keep older UI/debug callers that still write `tower.hp` working.
+    if (!hadCompleteMemberState || Math.abs(memberHpTotal - aggregateHp) > 0.01) {
+      let remaining = aggregateHp;
+      tower.members.forEach((member) => {
+        member.hp = Math.min(definition.memberHp, remaining);
+        remaining -= member.hp;
+        member.alive = member.hp > 0;
+        member.downed = !member.alive;
+        if (!member.alive) {
+          member.targetId = null;
+          member.moving = false;
+        }
+      });
+    }
+  }
+  tower.hp = tower.members.reduce((sum, member) => sum + Math.max(0, member.hp), 0);
+  tower.aliveMembers = tower.members.filter((member) => member.alive && member.hp > 0).length;
+  tower.downed = tower.aliveMembers === 0;
+  return tower.members;
+}
+
+function contactDistanceForEnemy(enemy) {
+  const definition = TD_ENEMIES[enemy?.type] || TD_ENEMIES.bug;
+  return 38 + definition.size * 0.18;
+}
+
+function fireSquadMember(state, tower, member, target, definition) {
+  const projectiles = [];
+  if (definition.id === 'melee') {
+    damageEnemy(state, target, definition.damagePerMember);
+    state.effects.push({
+      uid: nextUid(state, 'fx'), type: 'hit', age: 0, duration: 0.36,
+      x: target.x, y: target.y - 18,
+    });
+  } else {
+    const projectile = {
+      uid: nextUid(state, 'shot'), type: definition.projectile, effect: 'direct',
+      sourceKind: 'squad', squadType: definition.id, towerType: definition.id,
+      star: 1, effectTier: 1, attackMode: definition.attackMode,
+      patternProjectileCount: 1, volleyIndex: member.memberIndex, volleyCount: 1,
+      secondary: false, damageScale: 1 / definition.squadSize,
+      targetUid: target.uid, x: member.x, y: member.y - 24,
+      targetX: target.x, targetY: target.y - 18,
+      speed: definition.projectileSpeed, damage: definition.damagePerMember, age: 0,
+    };
+    projectiles.push(projectile);
+    state.projectiles.push(projectile);
+  }
+  member.attackPulse = 1;
+  tower.attackPulse = 1;
+  state.events.push({
+    type: 'shot', towerUid: tower.uid, soldierUid: member.uid,
+    memberIndex: member.memberIndex, towerType: definition.id, squadType: definition.id,
+    aliveMembers: tower.aliveMembers, star: 1, effectTier: 1,
+    attackMode: definition.attackMode, projectileCount: projectiles.length,
+    patternProjectileCount: 1, projectileUids: projectiles.map(({ uid }) => uid),
+    targetUid: target.uid, targetUids: [target.uid], damage: definition.damagePerMember,
+  });
+}
+
 function updateTowers(state, dt) {
   for (const tower of state.towers) {
     ensureTowerHealth(tower, state);
@@ -1526,72 +1563,77 @@ function updateTowers(state, dt) {
     tower.squadSize = definition.squadSize;
     tower.maxMembers = definition.squadSize;
     tower.memberHp = definition.memberHp;
-    tower.aliveMembers = tower.hp > 0
-      ? clamp(Math.ceil(tower.hp / definition.memberHp), 1, definition.squadSize)
-      : 0;
-    tower.cooldown -= dt;
-    tower.attackPulse = Math.max(0, tower.attackPulse - dt * 5.5);
-    tower.hitPulse = Math.max(0, tower.hitPulse - dt * 6);
+    const members = syncSquadMembers(tower, definition);
+    for (const member of members) {
+      member.attackPulse = Math.max(0, member.attackPulse - dt * 5.5);
+      member.hitPulse = Math.max(0, member.hitPulse - dt * 6);
+    }
+    tower.attackPulse = Math.max(0, ...members.map(({ attackPulse }) => attackPulse));
+    tower.hitPulse = Math.max(0, ...members.map(({ hitPulse }) => hitPulse));
     if (tower.hp <= 0) continue;
-    const origin = towerPosition(state, tower);
-    const lane = stageForState(state).lanes[origin.laneIndex];
-    const actorProjection = projectPointToPath(lane.path, origin);
-    const approachTarget = state.enemies
-      .filter((enemy) => (
-        enemy.hp > 0
-        && laneIndexForEnemy(state, enemy) === origin.laneIndex
-        && enemy.travelled <= actorProjection.travelled + 0.01
-      ))
-      .sort((left, right) => right.travelled - left.travelled)[0];
-    tower.targetUid = approachTarget?.uid || null;
-    if (approachTarget) {
-      tower.aimAngle = Math.atan2(approachTarget.y - origin.y, approachTarget.x - origin.x);
-      if (Math.abs(approachTarget.x - origin.x) > 1) {
-        tower.facing = approachTarget.x < origin.x ? -1 : 1;
+    const liveEnemies = state.enemies.filter((enemy) => enemy.hp > 0);
+    const targetLoads = new Map();
+    for (const member of members.filter(({ alive }) => alive)) {
+      const locked = liveEnemies.find(({ uid }) => uid === member.targetId);
+      if (locked) targetLoads.set(locked.uid, (targetLoads.get(locked.uid) || 0) + 1);
+      else member.targetId = null;
+    }
+    for (const member of members.filter(({ alive }) => alive)) {
+      member.attackCooldown = Math.max(0, member.attackCooldown - dt);
+      member.moving = false;
+      let target = liveEnemies.find(({ uid }) => uid === member.targetId && member.hp > 0);
+      if (target?.hp <= 0) {
+        targetLoads.set(target.uid, Math.max(0, (targetLoads.get(target.uid) || 1) - 1));
+        member.targetId = null;
+        target = null;
+      }
+      const availableEnemies = liveEnemies.filter((enemy) => enemy.hp > 0);
+      if (!target && availableEnemies.length) {
+        target = [...availableEnemies].sort((left, right) => {
+          const loadDelta = (targetLoads.get(left.uid) || 0) - (targetLoads.get(right.uid) || 0);
+          return loadDelta || distance(member, left) - distance(member, right)
+            || String(left.uid).localeCompare(String(right.uid));
+        })[0];
+        member.targetId = target.uid;
+        targetLoads.set(target.uid, (targetLoads.get(target.uid) || 0) + 1);
+      }
+      if (!target) continue;
+      const dx = target.x - member.x;
+      const dy = target.y - member.y;
+      const separation = Math.hypot(dx, dy);
+      member.aimAngle = Math.atan2(dy, dx);
+      if (Math.abs(dx) > 1) member.facing = dx < 0 ? -1 : 1;
+      const preferredGap = definition.id === 'melee'
+        ? contactDistanceForEnemy(target)
+        : definition.range * 0.82;
+      if (separation > preferredGap && separation > 0.001) {
+        const travel = Math.min(
+          separation - preferredGap,
+          (Number(tower.moveSpeed) || definition.speed) * dt,
+        );
+        member.x = clamp(member.x + dx / separation * travel, TD_HERO_BOUNDS.minX, TD_HERO_BOUNDS.maxX);
+        member.y = clamp(member.y + dy / separation * travel, TD_HERO_BOUNDS.minY, TD_HERO_BOUNDS.maxY);
+        member.moving = travel > 0;
+      }
+      if (member.attackCooldown <= 0 && distance(member, target) <= definition.range) {
+        fireSquadMember(state, tower, member, target, definition);
+        member.attackCooldown = definition.interval;
       }
     }
-    const preferredGap = definition.id === 'melee'
-      ? 60
-      : Math.max(62, rangeForTowerState(state, tower) * 0.72);
-    const shouldMove = approachTarget
-      && actorProjection.travelled - approachTarget.travelled > preferredGap;
-    if (shouldMove) {
-      const previous = { x: tower.x, y: tower.y };
-      const minimumTravelled = travelledAtPathY(lane.path, TD_HERO_BOUNDS.minY);
-      const nextTravelled = Math.max(
-        approachTarget.travelled + preferredGap,
-        actorProjection.travelled - (Number(tower.moveSpeed) || definition.speed) * dt,
-        minimumTravelled,
-      );
-      const nextPoint = pointOnPath(lane.path, nextTravelled);
-      tower.x = nextPoint.x;
-      tower.y = nextPoint.y;
-      tower.aimAngle = Math.atan2(approachTarget.y - tower.y, approachTarget.x - tower.x);
-      if (Math.abs(approachTarget.x - tower.x) > 1) {
-        tower.facing = approachTarget.x < tower.x ? -1 : 1;
-      }
-      if (!tower.moving) {
-        state.events.push({
-          type: 'soldier-move', soldierUid: tower.uid, soldierType: tower.type,
-          fromX: previous.x, toX: pointOnPath(lane.path, approachTarget.travelled + preferredGap).x,
-          fromY: previous.y, toY: pointOnPath(lane.path, approachTarget.travelled + preferredGap).y,
-          laneIndex: origin.laneIndex,
-        });
-      }
-      tower.moving = true;
-    } else {
-      tower.moving = false;
+    const alive = members.filter(({ alive }) => alive);
+    tower.targetUid = alive[0]?.targetId || null;
+    tower.facing = alive[0]?.facing || tower.facing || 1;
+    tower.aimAngle = alive[0]?.aimAngle || 0;
+    tower.moving = alive.some(({ moving }) => moving);
+    tower.cooldown = alive.length
+      ? Math.min(...alive.map(({ attackCooldown }) => attackCooldown))
+      : 0;
+    tower.attackPulse = Math.max(0, ...alive.map(({ attackPulse }) => attackPulse));
+    tower.hitPulse = Math.max(0, ...alive.map(({ hitPulse }) => hitPulse));
+    if (alive.length) {
+      tower.x = alive.reduce((sum, member) => sum + member.x, 0) / alive.length;
+      tower.y = alive.reduce((sum, member) => sum + member.y, 0) / alive.length;
     }
-    if (tower.cooldown > 0) continue;
-    const target = approachTarget && distance(tower, approachTarget) <= rangeForTowerState(state, tower)
-      ? approachTarget
-      : null;
-    if (!target) {
-      tower.cooldown = Math.min(0.12, tower.cooldown + 0.08);
-      continue;
-    }
-    fireTower(state, tower, target);
-    tower.cooldown += definition.interval;
   }
 }
 
@@ -1735,27 +1777,41 @@ function updateTurrets(state, dt) {
 
 function towerContactTravel(state, enemy, tower) {
   const stage = stageForState(state);
-  const origin = towerPosition(state, tower);
-  if (!origin || origin.laneIndex !== laneIndexForEnemy(state, enemy)) return null;
-  const lane = stage.lanes[origin.laneIndex];
-  const projection = projectPointToPath(lane.path, origin);
-  if (projection.distance > 46) return null;
-  const definition = TD_ENEMIES[enemy.type] || TD_ENEMIES.bug;
-  const contactOffset = 38 + definition.size * 0.18;
-  return Math.max(0, projection.travelled - contactOffset);
+  const lane = stage.lanes[laneIndexForEnemy(state, enemy)];
+  const contactOffset = contactDistanceForEnemy(enemy);
+  const members = Array.isArray(tower.members)
+    ? tower.members.filter((member) => member.alive && member.hp > 0)
+    : [towerPosition(state, tower)].filter(Boolean);
+  let best = null;
+  members.forEach((member, filteredMemberIndex) => {
+    const projection = projectPointToPath(lane.path, member);
+    const touching = distance(member, enemy) <= contactOffset + 1;
+    if (!touching && projection.distance > 46) return;
+    if (!touching && projection.travelled < enemy.travelled) return;
+    const travelled = touching
+      ? enemy.travelled
+      : Math.max(0, projection.travelled - contactOffset);
+    if (travelled < enemy.travelled - 0.01) return;
+    const memberIndex = Number.isInteger(member.memberIndex)
+      ? member.memberIndex : filteredMemberIndex;
+    if (!best || travelled < best.travelled) best = { travelled, memberIndex };
+  });
+  return best;
 }
 
 function nextBlockingTower(state, enemy) {
   let best = null;
   let bestTravelled = Number.POSITIVE_INFINITY;
+  let bestMemberIndex = null;
   for (const tower of state.towers) {
     ensureTowerHealth(tower, state);
     if (tower.hp <= 0) continue;
-    const contactTravelled = towerContactTravel(state, enemy, tower);
-    if (contactTravelled == null || contactTravelled < enemy.travelled - 0.01) continue;
-    if (contactTravelled < bestTravelled) {
+    const contact = towerContactTravel(state, enemy, tower);
+    if (!contact || contact.travelled < enemy.travelled - 0.01) continue;
+    if (contact.travelled < bestTravelled) {
       best = tower;
-      bestTravelled = contactTravelled;
+      bestTravelled = contact.travelled;
+      bestMemberIndex = contact.memberIndex;
     }
   }
   const hero = state.hero;
@@ -1771,10 +1827,11 @@ function nextBlockingTower(state, enemy) {
       if (heroTravelled >= enemy.travelled - 0.01 && heroTravelled < bestTravelled) {
         best = hero;
         bestTravelled = heroTravelled;
+        bestMemberIndex = null;
       }
     }
   }
-  return best ? { tower: best, travelled: bestTravelled } : null;
+  return best ? { tower: best, travelled: bestTravelled, memberIndex: bestMemberIndex } : null;
 }
 
 function damageHero(state, enemy, hero, amount) {
@@ -1805,24 +1862,38 @@ function damageHero(state, enemy, hero, amount) {
   return true;
 }
 
-function damageTower(state, enemy, tower, amount) {
+function damageTower(state, enemy, tower, amount, memberIndex = null) {
   ensureTowerHealth(tower, state);
   const damage = Math.max(0, Number(amount) || 0);
   if (tower.hp <= 0 || damage <= 0) return false;
   const pad = towerPosition(state, tower);
   const definition = SQUAD_TYPES[tower.squadType || tower.type] || SQUAD_TYPES.ranged;
-  const previousAliveMembers = clamp(
-    Math.ceil(tower.hp / definition.memberHp), 1, definition.squadSize,
-  );
-  tower.hp = Math.max(0, tower.hp - damage);
-  tower.aliveMembers = tower.hp > 0
-    ? clamp(Math.ceil(tower.hp / definition.memberHp), 1, definition.squadSize)
-    : 0;
+  const members = syncSquadMembers(tower, definition);
+  const previousAliveMembers = members.filter((candidate) => (
+    candidate.alive && candidate.hp > 0
+  )).length;
+  const member = Number.isInteger(memberIndex) && members[memberIndex]?.alive
+    ? members[memberIndex]
+    : members.find((candidate) => candidate.alive && candidate.hp > 0);
+  if (member) {
+    member.hp = Math.max(0, member.hp - damage);
+    member.alive = member.hp > 0;
+    member.hitPulse = 1;
+    if (!member.alive) {
+      member.downed = true;
+      member.targetId = null;
+      member.moving = false;
+    }
+  }
+  tower.hp = members.reduce((sum, candidate) => sum + Math.max(0, candidate.hp), 0);
+  tower.aliveMembers = members.filter((candidate) => candidate.alive && candidate.hp > 0).length;
   tower.hitPulse = 1;
   state.events.push({
     type: 'enemy-attack',
     enemyUid: enemy.uid,
     towerUid: tower.uid,
+    soldierUid: member?.uid || null,
+    memberIndex: member?.memberIndex ?? null,
     damage,
   });
   state.events.push({
@@ -1832,6 +1903,8 @@ function damageTower(state, enemy, tower, amount) {
     star: tower.star,
     padIndex: tower.padIndex,
     enemyUid: enemy.uid,
+    soldierUid: member?.uid || null,
+    memberIndex: member?.memberIndex ?? null,
     damage,
     hp: tower.hp,
     maxHp: tower.maxHp,
@@ -1842,6 +1915,11 @@ function damageTower(state, enemy, tower, amount) {
       type: 'squad-member-down',
       squadUid: tower.uid,
       squadType: definition.id,
+      soldierUid: member?.uid || null,
+      memberIndex: member?.memberIndex ?? null,
+      x: member?.x ?? pad.x,
+      y: member?.y ?? pad.y,
+      facing: member?.facing === -1 ? -1 : 1,
       lostMembers: previousAliveMembers - tower.aliveMembers,
       aliveMembers: tower.aliveMembers,
       maxMembers: definition.squadSize,
@@ -1849,7 +1927,7 @@ function damageTower(state, enemy, tower, amount) {
   }
   state.effects.push({
     uid: nextUid(state, 'fx'), type: 'tower-hit', age: 0, duration: 0.42,
-    x: pad.x, y: pad.y - 24,
+    x: member?.x ?? pad.x, y: (member?.y ?? pad.y) - 24,
   });
   if (tower.hp > 0) return false;
 
@@ -1912,7 +1990,7 @@ function updateEnemies(state, dt) {
         if (blocker.tower.kind === 'hero') {
           damageHero(state, enemy, blocker.tower, attackDamage);
         } else {
-          damageTower(state, enemy, blocker.tower, attackDamage);
+          damageTower(state, enemy, blocker.tower, attackDamage, blocker.memberIndex);
         }
         enemy.attackCooldown += attackInterval;
       }
@@ -1993,6 +2071,7 @@ function completeWave(state) {
     tower.y = Number.isFinite(Number(tower.deployY)) ? tower.deployY : pad.y;
     tower.moving = false;
     tower.cooldown = Math.min(Number(tower.cooldown) || 0, 0.12);
+    syncSquadMembers(tower, squadDefinition, { reset: true });
   }
   if (state.hero) {
     state.hero.hp = state.hero.hp <= 0

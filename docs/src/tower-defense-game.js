@@ -116,13 +116,15 @@ const COMMAND_DOCK = Object.freeze({
 
 const MENU_ACTIONS = Object.freeze({
   story: Object.freeze({ x: 48, y: 898, width: 624, height: 108 }),
-  endless: Object.freeze({ x: 48, y: 1026, width: 360, height: 98 }),
-  summon: Object.freeze({ x: 428, y: 1026, width: 244, height: 98 }),
+  endless: Object.freeze({ x: 48, y: 1026, width: 230, height: 98 }),
+  roster: Object.freeze({ x: 290, y: 1026, width: 178, height: 98 }),
+  summon: Object.freeze({ x: 480, y: 1026, width: 192, height: 98 }),
 });
 
 const SUMMON_BACK_RECT = Object.freeze({ x: 22, y: 28, width: 104, height: 58 });
 const SUMMON_CURRENCY_RECT = Object.freeze({ x: 490, y: 28, width: 208, height: 62 });
-const SUMMON_CONTRACT_RECTS = Object.freeze([
+const ROSTER_BACK_RECT = Object.freeze({ x: 22, y: 28, width: 104, height: 58 });
+const ROSTER_HERO_RECTS = Object.freeze([
   Object.freeze({ x: 32, y: 210, width: 260, height: 306 }),
   Object.freeze({ x: 428, y: 210, width: 260, height: 306 }),
   Object.freeze({ x: 32, y: 566, width: 260, height: 306 }),
@@ -337,6 +339,10 @@ const isSquadTower = (tower) => Boolean(
     || ['melee', 'ranged'].includes(tower.type)
   )
 );
+const squadMemberAnimationKey = (squad, member, fallbackIndex = 0) => {
+  const memberIdentity = member?.uid ?? member?.memberIndex ?? fallbackIndex;
+  return `squad:${squad.uid}:${memberIdentity}`;
+};
 
 function laneDescriptors(stage) {
   const lanes = Array.isArray(stage?.lanes) && stage.lanes.length
@@ -783,11 +789,23 @@ export class TowerDefenseGame {
         ? soldierVisualFor(tower.type, tower.squadType).ownerId
         : TOWER_TYPES[slimeVisualType(tower.type, tower.squadType)]?.ownerId);
       if (ownerId) {
-        this.playCharacterAnimation(`tower:${tower.uid}`, ownerId, 'attack');
         if (squad) {
-          for (let memberIndex = 0; memberIndex < 4; memberIndex += 1) {
-            this.playCharacterAnimation(`squad:${tower.uid}:${memberIndex}`, ownerId, 'attack');
+          const member = Number.isInteger(event.memberIndex)
+            ? tower.members?.[event.memberIndex]
+            : tower.members?.find(({ uid }) => uid === event.soldierUid);
+          if (member) {
+            this.playCharacterAnimation(
+              squadMemberAnimationKey(tower, member, event.memberIndex), ownerId, 'attack',
+            );
+          } else {
+            for (let memberIndex = 0; memberIndex < 4; memberIndex += 1) {
+              this.playCharacterAnimation(
+                squadMemberAnimationKey(tower, null, memberIndex), ownerId, 'attack',
+              );
+            }
           }
+        } else {
+          this.playCharacterAnimation(`tower:${tower.uid}`, ownerId, 'attack');
         }
       }
       return;
@@ -819,15 +837,27 @@ export class TowerDefenseGame {
         ? soldierVisualFor(tower.type, tower.squadType).ownerId
         : TOWER_TYPES[slimeVisualType(tower.type, tower.squadType)]?.ownerId);
       if (ownerId) {
-        this.playCharacterAnimation(`tower:${tower.uid}`, ownerId, 'hurt', {
-          restart: false,
-        });
         if (squad) {
-          for (let memberIndex = 0; memberIndex < 4; memberIndex += 1) {
-            this.playCharacterAnimation(`squad:${tower.uid}:${memberIndex}`, ownerId, 'hurt', {
-              restart: false,
-            });
+          const member = Number.isInteger(event.memberIndex)
+            ? tower.members?.[event.memberIndex]
+            : tower.members?.find(({ uid }) => uid === event.soldierUid);
+          if (member) {
+            this.playCharacterAnimation(
+              squadMemberAnimationKey(tower, member, event.memberIndex), ownerId, 'hurt', {
+                restart: false,
+              },
+            );
+          } else {
+            for (let memberIndex = 0; memberIndex < 4; memberIndex += 1) {
+              this.playCharacterAnimation(squadMemberAnimationKey(tower, null, memberIndex), ownerId, 'hurt', {
+                restart: false,
+              });
+            }
           }
+        } else {
+          this.playCharacterAnimation(`tower:${tower.uid}`, ownerId, 'hurt', {
+              restart: false,
+          });
         }
       }
       return;
@@ -840,6 +870,37 @@ export class TowerDefenseGame {
           base: 'move',
         });
       }
+      return;
+    }
+    if (event.type === 'squad-member-down') {
+      const tower = this.state.towers.find(({ uid }) => uid === event.squadUid);
+      const squadType = squadTypeFor(tower?.type, event.squadType || tower?.squadType);
+      const definition = soldierVisualFor(tower?.type, squadType);
+      if (
+        !definition
+        || typeof event.soldierUid !== 'string'
+        || !Number.isFinite(event.x)
+        || !Number.isFinite(event.y)
+      ) return;
+      const key = `defeated-member:${event.soldierUid}`;
+      const actor = {
+        key,
+        squadUid: event.squadUid,
+        memberDown: true,
+        type: definition.fallbackType,
+        squadType,
+        ownerId: definition.ownerId,
+        x: event.x,
+        y: event.y,
+        facing: event.facing === -1 ? -1 : 1,
+        star: 1,
+        age: 0,
+        duration: this.animationClipsForOwner(definition.ownerId)?.downed?.duration || 0.52,
+      };
+      this.defeatedTowers = this.defeatedTowers
+        .filter(({ key: currentKey }) => currentKey !== key);
+      this.defeatedTowers.push(actor);
+      this.playCharacterAnimation(key, actor.ownerId, 'downed');
       return;
     }
     if (event.type === 'tower-defeat' || event.type === 'soldier-defeat') {
@@ -856,6 +917,12 @@ export class TowerDefenseGame {
       const x = Number.isFinite(event.x) ? event.x : pad?.x;
       const y = Number.isFinite(event.y) ? event.y : pad?.y;
       if (!definition || !Number.isFinite(x) || !Number.isFinite(y)) return;
+      if (squad && this.defeatedTowers.some((actor) => (
+        actor.memberDown && actor.squadUid === towerUid
+      ))) {
+        this.shake = Math.min(10, this.shake + 3);
+        return;
+      }
       const key = `defeated-tower:${towerUid || `${towerType}-${this.state.time}`}`;
       const actor = {
         key,
@@ -937,12 +1004,20 @@ export class TowerDefenseGame {
         const definition = squad
           ? soldierVisualFor(tower.type, tower.squadType)
           : TOWER_TYPES[tower.type] || TOWER_TYPES[visualType];
-        const towerBase = tower.moving ? 'move' : 'idle';
-        advance(`tower:${tower.uid}`, definition.ownerId, towerBase);
         if (squad) {
-          for (let memberIndex = 0; memberIndex < 4; memberIndex += 1) {
-            advance(`squad:${tower.uid}:${memberIndex}`, definition.ownerId, towerBase);
+          const members = Array.isArray(tower.members)
+            ? tower.members
+            : Array.from({ length: 4 }, (_, memberIndex) => ({ memberIndex }));
+          for (const [memberIndex, member] of members.entries()) {
+            if (member.alive === false || Number(member.hp) <= 0) continue;
+            advance(
+              squadMemberAnimationKey(tower, member, memberIndex),
+              definition.ownerId,
+              member.moving ? 'move' : 'idle',
+            );
           }
+        } else {
+          advance(`tower:${tower.uid}`, definition.ownerId, tower.moving ? 'move' : 'idle');
         }
       }
       for (const enemy of this.state.enemies) {
@@ -1620,6 +1695,16 @@ export class TowerDefenseGame {
       case 'stage-select-back':
         this.menuPage = 'main';
         break;
+      case 'open-roster':
+        if (this.state.screen === 'menu') {
+          this.menuPage = 'roster';
+          this.selectedCardUid = null;
+          this.state.selectedTowerUid = null;
+        }
+        break;
+      case 'roster-back':
+        this.menuPage = 'main';
+        break;
       case 'open-summon':
         if (this.state.screen === 'menu') {
           this.menuPage = 'summon';
@@ -1657,7 +1742,8 @@ export class TowerDefenseGame {
         this.state.summonResults = [];
         break;
       case 'select-hero':
-        if (selectTowerDefenseHero(this.state, hit.data.heroType)) {
+        if (this.menuPage === 'roster'
+          && selectTowerDefenseHero(this.state, hit.data.heroType)) {
           this.processEvents();
           this.save();
         }
@@ -1795,6 +1881,7 @@ export class TowerDefenseGame {
     if (this.state.screen === 'menu') {
       if (this.menuPage === 'stage-select') this.drawStageSelect(ctx);
       else if (this.menuPage === 'summon') this.drawSummonPage(ctx);
+      else if (this.menuPage === 'roster') this.drawHeroRosterPage(ctx);
       else this.drawMenu(ctx);
     }
     else if (this.state.screen === 'result') this.drawResult(ctx);
@@ -1860,7 +1947,7 @@ export class TowerDefenseGame {
     ctx.fillStyle = wash;
     ctx.fillRect(0, 0, TD_VIEW.width, TD_VIEW.height);
 
-    label(ctx, '史莱姆自走防线', TD_VIEW.width / 2, 112, {
+    label(ctx, '史莱姆守望团', TD_VIEW.width / 2, 112, {
       size: 46, color: COLORS.ink, weight: 950,
     });
     TD_STAGES.forEach((stage, index) => {
@@ -1995,12 +2082,14 @@ export class TowerDefenseGame {
     ctx.strokeStyle = 'rgba(42, 78, 73, 0.68)';
     ctx.lineWidth = 3;
     ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(418, secondaryShelf.y + 18);
-    ctx.lineTo(418, secondaryShelf.y + secondaryShelf.height - 18);
     ctx.strokeStyle = 'rgba(67, 102, 91, 0.3)';
     ctx.lineWidth = 2;
-    ctx.stroke();
+    [284, 474].forEach((separatorX) => {
+      ctx.beginPath();
+      ctx.moveTo(separatorX, secondaryShelf.y + 18);
+      ctx.lineTo(separatorX, secondaryShelf.y + secondaryShelf.height - 18);
+      ctx.stroke();
+    });
     ctx.restore();
 
     const endlessUnlocked = this.endlessUnlocked();
@@ -2022,7 +2111,7 @@ export class TowerDefenseGame {
     label(ctx, endlessUnlocked ? '∞  无尽模式' : '锁  无尽模式',
       endlessRect.x + endlessRect.width / 2,
       endlessRect.y + endlessRect.height / 2 - (endlessUnlocked ? 0 : 8), {
-        size: endlessUnlocked ? 27 : 24,
+        size: endlessUnlocked ? 22 : 20,
         color: endlessUnlocked ? '#5B4EAA' : '#75817B',
         weight: 950,
       });
@@ -2033,6 +2122,34 @@ export class TowerDefenseGame {
         });
     }
     this.addHit('endless', endlessRect, 'endless', {}, endlessUnlocked);
+
+    const rosterRect = MENU_ACTIONS.roster;
+    const rosterHot = Boolean(this.hoverPoint && insideRect(this.hoverPoint, rosterRect));
+    const selectedHeroType = this.state.progress?.selectedHero
+      || this.state.selectedHeroId || 'shell';
+    const selectedHero = HERO_TYPES[selectedHeroType] || HERO_TYPES.shell;
+    const selectedRarity = rarityStyle(selectedHero.rarity);
+    if (rosterHot) {
+      ctx.save();
+      ctx.strokeStyle = selectedRarity.color;
+      ctx.lineWidth = 7;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(rosterRect.x + 24, rosterRect.y + rosterRect.height - 13);
+      ctx.lineTo(rosterRect.x + rosterRect.width - 24,
+        rosterRect.y + rosterRect.height - 13);
+      ctx.stroke();
+      ctx.restore();
+    }
+    label(ctx, '英雄编队', rosterRect.x + rosterRect.width / 2,
+      rosterRect.y + 34, {
+        size: 20, color: COLORS.ink, weight: 950,
+      });
+    label(ctx, `${selectedRarity.label} · ${selectedHero.name}`,
+      rosterRect.x + rosterRect.width / 2, rosterRect.y + 70, {
+        size: 15, color: selectedRarity.deep, weight: 900,
+      });
+    this.addHit('open-roster', rosterRect, 'open-roster');
 
     const summonRect = MENU_ACTIONS.summon;
     const summonHot = Boolean(this.hoverPoint && insideRect(this.hoverPoint, summonRect));
@@ -2050,7 +2167,7 @@ export class TowerDefenseGame {
     }
     label(ctx, '史莱姆招募', summonRect.x + summonRect.width / 2,
       summonRect.y + 35, {
-        size: 21, color: COLORS.ink, weight: 950,
+        size: 18, color: COLORS.ink, weight: 950,
       });
     drawAssetOrFallback(ctx, this.assetStore, 'ui-soft-crystal', (asset) => {
       ctx.drawImage(asset, summonRect.x + 32, summonRect.y + 57, 28, 28);
@@ -2063,6 +2180,100 @@ export class TowerDefenseGame {
       size: 17, align: 'left', color: COLORS.inkSoft, weight: 900,
     });
     this.addHit('open-summon', summonRect, 'open-summon');
+  }
+
+  drawHeroRosterPage(ctx) {
+    ctx.fillStyle = '#B9E4D2';
+    ctx.fillRect(0, 0, TD_VIEW.width, TD_VIEW.height);
+    drawAssetOrFallback(ctx, this.assetStore, 'background-menu-portrait-v1', (asset) => {
+      drawCoverImage(ctx, asset);
+    }, () => this.drawBackdrop(ctx, 'stage-1'));
+    const wash = ctx.createLinearGradient(0, 0, 0, TD_VIEW.height);
+    wash.addColorStop(0, 'rgba(248,255,237,0.82)');
+    wash.addColorStop(0.62, 'rgba(168,232,207,0.44)');
+    wash.addColorStop(1, 'rgba(39,72,78,0.48)');
+    ctx.fillStyle = wash;
+    ctx.fillRect(0, 0, TD_VIEW.width, TD_VIEW.height);
+
+    panel(ctx, ROSTER_BACK_RECT, {
+      fill: '#FFF8E8', stroke: '#85978E', lineWidth: 3, radius: 22, shadow: true,
+    });
+    label(ctx, '返回', ROSTER_BACK_RECT.x + ROSTER_BACK_RECT.width / 2,
+      ROSTER_BACK_RECT.y + ROSTER_BACK_RECT.height / 2, {
+        size: 21, color: COLORS.ink, weight: 900,
+      });
+    this.addHit('roster-back', ROSTER_BACK_RECT, 'roster-back');
+    label(ctx, '英雄编队', TD_VIEW.width / 2, 72, {
+      size: 40, color: COLORS.ink, weight: 950,
+    });
+    label(ctx, '选择一名已拥有史莱姆出战', TD_VIEW.width / 2, 116, {
+      size: 17, color: COLORS.inkSoft, weight: 850,
+    });
+
+    const contractRanks = this.state.progress?.contractRanks || {};
+    const selectedType = this.state.progress?.selectedHero
+      || this.state.selectedHeroId || 'shell';
+    let ownedCount = 0;
+    ['shell', 'needle', 'bubble', 'sprout'].forEach((type, index) => {
+      const rect = ROSTER_HERO_RECTS[index];
+      const definition = TOWER_TYPES[type];
+      const heroDefinition = HERO_TYPES[type] || definition;
+      const rank = Math.max(0, Math.floor(Number(contractRanks[type]) || 0));
+      const owned = rank > 0;
+      if (owned) ownedCount += 1;
+      const selected = type === selectedType;
+      const hot = owned && Boolean(this.hoverPoint && insideRect(this.hoverPoint, rect));
+      const rarity = rarityStyle(heroDefinition.rarity);
+      panel(ctx, rect, {
+        fill: owned ? selected ? '#FFF4CC' : '#F5FFF5' : 'rgba(198,210,204,0.9)',
+        stroke: selected ? '#E5A93F' : owned ? rarity.color : '#84928D',
+        lineWidth: selected || hot ? 5 : 3,
+        radius: 28,
+        shadow: owned,
+      });
+      panel(ctx, { x: rect.x + 18, y: rect.y + 16, width: 72, height: 38 }, {
+        fill: rarity.fill, stroke: rarity.color, lineWidth: 2, radius: 14,
+      });
+      label(ctx, rarity.label, rect.x + 54, rect.y + 36, {
+        size: rarity.label.length > 2 ? 14 : 18, color: rarity.deep, weight: 950,
+      });
+      label(ctx, heroDefinition.name, rect.x + rect.width - 18, rect.y + 36, {
+        size: 24, align: 'right', color: COLORS.ink, weight: 950,
+      });
+      const animation = this.characterAnimationSample(
+        `preview:menu:${definition.id}`,
+        definition.ownerId,
+      );
+      ctx.save();
+      ctx.globalAlpha *= owned ? 1 : 0.28;
+      drawSlime(ctx, rect.x + rect.width / 2, rect.y + 238, 126, type, {
+        time: this.state.time + index * 0.17,
+        facing: index % 2 ? -1 : 1,
+        assetStore: this.assetStore,
+        ...animation,
+        ...this.characterRigOptions(definition.ownerId),
+        allowGeneratedStandalone: this.generatedCharacterArtEnabled,
+      });
+      ctx.restore();
+      if (!owned) {
+        label(ctx, '锁定 · 请先招募', rect.x + rect.width / 2,
+          rect.y + rect.height - 30, {
+            size: 16, color: '#53645F', weight: 950,
+          });
+      } else {
+        label(ctx, selected ? '◆ 当前出战' : '点击切换',
+          rect.x + rect.width / 2, rect.y + rect.height - 30, {
+            size: 17, color: selected ? '#99641C' : COLORS.mintDeep, weight: 950,
+          });
+      }
+      this.addHit(`hero-select-${type}`, rect, 'select-hero', { heroType: type }, owned);
+    });
+    panel(ctx, { x: 226, y: 928, width: 268, height: 58 }, {
+      fill: 'rgba(255,249,225,0.92)', stroke: '#6EA78B', lineWidth: 2, radius: 22,
+    });
+    label(ctx, `已拥有 ${ownedCount}/4`, TD_VIEW.width / 2, 958, {
+      size: 18, color: COLORS.ink, weight: 900,
+    });
   }
 
   drawSummonPage(ctx) {
@@ -2115,111 +2326,78 @@ export class TowerDefenseGame {
         size: 24, align: 'right', color: COLORS.ink, weight: 950,
       });
 
+    const chamber = { x: 52, y: 176, width: 616, height: 750 };
     ctx.save();
-    ctx.fillStyle = 'rgba(22, 55, 67, 0.2)';
-    ctx.strokeStyle = 'rgba(255,255,255,0.66)';
+    ctx.fillStyle = 'rgba(22, 55, 67, 0.22)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.7)';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(150, 168);
-    ctx.lineTo(570, 168);
-    ctx.lineTo(692, 540);
-    ctx.lineTo(570, 916);
-    ctx.lineTo(150, 916);
-    ctx.lineTo(28, 540);
+    ctx.moveTo(chamber.x + 90, chamber.y);
+    ctx.lineTo(chamber.x + chamber.width - 90, chamber.y);
+    ctx.lineTo(chamber.x + chamber.width, chamber.y + chamber.height / 2);
+    ctx.lineTo(chamber.x + chamber.width - 90, chamber.y + chamber.height);
+    ctx.lineTo(chamber.x + 90, chamber.y + chamber.height);
+    ctx.lineTo(chamber.x, chamber.y + chamber.height / 2);
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
     ctx.restore();
 
+    label(ctx, '稀有度概率', TD_VIEW.width / 2, 218, {
+      size: 21, color: COLORS.white, weight: 950,
+    });
+    const rarityRates = [
+      ['R', '60%'], ['SR', '27%'], ['SSR', '10%'], ['UR', '3%'],
+    ];
+    rarityRates.forEach(([rarityId, rate], index) => {
+      const rarity = rarityStyle(rarityId);
+      const rect = { x: 72 + index * 148, y: 250, width: 132, height: 78 };
+      panel(ctx, rect, {
+        fill: rarity.fill, stroke: rarity.color, lineWidth: 3, radius: 16,
+      });
+      label(ctx, rarity.label, rect.x + rect.width / 2, rect.y + 25, {
+        size: rarityId.length > 2 ? 17 : 20, color: rarity.deep, weight: 950,
+      });
+      label(ctx, rate, rect.x + rect.width / 2, rect.y + 55, {
+        size: 18, color: COLORS.ink, weight: 900,
+      });
+    });
+
     ctx.save();
-    ctx.globalAlpha = 0.46;
-    drawPortal(ctx, TD_VIEW.width / 2, 686, 292, {
+    ctx.globalAlpha = 0.78;
+    drawPortal(ctx, TD_VIEW.width / 2, 720, 360, {
       time: this.state.time,
-      open: 0.72,
+      open: 0.78,
       assetStore: this.assetStore,
     });
     ctx.restore();
-
-    const contractRanks = this.state.progress?.contractRanks || {};
-    const contractShards = this.state.progress?.contractShards || {};
-    ['shell', 'needle', 'bubble', 'sprout'].forEach((type, index) => {
-      const rect = SUMMON_CONTRACT_RECTS[index];
-      const definition = TOWER_TYPES[type];
-      const heroDefinition = HERO_TYPES[type] || definition;
-      const rank = Math.max(0, Math.floor(Number(contractRanks[type]) || 0));
-      const shards = Math.max(0, Math.floor(Number(contractShards[type]) || 0));
-      const owned = rank > 0;
-      const selected = this.state.progress?.selectedHero === type
-        || this.state.selectedHeroId === type;
-      const hot = owned && Boolean(this.hoverPoint && insideRect(this.hoverPoint, rect));
-      const rarity = rarityStyle(heroDefinition.rarity);
-      const centerX = rect.x + rect.width / 2;
-      const centerY = rect.y + rect.height / 2;
-      ctx.save();
-      ctx.globalAlpha = owned ? 1 : 0.52;
-      if (selected || hot) {
-        ctx.fillStyle = selected ? 'rgba(255,221,112,0.28)' : `${rarity.color}24`;
-        ctx.strokeStyle = selected ? '#FFD760' : rarity.color;
-        ctx.lineWidth = selected ? 4 : 2;
-        ctx.beginPath();
-        ctx.moveTo(rect.x + 28, rect.y + 34);
-        ctx.lineTo(rect.x + rect.width - 28, rect.y + 18);
-        ctx.lineTo(rect.x + rect.width - 8, rect.y + rect.height - 48);
-        ctx.lineTo(rect.x + 36, rect.y + rect.height - 24);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-      }
-      ctx.strokeStyle = rarity.color;
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.moveTo(centerX, rect.y + 50);
-      ctx.lineTo(centerX, rect.y + rect.height - 42);
-      ctx.stroke();
-      ctx.translate(centerX, rect.y + 32);
-      ctx.rotate(Math.PI / 4);
-      ctx.fillStyle = rarity.fill;
-      ctx.strokeStyle = rarity.color;
-      ctx.lineWidth = 3;
-      ctx.fillRect(-24, -24, 48, 48);
-      ctx.strokeRect(-24, -24, 48, 48);
-      ctx.restore();
-      label(ctx, rarity.label, centerX, rect.y + 32, {
-        size: rarity.label.length > 2 ? 13 : 17, color: rarity.deep, weight: 950,
-      });
-      label(ctx, heroDefinition.name, centerX, rect.y + 78, {
-        size: 25, color: COLORS.ink, weight: 950,
-      });
-      const animation = this.characterAnimationSample(
-        `preview:menu:${definition.id}`,
-        definition.ownerId,
-      );
-      ctx.save();
-      ctx.globalAlpha *= owned ? 1 : 0.42;
-      drawSlime(ctx, centerX, centerY + 72, 112, type, {
-        time: this.state.time + index * 0.17,
-        facing: index < 2 ? 1 : -1,
-        assetStore: this.assetStore,
-        ...animation,
-        ...this.characterRigOptions(definition.ownerId),
-        allowGeneratedStandalone: this.generatedCharacterArtEnabled,
-      });
-      ctx.restore();
-      if (!owned) {
-        label(ctx, '尚未契约', centerX, rect.y + rect.height - 49, {
-          size: 16, color: '#425861', weight: 950,
-        });
-      } else {
-        label(ctx, selected ? '◆ 出战中' : `契约 ${rank}阶`, centerX,
-          rect.y + rect.height - 49, {
-            size: 16, color: selected ? '#8D601C' : COLORS.ink, weight: 950,
-          });
-        label(ctx, `碎片 ${shards}`, centerX, rect.y + rect.height - 22, {
-          size: 14, color: COLORS.inkSoft, weight: 850,
-        });
-      }
-      this.addHit(`hero-select-${type}`, rect, 'select-hero', { heroType: type }, owned);
+    label(ctx, '契约裂隙', TD_VIEW.width / 2, 456, {
+      size: 30, color: '#F5FCFF', weight: 950,
     });
+
+    const pity = clamp(Math.floor(Number(this.state.progress?.summonPity) || 0), 0, 9);
+    const pityRect = { x: 108, y: 790, width: 504, height: 100 };
+    panel(ctx, pityRect, {
+      fill: 'rgba(245,250,255,0.9)', stroke: '#9A82E7', lineWidth: 3, radius: 22,
+    });
+    label(ctx, `高稀有保底  ${pity}/10`, pityRect.x + 22, pityRect.y + 28, {
+      size: 18, align: 'left', color: '#5947A4', weight: 950,
+    });
+    const pityTrack = { x: pityRect.x + 22, y: pityRect.y + 51,
+      width: pityRect.width - 44, height: 10 };
+    roundedPath(ctx, pityTrack.x, pityTrack.y, pityTrack.width, pityTrack.height, 5);
+    ctx.fillStyle = '#D9D4EE';
+    ctx.fill();
+    if (pity > 0) {
+      roundedPath(ctx, pityTrack.x, pityTrack.y,
+        pityTrack.width * pity / 10, pityTrack.height, 5);
+      ctx.fillStyle = '#9A82E7';
+      ctx.fill();
+    }
+    label(ctx, `最多再 ${10 - pity} 次获得 SSR / UR`,
+      pityRect.x + pityRect.width - 22, pityRect.y + 80, {
+        size: 14, align: 'right', color: COLORS.inkSoft, weight: 850,
+      });
 
     const currency = this.summonCurrency();
     button(ctx, SUMMON_ONE_RECT, '', {
@@ -2988,11 +3166,10 @@ export class TowerDefenseGame {
     }
   }
 
-  drawSquadMembers(ctx, squad, x, y) {
+  drawSquadMembers(ctx, squad, x, y, { anchorIndependentMembers = false } = {}) {
     const squadType = squad.squadType || squad.unitType
       || (squad.type === 'needle' ? 'ranged' : 'melee');
     const visual = SOLDIER_VISUALS[squadType] || SOLDIER_VISUALS.melee;
-    const aliveMembers = clamp(Math.floor(Number(squad.aliveMembers) || 0), 0, 4);
     const formations = {
       1: [{ x: 0, y: 6, scale: 1 }],
       2: [{ x: -20, y: 5, scale: 1 }, { x: 20, y: 5, scale: 1 }],
@@ -3008,25 +3185,51 @@ export class TowerDefenseGame {
         { x: 22, y: 9, scale: 1 },
       ],
     };
-    const positions = formations[aliveMembers] || [];
-    positions.forEach((position, memberIndex) => {
+    const hasIndependentMembers = Array.isArray(squad.members);
+    const members = hasIndependentMembers
+      ? squad.members.filter((member) => (
+        member && member.alive !== false
+        && (!Number.isFinite(Number(member.hp)) || Number(member.hp) > 0)
+      ))
+      : (formations[clamp(Math.floor(Number(squad.aliveMembers) || 0), 0, 4)] || [])
+        .map((position) => ({ offsetX: position.x, offsetY: position.y, scale: position.scale }));
+    const deployX = Number.isFinite(Number(squad.deployX))
+      ? Number(squad.deployX) : Number(squad.x);
+    const deployY = Number.isFinite(Number(squad.deployY))
+      ? Number(squad.deployY) : Number(squad.y);
+    const anchorOffsetX = anchorIndependentMembers && Number.isFinite(deployX)
+      ? x - deployX : 0;
+    const anchorOffsetY = anchorIndependentMembers && Number.isFinite(deployY)
+      ? y - deployY : 0;
+    members.forEach((member, memberIndex) => {
+      const absoluteX = member.x == null ? Number.NaN : Number(member.x);
+      const absoluteY = member.y == null ? Number.NaN : Number(member.y);
+      const offsetX = Number(member.offsetX);
+      const offsetY = Number(member.offsetY);
+      const memberX = Number.isFinite(absoluteX)
+        ? absoluteX + anchorOffsetX : x + (Number.isFinite(offsetX) ? offsetX : 0);
+      const memberY = Number.isFinite(absoluteY)
+        ? absoluteY + anchorOffsetY : y + (Number.isFinite(offsetY) ? offsetY : 0) + 13;
+      const memberScale = clamp(Number(member.scale) || 1, 0.45, 1.6);
+      const animationPhaseIndex = Number.isInteger(member.memberIndex)
+        ? member.memberIndex : memberIndex;
+      const moving = member.moving == null ? Boolean(squad.moving) : Boolean(member.moving);
       const animation = this.characterAnimationSample(
-        `squad:${squad.uid}:${memberIndex}`,
+        squadMemberAnimationKey(squad, member, memberIndex),
         visual.ownerId,
-        squad.moving ? 'move' : 'idle',
+        moving ? 'move' : 'idle',
       );
-      drawSoldier(ctx, x + position.x, y + position.y + 13,
-        44 * position.scale, {
-          assetKey: visual.assetKey,
-          squadType,
-          time: this.state.time + memberIndex * 0.12,
-          facing: squad.facing === -1 ? -1 : 1,
-          hit: clamp(Number(squad.hitPulse) || 0, 0, 1),
-          attackPulse: clamp(Number(squad.attackPulse) || 0, 0, 1),
-          moving: Boolean(squad.moving),
-          assetStore: this.assetStore,
-          ...animation,
-        });
+      drawSoldier(ctx, memberX, memberY, 44 * memberScale, {
+        assetKey: visual.assetKey,
+        squadType,
+        time: this.state.time + animationPhaseIndex * 0.12,
+        facing: (member.facing ?? squad.facing) === -1 ? -1 : 1,
+        hit: clamp(Number(member.hitPulse ?? squad.hitPulse) || 0, 0, 1),
+        attackPulse: clamp(Number(member.attackPulse ?? squad.attackPulse) || 0, 0, 1),
+        moving,
+        assetStore: this.assetStore,
+        ...animation,
+      });
     });
   }
 
@@ -3847,7 +4050,9 @@ export class TowerDefenseGame {
       ctx.stroke();
       ctx.setLineDash?.([]);
       if (isSquad) {
-        this.drawSquadMembers(ctx, tower, this.drag.point.x, this.drag.point.y + 10);
+        this.drawSquadMembers(ctx, tower, this.drag.point.x, this.drag.point.y + 10, {
+          anchorIndependentMembers: true,
+        });
       } else {
         drawSlime(ctx, this.drag.point.x, this.drag.point.y + 30, 76, visualType, {
           time: this.state.time,

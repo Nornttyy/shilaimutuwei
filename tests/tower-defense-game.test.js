@@ -423,7 +423,7 @@ test('summoning and hero formation are separate portrait menu flows', () => {
   game.dispose();
 });
 
-test('hero roster keeps locked cards gray and inspectable with complete combat details', (t) => {
+test('hero roster renders locked heroes as faceless gray silhouettes without hidden details', (t) => {
   const previousOffscreenCanvas = globalThis.OffscreenCanvas;
   globalThis.OffscreenCanvas = class {
     constructor(width, height) {
@@ -461,8 +461,9 @@ test('hero roster keeps locked cards gray and inspectable with complete combat d
   game.render();
   click(game, canvas, hitCenter(game, 'open-roster'));
   game.render();
-  assert.ok(portraitDraws.some(({ filter }) => String(filter).includes('grayscale(1)')),
-    'locked generated portraits are rendered through a full grayscale filter');
+  assert.ok(portraitDraws.some(({ filter }) => (
+    String(filter).includes('brightness(0)') && String(filter).includes('invert(0.55)')
+  )), 'locked portraits collapse every visible layer, including eyes and mouths, to one gray');
 
   const lockedType = Object.keys(HERO_TYPES).find((type) => (
     game.state.progress.contractRanks[type] <= 0
@@ -477,19 +478,27 @@ test('hero roster keeps locked cards gray and inspectable with complete combat d
   const labels = canvas.context.calls
     .filter(([kind]) => kind === 'fillText')
     .map(([, text]) => text);
-  for (const statName of ['攻击', '生命', '射程', '攻速']) {
-    assert.ok(labels.includes(statName), `${statName} is shown for the inspected hero`);
+  assert.ok(labels.includes(HERO_TYPES[lockedType].name));
+  assert.ok(labels.includes('未解锁'));
+  for (const hiddenText of [
+    '攻击', '生命', '射程', '攻速', HERO_TYPES[lockedType].role,
+    HERO_TYPES[lockedType].skill.name,
+  ]) {
+    assert.equal(labels.includes(hiddenText), false, `${hiddenText} stays hidden while locked`);
   }
-  assert.ok(labels.some((text) => String(text).includes('范围')),
-    'skill range and cooldown are shown');
-  assert.ok(labels.some((text) => String(text).includes('伤害')
-    || String(text).includes('减速') || String(text).includes('中毒')
-    || String(text).includes('敌人')),
-  'the authored skill effect is explained');
+  assert.equal(labels.some((text) => String(text).includes('范围')), false);
+  assert.equal(labels.some((text) => String(text).includes('契约 0阶')), false);
   assert.equal(game.hits.find(({ id }) => id === `hero-select-${lockedType}`).enabled, false);
 
   click(game, canvas, hitCenter(game, 'hero-inspect-needle'));
+  canvas.context.calls.length = 0;
   game.render();
+  const ownedLabels = canvas.context.calls
+    .filter(([kind]) => kind === 'fillText')
+    .map(([, text]) => text);
+  for (const statName of ['攻击', '生命', '射程', '攻速']) {
+    assert.ok(ownedLabels.includes(statName), `${statName} remains visible when owned`);
+  }
   assert.equal(game.hits.find(({ id }) => id === 'hero-select-needle').enabled, true,
     'an owned non-active hero exposes a separate deploy button');
   game.dispose();
@@ -826,7 +835,7 @@ test('a defeated squad animates only its final member instead of restoring four 
   game.dispose();
 });
 
-test('squad rendering prefers independent core member coordinates when available', () => {
+test('squad rendering keeps independent coordinates and seats every soldier lower in its grid cell', () => {
   const canvas = createCanvas();
   const game = new TowerDefenseGame(canvas, {
     runtime: createRuntime({ tutorialSeen: true }),
@@ -848,9 +857,9 @@ test('squad rendering prefers independent core member coordinates when available
     ],
   }, 500, 600);
 
-  assert.ok(translations.some(([x, y]) => x === 111 && y === 222));
-  assert.ok(translations.some(([x, y]) => x === 444 && y === 555));
-  assert.equal(translations.some(([x, y]) => x === 222 && y === 333), false,
+  assert.ok(translations.some(([x, y]) => x === 111 && y === 238));
+  assert.ok(translations.some(([x, y]) => x === 444 && y === 571));
+  assert.equal(translations.some(([x, y]) => x === 222 && y === 349), false,
     'downed independent members are not rendered');
   assert.equal(translations.some(([x, y]) => x === 482 && y === 596), false,
     'the legacy four-member formation is not used when members are authored');
@@ -865,8 +874,17 @@ test('squad rendering prefers independent core member coordinates when available
     deployY: 600,
     members: [{ uid: 'dragged-front', memberIndex: 0, x: 511, y: 622, hp: 20 }],
   }, 700, 800, { anchorIndependentMembers: true });
-  assert.ok(translations.some(([x, y]) => x === 711 && y === 822),
-    'long-press previews preserve member offsets around the pointer');
+  assert.ok(translations.some(([x, y]) => x === 711 && y === 838),
+    'long-press previews preserve offsets and the shared lower grid anchor');
+
+  translations.length = 0;
+  game.drawSquadMembers(canvas.context, {
+    uid: 'legacy-fallback-squad',
+    squadType: 'melee',
+    aliveMembers: 1,
+  }, 300, 400);
+  assert.ok(translations.some(([x, y]) => x === 300 && y === 435),
+    'the compatibility formation keeps its old 13px baseline and moves 16px lower');
   game.dispose();
 });
 
@@ -1104,6 +1122,10 @@ test('spotlight tutorial purchases one four-member melee squad and starts the wa
   game.render();
   assert.equal(game.state.tutorial.step, 'squad');
   assert.equal(game.hits.find(({ id }) => id === 'purchase-melee').enabled, true);
+  assert.equal(game.purchaseCategory, 'squad');
+  click(game, canvas, hitCenter(game, 'purchase-category-turret'));
+  assert.equal(game.purchaseCategory, 'squad',
+    'the spotlight tutorial keeps its required squad category visible');
 
   click(game, canvas, hitCenter(game, 'purchase-ranged'));
   assert.equal(game.selectedPurchase, null, 'tutorial blocks the wrong squad choice');
@@ -1153,10 +1175,21 @@ test('battle dock purchases squads and a fixed turret, moves squads in prep, the
   assert.equal(game.hits.find(({ id }) => id === 'purchase-ranged').action, 'select-purchase');
   assert.equal(game.hits.find(({ id }) => id === 'purchase-charger').action, 'select-purchase');
   assert.equal(game.hits.find(({ id }) => id === 'purchase-leaf').action, 'select-purchase');
+  assert.equal(game.hits.find(({ id }) => id === 'purchase-turret'), undefined,
+    'turrets stay off the squad track instead of being squeezed beside it');
+  assert.equal(game.hits.find(({ id }) => id === 'purchase-category-squad').action,
+    'select-purchase-category');
+  assert.equal(game.hits.find(({ id }) => id === 'purchase-category-turret').action,
+    'select-purchase-category');
+  click(game, canvas, hitCenter(game, 'purchase-category-turret'));
+  game.render();
   assert.equal(game.hits.find(({ id }) => id === 'purchase-turret').action, 'select-purchase');
-  assert.equal(game.hits.find(({ id }) => id === 'purchase-bubble-coil').action, 'select-purchase');
+  assert.equal(game.hits.find(({ id }) => id === 'purchase-bubble-coil').action,
+    'select-purchase');
   assert.equal(game.hits.find(({ id }) => id === 'purchase-crystal-repeater').action,
     'select-purchase');
+  click(game, canvas, hitCenter(game, 'purchase-category-squad'));
+  game.render();
   assert.equal(game.hits.find(({ id }) => id === 'hero-joystick').enabled, false);
   assert.equal(game.hits.find(({ id }) => id === 'hero-skill').enabled, false);
   assert.ok(assets.requests.includes('ui-gel-energy'));
@@ -1183,6 +1216,21 @@ test('battle dock purchases squads and a fixed turret, moves squads in prep, the
   });
 
   game.render();
+  const meleeHit = game.hits.find(({ id }) => id === `tower-${melee.uid}`);
+  const frontMember = melee.members.reduce((front, member) => (
+    member.y > front.y ? member : front
+  ));
+  const visibleFrontPoint = {
+    x: frontMember.x,
+    y: frontMember.y + 16 - 2,
+  };
+  assert.ok(
+    visibleFrontPoint.x >= meleeHit.x
+      && visibleFrontPoint.x <= meleeHit.x + meleeHit.width
+      && visibleFrontPoint.y >= meleeHit.y
+      && visibleFrontPoint.y <= meleeHit.y + meleeHit.height,
+    'the squad hit target follows the lowered front soldiers instead of ending above them',
+  );
   click(game, canvas, hitCenter(game, `tower-${melee.uid}`));
   game.render();
   assert.equal(game.hits.find(({ id }) => id === 'pad-1').enabled, false,
@@ -1222,6 +1270,18 @@ test('battle dock purchases squads and a fixed turret, moves squads in prep, the
   assert.equal(game.state.towers[1].squadType, 'ranged');
   assert.equal(game.state.towers[1].aliveMembers, 4);
 
+  game.render();
+  const ranged = game.state.towers[1];
+  const rangedFront = ranged.members.reduce((front, member) => (
+    member.y > front.y ? member : front
+  ));
+  const clickedAdjacent = game.hitAt({
+    x: rangedFront.x,
+    y: rangedFront.y + 16 - 2,
+  }, (hit) => hit.action === 'tower');
+  assert.equal(clickedAdjacent.data.towerUid, ranged.uid,
+    'the upper squad keeps ownership of its visible soldiers beside an occupied lower row');
+  click(game, canvas, hitCenter(game, 'purchase-category-turret'));
   game.render();
   click(game, canvas, hitCenter(game, 'purchase-turret'));
   assert.equal(game.selectedPurchase, 'turret');
@@ -1271,7 +1331,91 @@ test('battle dock purchases squads and a fixed turret, moves squads in prep, the
   game.dispose();
 });
 
-test('the seven-card dock buys both new squads and both new formal turrets', () => {
+test('purchase gestures wait for clear intent and remain owned by their first pointer', () => {
+  const canvas = createCanvas();
+  const game = new TowerDefenseGame(canvas, {
+    runtime: createRuntime({ tutorialSeen: true }),
+    pixelRatio: 1,
+  });
+  game.state.screen = 'battle';
+  game.state.stageId = 'stage-1';
+  game.state.phase = 'prep';
+  game.state.waveActive = false;
+  game.state.result = null;
+  game.state.currency = 1000;
+  game.state.tutorial.active = false;
+  game.render();
+
+  const meleeStart = hitCenter(game, 'purchase-melee');
+  const padZero = hitCenter(game, 'pad-0');
+  canvas.dispatch('pointerdown', pointerEvent(game, canvas, meleeStart, 11));
+  canvas.dispatch('pointermove', pointerEvent(game, canvas, {
+    x: meleeStart.x + 13,
+    y: meleeStart.y + 10,
+  }, 11));
+  assert.equal(game.drag.gesture, null,
+    'a small diagonal wobble does not prematurely lock the card to horizontal scrolling');
+  canvas.dispatch('pointermove', pointerEvent(game, canvas, padZero, 11));
+  assert.equal(game.drag.gesture, 'deploy');
+  canvas.dispatch('pointerup', pointerEvent(game, canvas, padZero, 11));
+  assert.deepEqual(game.state.towers.map(({ squadType }) => squadType), ['melee']);
+
+  game.render();
+  const rangedStart = hitCenter(game, 'purchase-ranged');
+  canvas.dispatch('pointerdown', pointerEvent(game, canvas, rangedStart, 12));
+  canvas.dispatch('pointermove', pointerEvent(game, canvas, {
+    x: rangedStart.x + 10,
+    y: rangedStart.y + 10,
+  }, 12));
+  assert.equal(game.drag.gesture, null,
+    'an equal diagonal wobble waits for a later, clearer gesture');
+  canvas.dispatch('pointermove', pointerEvent(game, canvas, {
+    x: rangedStart.x - 80,
+    y: rangedStart.y + 10,
+  }, 12));
+  assert.equal(game.drag.kind, 'purchase-scroll');
+  canvas.dispatch('pointerup', pointerEvent(game, canvas, {
+    x: rangedStart.x - 80,
+    y: rangedStart.y + 10,
+  }, 12));
+  assert.equal(game.state.towers.length, 1, 'the resolved swipe does not deploy another squad');
+  assert.ok(game.purchaseTrackOffsets.squad > 0);
+
+  game.setPurchaseTrackOffset('squad', 0);
+  game.render();
+  const diagonalStart = hitCenter(game, 'purchase-ranged');
+  canvas.dispatch('pointerdown', pointerEvent(game, canvas, diagonalStart, 13));
+  canvas.dispatch('pointermove', pointerEvent(game, canvas, {
+    x: diagonalStart.x + 30,
+    y: diagonalStart.y + 25,
+  }, 13));
+  assert.equal(game.drag.gesture, null);
+  assert.equal(game.drag.moved, true);
+  canvas.dispatch('pointerup', pointerEvent(game, canvas, {
+    x: diagonalStart.x + 30,
+    y: diagonalStart.y + 25,
+  }, 13));
+  assert.equal(game.selectedPurchase, null,
+    'a large unresolved diagonal gesture cannot fall through into a card click');
+
+  game.setPurchaseTrackOffset('squad', 0);
+  game.render();
+  const ownedStart = hitCenter(game, 'purchase-ranged');
+  const secondFingerCard = hitCenter(game, 'purchase-leaf');
+  const padOne = hitCenter(game, 'pad-1');
+  canvas.dispatch('pointerdown', pointerEvent(game, canvas, ownedStart, 21));
+  canvas.dispatch('pointerdown', pointerEvent(game, canvas, secondFingerCard, 22));
+  canvas.dispatch('pointerup', pointerEvent(game, canvas, secondFingerCard, 22));
+  assert.equal(game.drag.pointerId, 21,
+    'a second finger cannot replace or cancel the card held by the first finger');
+  assert.equal(game.drag.purchaseType, 'ranged');
+  canvas.dispatch('pointermove', pointerEvent(game, canvas, padOne, 21));
+  canvas.dispatch('pointerup', pointerEvent(game, canvas, padOne, 21));
+  assert.deepEqual(game.state.towers.map(({ squadType }) => squadType), ['melee', 'ranged']);
+  game.dispose();
+});
+
+test('categorized purchase track swipes wide cards and buys every squad and turret type', () => {
   const canvas = createCanvas();
   const assets = createAssetStore([
     'turret-bubble-coil',
@@ -1291,14 +1435,29 @@ test('the seven-card dock buys both new squads and both new formal turrets', () 
   game.state.tutorial.active = false;
   game.render();
 
-  const purchaseIds = [
+  const squadPurchaseIds = [
     'purchase-melee', 'purchase-ranged', 'purchase-charger', 'purchase-leaf',
-    'purchase-turret', 'purchase-bubble-coil', 'purchase-crystal-repeater',
   ];
   assert.deepEqual(
-    purchaseIds.map((id) => game.hits.find((hit) => hit.id === id)?.enabled),
-    purchaseIds.map(() => true),
+    squadPurchaseIds.map((id) => game.hits.find((hit) => hit.id === id)?.enabled),
+    squadPurchaseIds.map(() => true),
   );
+  assert.equal(game.purchaseCategory, 'squad');
+  assert.equal(game.hits.find(({ id }) => id === 'purchase-turret'), undefined);
+  assert.equal(game.hits.find(({ id }) => id === 'purchase-melee').width, 126,
+    'cards retain a readable width instead of squeezing all seven into one row');
+  const leafBefore = game.hits.find(({ id }) => id === 'purchase-leaf');
+  assert.ok(leafBefore.width < 126, 'the clipped last card hints that the track can scroll');
+
+  const swipeStart = hitCenter(game, 'purchase-leaf');
+  drag(game, canvas, swipeStart, { x: swipeStart.x - 96, y: swipeStart.y });
+  assert.ok(game.purchaseTrackOffsets.squad > 0, 'a horizontal pointer gesture scrolls the track');
+  assert.equal(game.selectedPurchase, null, 'swiping a card does not turn into a purchase click');
+  assert.equal(game.state.towers.length, 0, 'swiping a card does not deploy it');
+  assert.equal(game.state.currency, 1000);
+  game.render();
+  assert.equal(game.hits.find(({ id }) => id === 'purchase-leaf').width, 126,
+    'scrolling reveals the final squad card at full width');
 
   click(game, canvas, hitCenter(game, 'purchase-charger'));
   game.render();
@@ -1317,6 +1476,19 @@ test('the seven-card dock buys both new squads and both new formal turrets', () 
   }
 
   game.render();
+  click(game, canvas, hitCenter(game, 'purchase-category-turret'));
+  game.render();
+  assert.equal(game.purchaseCategory, 'turret');
+  assert.equal(game.hits.find(({ id }) => id === 'purchase-melee'), undefined);
+  const turretPurchaseIds = [
+    'purchase-turret', 'purchase-bubble-coil', 'purchase-crystal-repeater',
+  ];
+  assert.deepEqual(
+    turretPurchaseIds.map((id) => game.hits.find((hit) => hit.id === id)?.enabled),
+    turretPurchaseIds.map(() => true),
+  );
+  assert.equal(game.purchaseTrackMaxOffset('turret'), 0,
+    'three turret cards fit without artificial spacing or scrolling');
   click(game, canvas, hitCenter(game, 'purchase-bubble-coil'));
   game.render();
   click(game, canvas, hitCenter(game, game.state.turretSlots[0].id));
@@ -1384,13 +1556,17 @@ test('portrait battle keeps deployment cards below the fortress and supports dir
 
   const purchaseHits = [
     'purchase-melee', 'purchase-ranged', 'purchase-charger', 'purchase-leaf',
-    'purchase-turret', 'purchase-bubble-coil', 'purchase-crystal-repeater',
   ]
     .map((id) => game.hits.find((hit) => hit.id === id));
   purchaseHits.forEach((hit) => {
     assert.ok(hit.y >= 1096, `${hit.id} is in the portrait card dock`);
     assert.ok(hit.y + hit.height <= 1280, `${hit.id} stays inside the portrait view`);
   });
+  for (const id of ['purchase-category-squad', 'purchase-category-turret']) {
+    const tab = game.hits.find((hit) => hit.id === id);
+    assert.ok(tab.y >= 1096 && tab.y + tab.height < purchaseHits[0].y,
+      `${id} stays above the horizontal card track`);
+  }
   const padZero = game.hits.find(({ id }) => id === 'pad-0');
   assert.deepEqual({
     x: padZero.x,
@@ -1419,7 +1595,8 @@ test('portrait battle keeps deployment cards below the fortress and supports dir
     'turret construction sits directly above the lower fortress');
   assert.ok(assets.requests.includes('fortress-slime-core'));
   assert.ok(assets.requests.includes('turret-gel-mount'));
-  assert.ok(assets.requests.includes('turret-gel-mortar'));
+  assert.equal(assets.requests.includes('turret-gel-mortar'), false,
+    'off-category turret cards are not drawn behind the squad track');
   assert.ok(assets.requests.includes('background-battle-portrait-v1'));
   assert.equal(assets.requests.filter((key) => key === 'rift-entry-portal').length, 1,
     'the battlefield requests exactly one centered portal');
@@ -1431,11 +1608,28 @@ test('portrait battle keeps deployment cards below the fortress and supports dir
   assert.equal(assets.requests.includes('ui-card-frame-common'), false,
     'portrait deployment cards no longer request the horizontal card frame');
 
+  click(game, canvas, hitCenter(game, 'purchase-category-turret'));
+  game.render();
+  assert.ok(assets.requests.includes('turret-gel-mortar'));
+  const turretPurchaseHits = [
+    'purchase-turret', 'purchase-bubble-coil', 'purchase-crystal-repeater',
+  ].map((id) => game.hits.find((hit) => hit.id === id));
+  turretPurchaseHits.forEach((hit) => {
+    assert.ok(hit.y >= 1096, `${hit.id} is in the lower portrait track`);
+    assert.ok(hit.y + hit.height <= 1280, `${hit.id} stays inside the portrait view`);
+  });
+  assert.equal(game.hits.find(({ id }) => id === 'purchase-melee'), undefined,
+    'category selection removes off-category cards from the active track');
+  click(game, canvas, hitCenter(game, 'purchase-category-squad'));
+  game.render();
+
   drag(game, canvas, hitCenter(game, 'purchase-melee'), hitCenter(game, 'pad-0'));
   assert.equal(game.state.towers.length, 1);
   assert.equal(game.state.towers[0].squadType, 'melee');
   assert.equal(game.state.currency, 400);
 
+  game.render();
+  click(game, canvas, hitCenter(game, 'purchase-category-turret'));
   game.render();
   drag(game, canvas, hitCenter(game, 'purchase-turret'), hitCenter(game, slotId));
   assert.equal(game.state.turrets.length, 1);

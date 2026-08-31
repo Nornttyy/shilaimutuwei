@@ -1222,6 +1222,11 @@ const SOLDIER_LAYER_INDEX = Object.freeze({
   hurtMouth: 8,
 });
 const SOLDIER_BIND_RECT = Object.freeze({ x: -60, y: -120, width: 120, height: 120 });
+const ATLAS_REAR_LAYER_Z = Object.freeze({
+  'hero-berry-burst-atlas-v1': Object.freeze({ equipment: -5 }),
+  'hero-dew-bloom-atlas-v1': Object.freeze({ headgear: -5 }),
+  'soldier-leaf-spinner-atlas-v1': Object.freeze({ equipment: -5 }),
+});
 
 function soldierSourceRect(index) {
   return Object.freeze({
@@ -1240,9 +1245,10 @@ function soldierAtlasPart(id, bone, index, z, bindRect) {
   });
 }
 
-function soldierRigAssetFor(atlas) {
+function soldierRigAssetFor(atlas, assetKey = '') {
   let rigAsset = SOLDIER_ATLAS_CACHE.get(atlas);
   if (rigAsset) return rigAsset;
+  const layerZ = ATLAS_REAR_LAYER_Z[assetKey] || {};
   const faceVariant = (index) => Object.freeze({
     image: atlas,
     sourceRect: soldierSourceRect(index),
@@ -1253,8 +1259,10 @@ function soldierRigAssetFor(atlas) {
     canonicalFacing: 1,
     parts: Object.freeze([
       { ...soldierAtlasPart('body', 'body', SOLDIER_LAYER_INDEX.body, 0, SOLDIER_BIND_RECT), image: atlas },
-      { ...soldierAtlasPart('headgear', 'headgear', SOLDIER_LAYER_INDEX.headgear, 10, SOLDIER_BIND_RECT), image: atlas },
-      { ...soldierAtlasPart('equipment', 'equipment', SOLDIER_LAYER_INDEX.equipment, 20, SOLDIER_BIND_RECT), image: atlas },
+      { ...soldierAtlasPart('headgear', 'headgear', SOLDIER_LAYER_INDEX.headgear,
+        layerZ.headgear ?? 10, SOLDIER_BIND_RECT), image: atlas },
+      { ...soldierAtlasPart('equipment', 'equipment', SOLDIER_LAYER_INDEX.equipment,
+        layerZ.equipment ?? 20, SOLDIER_BIND_RECT), image: atlas },
       Object.freeze({
         id: 'eyes', bone: 'eyes', z: 30, required: true, image: atlas,
         variants: Object.freeze({
@@ -1423,7 +1431,7 @@ export function drawAtlasCharacter(ctx, x, y, size, options = {}) {
         ctx,
         SOLDIER_RIG,
         sample.pose,
-        soldierRigAssetFor(atlas),
+        soldierRigAssetFor(atlas, assetKey),
         sample.expression,
       );
     } finally {

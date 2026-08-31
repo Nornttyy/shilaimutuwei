@@ -79,6 +79,7 @@ const LONG_PRESS_DRIFT = 18;
 const SQUAD_MEMBER_RENDER_SIZE = 52;
 const SQUAD_MEMBER_DEFEAT_SIZE = 52;
 const SQUAD_PURCHASE_PREVIEW_SIZE = 44;
+const SQUAD_GRID_RENDER_Y_OFFSET = 16;
 const SUMMON_ENERGY_DURATION = 0.72;
 const SUMMON_RIFT_DURATION = 0.78;
 const SUMMON_REVEAL_CARD_DURATION = 0.5;
@@ -103,15 +104,11 @@ const COMMAND_DOCK = Object.freeze({
     Object.freeze({ x: 348, y: 1104, width: 156, height: 164 }),
   ]),
   handZone: Object.freeze({ x: 12, y: 1104, width: 492, height: 164 }),
-  purchase: Object.freeze({
-    melee: Object.freeze({ x: 8, y: 1104, width: 66, height: 164 }),
-    ranged: Object.freeze({ x: 78, y: 1104, width: 66, height: 164 }),
-    charger: Object.freeze({ x: 148, y: 1104, width: 66, height: 164 }),
-    leaf: Object.freeze({ x: 218, y: 1104, width: 66, height: 164 }),
-    turret: Object.freeze({ x: 288, y: 1104, width: 66, height: 164 }),
-    'bubble-coil': Object.freeze({ x: 358, y: 1104, width: 66, height: 164 }),
-    'crystal-repeater': Object.freeze({ x: 428, y: 1104, width: 66, height: 164 }),
+  purchaseTabs: Object.freeze({
+    squad: Object.freeze({ x: 8, y: 1104, width: 240, height: 40 }),
+    turret: Object.freeze({ x: 256, y: 1104, width: 240, height: 40 }),
   }),
+  purchaseTrack: Object.freeze({ x: 8, y: 1150, width: 488, height: 118 }),
   cards: Object.freeze([
     Object.freeze({ x: 12, y: 1104, width: 114, height: 164 }),
     Object.freeze({ x: 132, y: 1104, width: 114, height: 164 }),
@@ -215,7 +212,9 @@ function drawLockedMonochrome(ctx, draw) {
   const previousFilter = typeof ctx.filter === 'string' ? ctx.filter : 'none';
   ctx.save();
   try {
-    ctx.filter = 'grayscale(1) saturate(0) brightness(0.68)';
+    // Collapse every visible RGB value to one gray while preserving alpha.
+    // A grayscale filter alone leaves bright eyes and dark mouths readable.
+    ctx.filter = 'brightness(0) invert(0.55)';
     draw();
   } finally {
     ctx.restore();
@@ -381,6 +380,14 @@ const PURCHASE_ITEMS = Object.freeze([
   }),
 ]);
 
+const PURCHASE_CATEGORIES = Object.freeze({
+  squad: Object.freeze({ id: 'squad', label: '小兵' }),
+  turret: Object.freeze({ id: 'turret', label: '炮台' }),
+});
+const PURCHASE_CARD_WIDTH = 126;
+const PURCHASE_CARD_HEIGHT = 112;
+const PURCHASE_CARD_GAP = 10;
+
 const PURCHASE_ITEM_BY_ID = Object.freeze(Object.fromEntries(
   PURCHASE_ITEMS.map((entry) => [entry.id, entry]),
 ));
@@ -459,6 +466,14 @@ const insideRect = (point, rect) => (
   point.x >= rect.x && point.x <= rect.x + rect.width
   && point.y >= rect.y && point.y <= rect.y + rect.height
 );
+const intersectRects = (left, right) => {
+  const x = Math.max(left.x, right.x);
+  const y = Math.max(left.y, right.y);
+  const edgeX = Math.min(left.x + left.width, right.x + right.width);
+  const edgeY = Math.min(left.y + left.height, right.y + right.height);
+  if (edgeX <= x || edgeY <= y) return null;
+  return { x, y, width: edgeX - x, height: edgeY - y };
+};
 const squadTypeFor = (type, squadType = null) => {
   if (isSquadType(squadType)) return squadType;
   if (isSquadType(type)) return type;
@@ -771,6 +786,8 @@ export class TowerDefenseGame {
     this.keysDown = new Set();
     this.joystick = { active: false, x: 0, y: 0 };
     this.selectedPurchase = null;
+    this.purchaseCategory = 'squad';
+    this.purchaseTrackOffsets = { squad: 0, turret: 0 };
     this.selectedCardUid = null;
     this.hoverPoint = null;
     this.menuPage = 'main';
@@ -1473,6 +1490,49 @@ export class TowerDefenseGame {
     this.syncHeroMovement();
   }
 
+  purchaseItemsForCategory(category = this.purchaseCategory) {
+    const resolved = PURCHASE_CATEGORIES[category] ? category : 'squad';
+    return PURCHASE_ITEMS.filter(({ kind }) => kind === resolved);
+  }
+
+  purchaseTrackMaxOffset(category = this.purchaseCategory) {
+    const itemCount = this.purchaseItemsForCategory(category).length;
+    const contentWidth = itemCount > 0
+      ? itemCount * PURCHASE_CARD_WIDTH + (itemCount - 1) * PURCHASE_CARD_GAP
+      : 0;
+    return Math.max(0, contentWidth - COMMAND_DOCK.purchaseTrack.width);
+  }
+
+  purchaseTrackOffset(category = this.purchaseCategory) {
+    const resolved = PURCHASE_CATEGORIES[category] ? category : 'squad';
+    return clamp(
+      Number(this.purchaseTrackOffsets[resolved]) || 0,
+      0,
+      this.purchaseTrackMaxOffset(resolved),
+    );
+  }
+
+  setPurchaseTrackOffset(category, offset) {
+    const resolved = PURCHASE_CATEGORIES[category] ? category : 'squad';
+    const next = clamp(Number(offset) || 0, 0, this.purchaseTrackMaxOffset(resolved));
+    this.purchaseTrackOffsets[resolved] = next;
+    return next;
+  }
+
+  purchaseCardRect(entry, category = entry?.kind) {
+    const entries = this.purchaseItemsForCategory(category);
+    const index = entries.indexOf(entry);
+    if (index < 0) return null;
+    return {
+      x: COMMAND_DOCK.purchaseTrack.x
+        + index * (PURCHASE_CARD_WIDTH + PURCHASE_CARD_GAP)
+        - this.purchaseTrackOffset(category),
+      y: COMMAND_DOCK.purchaseTrack.y + 3,
+      width: PURCHASE_CARD_WIDTH,
+      height: PURCHASE_CARD_HEIGHT,
+    };
+  }
+
   hitAt(point, predicate = null) {
     if (!predicate && turretTypeForPurchase(this.selectedPurchase)) {
       for (let index = this.hits.length - 1; index >= 0; index -= 1) {
@@ -1608,49 +1668,65 @@ export class TowerDefenseGame {
     const hit = this.hitAt(point);
     if (!this.tutorialAllows(hit)) return;
     this.hoverPoint = point;
+    if (this.drag) return;
     if (hit?.action === 'hero-skill') {
       this.activateHit(hit);
       return;
     }
-    if (this.drag?.kind === 'joystick') return;
     if (hit?.action === 'hero-joystick') {
       this.drag = {
         kind: 'joystick', pointerId: event?.pointerId,
         start: point, point, moved: true,
       };
       this.updateJoystick(point);
+    } else if (hit?.action === 'purchase-track') {
+      const category = PURCHASE_CATEGORIES[hit.data.purchaseCategory]
+        ? hit.data.purchaseCategory : this.purchaseCategory;
+      this.drag = {
+        kind: 'purchase-scroll', category, pointerId: event?.pointerId,
+        scrollStart: this.purchaseTrackOffset(category),
+        start: point, point, moved: false,
+      };
     } else if (hit?.action === 'select-purchase') {
+      const purchase = purchaseItemFor(hit.data.purchaseType);
+      const category = PURCHASE_CATEGORIES[purchase?.kind]
+        ? purchase.kind : this.purchaseCategory;
       this.drag = {
         kind: 'purchase', purchaseType: hit.data.purchaseType,
-        hit, start: point, point, moved: false,
+        category, scrollStart: this.purchaseTrackOffset(category), gesture: null,
+        pointerId: event?.pointerId, hit, start: point, point, moved: false,
       };
     } else if (hit?.action === 'card') {
       this.drag = {
-        kind: 'card', uid: hit.data.cardUid, start: point, point, moved: false,
+        kind: 'card', uid: hit.data.cardUid, pointerId: event?.pointerId,
+        start: point, point, moved: false,
       };
     } else if (hit?.action === 'tower') {
       this.drag = {
-        kind: 'tower', uid: hit.data.towerUid, start: point, point, moved: false,
+        kind: 'tower', uid: hit.data.towerUid, pointerId: event?.pointerId,
+        start: point, point, moved: false,
         pressStartedAt: this.interactionNow(), longPressProgress: 0,
         longPressReady: false, longPressCancelled: false,
       };
     } else {
-      this.drag = { kind: 'tap', hit, start: point, point, moved: false };
+      this.drag = {
+        kind: 'tap', pointerId: event?.pointerId,
+        hit, start: point, point, moved: false,
+      };
     }
     this.canvas.setPointerCapture?.(event?.pointerId);
   }
 
   handlePointerMove(event) {
     event?.preventDefault?.();
-    const point = this.toGamePoint(event);
-    this.hoverPoint = point;
-    if (!this.drag) return;
     if (
-      this.drag.kind === 'joystick'
-      && this.drag.pointerId != null
+      this.drag?.pointerId != null
       && event?.pointerId != null
       && event.pointerId !== this.drag.pointerId
     ) return;
+    const point = this.toGamePoint(event);
+    this.hoverPoint = point;
+    if (!this.drag) return;
     this.drag.point = point;
     if (this.drag.kind === 'joystick') {
       this.updateJoystick(point);
@@ -1669,21 +1745,51 @@ export class TowerDefenseGame {
       if (distance >= DRAG_THRESHOLD) this.drag.moved = true;
       return;
     }
+    if (this.drag.kind === 'purchase-scroll') {
+      const deltaX = point.x - this.drag.start.x;
+      this.drag.moved = this.drag.moved || Math.abs(deltaX) >= DRAG_THRESHOLD;
+      this.setPurchaseTrackOffset(
+        this.drag.category,
+        this.drag.scrollStart - deltaX,
+      );
+      return;
+    }
+    if (this.drag.kind === 'purchase') {
+      const deltaX = point.x - this.drag.start.x;
+      const deltaY = point.y - this.drag.start.y;
+      const absX = Math.abs(deltaX);
+      const absY = Math.abs(deltaY);
+      if (!this.drag.gesture && Math.max(absX, absY) >= DRAG_THRESHOLD) {
+        this.drag.moved = true;
+        if (absX >= absY * 1.35) this.drag.gesture = 'scroll';
+        else if (absY >= absX * 1.15) this.drag.gesture = 'deploy';
+      }
+      if (this.drag.gesture === 'scroll') {
+        this.drag.kind = 'purchase-scroll';
+        this.drag.moved = true;
+        this.setPurchaseTrackOffset(
+          this.drag.category,
+          this.drag.scrollStart - deltaX,
+        );
+        return;
+      }
+      if (this.drag.gesture === 'deploy') this.drag.moved = true;
+      return;
+    }
     if (pointDistance(point, this.drag.start) >= DRAG_THRESHOLD) this.drag.moved = true;
   }
 
   handlePointerUp(event) {
     event?.preventDefault?.();
-    const point = this.toGamePoint(event);
     if (
-      this.drag?.kind === 'joystick'
-      && this.drag.pointerId != null
+      this.drag?.pointerId != null
       && event?.pointerId != null
       && event.pointerId !== this.drag.pointerId
     ) {
       this.canvas.releasePointerCapture?.(event.pointerId);
       return;
     }
+    const point = this.toGamePoint(event);
     this.updateLongPressState();
     const drag = this.drag;
     this.drag = null;
@@ -1698,11 +1804,14 @@ export class TowerDefenseGame {
       return;
     }
 
+    if (drag.kind === 'purchase-scroll') return;
+
     if (drag.kind === 'purchase') {
       if (!drag.moved) {
         if (drag.hit && this.tutorialAllows(drag.hit)) this.activateHit(drag.hit);
         return;
       }
+      if (drag.gesture !== 'deploy') return;
       const purchase = purchaseItemFor(drag.purchaseType);
       if (purchase?.kind === 'turret') {
         const turretHit = this.emptyTurretSlotHitAt(point, purchase.type);
@@ -1756,8 +1865,7 @@ export class TowerDefenseGame {
 
   handlePointerCancel(event) {
     if (
-      this.drag?.kind === 'joystick'
-      && this.drag.pointerId != null
+      this.drag?.pointerId != null
       && event?.pointerId != null
       && event.pointerId !== this.drag.pointerId
     ) return;
@@ -1942,6 +2050,16 @@ export class TowerDefenseGame {
       case 'draw': {
         const card = drawTowerCard(this.state);
         if (card) this.selectedCardUid = card.uid;
+        break;
+      }
+      case 'select-purchase-category': {
+        const category = hit.data.purchaseCategory;
+        if (!PURCHASE_CATEGORIES[category]) break;
+        this.purchaseCategory = category;
+        const selected = purchaseItemFor(this.selectedPurchase);
+        if (selected && selected.kind !== category) this.selectedPurchase = null;
+        this.selectedCardUid = null;
+        this.state.selectedTowerUid = null;
         break;
       }
       case 'select-purchase':
@@ -2435,7 +2553,7 @@ export class TowerDefenseGame {
     label(ctx, '英雄编队', TD_VIEW.width / 2, 72, {
       size: 40, color: COLORS.ink, weight: 950,
     });
-    label(ctx, '点击英雄查看数值与技能', TD_VIEW.width / 2, 116, {
+    label(ctx, '已解锁英雄可查看数值与技能', TD_VIEW.width / 2, 116, {
       size: 17, color: COLORS.inkSoft, weight: 850,
     });
 
@@ -2469,14 +2587,16 @@ export class TowerDefenseGame {
         radius: 22,
         shadow: owned,
       });
-      panel(ctx, { x: rect.x + 10, y: rect.y + 9, width: 44, height: 26 }, {
-        fill: owned ? rarity.fill : '#AEB3B1',
-        stroke: owned ? rarity.color : '#6E7472', lineWidth: 2, radius: 11,
-      });
-      label(ctx, rarity.label, rect.x + 32, rect.y + 22, {
-        size: rarity.label.length > 2 ? 11 : 14,
-        color: owned ? rarity.deep : '#4E5552', weight: 950,
-      });
+      if (owned) {
+        panel(ctx, { x: rect.x + 10, y: rect.y + 9, width: 44, height: 26 }, {
+          fill: rarity.fill,
+          stroke: rarity.color, lineWidth: 2, radius: 11,
+        });
+        label(ctx, rarity.label, rect.x + 32, rect.y + 22, {
+          size: rarity.label.length > 2 ? 11 : 14,
+          color: rarity.deep, weight: 950,
+        });
+      }
       label(ctx, heroDefinition.name, rect.x + rect.width - 10, rect.y + 22, {
         size: 17, align: 'right', color: owned ? COLORS.ink : '#4E5552', weight: 950,
       });
@@ -2513,8 +2633,6 @@ export class TowerDefenseGame {
       ? this.rosterInspectType : selectedType;
     const inspected = HERO_TYPES[inspectType] || TOWER_TYPES[inspectType] || HERO_TYPES.shell;
     const inspectedRank = Math.max(0, Math.floor(Number(contractRanks[inspectType]) || 0));
-    const rosterStats = this.state.heroes?.find(({ type }) => type === inspectType);
-    const inspectedStats = rosterStats || heroStatsForRank(inspectType, Math.max(1, inspectedRank));
     const inspectedOwned = inspectedRank > 0;
     const inspectedSelected = inspectType === selectedType;
     const inspectedRarity = rarityStyle(inspected.rarity);
@@ -2525,6 +2643,33 @@ export class TowerDefenseGame {
       stroke: inspectedOwned ? inspectedRarity.color : '#777E7B',
       lineWidth: 4, radius: 30, shadow: inspectedOwned,
     });
+    if (!inspectedOwned) {
+      label(ctx, inspected.name, TD_VIEW.width / 2, 580, {
+        size: 31, color: '#505653', weight: 950,
+      });
+      this.drawRosterHeroPortrait(ctx, inspectType, 236, 984, 300, {
+        locked: true, phase: 0.09,
+      });
+      panel(ctx, { x: 386, y: 744, width: 226, height: 76 }, {
+        fill: '#AEB3B1', stroke: '#737A77', lineWidth: 2, radius: 20,
+      });
+      label(ctx, '未解锁', 499, 783, {
+        size: 25, color: '#F2F3F2', weight: 950,
+      });
+      button(ctx, ROSTER_DEPLOY_RECT, '未解锁', {
+        enabled: false, fill: '#9DA5A1', accent: '#707773', size: 21,
+      });
+      this.addHit(`hero-select-${inspectType}`, ROSTER_DEPLOY_RECT, 'select-hero', {
+        heroType: inspectType,
+      }, false);
+      label(ctx, `已拥有 ${ownedCount}/${heroTypes.length}`, 86, 1150, {
+        size: 16, align: 'left', color: '#6D7471', weight: 900,
+      });
+      return;
+    }
+
+    const rosterStats = this.state.heroes?.find(({ type }) => type === inspectType);
+    const inspectedStats = rosterStats || heroStatsForRank(inspectType, inspectedRank);
     panel(ctx, { x: 58, y: 552, width: 76, height: 38 }, {
       fill: inspectedOwned ? inspectedRarity.fill : '#AEB3B1',
       stroke: inspectedOwned ? inspectedRarity.color : '#6E7472', lineWidth: 2, radius: 14,
@@ -3538,7 +3683,9 @@ export class TowerDefenseGame {
       const memberX = Number.isFinite(absoluteX)
         ? absoluteX + anchorOffsetX : x + (Number.isFinite(offsetX) ? offsetX : 0);
       const memberY = Number.isFinite(absoluteY)
-        ? absoluteY + anchorOffsetY : y + (Number.isFinite(offsetY) ? offsetY : 0) + 13;
+        ? absoluteY + anchorOffsetY + SQUAD_GRID_RENDER_Y_OFFSET
+        : y + (Number.isFinite(offsetY) ? offsetY : 0) + 13
+          + SQUAD_GRID_RENDER_Y_OFFSET;
       const memberScale = clamp(Number(member.scale) || 1, 0.45, 1.6);
       const animationPhaseIndex = Number.isInteger(member.memberIndex)
         ? member.memberIndex : memberIndex;
@@ -3697,10 +3844,19 @@ export class TowerDefenseGame {
         size: 13, color: COLORS.ink, weight: 950,
       });
     }
-    this.addHit(`tower-${tower.uid}`, {
-      x: drawX - PAD_RADIUS, y: drawY - 76,
-      width: PAD_RADIUS * 2, height: 88,
-    }, 'tower', { towerUid: tower.uid, padIndex }, preparation);
+    const towerHitRect = isSquad
+      ? {
+        x: drawX - DEPLOY_CELL_SIZE.width / 2 + 2,
+        y: drawY - DEPLOY_CELL_SIZE.height / 2 + 2,
+        width: DEPLOY_CELL_SIZE.width - 4,
+        height: DEPLOY_CELL_SIZE.height - 4,
+      }
+      : {
+        x: drawX - PAD_RADIUS, y: drawY - 76,
+        width: PAD_RADIUS * 2, height: 88,
+      };
+    this.addHit(`tower-${tower.uid}`, towerHitRect,
+      'tower', { towerUid: tower.uid, padIndex }, preparation);
   }
 
   drawStars(ctx, x, y, count, color) {
@@ -4064,12 +4220,12 @@ export class TowerDefenseGame {
   drawSquadPurchasePreview(ctx, rect, type) {
     const squadType = squadTypeFor(type);
     const visual = soldierVisualFor(type, squadType);
-    const compact = rect.width < 100;
+    const compact = rect.width < 100 || rect.height < 140;
     const positions = compact ? [
-      { x: -12, y: -15, scale: 0.82 },
-      { x: 12, y: -15, scale: 0.82 },
-      { x: -13, y: 6, scale: 0.94 },
-      { x: 13, y: 6, scale: 0.94 },
+      { x: -18, y: -13, scale: 0.78 },
+      { x: 18, y: -13, scale: 0.78 },
+      { x: -19, y: 7, scale: 0.9 },
+      { x: 19, y: 7, scale: 0.9 },
     ] : [
       { x: -27, y: -18, scale: 0.86 },
       { x: 27, y: -18, scale: 0.86 },
@@ -4080,8 +4236,8 @@ export class TowerDefenseGame {
       const key = `purchase:${squadType}:${memberIndex}`;
       const animation = this.characterAnimationSample(key, visual.ownerId);
       drawSoldier(ctx, rect.x + rect.width / 2 + position.x,
-        rect.y + (compact ? 124 : 108) + position.y,
-        (compact ? 28 : SQUAD_PURCHASE_PREVIEW_SIZE) * position.scale, {
+        rect.y + (compact ? rect.height - 24 : 108) + position.y,
+        (compact ? 30 : SQUAD_PURCHASE_PREVIEW_SIZE) * position.scale, {
           assetKey: visual.assetKey,
           squadType,
           time: this.state.time + memberIndex * 0.13,
@@ -4095,15 +4251,71 @@ export class TowerDefenseGame {
   drawDirectPurchaseDock(ctx, stage) {
     const preparation = this.isPreparation();
     if (!preparation) {
+      Object.values(PURCHASE_CATEGORIES).forEach(({ id: purchaseCategory }) => {
+        this.addHit(`purchase-category-${purchaseCategory}`,
+          COMMAND_DOCK.purchaseTabs[purchaseCategory],
+          'select-purchase-category', { purchaseCategory }, false);
+      });
       PURCHASE_ITEMS.forEach(({ id: purchaseType }) => {
-        this.addHit(`purchase-${purchaseType}`, COMMAND_DOCK.purchase[purchaseType],
+        this.addHit(`purchase-${purchaseType}`, COMMAND_DOCK.purchaseTrack,
           'select-purchase', { purchaseType }, false);
       });
       this.addHit('start-wave', COMMAND_DOCK.start, 'start-wave', {}, false);
       return;
     }
-    PURCHASE_ITEMS.forEach((entry) => {
-      const rect = COMMAND_DOCK.purchase[entry.id];
+
+    const tutorialTarget = tutorialTargetForState(this.state);
+    if (tutorialTarget?.type === 'squad') {
+      this.purchaseCategory = 'squad';
+      this.setPurchaseTrackOffset('squad', 0);
+    }
+    if (!PURCHASE_CATEGORIES[this.purchaseCategory]) this.purchaseCategory = 'squad';
+    const category = this.purchaseCategory;
+    const entries = this.purchaseItemsForCategory(category);
+    const maxOffset = this.purchaseTrackMaxOffset(category);
+    const offset = this.setPurchaseTrackOffset(category, this.purchaseTrackOffset(category));
+
+    Object.values(PURCHASE_CATEGORIES).forEach(({ id, label: categoryLabel }) => {
+      const rect = COMMAND_DOCK.purchaseTabs[id];
+      const active = category === id;
+      const count = this.purchaseItemsForCategory(id).length;
+      panel(ctx, rect, {
+        fill: active ? '#FFF3BD' : 'rgba(239,246,229,0.88)',
+        stroke: active ? '#E0A129' : 'rgba(255,255,255,0.34)',
+        lineWidth: active ? 4 : 2,
+        radius: 15,
+        shadow: active,
+      });
+      label(ctx, `${categoryLabel} ${count}`, rect.x + rect.width / 2,
+        rect.y + rect.height / 2 + 1, {
+          size: 16, color: active ? '#714C20' : COLORS.inkSoft, weight: 950,
+        });
+      this.addHit(`purchase-category-${id}`, rect, 'select-purchase-category', {
+        purchaseCategory: id,
+      });
+    });
+
+    panel(ctx, COMMAND_DOCK.purchaseTrack, {
+      fill: 'rgba(229,239,220,0.88)',
+      stroke: 'rgba(255,255,255,0.3)',
+      radius: 18,
+    });
+    this.addHit('purchase-track', COMMAND_DOCK.purchaseTrack, 'purchase-track', {
+      purchaseCategory: category,
+    });
+
+    ctx.save();
+    roundedPath(ctx,
+      COMMAND_DOCK.purchaseTrack.x,
+      COMMAND_DOCK.purchaseTrack.y,
+      COMMAND_DOCK.purchaseTrack.width,
+      COMMAND_DOCK.purchaseTrack.height,
+      18);
+    ctx.clip();
+    entries.forEach((entry) => {
+      const rect = this.purchaseCardRect(entry, category);
+      const hitRect = intersectRects(rect, COMMAND_DOCK.purchaseTrack);
+      if (!hitRect) return;
       const definition = entry.kind === 'squad'
         ? SQUAD_TYPES[entry.type] : TURRET_TYPES[entry.type];
       const soldierVisual = entry.kind === 'squad'
@@ -4113,7 +4325,7 @@ export class TowerDefenseGame {
       const shortName = soldierVisual?.shortName || entry.shortName || definition?.name || entry.id;
       const selected = this.selectedPurchase === entry.id;
       const enabled = preparation && this.state.currency >= cost;
-      const hot = enabled && Boolean(this.hoverPoint && insideRect(this.hoverPoint, rect));
+      const hot = enabled && Boolean(this.hoverPoint && insideRect(this.hoverPoint, hitRect));
       const accent = soldierVisual?.color || definition?.color || '#6BC9A0';
       drawAssetOrFallback(ctx, this.assetStore, 'ui-card-frame-deploy', (asset) => {
         ctx.globalAlpha *= enabled ? 1 : 0.48;
@@ -4127,14 +4339,14 @@ export class TowerDefenseGame {
           shadow: enabled,
         });
       });
-      label(ctx, shortName, rect.x + rect.width / 2, rect.y + 18, {
-        size: 11, color: COLORS.ink, weight: 950,
+      label(ctx, shortName, rect.x + rect.width / 2, rect.y + 16, {
+        size: 12, color: COLORS.ink, weight: 950,
       });
       drawAssetOrFallback(ctx, this.assetStore, 'ui-gel-energy', (asset) => {
         ctx.globalAlpha *= enabled ? 0.95 : 0.4;
-        ctx.drawImage(asset, rect.x + 11, rect.y + 33, 17, 17);
+        ctx.drawImage(asset, rect.x + 10, rect.y + 26, 16, 16);
       }, () => {});
-      label(ctx, cost, rect.x + rect.width - 9, rect.y + 42, {
+      label(ctx, cost, rect.x + rect.width - 10, rect.y + 35, {
         size: 12, align: 'right', color: enabled ? COLORS.ink : COLORS.disabled, weight: 950,
       });
       if (entry.kind === 'squad') {
@@ -4143,7 +4355,7 @@ export class TowerDefenseGame {
         this.drawSquadPurchasePreview(ctx, rect, entry.type);
         ctx.restore();
       } else {
-        drawBuilding(ctx, rect.x + rect.width / 2, rect.y + 142, 62, 'tower', {
+        drawBuilding(ctx, rect.x + rect.width / 2, rect.y + rect.height - 14, 56, 'tower', {
           assetKey: turretVisual.assetKey,
           assetStore: this.assetStore,
           ...turretVisual.layout,
@@ -4158,10 +4370,23 @@ export class TowerDefenseGame {
         ctx.stroke();
         ctx.restore();
       }
-      this.addHit(`purchase-${entry.id}`, rect, 'select-purchase', {
-        purchaseType: entry.id,
+      this.addHit(`purchase-${entry.id}`, hitRect, 'select-purchase', {
+        purchaseType: entry.id, purchaseCategory: category,
       }, enabled);
     });
+    ctx.restore();
+
+    if (maxOffset > 0) {
+      if (offset > 0) label(ctx, '‹', COMMAND_DOCK.purchaseTrack.x + 10,
+        COMMAND_DOCK.purchaseTrack.y + COMMAND_DOCK.purchaseTrack.height / 2, {
+          size: 28, align: 'left', color: '#714C20', weight: 950,
+        });
+      if (offset < maxOffset) label(ctx, '›',
+        COMMAND_DOCK.purchaseTrack.x + COMMAND_DOCK.purchaseTrack.width - 10,
+        COMMAND_DOCK.purchaseTrack.y + COMMAND_DOCK.purchaseTrack.height / 2, {
+          size: 28, align: 'right', color: '#714C20', weight: 950,
+        });
+    }
 
     const legacyCanStart = preparation
       && !(this.state.mode === 'stage' && this.state.wave >= stage.waves.length);
@@ -4575,11 +4800,13 @@ export class TowerDefenseGame {
         const pad = stageForState(this.state).pads[target.padIndex];
         return pad ? [{ x: pad.x, y: pad.y - 8, radius: 72 }] : [];
       }
-      const rect = COMMAND_DOCK.purchase[target.squadType];
+      const rect = this.hits.find(({ id, enabled }) => (
+        id === `purchase-${target.squadType}` && enabled !== false
+      ));
       return rect ? [{
         x: rect.x + rect.width / 2,
         y: rect.y + rect.height / 2,
-        radius: 90,
+        radius: 72,
       }] : [];
     }
     if (target.type === 'pad') {

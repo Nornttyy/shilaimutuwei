@@ -114,47 +114,75 @@ test('formal 3x3 character atlas cells keep a two-pixel transparent sampling gut
   }
 });
 
-test('legacy squads reuse approved limb-free bodies and keep all expressions on the normal face anchors', async () => {
-  const cases = [
-    {
-      target: new URL('../assets/generated/soldier/soldier-shield-dun-atlas-v1.png', import.meta.url),
-      source: new URL('../assets/generated/hero/hero-berry-burst-atlas-v1.png', import.meta.url),
-    },
-    {
-      target: new URL('../assets/generated/soldier/soldier-bean-bow-atlas-v1.png', import.meta.url),
-      source: new URL('../assets/generated/soldier/soldier-bounce-hammer-atlas-v1.png', import.meta.url),
-    },
+test('formal atlases keep stable expressions and the newest slimes reuse the approved round eyes', async () => {
+  const atlasUrls = [
+    new URL('../assets/generated/soldier/soldier-shield-dun-atlas-v1.png', import.meta.url),
+    new URL('../assets/generated/soldier/soldier-bean-bow-atlas-v1.png', import.meta.url),
+    new URL('../assets/generated/soldier/soldier-bounce-hammer-atlas-v1.png', import.meta.url),
+    new URL('../assets/generated/soldier/soldier-leaf-spinner-atlas-v1.png', import.meta.url),
+    new URL('../assets/generated/hero/hero-berry-burst-atlas-v1.png', import.meta.url),
+    new URL('../assets/generated/hero/hero-dew-bloom-atlas-v1.png', import.meta.url),
   ];
-  const cell = 418;
-  for (const { target: targetUrl, source: sourceUrl } of cases) {
-    const target = decodeRgbaPng(await readFile(targetUrl), targetUrl.pathname);
-    const source = decodeRgbaPng(await readFile(sourceUrl), sourceUrl.pathname);
-    for (const slot of [0, 3, 5, 7]) {
-      const originX = (slot % 3) * cell;
-      const originY = Math.floor(slot / 3) * cell;
-      for (let y = 0; y < cell; y += 1) {
-        for (let x = 0; x < cell; x += 1) {
-          const offset = ((originY + y) * target.width + originX + x) * 4;
-          if (source.pixels[offset + 3] < 32 && target.pixels[offset + 3] < 32) continue;
-          assert.deepEqual(
-            [...target.pixels.subarray(offset, offset + 4)],
-            [...source.pixels.subarray(offset, offset + 4)],
-            `${targetUrl.pathname} slot ${slot} keeps the approved authored component`,
-          );
+  const approvedEyes = decodeRgbaPng(await readFile(new URL(
+    '../assets/generated-v2/rig-parts-exported/survivor-shell-shell/eyes.png',
+    import.meta.url,
+  )), 'approved round slime eyes');
+  for (const atlasUrl of atlasUrls) {
+    const atlas = decodeRgbaPng(await readFile(atlasUrl), atlasUrl.pathname);
+    const normalEyes = highAlphaBounds(atlas, 3);
+    const usesRestoredEyes = /bounce-hammer|leaf-spinner|hero-berry|hero-dew/.test(
+      atlasUrl.pathname,
+    );
+    if (usesRestoredEyes) {
+      const originX = 0;
+      const originY = 418;
+      let matchesApprovedAlpha = true;
+      compareAlpha: for (let y = 0; y < 418; y += 1) {
+        for (let x = 0; x < 418; x += 1) {
+          const sourceX = x - 123;
+          const sourceY = y - 158;
+          const expected = (
+            sourceX >= 0 && sourceX < approvedEyes.width
+            && sourceY >= 0 && sourceY < approvedEyes.height
+          ) ? approvedEyes.pixels[(sourceY * approvedEyes.width + sourceX) * 4 + 3] : 0;
+          const actual = atlas.pixels[
+            ((originY + y) * atlas.width + originX + x) * 4 + 3
+          ];
+          if (actual !== expected) {
+            matchesApprovedAlpha = false;
+            break compareAlpha;
+          }
         }
       }
+      assert.equal(matchesApprovedAlpha, true,
+        `${atlasUrl.pathname} normal eyes retain the approved old-style alpha shape`);
+      const normalCenter = boundsCenter(normalEyes);
+      for (const slot of [5, 7]) {
+        const center = boundsCenter(highAlphaBounds(atlas, slot));
+        assert.ok(Math.abs(center.x - normalCenter.x) <= 1,
+          `${atlasUrl.pathname} expression ${slot} keeps its horizontal eye anchor`);
+        assert.ok(Math.abs(center.y - normalCenter.y) <= 8,
+          `${atlasUrl.pathname} expression ${slot} keeps its vertical eye anchor`);
+      }
+    } else {
+      for (const slot of [5, 7]) {
+        assert.deepEqual(highAlphaBounds(atlas, slot), normalEyes,
+          `${atlasUrl.pathname} expression eyes share the normal anchor`);
+      }
     }
-
-    const normalEyes = highAlphaBounds(target, 3);
-    for (const slot of [5, 7]) {
-      assert.deepEqual(highAlphaBounds(target, slot), normalEyes,
-        `${targetUrl.pathname} expression eyes share the normal anchor`);
-    }
-    const normalMouthCenter = boundsCenter(highAlphaBounds(target, 4));
+    const normalMouthCenter = boundsCenter(highAlphaBounds(atlas, 4));
     for (const slot of [6, 8]) {
-      const center = boundsCenter(highAlphaBounds(target, slot));
+      const center = boundsCenter(highAlphaBounds(atlas, slot));
       assert.ok(Math.abs(center.x - normalMouthCenter.x) <= 1);
       assert.ok(Math.abs(center.y - normalMouthCenter.y) <= 1);
+    }
+
+    if (usesRestoredEyes) {
+      const mouth = highAlphaBounds(atlas, 4);
+      assert.ok(normalEyes.maxY <= 250,
+        `${atlasUrl.pathname} keeps its eyes in the upper face`);
+      assert.ok(mouth.minY - normalEyes.maxY >= 12,
+        `${atlasUrl.pathname} leaves a clear gap between eyes and mouth`);
     }
   }
 });

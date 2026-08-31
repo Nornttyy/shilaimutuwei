@@ -2,7 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { TowerDefenseGame } from '../src/tower-defense-game.js';
-import { TD_STORAGE_KEY } from '../src/tower-defense-core.js';
+import {
+  HERO_TYPES,
+  TD_STAGES,
+  TD_STORAGE_KEY,
+  heroStatsForRank,
+} from '../src/tower-defense-core.js';
 import { SOLDIER_RIG } from '../src/animation/rigs.js';
 
 function createContext() {
@@ -129,8 +134,11 @@ function createAssetStore(availableKeys = []) {
     useOrFallback(key, drawAsset, drawFallback) {
       requests.push(key);
       if (available.has(key)) {
-        const size = key.startsWith('soldier-') ? 1254 : 768;
-        drawAsset?.({ width: size, height: size, naturalWidth: size, naturalHeight: size });
+        const formalAtlas = /^(?:hero|soldier)-.+-atlas-v1$/.test(key)
+          || /^effect-.+-frames-v1$/.test(key);
+        const width = formalAtlas ? 1254 : 768;
+        const height = key.startsWith('turret-') ? 723 : width;
+        drawAsset?.({ key, kind: key, width, height, naturalWidth: width, naturalHeight: height });
         return true;
       }
       drawFallback?.();
@@ -363,7 +371,8 @@ test('summoning and hero formation are separate portrait menu flows', () => {
   assert.deepEqual(game.hits.map(({ id }) => id), ['summon-result-close']);
   click(game, canvas, hitCenter(game, 'summon-result-close'));
 
-  const unlocked = ['needle', 'bubble', 'sprout'].find((type) => (
+  const heroTypes = Object.keys(HERO_TYPES);
+  const unlocked = heroTypes.find((type) => type !== 'shell' && (
     game.state.progress.contractRanks[type] > 0
   ));
   assert.ok(unlocked, 'the first ten pull unlocks another selectable hero');
@@ -379,16 +388,29 @@ test('summoning and hero formation are separate portrait menu flows', () => {
   assert.equal(game.menuPage, 'roster');
   canvas.context.calls.length = 0;
   game.render();
-  assert.deepEqual(game.hits.map(({ id }) => id), [
-    'roster-back',
-    'hero-select-shell', 'hero-select-needle', 'hero-select-bubble', 'hero-select-sprout',
-  ]);
-  assert.equal(game.hits.find(({ id }) => id === `hero-select-${unlocked}`).enabled, true);
-  assert.ok(game.hits.some(({ id, enabled }) => id.startsWith('hero-select-') && !enabled),
-    'unowned heroes remain visibly locked in formation');
+  for (const type of heroTypes) {
+    const inspectHit = game.hits.find(({ id }) => id === `hero-inspect-${type}`);
+    assert.equal(inspectHit?.enabled, true, `${type} can be inspected even while locked`);
+  }
+  assert.equal(game.hits.find(({ id }) => id === 'hero-select-shell').enabled, false,
+    'the already deployed hero has no duplicate deploy action');
   assert.ok(canvas.context.calls.some(([kind, text]) => (
     kind === 'fillText' && text === '英雄编队'
   )));
+
+  const locked = heroTypes.find((type) => game.state.progress.contractRanks[type] <= 0);
+  if (locked) {
+    click(game, canvas, hitCenter(game, `hero-inspect-${locked}`));
+    assert.equal(game.rosterInspectType, locked);
+    game.render();
+    assert.equal(game.hits.find(({ id }) => id === `hero-select-${locked}`).enabled, false,
+      'an inspected locked hero cannot be deployed');
+  }
+
+  click(game, canvas, hitCenter(game, `hero-inspect-${unlocked}`));
+  assert.equal(game.rosterInspectType, unlocked);
+  game.render();
+  assert.equal(game.hits.find(({ id }) => id === `hero-select-${unlocked}`).enabled, true);
   click(game, canvas, hitCenter(game, `hero-select-${unlocked}`));
   assert.equal(game.state.progress.selectedHero, unlocked);
   assert.equal(runtime.values.get(TD_STORAGE_KEY).selectedHero, unlocked);
@@ -398,6 +420,262 @@ test('summoning and hero formation are separate portrait menu flows', () => {
   assert.equal(game.menuPage, 'main');
   game.render();
   assert.ok(game.hits.some(({ id }) => id === 'open-summon'));
+  game.dispose();
+});
+
+test('hero roster keeps locked cards gray and inspectable with complete combat details', (t) => {
+  const previousOffscreenCanvas = globalThis.OffscreenCanvas;
+  globalThis.OffscreenCanvas = class {
+    constructor(width, height) {
+      this.width = width;
+      this.height = height;
+      this.context = createContext();
+      this.context.canvas = this;
+    }
+    getContext() { return this.context; }
+  };
+  t.after(() => {
+    if (previousOffscreenCanvas === undefined) delete globalThis.OffscreenCanvas;
+    else globalThis.OffscreenCanvas = previousOffscreenCanvas;
+  });
+  const canvas = createCanvas();
+  const game = new TowerDefenseGame(canvas, {
+    runtime: createRuntime({
+      tutorialSeen: true,
+      selectedHero: 'shell',
+      contractRanks: { shell: 1, needle: 1 },
+    }),
+    pixelRatio: 1,
+  });
+  const heroAssetKeys = Object.values(HERO_TYPES)
+    .map((definition) => definition.portraitAssetKey || definition.assetKey || definition.ownerId)
+    .filter(Boolean);
+  heroAssetKeys.push('hero-berry-burst-atlas-v1', 'hero-dew-bloom-atlas-v1');
+  game.setAssetStore(createAssetStore(heroAssetKeys));
+  const portraitDraws = [];
+  canvas.context.drawImage = (...args) => {
+    portraitDraws.push({ filter: canvas.context.filter, args });
+    canvas.context.calls.push(['drawImage', ...args]);
+  };
+
+  game.render();
+  click(game, canvas, hitCenter(game, 'open-roster'));
+  game.render();
+  assert.ok(portraitDraws.some(({ filter }) => String(filter).includes('grayscale(1)')),
+    'locked generated portraits are rendered through a full grayscale filter');
+
+  const lockedType = Object.keys(HERO_TYPES).find((type) => (
+    game.state.progress.contractRanks[type] <= 0
+  ));
+  assert.ok(lockedType);
+  const lockedInspect = game.hits.find(({ id }) => id === `hero-inspect-${lockedType}`);
+  assert.equal(lockedInspect.enabled, true);
+  click(game, canvas, hitCenter(game, lockedInspect.id));
+  canvas.context.calls.length = 0;
+  game.render();
+
+  const labels = canvas.context.calls
+    .filter(([kind]) => kind === 'fillText')
+    .map(([, text]) => text);
+  for (const statName of ['攻击', '生命', '射程', '攻速']) {
+    assert.ok(labels.includes(statName), `${statName} is shown for the inspected hero`);
+  }
+  assert.ok(labels.some((text) => String(text).includes('范围')),
+    'skill range and cooldown are shown');
+  assert.ok(labels.some((text) => String(text).includes('伤害')
+    || String(text).includes('减速') || String(text).includes('中毒')
+    || String(text).includes('敌人')),
+  'the authored skill effect is explained');
+  assert.equal(game.hits.find(({ id }) => id === `hero-select-${lockedType}`).enabled, false);
+
+  click(game, canvas, hitCenter(game, 'hero-inspect-needle'));
+  game.render();
+  assert.equal(game.hits.find(({ id }) => id === 'hero-select-needle').enabled, true,
+    'an owned non-active hero exposes a separate deploy button');
+  game.dispose();
+});
+
+test('hero roster renders the same rank-adjusted combat values used by the core', () => {
+  const canvas = createCanvas();
+  const game = new TowerDefenseGame(canvas, {
+    runtime: createRuntime({
+      tutorialSeen: true,
+      selectedHero: 'berry',
+      contractRanks: { shell: 1, berry: 10 },
+    }),
+    pixelRatio: 1,
+  });
+  game.render();
+  click(game, canvas, hitCenter(game, 'open-roster'));
+  canvas.context.calls.length = 0;
+  game.render();
+
+  const stats = heroStatsForRank('berry', 10);
+  const labels = canvas.context.calls
+    .filter(([kind]) => kind === 'fillText')
+    .map(([, text]) => String(text));
+  assert.ok(labels.includes(String(Math.round(stats.damage))));
+  assert.ok(labels.includes(String(stats.maxHp)));
+  assert.ok(labels.includes(`${stats.attackSpeed.toFixed(2)}/秒`));
+  assert.ok(labels.includes(stats.growthSummary));
+  assert.ok(labels.join('').includes(`伤害 ${stats.skillSteps
+    .map(({ damage }) => Math.round(damage || 0)).filter(Boolean).join('/')}`));
+  assert.deepEqual({
+    damage: game.state.heroes.find(({ type }) => type === 'berry').damage,
+    maxHp: game.state.heroes.find(({ type }) => type === 'berry').maxHp,
+    skillEffect: game.state.heroes.find(({ type }) => type === 'berry').skillEffect,
+  }, {
+    damage: stats.damage,
+    maxHp: stats.maxHp,
+    skillEffect: stats.skillEffect,
+  });
+  game.dispose();
+});
+
+test('Berry and Dew use their own 1254 atlases in battle, roster, and summon previews', (t) => {
+  const previousOffscreenCanvas = globalThis.OffscreenCanvas;
+  globalThis.OffscreenCanvas = class {
+    constructor(width, height) {
+      this.width = width;
+      this.height = height;
+      this.context = createContext();
+      this.context.canvas = this;
+    }
+    getContext() { return this.context; }
+  };
+  t.after(() => {
+    if (previousOffscreenCanvas === undefined) delete globalThis.OffscreenCanvas;
+    else globalThis.OffscreenCanvas = previousOffscreenCanvas;
+  });
+
+  const canvas = createCanvas();
+  const assets = createAssetStore([
+    'hero-berry-burst-atlas-v1',
+    'hero-dew-bloom-atlas-v1',
+  ]);
+  const game = new TowerDefenseGame(canvas, {
+    runtime: createRuntime({ tutorialSeen: true }),
+    pixelRatio: 1,
+  });
+  game.setAssetStore(assets);
+  game.setGeneratedCharacterArtEnabled(false);
+
+  game.state.screen = 'battle';
+  game.state.hero = {
+    uid: 'berry-hero', type: 'berry', x: 360, y: 720, hp: 500, maxHp: 660,
+    moveX: 0, moveY: 0, facing: 1, hitPulse: 0,
+  };
+  assets.requests.length = 0;
+  game.drawBattleHero(canvas.context);
+  assert.ok(assets.requests.includes('hero-berry-burst-atlas-v1'));
+  assert.equal(assets.requests.includes('survivor-shell-shell'), false,
+    'Berry never asks the shell standalone for a fallback');
+
+  assets.requests.length = 0;
+  game.drawRosterHeroPortrait(canvas.context, 'dew', 240, 420, 132);
+  assert.ok(assets.requests.includes('hero-dew-bloom-atlas-v1'));
+  assert.equal(assets.requests.includes('survivor-shell-shell'), false,
+    'Dew never asks the shell standalone for a fallback');
+
+  assets.requests.length = 0;
+  game.drawSummonResults(canvas.context, {
+    results: [{ type: 'berry', rarity: 'SR', unlocked: true }],
+  });
+  assert.ok(assets.requests.includes('hero-berry-burst-atlas-v1'));
+  assert.equal(assets.requests.includes('survivor-shell-shell'), false);
+  game.dispose();
+});
+
+test('hero skills use the six authored icons and each stage plays its own three-frame band', () => {
+  const canvas = createCanvas();
+  const effectCases = [
+    {
+      type: 'shell', assetKey: 'effect-shell-triple-shock-frames-v1',
+      stepKinds: ['shell-quake', 'shell-quake', 'shell-quake'],
+      radii: [110, 160, 210],
+    },
+    {
+      type: 'needle', assetKey: 'effect-crystal-rain-frames-v1',
+      stepKinds: ['crystal-volley', 'crystal-volley', 'crystal-refraction'],
+      radii: [360, 360, 360],
+    },
+    {
+      type: 'bubble', assetKey: 'effect-bubble-tide-domain-frames-v1',
+      stepKinds: ['bubble-field', 'bubble-rewind', 'bubble-burst'],
+      radii: [230, 230, 230],
+    },
+    {
+      type: 'sprout', assetKey: 'effect-sprout-forest-dance-frames-v1',
+      stepKinds: ['sprout-pulse', 'sprout-pulse', 'sprout-root'],
+      radii: [215, 215, 215],
+    },
+    {
+      type: 'berry', assetKey: 'effect-berry-chain-barrage-frames-v1',
+      stepKinds: ['berry-barrage', 'berry-barrage', 'berry-finale'],
+      radii: [230, 245, 260],
+    },
+    {
+      type: 'dew', assetKey: 'effect-dew-garland-frames-v1',
+      stepKinds: ['dew-pulse', 'dew-pulse', 'dew-bloom'],
+      radii: [170, 195, 220],
+    },
+  ];
+  const assets = createAssetStore(effectCases.map(({ assetKey }) => assetKey));
+  const game = new TowerDefenseGame(canvas, {
+    runtime: createRuntime({ tutorialSeen: true }),
+    pixelRatio: 1,
+  });
+  game.setAssetStore(assets);
+  game.state.screen = 'battle';
+  game.state.phase = 'combat';
+  game.state.waveActive = true;
+  game.state.result = null;
+
+  const iconByType = {
+    shell: 'skill-shell-triple-shock-icon',
+    needle: 'skill-crystal-rain-icon',
+    bubble: 'skill-bubble-tide-domain-icon',
+    sprout: 'skill-sprout-forest-dance-icon',
+    berry: 'skill-berry-chain-barrage-icon',
+    dew: 'skill-dew-garland-icon',
+  };
+  for (const [type, iconKey] of Object.entries(iconByType)) {
+    game.state.hero = {
+      uid: `icon-${type}`, type, hp: 100, maxHp: 100, skillCooldown: 0,
+    };
+    assets.requests.length = 0;
+    game.drawHeroControls(canvas.context);
+    assert.ok(assets.requests.includes(iconKey), `${type} uses ${iconKey}`);
+  }
+
+  for (const { type, assetKey, stepKinds, radii } of effectCases) {
+    for (let stage = 0; stage < 3; stage += 1) {
+      const radius = radii[stage];
+      game.state.effects = [{
+        uid: `${type}-skill-${stage}`,
+        type: 'hero-skill-step',
+        stepKind: stepKinds[stage],
+        stepIndex: stage,
+        x: 310,
+        y: 470,
+        radius,
+        age: 0.72,
+        duration: 0.72,
+      }];
+      assets.requests.length = 0;
+      canvas.context.calls.length = 0;
+      game.drawEffects(canvas.context);
+      assert.ok(assets.requests.includes(assetKey), `${type} stage ${stage + 1} uses its sheet`);
+      const frameDraw = canvas.context.calls.find(([kind, image]) => (
+        kind === 'drawImage' && image?.key === assetKey
+      ));
+      assert.ok(frameDraw, `${type} stage ${stage + 1} keeps the generated sheet primary`);
+      assert.deepEqual(frameDraw.slice(2), [
+        836, stage * 418, 418, 418,
+        -radius / 2, -radius / 2, radius, radius,
+      ], `${type} stage ${stage + 1} ends on its own band and matches effect.radius`);
+    }
+  }
   game.dispose();
 });
 
@@ -592,6 +870,66 @@ test('squad rendering prefers independent core member coordinates when available
   game.dispose();
 });
 
+test('soldiers render larger without battlefield health bars', () => {
+  const canvas = createCanvas();
+  const game = new TowerDefenseGame(canvas, {
+    runtime: createRuntime({ tutorialSeen: true }),
+    pixelRatio: 1,
+  });
+  game.state.screen = 'battle';
+  game.state.phase = 'prep';
+  game.state.tutorial.active = false;
+
+  const scales = [];
+  canvas.context.scale = (x, y) => scales.push([x, y]);
+  game.drawSquadMembers(canvas.context, {
+    uid: 'large-squad',
+    kind: 'soldier',
+    type: 'melee',
+    squadType: 'melee',
+    aliveMembers: 1,
+    members: [{ uid: 'large-member', memberIndex: 0, x: 200, y: 300, hp: 20 }],
+  }, 200, 300);
+  assert.ok(scales.some(([x, y]) => Math.abs(x) >= 0.52 && Math.abs(y) >= 0.52),
+    'battle soldiers use the enlarged 52px render size');
+  scales.length = 0;
+  game.drawSquadPurchasePreview(canvas.context, {
+    x: 12, y: 1104, width: 156, height: 164,
+  }, 'melee');
+  assert.ok(scales.some(([x, y]) => Math.abs(x) >= 0.42 && Math.abs(y) >= 0.42),
+    'purchase previews are enlarged with the battlefield soldiers');
+  scales.length = 0;
+  game.defeatedTowers = [{
+    key: 'defeated-large-member', ownerId: 'soldier-shield-dun', type: 'shell',
+    squadType: 'melee', x: 240, y: 320, facing: 1, age: 0, duration: 1,
+  }];
+  game.drawDefeatedTowers(canvas.context);
+  assert.ok(scales.some(([x, y]) => Math.abs(x) >= 0.52 && Math.abs(y) >= 0.52),
+    'downed soldier art keeps the same enlarged size');
+
+  const healthBarColor = 'rgba(30, 48, 58, 0.64)';
+  let healthBarFills = 0;
+  canvas.context.fill = () => {
+    if (canvas.context.fillStyle === healthBarColor) healthBarFills += 1;
+  };
+  const pad = { x: 88, y: 270, laneIndex: 0, rowIndex: 0 };
+  game.state.towers = [{
+    uid: 'squad-no-health-bar', kind: 'soldier', type: 'melee', squadType: 'melee',
+    padIndex: 0, x: pad.x, y: pad.y, hp: 120, maxHp: 288, aliveMembers: 1,
+    members: [{ uid: 'member', x: pad.x, y: pad.y, hp: 20 }],
+  }];
+  game.drawPad(canvas.context, pad, 0);
+  assert.equal(healthBarFills, 0, 'squad aggregate health is never drawn above its members');
+
+  game.state.towers = [{
+    uid: 'ordinary-tower-health', type: 'shell', padIndex: 0,
+    x: pad.x, y: pad.y, hp: 80, maxHp: 100, star: 1,
+  }];
+  game.drawPad(canvas.context, pad, 0);
+  assert.ok(healthBarFills > 0, 'the health-bar guard remains available to non-squad units');
+  game.dispose();
+});
+
 test('independent squad events animate only the acting member and show its downed pose', () => {
   const canvas = createCanvas();
   const game = new TowerDefenseGame(canvas, {
@@ -678,7 +1016,7 @@ test('story opens stage selection with lock, clear, selectable, and back states'
   game.render();
 
   assert.deepEqual(game.hits.map(({ id }) => id), [
-    'stage-select-back', 'select-stage-1', 'select-stage-2', 'select-stage-3',
+    'stage-select-back', ...TD_STAGES.map(({ index }) => `select-stage-${index}`),
   ]);
   assert.equal(game.hits.find(({ id }) => id === 'select-stage-1').enabled, true);
   assert.equal(game.hits.find(({ id }) => id === 'select-stage-2').enabled, true);
@@ -686,6 +1024,24 @@ test('story opens stage selection with lock, clear, selectable, and back states'
   assert.ok(canvas.context.calls.some(([kind, text]) => kind === 'fillText' && text === '✓ 已通关'));
   assert.ok(canvas.context.calls.some(([kind, text]) => kind === 'fillText' && text === '可挑战'));
   assert.ok(canvas.context.calls.some(([kind, text]) => kind === 'fillText' && text === '未解锁'));
+
+  const stageHits = TD_STAGES.map(({ index }) => (
+    game.hits.find(({ id }) => id === `select-stage-${index}`)
+  ));
+  stageHits.forEach((hit) => {
+    assert.ok(hit.x >= 0 && hit.y >= 0);
+    assert.ok(hit.x + hit.width <= 720 && hit.y + hit.height <= 1280,
+      `${hit.id} remains inside the portrait stage screen`);
+  });
+  for (let left = 0; left < stageHits.length; left += 1) {
+    for (let right = left + 1; right < stageHits.length; right += 1) {
+      const a = stageHits[left];
+      const b = stageHits[right];
+      const overlaps = a.x < b.x + b.width && a.x + a.width > b.x
+        && a.y < b.y + b.height && a.y + a.height > b.y;
+      assert.equal(overlaps, false, `${a.id} and ${b.id} do not overlap`);
+    }
+  }
 
   click(game, canvas, hitCenter(game, 'select-stage-3'));
   assert.equal(game.state.screen, 'menu', 'a locked stage cannot be entered');
@@ -707,9 +1063,10 @@ test('story opens stage selection with lock, clear, selectable, and back states'
 
 test('completed story keeps all three main menu actions and unlocks endless', () => {
   const canvas = createCanvas();
+  const finalStage = TD_STAGES.at(-1);
   const runtime = createRuntime({
-    unlockedStage: 3,
-    clearedStages: ['stage-1', 'stage-2', 'stage-3'],
+    unlockedStage: TD_STAGES.length,
+    clearedStages: TD_STAGES.map(({ id }) => id),
     tutorialSeen: true,
   });
   const game = new TowerDefenseGame(canvas, { runtime, pixelRatio: 1 });
@@ -723,6 +1080,7 @@ test('completed story keeps all three main menu actions and unlocks endless', ()
   click(game, canvas, hitCenter(game, 'endless'));
   assert.equal(game.state.screen, 'battle');
   assert.equal(game.state.mode, 'endless');
+  assert.equal(game.state.stageId, finalStage.id);
   game.dispose();
 });
 
@@ -793,7 +1151,12 @@ test('battle dock purchases squads and a fixed turret, moves squads in prep, the
 
   assert.equal(game.hits.find(({ id }) => id === 'purchase-melee').action, 'select-purchase');
   assert.equal(game.hits.find(({ id }) => id === 'purchase-ranged').action, 'select-purchase');
+  assert.equal(game.hits.find(({ id }) => id === 'purchase-charger').action, 'select-purchase');
+  assert.equal(game.hits.find(({ id }) => id === 'purchase-leaf').action, 'select-purchase');
   assert.equal(game.hits.find(({ id }) => id === 'purchase-turret').action, 'select-purchase');
+  assert.equal(game.hits.find(({ id }) => id === 'purchase-bubble-coil').action, 'select-purchase');
+  assert.equal(game.hits.find(({ id }) => id === 'purchase-crystal-repeater').action,
+    'select-purchase');
   assert.equal(game.hits.find(({ id }) => id === 'hero-joystick').enabled, false);
   assert.equal(game.hits.find(({ id }) => id === 'hero-skill').enabled, false);
   assert.ok(assets.requests.includes('ui-gel-energy'));
@@ -908,6 +1271,72 @@ test('battle dock purchases squads and a fixed turret, moves squads in prep, the
   game.dispose();
 });
 
+test('the seven-card dock buys both new squads and both new formal turrets', () => {
+  const canvas = createCanvas();
+  const assets = createAssetStore([
+    'turret-bubble-coil',
+    'turret-crystal-repeater',
+  ]);
+  const game = new TowerDefenseGame(canvas, {
+    runtime: createRuntime({ tutorialSeen: true }),
+    pixelRatio: 1,
+  });
+  game.setAssetStore(assets);
+  game.state.screen = 'battle';
+  game.state.stageId = 'stage-1';
+  game.state.phase = 'prep';
+  game.state.waveActive = false;
+  game.state.result = null;
+  game.state.currency = 1000;
+  game.state.tutorial.active = false;
+  game.render();
+
+  const purchaseIds = [
+    'purchase-melee', 'purchase-ranged', 'purchase-charger', 'purchase-leaf',
+    'purchase-turret', 'purchase-bubble-coil', 'purchase-crystal-repeater',
+  ];
+  assert.deepEqual(
+    purchaseIds.map((id) => game.hits.find((hit) => hit.id === id)?.enabled),
+    purchaseIds.map(() => true),
+  );
+
+  click(game, canvas, hitCenter(game, 'purchase-charger'));
+  game.render();
+  click(game, canvas, hitCenter(game, 'pad-0'));
+  game.render();
+  click(game, canvas, hitCenter(game, 'purchase-leaf'));
+  game.render();
+  click(game, canvas, hitCenter(game, 'pad-1'));
+
+  assert.deepEqual(game.state.towers.map(({ squadType }) => squadType), ['charger', 'leaf']);
+  for (const squad of game.state.towers) {
+    assert.equal(squad.members.length, 4);
+    assert.equal(new Set(squad.members.map(({ uid }) => uid)).size, 4);
+    assert.equal(new Set(squad.members.map(({ x, y }) => `${x}:${y}`)).size, 4,
+      `${squad.squadType} keeps four independent member coordinates`);
+  }
+
+  game.render();
+  click(game, canvas, hitCenter(game, 'purchase-bubble-coil'));
+  game.render();
+  click(game, canvas, hitCenter(game, game.state.turretSlots[0].id));
+  game.render();
+  click(game, canvas, hitCenter(game, 'purchase-crystal-repeater'));
+  game.render();
+  click(game, canvas, hitCenter(game, game.state.turretSlots[1].id));
+  assert.deepEqual(game.state.turrets.map(({ type }) => type), [
+    'bubble-coil', 'crystal-repeater',
+  ]);
+
+  assets.requests.length = 0;
+  game.drawTurretSlots(canvas.context, TD_STAGES[0]);
+  assert.ok(assets.requests.includes('turret-bubble-coil'));
+  assert.ok(assets.requests.includes('turret-crystal-repeater'));
+  assert.equal(assets.requests.includes('turret-gel-mortar'), false,
+    'new turret visuals never fall back to the mortar PNG');
+  game.dispose();
+});
+
 test('portrait battle keeps deployment cards below the fortress and supports direct drag placement', () => {
   const canvas = createCanvas();
   const game = new TowerDefenseGame(canvas, {
@@ -953,7 +1382,10 @@ test('portrait battle keeps deployment cards below the fortress and supports dir
   canvas.context.calls.length = 0;
   game.render();
 
-  const purchaseHits = ['purchase-melee', 'purchase-ranged', 'purchase-turret']
+  const purchaseHits = [
+    'purchase-melee', 'purchase-ranged', 'purchase-charger', 'purchase-leaf',
+    'purchase-turret', 'purchase-bubble-coil', 'purchase-crystal-repeater',
+  ]
     .map((id) => game.hits.find((hit) => hit.id === id));
   purchaseHits.forEach((hit) => {
     assert.ok(hit.y >= 1096, `${hit.id} is in the portrait card dock`);
@@ -1040,7 +1472,7 @@ test('portrait battle keeps deployment cards below the fortress and supports dir
   game.dispose();
 });
 
-test('portrait deployment cards use both formal nine-layer four-member soldier atlases', () => {
+test('portrait deployment cards use all four formal nine-layer soldier atlases', () => {
   const previousOffscreenCanvas = globalThis.OffscreenCanvas;
   globalThis.OffscreenCanvas = class {
     constructor(width, height) {
@@ -1061,6 +1493,8 @@ test('portrait deployment cards use both formal nine-layer four-member soldier a
     'ui-card-frame-deploy',
     'soldier-shield-dun-atlas-v1',
     'soldier-bean-bow-atlas-v1',
+    'soldier-bounce-hammer-atlas-v1',
+    'soldier-leaf-spinner-atlas-v1',
   ]);
   const rigs = createRigStore();
   game.setAssetStore(assets);
@@ -1088,15 +1522,17 @@ test('portrait deployment cards use both formal nine-layer four-member soldier a
   game.render();
 
   assert.ok(assets.requests.includes('ui-card-frame-deploy'));
-  assert.equal(rigPreviewCount, 2,
-    'melee and ranged cards each render one four-member skeletal preview');
-  assert.deepEqual(previewAssetRequests.map((requests) => requests.length), [4, 4],
+  assert.equal(rigPreviewCount, 4,
+    'all four squad cards each render one four-member skeletal preview');
+  assert.deepEqual(previewAssetRequests.map((requests) => requests.length), [4, 4, 4, 4],
     'each purchase-card preview resolves four independent layered soldiers');
   assert.deepEqual(previewAssetRequests.map((requests) => [...new Set(requests)]), [
     ['soldier-shield-dun-atlas-v1'],
     ['soldier-bean-bow-atlas-v1'],
+    ['soldier-bounce-hammer-atlas-v1'],
+    ['soldier-leaf-spinner-atlas-v1'],
   ]);
-  assert.deepEqual(previewRigRequests, [[], []],
+  assert.deepEqual(previewRigRequests, [[], [], [], []],
     'soldier cards never ask the hero rig store for shell or crystal art');
   game.dispose();
   } finally {
@@ -1162,12 +1598,12 @@ test('save, background, and foreground use runtime storage and frame scheduler s
   assert.equal(saved.summonCurrency, 900);
   assert.equal(saved.summonPity, 0);
   assert.equal(Number.isInteger(saved.summonRngState), true);
-  assert.deepEqual(saved.contractRanks, {
-    shell: 1, needle: 0, bubble: 0, sprout: 0,
-  });
-  assert.deepEqual(saved.contractShards, {
-    shell: 0, needle: 0, bubble: 0, sprout: 0,
-  });
+  assert.deepEqual(saved.contractRanks, Object.fromEntries(
+    Object.keys(HERO_TYPES).map((type) => [type, type === 'shell' ? 1 : 0]),
+  ));
+  assert.deepEqual(saved.contractShards, Object.fromEntries(
+    Object.keys(HERO_TYPES).map((type) => [type, 0]),
+  ));
   assert.equal(saved.selectedHero, 'shell');
 
   game.start();

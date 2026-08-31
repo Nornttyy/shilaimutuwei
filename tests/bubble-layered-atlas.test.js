@@ -53,7 +53,7 @@ test('Bubble layered v2 atlas and report rebuild byte-for-byte', async () => {
   );
   assert.equal(
     composed.report.baseAtlas.pngSha256,
-    'aef48879a568430f6da2bd66a68f84bc182aab1a70612460e0c50db476e04adc',
+    '9b85df215d9e663d19b5bb5d32b6a4eef04fb851b6b51175031b7e2be362190b',
   );
   assert.deepEqual(
     Object.values(composed.report.parts).map(({ sourceArea }) => sourceArea),

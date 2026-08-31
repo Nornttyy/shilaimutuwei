@@ -7,7 +7,7 @@
     "width": 1536,
     "height": 1024,
     "mode": "RGB",
-    "sha256": "76739c65633479f431a3ccc22c133c7d4a9b348a8c499bc50f2875b1a8897e3b"
+    "sha256": "2bd7f74079d26530d66333567a621651cf9bc42d49f03c09b981f6e9465254a6"
   },
   "matting": {
     "seed": "chroma >= 12 OR minimum channel < 232",
@@ -21,7 +21,7 @@
     "width": 1024,
     "height": 768,
     "mode": "RGBA",
-    "sha256": "085ed74797054721f0c06d7af927a7a0779cf4123ece3872118b77e6de144faf"
+    "sha256": "b6794be6496d660fc5a46553172589e2fe39c5b8fd135a5b3c6c4e5b5019fa80"
   },
   "layers": {
     "shellBack": {
@@ -117,21 +117,21 @@
         "row": 1
       },
       "componentAreas": [
-        5596,
-        5025
+        11230,
+        11131
       ],
-      "maskPixels": 11497,
+      "maskPixels": 25398,
       "cellBounds": {
-        "x": 137,
-        "y": 167,
-        "width": 243,
-        "height": 107
+        "x": 75,
+        "y": 170,
+        "width": 345,
+        "height": 154
       },
       "cropRect": {
-        "x": 133,
-        "y": 163,
-        "width": 251,
-        "height": 115
+        "x": 71,
+        "y": 166,
+        "width": 353,
+        "height": 162
       },
       "sourceRect": {
         "x": 836,

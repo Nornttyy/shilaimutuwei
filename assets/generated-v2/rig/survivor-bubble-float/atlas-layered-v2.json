@@ -5,7 +5,7 @@
     "path": "assets/generated-v2/rig/survivor-bubble-float/atlas.png",
     "width": 768,
     "height": 512,
-    "pngSha256": "aef48879a568430f6da2bd66a68f84bc182aab1a70612460e0c50db476e04adc"
+    "pngSha256": "9b85df215d9e663d19b5bb5d32b6a4eef04fb851b6b51175031b7e2be362190b"
   },
   "extraction": {
     "sourceRect": {
@@ -142,8 +142,8 @@
     "path": "assets/generated-v2/rig/survivor-bubble-float/atlas-layered-v2.png",
     "width": 768,
     "height": 512,
-    "pngSha256": "3afca34884666808fd405d731a60ea5dc2187c94b68570c7df3c6ce0df13cb0c",
-    "pixelSha256": "7b7241fd3e1b02457a4215ce9fe2872cab3c0c773d8037af178730773c5f157f",
+    "pngSha256": "619505afbca28de6a699ec05403e3bd2441e88fe2ef5e86369345e5343590f94",
+    "pixelSha256": "bd1ea901764cb62eb8f2ecbe76e3e7e9267d494ea314ae09fdd5e25a62f280ac",
     "changedPixels": 6449,
     "changedOutsideTargets": 0
   },

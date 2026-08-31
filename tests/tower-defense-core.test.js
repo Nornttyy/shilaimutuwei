@@ -26,6 +26,7 @@ import {
   buyTowerDefenseSquad,
   createTowerDefenseState,
   endlessScaleForWave,
+  heroStatsForRank,
   moveTowerToPad,
   normalizeTowerDefenseProgress,
   pathMetrics,
@@ -115,14 +116,35 @@ test('old progress owns only shell and starts with exactly one active hero', () 
     needle: { name: '亮钉', rarity: 'SR' },
     bubble: { name: '泡泡', rarity: 'SSR' },
     sprout: { name: '芽芽', rarity: 'UR' },
+    berry: { name: '莓莓', rarity: 'SR' },
+    dew: { name: '露露', rarity: 'SSR' },
   });
   const state = createTowerDefenseState({ progress: {} });
   assert.equal(state.progress.summonCurrency, TD_CONTRACT_START_CURRENCY);
   assert.deepEqual(state.progress.contractRanks, {
-    shell: 1, needle: 0, bubble: 0, sprout: 0,
+    shell: 1, needle: 0, bubble: 0, sprout: 0, berry: 0, dew: 0,
   });
   assert.equal(state.progress.selectedHero, 'shell');
   assert.deepEqual(state.heroes.filter(({ owned }) => owned).map(({ type }) => type), ['shell']);
+  for (const type of TD_CONTRACT_TYPES) {
+    const rosterHero = state.heroes.find((hero) => hero.type === type);
+    const definition = HERO_TYPES[type];
+    assert.deepEqual({
+      role: rosterHero.role,
+      skillName: rosterHero.skillName,
+      skillDescription: rosterHero.skillDescription,
+      skillCooldown: rosterHero.skillCooldown,
+      skillRadius: rosterHero.skillRadius,
+      skillStageCount: rosterHero.skillStageCount,
+    }, {
+      role: definition.role,
+      skillName: definition.skill.name,
+      skillDescription: definition.skill.description,
+      skillCooldown: definition.skill.cooldown,
+      skillRadius: definition.skill.radius,
+      skillStageCount: 3,
+    }, `${type} roster supplies precise skill information to the UI`);
+  }
   assert.equal(selectTowerDefenseHero(state, 'needle'), false);
   assert.equal(selectTowerDefenseHero(state, 'shell'), true);
   assert.equal(beginTowerDefenseRun(state, { stageId: 'stage-1' }), true);
@@ -133,12 +155,74 @@ test('old progress owns only shell and starts with exactly one active hero', () 
   assert.equal(state.towers.length, 0);
 });
 
+test('all six hero ranks use one bounded data-driven combat growth calculation', () => {
+  for (const type of TD_CONTRACT_TYPES) {
+    const rankOne = heroStatsForRank(type, 1);
+    const rankTen = heroStatsForRank(type, 10);
+    const skillTotal = (stats, key) => stats.skillSteps.reduce(
+      (total, step) => total + Math.max(0, Number(step[key]) || 0),
+      0,
+    );
+    const improved = rankTen.maxHp > rankOne.maxHp
+      || rankTen.damage > rankOne.damage
+      || rankTen.attackSpeed > rankOne.attackSpeed
+      || skillTotal(rankTen, 'damage') > skillTotal(rankOne, 'damage')
+      || skillTotal(rankTen, 'poisonDps') > skillTotal(rankOne, 'poisonDps')
+      || skillTotal(rankTen, 'healHero') > skillTotal(rankOne, 'healHero')
+      || skillTotal(rankTen, 'healMembers') > skillTotal(rankOne, 'healMembers')
+      || skillTotal(rankTen, 'shieldHp') > skillTotal(rankOne, 'shieldHp');
+    assert.equal(improved, true, `${type} gains a real combat benefit from rank 1 to rank 10`);
+    assert.ok(rankTen.maxHp <= HERO_TYPES[type].maxHp * 1.25);
+    assert.ok(rankTen.damage <= HERO_TYPES[type].damage * 1.25);
+    assert.ok(rankTen.attackSpeed <= (1 / HERO_TYPES[type].interval) * 1.25 + 0.01);
+    assert.ok(rankTen.growthSummary.includes('每阶'));
+
+    const ranks = Object.fromEntries(TD_CONTRACT_TYPES.map((heroType) => [
+      heroType, heroType === type ? 10 : 0,
+    ]));
+    const state = createBattleState({
+      progress: { selectedHero: type, contractRanks: ranks },
+    });
+    assert.deepEqual({
+      maxHp: state.hero.maxHp,
+      damage: state.hero.damage,
+      interval: state.hero.interval,
+      skillEffect: state.hero.skillEffect,
+    }, {
+      maxHp: rankTen.maxHp,
+      damage: rankTen.damage,
+      interval: rankTen.interval,
+      skillEffect: rankTen.skillEffect,
+    });
+    const rosterHero = state.heroes.find((hero) => hero.type === type);
+    assert.deepEqual({
+      maxHp: rosterHero.maxHp,
+      damage: rosterHero.damage,
+      interval: rosterHero.interval,
+      attackSpeed: rosterHero.attackSpeed,
+      skillEffect: rosterHero.skillEffect,
+      growthSummary: rosterHero.growthSummary,
+    }, {
+      maxHp: rankTen.maxHp,
+      damage: rankTen.damage,
+      interval: rankTen.interval,
+      attackSpeed: rankTen.attackSpeed,
+      skillEffect: rankTen.skillEffect,
+      growthSummary: rankTen.growthSummary,
+    }, `${type} roster and simulation expose identical rank stats`);
+  }
+});
+
 test('direct squad purchase is prep-only, correctly priced, one-cell, and atomic', () => {
-  assert.deepEqual(Object.keys(SQUAD_TYPES), ['melee', 'ranged']);
+  assert.deepEqual(Object.keys(SQUAD_TYPES), ['melee', 'ranged', 'charger', 'leaf']);
   assert.equal(SQUAD_TYPES.melee.cost, 100);
   assert.equal(SQUAD_TYPES.melee.squadSize, 4);
   assert.equal(SQUAD_TYPES.ranged.cost, 150);
   assert.equal(SQUAD_TYPES.ranged.squadSize, 4);
+  assert.equal(SQUAD_TYPES.charger.cost, 125);
+  assert.equal(SQUAD_TYPES.charger.movementMode, 'contact');
+  assert.equal(SQUAD_TYPES.leaf.cost, 165);
+  assert.equal(SQUAD_TYPES.leaf.effect, 'poison');
   const state = createBattleState();
   assert.equal(state.currency, 500);
 
@@ -292,6 +376,40 @@ test('melee closes to contact while ranged fires a long-distance projectile', ()
   assert.ok(rangedEnemy.hp < rangedEnemy.maxHp);
 });
 
+test('new squads use movementMode and apply their authored contact or poison attacks', () => {
+  const chargerState = createBattleState();
+  const charger = buyTowerDefenseSquad(chargerState, 'charger', 1);
+  const pad = TD_STAGES[0].pads[1];
+  holdCombat(chargerState);
+  const chargerTarget = enemyAt({
+    laneIndex: pad.laneIndex, y: pad.y - 62, uid: 'charger-target', hp: 10_000,
+  });
+  chargerState.enemies = [chargerTarget];
+  charger.members.forEach((member) => { member.attackCooldown = 0; });
+  updateTowerDefense(chargerState, 0.05);
+  assert.ok(chargerTarget.hp < chargerTarget.maxHp);
+  assert.equal(chargerState.projectiles.length, 0);
+  assert.equal(chargerState.events.filter(({ attackMode }) => (
+    attackMode === 'bounce-hammer'
+  )).length > 0, true);
+
+  const leafState = createBattleState();
+  const leaf = buyTowerDefenseSquad(leafState, 'leaf', 1);
+  holdCombat(leafState);
+  const leafTarget = enemyAt({
+    laneIndex: pad.laneIndex, y: pad.y - 90, uid: 'leaf-target', hp: 10_000,
+  });
+  leafState.enemies = [leafTarget];
+  leaf.members.forEach((member) => { member.attackCooldown = 0; });
+  updateTowerDefense(leafState, 0.01);
+  assert.equal(leafState.projectiles.length, 4);
+  assert.equal(leafState.projectiles.every(({ effect }) => effect === 'poison'), true);
+  resolveProjectiles(leafState);
+  assert.ok(leafTarget.hp < leafTarget.maxHp);
+  assert.ok(leafTarget.poisonDps > 0);
+  assert.ok(leafTarget.poisonTime > 0);
+});
+
 test('contact damage downs members once and wave clear revives the retained squad', () => {
   const state = createBattleState();
   const squad = buyTowerDefenseSquad(state, 'melee', 0);
@@ -389,7 +507,9 @@ test('contact damage keeps the original member index after an earlier member is 
 });
 
 test('gel mortar costs 175, uses fixed slots, cannot move, and splashes across lanes', () => {
-  assert.deepEqual(Object.keys(TURRET_TYPES), ['gel-mortar']);
+  assert.deepEqual(Object.keys(TURRET_TYPES), [
+    'gel-mortar', 'bubble-coil', 'crystal-repeater',
+  ]);
   assert.equal(TURRET_TYPES['gel-mortar'].cost, 175);
   const state = createBattleState();
   const slot = TD_TURRET_SLOTS['stage-1'][0];
@@ -425,6 +545,41 @@ test('gel mortar costs 175, uses fixed slots, cannot move, and splashes across l
   const combat = clone(state);
   assert.equal(buildTowerDefenseTurret(state, 1), null);
   assert.deepEqual(state, combat);
+});
+
+test('new turrets preserve their slow and pierce effects instead of inheriting mortar splash', () => {
+  const slowState = createBattleState();
+  const slowTurret = buildTowerDefenseTurret(slowState, 0, 'bubble-coil');
+  assert.ok(slowTurret);
+  holdCombat(slowState);
+  const slowTarget = enemyAt({
+    laneIndex: 0, y: slowTurret.y - 100, uid: 'slow-target', hp: 10_000,
+  });
+  slowState.enemies = [slowTarget];
+  slowTurret.cooldown = 0;
+  updateTowerDefense(slowState, 0.01);
+  assert.equal(slowState.projectiles[0].effect, 'slow');
+  resolveProjectiles(slowState);
+  assert.equal(slowTarget.slowMultiplier, TURRET_TYPES['bubble-coil'].slowMultiplier);
+  assert.ok(slowTarget.slowTime > 0);
+
+  const pierceState = createBattleState();
+  const pierceTurret = buildTowerDefenseTurret(pierceState, 0, 'crystal-repeater');
+  assert.ok(pierceTurret);
+  holdCombat(pierceState);
+  const primary = enemyAt({
+    laneIndex: 0, y: pierceTurret.y - 100, uid: 'pierce-primary', hp: 10_000,
+  });
+  const secondary = enemyAt({
+    laneIndex: 0, y: pierceTurret.y - 150, uid: 'pierce-secondary', hp: 10_000,
+  });
+  pierceState.enemies = [primary, secondary];
+  pierceTurret.cooldown = 0;
+  updateTowerDefense(pierceState, 0.01);
+  assert.equal(pierceState.projectiles[0].effect, 'pierce');
+  resolveProjectiles(pierceState);
+  assert.ok(primary.hp < primary.maxHp);
+  assert.ok(secondary.hp < secondary.maxHp);
 });
 
 test('hero movement is combat-only, normalized, and clamped to the field', () => {
@@ -488,6 +643,158 @@ test('hero auto-attacks and its active skill has cooldown and bounded area', () 
   const cooldown = clone(state);
   assert.equal(activateTowerDefenseHeroSkill(state), false);
   assert.deepEqual(state, cooldown);
+});
+
+test('all six heroes execute serialisable three-step skills with distinct gameplay effects', () => {
+  const snapshots = {};
+  for (const type of TD_CONTRACT_TYPES) {
+    const state = createBattleState({
+      progress: {
+        contractRanks: { shell: 1, [type]: 1 },
+        selectedHero: type,
+      },
+    });
+    const squad = buyTowerDefenseSquad(state, 'melee', 0);
+    assert.ok(squad);
+    assert.equal(startNextTowerDefenseWave(state), true);
+    state.spawnQueue = [{ uid: 'held-spawn', type: 'bug', laneIndex: 0, at: 999 }];
+    state.hero.cooldown = 999;
+    state.hero.hp = state.hero.maxHp - 200;
+    squad.members.forEach((member) => { member.hp = member.maxHp - 24; });
+    squad.hp = squad.members.reduce((total, member) => total + member.hp, 0);
+    const target = enemyAt({
+      laneIndex: 2,
+      y: state.hero.y - 90,
+      uid: `${type}-skill-target`,
+      hp: 100_000,
+      speed: 0,
+    });
+    target.attackCooldown = 999;
+    state.enemies = [target];
+    state.events = [];
+    const initial = {
+      enemyHp: target.hp,
+      heroHp: state.hero.hp,
+      memberHp: squad.members[0].hp,
+    };
+    assert.equal(HERO_TYPES[type].skill.steps.length, 3);
+    assert.deepEqual(HERO_TYPES[type].skill.steps.map(({ stage }) => stage), [1, 2, 3]);
+    assert.ok(HERO_TYPES[type].skill.name.length >= 3);
+    assert.ok(HERO_TYPES[type].skill.description.length >= 12);
+    assert.equal(activateTowerDefenseHeroSkill(state), true);
+    assert.doesNotThrow(() => JSON.stringify(state.heroSkillQueue));
+    assert.deepEqual(state.heroSkillQueue.map(({ stage, stepIndex, skillId }) => ({
+      stage, stepIndex, skillId,
+    })), [1, 2].map((stepIndex) => ({
+      stage: stepIndex + 1,
+      stepIndex,
+      skillId: HERO_TYPES[type].skill.id,
+    })));
+    assert.equal(state.events.filter(({ type: eventType }) => (
+      eventType === 'hero-skill-step'
+    )).length, 1);
+    const immediateStep = state.events.find(({ type: eventType }) => (
+      eventType === 'hero-skill-step'
+    ));
+    assert.deepEqual({
+      stage: immediateStep.stage,
+      stepIndex: immediateStep.stepIndex,
+      skillName: immediateStep.skillName,
+      stepKind: immediateStep.stepKind,
+    }, {
+      stage: 1,
+      stepIndex: 0,
+      skillName: HERO_TYPES[type].skill.name,
+      stepKind: HERO_TYPES[type].skill.steps[0].kind,
+    });
+    for (let tick = 0; tick < 22; tick += 1) updateTowerDefense(state, 0.05);
+    const steps = state.events.filter(({ type: eventType, heroType }) => (
+      eventType === 'hero-skill-step' && heroType === type
+    ));
+    assert.equal(steps.length, 3, `${type} resolves exactly three authored steps`);
+    assert.deepEqual(steps.map(({ stepIndex }) => stepIndex), [0, 1, 2]);
+    assert.deepEqual(steps.map(({ stage }) => stage), [1, 2, 3]);
+    assert.equal(steps.every(({ skillName }) => skillName === HERO_TYPES[type].skill.name), true);
+    assert.equal(state.heroSkillQueue.length, 0);
+    assert.ok(target.hp < initial.enemyHp, `${type} deals real skill damage`);
+    snapshots[type] = {
+      damage: initial.enemyHp - target.hp,
+      heroHealing: state.hero.hp - initial.heroHp,
+      memberHealing: squad.members[0].hp - initial.memberHp,
+      slowMultiplier: target.slowMultiplier,
+      slowTime: target.slowTime,
+      poisonDps: target.poisonDps,
+      poisonTime: target.poisonTime,
+      shieldHp: state.hero.shieldHp,
+    };
+  }
+
+  assert.ok(snapshots.shell.shieldHp > 0);
+  assert.equal(snapshots.needle.damage > snapshots.shell.damage * 0.7, true);
+  assert.ok(snapshots.bubble.slowMultiplier < 1 && snapshots.bubble.slowTime > 0);
+  assert.ok(snapshots.sprout.poisonDps > 0 && snapshots.sprout.poisonTime > 0);
+  assert.ok(snapshots.sprout.heroHealing > 0 && snapshots.sprout.memberHealing > 0);
+  assert.ok(snapshots.berry.damage > snapshots.dew.damage * 2);
+  assert.ok(snapshots.dew.heroHealing > 0 && snapshots.dew.memberHealing > 0);
+  assert.ok(snapshots.dew.slowMultiplier < 1);
+  assert.equal(new Set(TD_CONTRACT_TYPES.map((type) => HERO_TYPES[type].skill.id)).size, 6);
+  assert.equal(new Set(TD_CONTRACT_TYPES.map((type) => HERO_TYPES[type].skill.name)).size, 6);
+  assert.equal(new Set(TD_CONTRACT_TYPES.map((type) => HERO_TYPES[type].skill.description)).size, 6);
+});
+
+test('queued hero skill steps survive a JSON save and resume in order', () => {
+  const state = createBattleState({
+    progress: {
+      contractRanks: { shell: 1, bubble: 1 },
+      selectedHero: 'bubble',
+    },
+  });
+  assert.equal(startNextTowerDefenseWave(state), true);
+  state.spawnQueue = [{ uid: 'held-spawn', type: 'bug', laneIndex: 0, at: 999 }];
+  state.hero.cooldown = 999;
+  state.enemies = [enemyAt({
+    laneIndex: 2, y: state.hero.y - 90, uid: 'saved-skill-target', hp: 100_000, speed: 0,
+  })];
+  state.enemies[0].attackCooldown = 999;
+  assert.equal(activateTowerDefenseHeroSkill(state), true);
+
+  const restored = JSON.parse(JSON.stringify(state));
+  for (let tick = 0; tick < 22; tick += 1) updateTowerDefense(restored, 0.05);
+  assert.deepEqual(restored.events.filter(({ type }) => type === 'hero-skill-step')
+    .map(({ stepIndex }) => stepIndex), [0, 1, 2]);
+  assert.equal(restored.heroSkillQueue.length, 0);
+});
+
+test('shell skill shield absorbs contact damage before hero health', () => {
+  const state = createBattleState();
+  assert.equal(startNextTowerDefenseWave(state), true);
+  state.spawnQueue = [{ uid: 'held-spawn', type: 'bug', laneIndex: 0, at: 999 }];
+  state.hero.cooldown = 999;
+  state.enemies = [enemyAt({
+    laneIndex: 2, y: state.hero.y - 90, uid: 'shield-charge', hp: 100_000, speed: 0,
+  })];
+  state.enemies[0].attackCooldown = 999;
+  assert.equal(activateTowerDefenseHeroSkill(state), true);
+  for (let tick = 0; tick < 13; tick += 1) updateTowerDefense(state, 0.05);
+  assert.equal(state.hero.shieldHp, 180);
+  const attacker = enemyAt({
+    laneIndex: 2, y: state.hero.y - 60, uid: 'shield-attacker', type: 'boss',
+    hp: 100_000, speed: 0,
+  });
+  const lane = TD_STAGES[0].lanes[2];
+  attacker.travelled = travelledForY(lane, state.hero.y) - (36 + TD_ENEMIES.boss.size * 0.18);
+  Object.assign(attacker, pointOnPath(lane.path, attacker.travelled));
+  attacker.attackDamage = 100;
+  attacker.attackCooldown = 0;
+  state.enemies = [attacker];
+  const hpBefore = state.hero.hp;
+  updateTowerDefense(state, 0.01);
+  assert.equal(state.hero.hp, hpBefore);
+  assert.equal(state.hero.shieldHp, 80);
+  const hit = state.events.findLast(({ type }) => type === 'hero-hit');
+  assert.deepEqual({ damage: hit.damage, absorbed: hit.absorbed }, {
+    damage: 0, absorbed: 100,
+  });
 });
 
 test('wave clear returns to prep, restores actors, and never auto-starts', () => {
@@ -718,14 +1025,42 @@ test('authored waves and endless pressure remain sharply capped', () => {
     [5, 7, 7, 7, 7],
     [8, 8, 8, 8, 8, 8],
     [9, 9, 9, 9, 9, 9, 9],
+    [8, 8, 8, 8, 8, 7, 9],
+    [8, 8, 9, 8, 8, 8, 9],
+    [8, 8, 8, 9, 8, 8, 9, 9],
   ]);
+  assert.deepEqual(TD_STAGES.map(({ id, index, name }) => ({ id, index, name })), [
+    { id: 'stage-1', index: 1, name: '软胶坡' },
+    { id: 'stage-2', index: 2, name: '泡泡湾' },
+    { id: 'stage-3', index: 3, name: '晶刺环' },
+    { id: 'stage-4', index: 4, name: '露蜜林' },
+    { id: 'stage-5', index: 5, name: '软壳峡' },
+    { id: 'stage-6', index: 6, name: '星胶庭' },
+  ]);
+  for (const stage of TD_STAGES) {
+    assert.equal(TD_TURRET_SLOTS[stage.id].length, 4);
+    const finalBossCount = stage.waves.at(-1)
+      .filter(({ type }) => type === 'boss')
+      .reduce((total, entry) => total + entry.count, 0);
+    assert.equal(finalBossCount, 1, `${stage.id} ends with one boss`);
+  }
+  for (const stage of TD_STAGES.slice(3)) {
+    assert.equal(stage.waves.every((groups) => {
+      const count = groups.reduce((total, entry) => total + entry.count, 0);
+      return count >= 7 && count <= 9;
+    }), true);
+  }
   assert.ok(TD_ENEMIES.stone.hp >= TD_ENEMIES.bug.hp * 3);
-  assert.ok(TD_ENEMIES.boss.hp >= TD_ENEMIES.stone.hp * 8);
+  assert.deepEqual({
+    hp: TD_ENEMIES.boss.hp,
+    attackDamage: TD_ENEMIES.boss.attackDamage,
+    coreDamage: TD_ENEMIES.boss.coreDamage,
+    attackInterval: TD_ENEMIES.boss.attackInterval,
+  }, { hp: 1850, attackDamage: 32, coreDamage: 10, attackInterval: 1.45 });
   const formerEnemyStats = {
     bug: { hp: 40, speed: 36, attackDamage: 9, coreDamage: 1 },
     windcap: { hp: 36, speed: 54, attackDamage: 8, coreDamage: 2 },
     stone: { hp: 140, speed: 26, attackDamage: 18, coreDamage: 2 },
-    boss: { hp: 1150, speed: 20, attackDamage: 38, coreDamage: 10 },
   };
   for (const [type, former] of Object.entries(formerEnemyStats)) {
     const strengthened = TD_ENEMIES[type];
@@ -737,7 +1072,10 @@ test('authored waves and endless pressure remain sharply capped', () => {
     assert.ok(strengthened.speed > former.speed && strengthened.speed <= former.speed * 1.06,
       `${type} speed only rises slightly`);
   }
-  assert.deepEqual(stageScaleForWave(3, 10_000), TD_STAGE_SCALE_CAPS);
+  const firstBossScale = stageScaleForWave(1, 5);
+  assert.equal(Math.round(TD_ENEMIES.boss.hp * firstBossScale.hp), 3645);
+  assert.equal(Math.round(TD_ENEMIES.boss.attackDamage * Math.sqrt(firstBossScale.hp)), 45);
+  assert.deepEqual(stageScaleForWave(6, 10_000), TD_STAGE_SCALE_CAPS);
   assert.deepEqual(endlessScaleForWave(100), { ...TD_ENDLESS_SCALE_CAPS });
   for (const waveNumber of [1, 10, 30, 100]) {
     const state = createBattleState({ mode: 'endless' });
@@ -799,15 +1137,16 @@ test('the autonomous starter lineup clears stage one and the hero improves the r
   const active = simulateStarterLineup({ heroActive: true });
   assert.equal(active.result, 'victory');
   assert.equal(active.wave, 5);
-  assert.equal(active.coreHp, 19);
-  assert.equal(active.kills, 32);
+  assert.equal(active.coreHp, active.coreMaxHp);
+  assert.equal(active.kills, 33);
 
   const idle = simulateStarterLineup({ heroActive: false });
   assert.equal(idle.result, 'victory');
   assert.equal(idle.wave, 5);
   assert.ok(idle.coreHp > 0);
-  assert.ok(idle.coreHp < active.coreHp);
-  assert.ok(idle.kills < active.kills);
+  assert.ok(idle.coreHp <= active.coreHp);
+  assert.ok(idle.kills <= active.kills);
+  assert.ok(idle.coreHp < active.coreHp || idle.kills < active.kills);
 });
 
 test('legacy star attack data stays immutable for skeletal presentation', () => {
@@ -870,12 +1209,17 @@ test('contract summons are menu-only, deterministic, atomic, priced, and guarant
     progress: { tutorialSeen: true, summonCurrency: 40_000, summonRngState: 0xA11CE },
   });
   const rarityCounts = { R: 0, SR: 0, SSR: 0, UR: 0 };
+  const typeCounts = Object.fromEntries(TD_CONTRACT_TYPES.map((type) => [type, 0]));
   for (let index = 0; index < 400; index += 1) {
-    rarityCounts[summonTowerDefenseContracts(distribution, 1)[0].rarity] += 1;
+    const result = summonTowerDefenseContracts(distribution, 1)[0];
+    rarityCounts[result.rarity] += 1;
+    typeCounts[result.type] += 1;
   }
-  assert.ok(rarityCounts.R > rarityCounts.SR);
+  assert.ok(rarityCounts.R > rarityCounts.SR * 1.5,
+    'adding multiple heroes to a rarity must not multiply that rarity weight');
   assert.ok(rarityCounts.SR > rarityCounts.SSR);
   assert.ok(rarityCounts.SSR > rarityCounts.UR);
+  for (const type of TD_CONTRACT_TYPES) assert.ok(typeCounts[type] > 0);
 });
 
 test('summons unlock first, duplicates grant shards/ranks, and selected hero persists', () => {
@@ -976,8 +1320,8 @@ test('progress normalization preserves hero meta and strips transient battle sta
     summonCurrency: 777,
     summonPity: 9,
     summonRngState: 12345,
-    contractShards: { shell: 2, needle: 5, bubble: 5, sprout: 0 },
-    contractRanks: { shell: 3, needle: 2, bubble: 10, sprout: 0 },
+    contractShards: { shell: 2, needle: 5, bubble: 5, sprout: 0, berry: 0, dew: 0 },
+    contractRanks: { shell: 3, needle: 2, bubble: 10, sprout: 0, berry: 0, dew: 0 },
     selectedHero: 'needle',
   });
   assert.equal(Object.isFrozen(normalized), true);

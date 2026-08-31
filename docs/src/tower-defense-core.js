@@ -94,6 +94,34 @@ export const TOWER_TYPES = Object.freeze({
     projectileSpeed: 510,
     effect: 'poison',
   }),
+  berry: Object.freeze({
+    id: 'berry',
+    ownerId: 'survivor-berry-burst',
+    name: '莓莓',
+    glyph: '莓',
+    color: '#EF7188',
+    range: 226,
+    interval: 0.82,
+    damage: 38,
+    maxHp: 660,
+    projectile: 'berry',
+    projectileSpeed: 570,
+    effect: 'splash',
+  }),
+  dew: Object.freeze({
+    id: 'dew',
+    ownerId: 'survivor-dew-bloom',
+    name: '露露',
+    glyph: '露',
+    color: '#72D9C7',
+    range: 208,
+    interval: 0.64,
+    damage: 24,
+    maxHp: 750,
+    projectile: 'dew',
+    projectileSpeed: 520,
+    effect: 'slow',
+  }),
 });
 
 const freezeAttackSteps = (steps) => Object.freeze(steps.map((step) => Object.freeze(step)));
@@ -176,6 +204,42 @@ export const TOWER_ATTACK_EVOLUTIONS = Object.freeze({
       spreadTargets: 3, spreadRadius: 144, spreadPoisonScale: 0.25,
     },
   ]),
+  berry: freezeAttackSteps([
+    {
+      attackMode: 'berry-pop', projectileCount: 1, secondaryDamageScale: 0,
+      splashRadius: 52, splashDamageScale: 0.48, knockback: 0,
+    },
+    {
+      attackMode: 'berry-double-pop', projectileCount: 2, secondaryDamageScale: 0.16,
+      splashRadius: 60, splashDamageScale: 0.46, knockback: 1,
+    },
+    {
+      attackMode: 'berry-burst', projectileCount: 2, secondaryDamageScale: 0.2,
+      splashRadius: 72, splashDamageScale: 0.44, knockback: 2,
+    },
+    {
+      attackMode: 'berry-festival', projectileCount: 3, secondaryDamageScale: 0.16,
+      splashRadius: 84, splashDamageScale: 0.42, knockback: 3,
+    },
+  ]),
+  dew: freezeAttackSteps([
+    {
+      attackMode: 'dew-slow', projectileCount: 1, secondaryDamageScale: 0,
+      chainTargets: 0, chainRadius: 0, chainPower: 0,
+    },
+    {
+      attackMode: 'dew-link', projectileCount: 1, secondaryDamageScale: 0,
+      chainTargets: 1, chainRadius: 92, chainPower: 0.5,
+    },
+    {
+      attackMode: 'dew-garland', projectileCount: 1, secondaryDamageScale: 0,
+      chainTargets: 2, chainRadius: 112, chainPower: 0.48,
+    },
+    {
+      attackMode: 'dew-rain', projectileCount: 1, secondaryDamageScale: 0,
+      chainTargets: 3, chainRadius: 136, chainPower: 0.45,
+    },
+  ]),
 });
 
 export function towerAttackEvolution(towerType, star = 1) {
@@ -185,10 +249,12 @@ export function towerAttackEvolution(towerType, star = 1) {
 }
 
 export const TOWER_DRAW_WEIGHTS = Object.freeze([
-  Object.freeze({ type: 'shell', weight: 28 }),
-  Object.freeze({ type: 'needle', weight: 28 }),
-  Object.freeze({ type: 'bubble', weight: 24 }),
-  Object.freeze({ type: 'sprout', weight: 20 }),
+  Object.freeze({ type: 'shell', weight: 22 }),
+  Object.freeze({ type: 'needle', weight: 20 }),
+  Object.freeze({ type: 'bubble', weight: 16 }),
+  Object.freeze({ type: 'sprout', weight: 14 }),
+  Object.freeze({ type: 'berry', weight: 15 }),
+  Object.freeze({ type: 'dew', weight: 13 }),
 ]);
 
 export const TD_CONTRACT_TYPES = Object.freeze(Object.keys(TOWER_TYPES));
@@ -203,44 +269,269 @@ export const TD_CONTRACT_RARITIES = Object.freeze({
   UR: Object.freeze({ id: 'UR', weight: 3, shards: 8 }),
 });
 
+const freezeHeroSkill = ({ steps, ...skill }) => Object.freeze({
+  ...skill,
+  // `stage` is intentionally one-based for presentation. `stepIndex` remains
+  // the zero-based simulation lookup key carried by queued work.
+  steps: Object.freeze(steps.map((step, index) => Object.freeze({
+    ...step,
+    stage: index + 1,
+  }))),
+});
+
 export const HERO_TYPES = Object.freeze({
   shell: Object.freeze({
     id: 'shell', ownerId: TOWER_TYPES.shell.ownerId, name: '壳壳', rarity: 'R', glyph: '盾',
+    visualType: 'shell', role: '护卫·击退',
+    rankGrowth: Object.freeze({
+      maxHp: 0.022, summary: '每阶生命 +2.2%',
+    }),
     color: TOWER_TYPES.shell.color, maxHp: 900, speed: 165, range: 220,
     interval: 0.72, damage: 28, projectile: 'goo', projectileSpeed: 560,
-    effect: 'splash', skillCooldown: 10, skillRadius: 165, skillDamage: 92,
+    effect: 'splash', skillCooldown: 11, skillRadius: 210, skillDamage: 75,
+    skill: freezeHeroSkill({
+      id: 'shell-triple-quake', name: '壳震三连', cooldown: 11, radius: 210,
+      description: '三道扩张壳震逐步增伤并击退，末段获得胶壳护盾。',
+      steps: [
+        { at: 0, kind: 'shell-quake', radius: 110, damage: 45, knockback: 22 },
+        { at: 0.28, kind: 'shell-quake', radius: 160, damage: 55, knockback: 32 },
+        {
+          at: 0.58, kind: 'shell-quake', radius: 210, damage: 75, knockback: 45,
+          shieldHp: 180, shieldDuration: 5,
+        },
+      ],
+    }),
   }),
   needle: Object.freeze({
     id: 'needle', ownerId: TOWER_TYPES.needle.ownerId, name: '亮钉', rarity: 'SR', glyph: '晶',
+    visualType: 'needle', role: '远程·群体穿透',
+    rankGrowth: Object.freeze({
+      attackDamage: 0.022, skillDamage: 0.022,
+      summary: '每阶普攻与技能伤害 +2.2%',
+    }),
     color: TOWER_TYPES.needle.color, maxHp: 650, speed: 180, range: 315,
     interval: 0.88, damage: 48, projectile: 'needle', projectileSpeed: 760,
-    effect: 'pierce', skillCooldown: 11, skillRadius: 195, skillDamage: 145,
+    effect: 'pierce', skillCooldown: 10.5, skillRadius: 360, skillDamage: 70,
+    skill: freezeHeroSkill({
+      id: 'crystal-rain-refraction', name: '晶雨折射', cooldown: 10.5, radius: 360,
+      description: '锁定最多六个敌人连射三轮晶雨，末轮造成重击。',
+      steps: [
+        { at: 0, kind: 'crystal-volley', radius: 360, damage: 35, maxTargets: 6 },
+        { at: 0.18, kind: 'crystal-volley', radius: 360, damage: 35, maxTargets: 6 },
+        { at: 0.36, kind: 'crystal-refraction', radius: 360, damage: 70, maxTargets: 6 },
+      ],
+    }),
   }),
   bubble: Object.freeze({
     id: 'bubble', ownerId: TOWER_TYPES.bubble.ownerId, name: '泡泡', rarity: 'SSR', glyph: '泡',
+    visualType: 'bubble', role: '控场·回卷连锁',
+    rankGrowth: Object.freeze({
+      attackSpeed: 0.02, summary: '每阶普攻速度 +2.0%',
+    }),
     color: TOWER_TYPES.bubble.color, maxHp: 710, speed: 192, range: 245,
     interval: 0.48, damage: 18, projectile: 'bubble', projectileSpeed: 500,
-    effect: 'slow', skillCooldown: 9, skillRadius: 215, skillDamage: 58,
+    effect: 'slow', skillCooldown: 12, skillRadius: 230, skillDamage: 72,
+    skill: freezeHeroSkill({
+      id: 'bubble-tidal-field', name: '潮汐泡域', cooldown: 12, radius: 230,
+      description: '展开泡域减速，中段将敌人回卷，末段群体爆裂。',
+      steps: [
+        {
+          at: 0, kind: 'bubble-field', radius: 230, damage: 0,
+          slowMultiplier: 0.45, slowTime: 3,
+        },
+        { at: 0.45, kind: 'bubble-rewind', radius: 230, damage: 0, rewind: 30 },
+        {
+          at: 1, kind: 'bubble-burst', radius: 230, damage: 72, maxTargets: 8,
+          slowMultiplier: 0.45, slowTime: 3,
+        },
+      ],
+    }),
   }),
   sprout: Object.freeze({
     id: 'sprout', ownerId: TOWER_TYPES.sprout.ownerId, name: '芽芽', rarity: 'UR', glyph: '芽',
+    visualType: 'sprout', role: '治疗·毒藤定身',
+    rankGrowth: Object.freeze({
+      skillPoison: 0.025, summary: '每阶技能毒伤 +2.5%',
+    }),
     color: TOWER_TYPES.sprout.color, maxHp: 680, speed: 176, range: 255,
     interval: 0.64, damage: 22, projectile: 'seed', projectileSpeed: 590,
-    effect: 'poison', skillCooldown: 9.5, skillRadius: 205, skillDamage: 52,
+    effect: 'poison', skillCooldown: 12.5, skillRadius: 215, skillDamage: 30,
+    skill: freezeHeroSkill({
+      id: 'sprout-forest-dance', name: '森芽轮舞', cooldown: 12.5, radius: 215,
+      description: '三轮森芽脉冲伤害并中毒，同时治疗我方，末轮定身。',
+      steps: [
+        {
+          at: 0, kind: 'sprout-pulse', radius: 215, damage: 30,
+          poisonDps: 10, poisonTime: 3.5, healHero: 50, healMembers: 12,
+        },
+        {
+          at: 0.45, kind: 'sprout-pulse', radius: 215, damage: 30,
+          poisonDps: 10, poisonTime: 3.5, healHero: 50, healMembers: 12,
+        },
+        {
+          at: 0.9, kind: 'sprout-root', radius: 215, damage: 30,
+          poisonDps: 10, poisonTime: 3.5, healHero: 50, healMembers: 12,
+          rootTime: 1.2,
+        },
+      ],
+    }),
+  }),
+  berry: Object.freeze({
+    id: 'berry', ownerId: TOWER_TYPES.berry.ownerId, name: '莓莓', rarity: 'SR', glyph: '莓',
+    visualType: 'berry', role: '爆破·多段群伤',
+    rankGrowth: Object.freeze({
+      attackDamage: 0.018, skillDamage: 0.018,
+      summary: '每阶普攻与技能伤害 +1.8%',
+    }),
+    color: TOWER_TYPES.berry.color, maxHp: 660, speed: 184, range: 285,
+    interval: 0.82, damage: 38, projectile: 'berry', projectileSpeed: 570,
+    effect: 'splash', skillCooldown: 10.5, skillRadius: 260, skillDamage: 95,
+    skill: freezeHeroSkill({
+      id: 'berry-chain-barrage', name: '莓果连爆', cooldown: 10.5, radius: 260,
+      description: '三轮悬浮莓果弹接连落下，最后一轮大范围爆裂。',
+      steps: [
+        { at: 0, kind: 'berry-barrage', radius: 230, damage: 55, maxTargets: 4 },
+        { at: 0.22, kind: 'berry-barrage', radius: 245, damage: 55, maxTargets: 5 },
+        {
+          at: 0.44, kind: 'berry-finale', radius: 260, damage: 95,
+          maxTargets: 8, knockback: 18,
+        },
+      ],
+    }),
+  }),
+  dew: Object.freeze({
+    id: 'dew', ownerId: TOWER_TYPES.dew.ownerId, name: '露露', rarity: 'SSR', glyph: '露',
+    visualType: 'dew', role: '支援·群体治疗',
+    rankGrowth: Object.freeze({
+      maxHp: 0.014, skillHealing: 0.022,
+      summary: '每阶生命 +1.4%，技能治疗 +2.2%',
+    }),
+    color: TOWER_TYPES.dew.color, maxHp: 750, speed: 188, range: 245,
+    interval: 0.64, damage: 24, projectile: 'dew', projectileSpeed: 520,
+    effect: 'slow', skillCooldown: 12, skillRadius: 220, skillDamage: 28,
+    skill: freezeHeroSkill({
+      id: 'dew-garland', name: '甘露花环', cooldown: 12, radius: 220,
+      description: '三道甘露花环伤害敌人并治疗我方，末段附加长时减速。',
+      steps: [
+        {
+          at: 0, kind: 'dew-pulse', radius: 170, damage: 28,
+          healHero: 45, healMembers: 12,
+        },
+        {
+          at: 0.4, kind: 'dew-pulse', radius: 195, damage: 28,
+          healHero: 45, healMembers: 12,
+        },
+        {
+          at: 0.8, kind: 'dew-bloom', radius: 220, damage: 28,
+          healHero: 45, healMembers: 12, slowMultiplier: 0.5, slowTime: 2.8,
+        },
+      ],
+    }),
   }),
 });
+
+function scaledSkillStep(step, multipliers) {
+  return Object.freeze({
+    ...step,
+    damage: scaleValue((Number(step.damage) || 0) * multipliers.skillDamage),
+    poisonDps: scaleValue((Number(step.poisonDps) || 0) * multipliers.skillPoison),
+    healHero: scaleValue((Number(step.healHero) || 0) * multipliers.skillHealing),
+    healMembers: scaleValue((Number(step.healMembers) || 0) * multipliers.skillHealing),
+    shieldHp: scaleValue((Number(step.shieldHp) || 0) * multipliers.skillShield),
+  });
+}
+
+function skillEffectSummary(skill, steps) {
+  const parts = [`${steps.length}段`];
+  const damage = steps.map(({ damage: value }) => Math.round(value || 0)).filter(Boolean);
+  if (damage.length) parts.push(`伤害 ${damage.join('/')}`);
+  const heroHealing = Math.round(steps.reduce((sum, step) => sum + (step.healHero || 0), 0));
+  const memberHealing = Math.round(steps.reduce((sum, step) => sum + (step.healMembers || 0), 0));
+  if (heroHealing) parts.push(`自身治疗 ${heroHealing}`);
+  if (memberHealing) parts.push(`每名士兵治疗 ${memberHealing}`);
+  const shield = Math.round(Math.max(0, ...steps.map((step) => step.shieldHp || 0)));
+  if (shield) parts.push(`护盾 ${shield}`);
+  const poison = scaleValue(Math.max(0, ...steps.map((step) => step.poisonDps || 0)));
+  if (poison) parts.push(`毒伤 ${poison}/秒`);
+  const slowMultiplier = Math.min(1, ...steps
+    .map((step) => Number(step.slowMultiplier))
+    .filter((value) => value > 0));
+  if (slowMultiplier < 1) parts.push(`减速 ${Math.round((1 - slowMultiplier) * 100)}%`);
+  const rewind = Math.round(Math.max(0, ...steps.map((step) => step.rewind || 0)));
+  if (rewind) parts.push(`回卷 ${rewind}`);
+  const knockback = Math.round(Math.max(0, ...steps.map((step) => step.knockback || 0)));
+  if (knockback) parts.push(`击退 ${knockback}`);
+  const rootTime = scaleValue(Math.max(0, ...steps.map((step) => step.rootTime || 0)));
+  if (rootTime) parts.push(`定身 ${rootTime}秒`);
+  return `${skill.name}：${parts.join(' · ')}`;
+}
+
+const HERO_STATS_BY_TYPE_AND_RANK = new Map();
+
+/** One shared rank calculation for simulation, persistence-facing roster data, and UI. */
+export function heroStatsForRank(type, rank = 1) {
+  const definition = HERO_TYPES[type] || HERO_TYPES.shell;
+  const resolvedRank = clamp(Math.floor(Number(rank) || 1), 1, TD_CONTRACT_MAX_RANK);
+  const cacheKey = `${definition.id}:${resolvedRank}`;
+  const cached = HERO_STATS_BY_TYPE_AND_RANK.get(cacheKey);
+  if (cached) return cached;
+  const growth = definition.rankGrowth || {};
+  const multiplier = (key) => 1 + resolvedRank * Math.max(0, Number(growth[key]) || 0);
+  const multipliers = Object.freeze({
+    maxHp: multiplier('maxHp'),
+    attackDamage: multiplier('attackDamage'),
+    attackSpeed: multiplier('attackSpeed'),
+    skillDamage: multiplier('skillDamage'),
+    skillPoison: multiplier('skillPoison'),
+    skillHealing: multiplier('skillHealing'),
+    skillShield: multiplier('skillShield'),
+  });
+  const skillSteps = Object.freeze(definition.skill.steps.map((step) => (
+    scaledSkillStep(step, multipliers)
+  )));
+  const interval = scaleValue(definition.interval / multipliers.attackSpeed);
+  const stats = Object.freeze({
+    type: definition.id,
+    rank: resolvedRank,
+    maxHp: Math.round(definition.maxHp * multipliers.maxHp),
+    damage: scaleValue(definition.damage * multipliers.attackDamage),
+    interval,
+    attackSpeed: scaleValue(1 / interval),
+    skillSteps,
+    skillEffect: skillEffectSummary(definition.skill, skillSteps),
+    growthSummary: growth.summary || '升阶强化基础能力',
+    multipliers,
+  });
+  HERO_STATS_BY_TYPE_AND_RANK.set(cacheKey, stats);
+  return stats;
+}
 
 export const SQUAD_TYPES = Object.freeze({
   melee: Object.freeze({
     id: 'melee', name: '盾墩小队', glyph: '盾', cost: 100,
     squadSize: 4, memberHp: 72, range: 70, interval: 0.62,
-    damagePerMember: 11, speed: 88, color: '#62D5A0', attackMode: 'melee-contact',
+    damagePerMember: 11, speed: 88, color: '#62D5A0',
+    movementMode: 'contact', attackMode: 'melee-contact', effect: 'direct',
   }),
   ranged: Object.freeze({
     id: 'ranged', name: '豆弩小队', glyph: '弩', cost: 150,
     squadSize: 4, memberHp: 48, range: 265, interval: 0.92,
-    damagePerMember: 10, speed: 68, color: '#75CFF4', attackMode: 'ranged-volley',
+    damagePerMember: 10, speed: 68, color: '#75CFF4',
+    movementMode: 'keep-range', attackMode: 'ranged-volley', effect: 'direct',
     projectile: 'needle', projectileSpeed: 590,
+  }),
+  charger: Object.freeze({
+    id: 'charger', name: '跳槌小队', glyph: '槌', cost: 125,
+    squadSize: 4, memberHp: 60, range: 72, interval: 0.52,
+    damagePerMember: 9, speed: 116, color: '#EF7188',
+    movementMode: 'contact', attackMode: 'bounce-hammer', effect: 'direct',
+  }),
+  leaf: Object.freeze({
+    id: 'leaf', name: '叶旋小队', glyph: '叶', cost: 165,
+    squadSize: 4, memberHp: 46, range: 240, interval: 1,
+    damagePerMember: 11, speed: 72, color: '#8EDB70',
+    movementMode: 'keep-range', attackMode: 'leaf-spinner', effect: 'poison',
+    projectile: 'seed', projectileSpeed: 540, poisonDps: 4.5, poisonTime: 2.85,
   }),
 });
 
@@ -255,7 +546,20 @@ export const TURRET_TYPES = Object.freeze({
   'gel-mortar': Object.freeze({
     id: 'gel-mortar', name: '凝胶迫击炮', glyph: '炮', cost: 175, color: '#72D7A3',
     range: 330, interval: 1.42, damage: 72, splashRadius: 152,
-    projectile: 'goo', projectileSpeed: 500,
+    projectile: 'goo', projectileSpeed: 500, effect: 'splash', splashDamageScale: 0.66,
+  }),
+  'bubble-coil': Object.freeze({
+    id: 'bubble-coil', name: '泡泡缓速塔', glyph: '泡', cost: 160, color: '#75DFF0',
+    range: 300, interval: 0.78, damage: 18,
+    projectile: 'bubble', projectileSpeed: 450, effect: 'slow',
+    slowMultiplier: 0.52, slowTime: 2.4, rewind: 8,
+    chainTargets: 2, chainRadius: 115, chainPower: 0.62,
+  }),
+  'crystal-repeater': Object.freeze({
+    id: 'crystal-repeater', name: '晶针连弩塔', glyph: '晶', cost: 210, color: '#8878DB',
+    range: 365, interval: 0.56, damage: 22,
+    projectile: 'needle', projectileSpeed: 760, effect: 'pierce',
+    pierceTargets: 2, pierceRadius: 118, pierceDamageScale: 0.68,
   }),
 });
 
@@ -273,8 +577,8 @@ export const TD_ENEMIES = Object.freeze({
     size: 68, coreDamage: 4, attackDamage: 40, attackInterval: 1.55, color: '#85848D',
   }),
   boss: Object.freeze({
-    id: 'boss', ownerId: 'enemy-acid-shell-king', hp: 2550, speed: 21, reward: 100,
-    size: 104, coreDamage: 14, attackDamage: 79, attackInterval: 1.35,
+    id: 'boss', ownerId: 'enemy-acid-shell-king', hp: 1850, speed: 21, reward: 100,
+    size: 104, coreDamage: 10, attackDamage: 32, attackInterval: 1.45,
     color: '#778D54', boss: true,
   }),
 });
@@ -405,7 +709,53 @@ export const TD_STAGES = Object.freeze([
       wave(group('windcap', 4, 0.58, 0, [4, 2, 0, 3]), group('stone', 5, 1.02, 1.5)),
       wave(group('bug', 3, 0.54, 0, [0, 2, 4]), group('stone', 5, 0.98, 1.4), group('boss', 1, 0, 5, [2])),
       wave(group('windcap', 3, 0.54, 0, [1, 3, 2]), group('stone', 5, 0.96, 1.4), group('boss', 1, 0, 4.6, [2])),
-      wave(group('bug', 1, 0.52, 0, [2]), group('stone', 6, 0.92, 1.3), group('boss', 2, 3.6, 4.4, [1, 3])),
+      wave(group('bug', 2, 0.52, 0, [0, 4]), group('stone', 6, 0.92, 1.3), group('boss', 1, 0, 4.4, [2])),
+    ],
+  }),
+  laneStage({
+    id: 'stage-4',
+    index: 4,
+    name: '露蜜林',
+    accent: '#62CFA0',
+    waves: [
+      wave(group('bug', 4, 0.58, 0, [0, 4]), group('windcap', 4, 0.7, 1.2, [4, 0, 3, 1])),
+      wave(group('windcap', 5, 0.6, 0, [0, 4, 1, 3]), group('stone', 3, 1.04, 1.5, [4, 0, 2])),
+      wave(group('bug', 3, 0.54, 0, [0, 4]), group('windcap', 3, 0.62, 0.9, [1, 3]), group('stone', 2, 1, 1.8, [4, 0])),
+      wave(group('windcap', 4, 0.56, 0, [4, 0, 3, 1]), group('stone', 4, 0.98, 1.4, [0, 4, 1, 3])),
+      wave(group('bug', 2, 0.5, 0, [0, 4]), group('windcap', 3, 0.56, 0.7, [1, 3, 2]), group('stone', 3, 0.96, 1.5, [4, 0, 2])),
+      wave(group('windcap', 2, 0.52, 0, [0, 4]), group('stone', 4, 0.92, 1.2, [1, 3, 0, 4]), group('boss', 1, 0, 4.5, [2])),
+      wave(group('bug', 2, 0.48, 0, [0, 4]), group('windcap', 2, 0.52, 0.6, [1, 3]), group('stone', 4, 0.88, 1.2, [4, 0, 3, 1]), group('boss', 1, 0, 4.3, [2])),
+    ],
+  }),
+  laneStage({
+    id: 'stage-5',
+    index: 5,
+    name: '软壳峡',
+    accent: '#D59A55',
+    waves: [
+      wave(group('bug', 3, 0.54, 0, [0, 2, 4]), group('stone', 5, 0.96, 1.1, [1, 3, 0, 4, 2])),
+      wave(group('windcap', 3, 0.54, 0, [1, 3, 2]), group('stone', 5, 0.92, 1.1, [0, 2, 4, 1, 3])),
+      wave(group('bug', 2, 0.48, 0, [0, 4]), group('windcap', 2, 0.52, 0.6, [1, 3]), group('stone', 5, 0.9, 1.1, [2, 0, 4, 1, 3])),
+      wave(group('windcap', 3, 0.5, 0, [0, 2, 4]), group('stone', 5, 0.86, 1, [1, 3, 2, 0, 4])),
+      wave(group('bug', 2, 0.46, 0, [1, 3]), group('stone', 6, 0.84, 0.9, [0, 2, 4, 1, 3])),
+      wave(group('windcap', 2, 0.48, 0, [0, 4]), group('stone', 5, 0.82, 0.9, [1, 3, 2, 0, 4]), group('boss', 1, 0, 4.2, [2])),
+      wave(group('bug', 1, 0, 0, [2]), group('windcap', 1, 0, 0.5, [2]), group('stone', 6, 0.8, 0.8, [0, 2, 4, 1, 3]), group('boss', 1, 0, 4, [2])),
+    ],
+  }),
+  laneStage({
+    id: 'stage-6',
+    index: 6,
+    name: '星胶庭',
+    accent: '#8C80E8',
+    waves: [
+      wave(group('bug', 3, 0.5, 0, [1, 2, 3]), group('windcap', 3, 0.54, 0.7, [0, 2, 4]), group('stone', 2, 0.88, 1.2, [1, 3])),
+      wave(group('windcap', 4, 0.5, 0, [2, 1, 3, 0, 4]), group('stone', 4, 0.84, 0.9, [0, 4, 1, 3])),
+      wave(group('bug', 2, 0.44, 0, [2, 0]), group('stone', 6, 0.8, 0.8, [0, 2, 4, 1, 3])),
+      wave(group('bug', 2, 0.42, 0, [0, 4]), group('windcap', 2, 0.46, 0.5, [1, 3]), group('stone', 5, 0.78, 0.8, [2, 0, 4, 1, 3])),
+      wave(group('windcap', 3, 0.46, 0, [0, 2, 4]), group('stone', 5, 0.76, 0.8, [1, 3, 2, 0, 4])),
+      wave(group('bug', 2, 0.4, 0, [0, 4]), group('stone', 5, 0.74, 0.7, [2, 1, 3, 0, 4]), group('boss', 1, 0, 3.9, [2])),
+      wave(group('windcap', 2, 0.42, 0, [1, 3]), group('stone', 6, 0.72, 0.7, [0, 2, 4, 1, 3]), group('boss', 1, 0, 3.8, [2])),
+      wave(group('bug', 1, 0, 0, [0]), group('windcap', 1, 0, 0.4, [4]), group('stone', 6, 0.7, 0.7, [0, 2, 4, 1, 3]), group('boss', 1, 0, 3.7, [2])),
     ],
   }),
 ]);
@@ -426,6 +776,15 @@ export const TD_TURRET_SLOTS = Object.freeze({
   ]),
   'stage-3': freezeTurretSlots([
     { x: 110, y: 914 }, { x: 280, y: 914 }, { x: 440, y: 914 }, { x: 610, y: 914 },
+  ]),
+  'stage-4': freezeTurretSlots([
+    { x: 96, y: 914 }, { x: 272, y: 914 }, { x: 448, y: 914 }, { x: 624, y: 914 },
+  ]),
+  'stage-5': freezeTurretSlots([
+    { x: 112, y: 914 }, { x: 282, y: 914 }, { x: 438, y: 914 }, { x: 608, y: 914 },
+  ]),
+  'stage-6': freezeTurretSlots([
+    { x: 92, y: 914 }, { x: 268, y: 914 }, { x: 452, y: 914 }, { x: 628, y: 914 },
   ]),
 });
 
@@ -535,15 +894,33 @@ function ensureTowerHealth(tower, state = null) {
 }
 
 function heroRosterForProgress(progress) {
-  return TD_CONTRACT_TYPES.map((type) => ({
-    type,
-    name: HERO_TYPES[type].name,
-    rarity: HERO_TYPES[type].rarity,
-    rank: progress.contractRanks[type],
-    shards: progress.contractShards[type],
-    owned: progress.contractRanks[type] > 0,
-    selected: progress.selectedHero === type,
-  }));
+  return TD_CONTRACT_TYPES.map((type) => {
+    const definition = HERO_TYPES[type];
+    const skill = definition.skill;
+    const rank = progress.contractRanks[type];
+    const stats = heroStatsForRank(type, Math.max(1, rank));
+    return {
+      type,
+      name: definition.name,
+      rarity: definition.rarity,
+      role: definition.role,
+      skillName: skill.name,
+      skillDescription: skill.description,
+      skillCooldown: skill.cooldown,
+      skillRadius: skill.radius,
+      skillStageCount: skill.steps.length,
+      skillEffect: stats.skillEffect,
+      growthSummary: stats.growthSummary,
+      maxHp: stats.maxHp,
+      damage: stats.damage,
+      interval: stats.interval,
+      attackSpeed: stats.attackSpeed,
+      rank,
+      shards: progress.contractShards[type],
+      owned: progress.contractRanks[type] > 0,
+      selected: progress.selectedHero === type,
+    };
+  });
 }
 
 function emptyRunState(progress, seed) {
@@ -574,6 +951,7 @@ function emptyRunState(progress, seed) {
     turrets: [],
     turretSlots: TD_TURRET_SLOTS['stage-1'],
     hero: null,
+    heroSkillQueue: [],
     selectedHeroId: copiedProgress.selectedHero,
     heroes: heroRosterForProgress(copiedProgress),
     enemies: [],
@@ -606,23 +984,29 @@ export function drawCostForState(state) {
 
 function rollContractType(progress) {
   const guaranteedHighRarity = progress.summonPity >= 9;
-  const pool = TD_CONTRACT_TYPES.filter((type) => (
-    !guaranteedHighRarity || ['SSR', 'UR'].includes(HERO_TYPES[type].rarity)
+  const availableRarities = Object.values(TD_CONTRACT_RARITIES).filter(({ id }) => (
+    (!guaranteedHighRarity || ['SSR', 'UR'].includes(id))
+    && TD_CONTRACT_TYPES.some((type) => HERO_TYPES[type]?.rarity === id)
   ));
-  const totalWeight = pool.reduce((total, type) => (
-    total + TD_CONTRACT_RARITIES[HERO_TYPES[type].rarity].weight
-  ), 0);
+  const totalWeight = availableRarities.reduce((total, rarity) => total + rarity.weight, 0);
   let roll = summonSeededStep(progress) * totalWeight;
-  let type = pool.at(-1);
-  for (const candidate of pool) {
-    roll -= TD_CONTRACT_RARITIES[HERO_TYPES[candidate].rarity].weight;
+  let selectedRarity = availableRarities.at(-1)?.id || 'R';
+  for (const candidate of availableRarities) {
+    roll -= candidate.weight;
     if (roll < 0) {
-      type = candidate;
+      selectedRarity = candidate.id;
       break;
     }
   }
-  const rarity = HERO_TYPES[type].rarity;
-  progress.summonPity = ['SSR', 'UR'].includes(rarity)
+  const heroPool = TD_CONTRACT_TYPES.filter((type) => (
+    HERO_TYPES[type]?.rarity === selectedRarity
+  ));
+  const heroIndex = Math.min(
+    heroPool.length - 1,
+    Math.floor(summonSeededStep(progress) * heroPool.length),
+  );
+  const type = heroPool[Math.max(0, heroIndex)] || 'shell';
+  progress.summonPity = ['SSR', 'UR'].includes(selectedRarity)
     ? 0
     : Math.min(9, progress.summonPity + 1);
   return type;
@@ -737,9 +1121,8 @@ function createHeroForState(state) {
     : 'shell';
   const definition = HERO_TYPES[selected] || HERO_TYPES.shell;
   const rank = contractRankForState(state, selected);
-  const maxHp = Math.round(definition.maxHp * (
-    selected === 'shell' ? 1 + rank * 0.022 : 1
-  ));
+  const stats = heroStatsForRank(selected, rank);
+  const maxHp = stats.maxHp;
   const x = stageForState(state).lanes[Math.floor(TD_LANE_COUNT / 2)].x;
   const y = 820;
   return {
@@ -747,6 +1130,11 @@ function createHeroForState(state) {
     kind: 'hero',
     type: selected,
     rank,
+    damage: stats.damage,
+    interval: stats.interval,
+    attackSpeed: stats.attackSpeed,
+    skillEffect: stats.skillEffect,
+    growthSummary: stats.growthSummary,
     x,
     y,
     spawnX: x,
@@ -758,6 +1146,9 @@ function createHeroForState(state) {
     moveY: 0,
     cooldown: 0.2,
     skillCooldown: 0,
+    shieldHp: 0,
+    shieldMaxHp: 0,
+    shieldTime: 0,
     attackPulse: 0,
     skillPulse: 0,
     hitPulse: 0,
@@ -957,8 +1348,120 @@ export function setTowerDefenseHeroMovement(state, dx, dy) {
   return state.hero;
 }
 
-function heroDamageMultiplier(state, type) {
-  return type === 'needle' ? 1 + contractRankForState(state, 'needle') * 0.022 : 1;
+function healHeroSkillAllies(state, heroHeal = 0, memberHeal = 0) {
+  const hero = state.hero;
+  const healed = { hero: 0, members: [] };
+  if (hero?.hp > 0 && heroHeal > 0) {
+    const previousHp = hero.hp;
+    hero.hp = Math.min(hero.maxHp, hero.hp + heroHeal);
+    healed.hero = hero.hp - previousHp;
+  }
+  if (memberHeal <= 0) return healed;
+  for (const tower of state.towers) {
+    const definition = SQUAD_TYPES[tower.squadType || tower.type];
+    if (!definition) continue;
+    const members = syncSquadMembers(tower, definition);
+    for (const member of members) {
+      if (!member.alive || member.hp <= 0 || member.hp >= member.maxHp) continue;
+      const previousHp = member.hp;
+      member.hp = Math.min(member.maxHp, member.hp + memberHeal);
+      healed.members.push({
+        squadUid: tower.uid,
+        soldierUid: member.uid,
+        amount: member.hp - previousHp,
+      });
+    }
+    tower.hp = members.reduce((total, member) => total + Math.max(0, member.hp), 0);
+    tower.aliveMembers = members.filter((member) => member.alive && member.hp > 0).length;
+  }
+  return healed;
+}
+
+function executeHeroSkillStep(state, queuedStep) {
+  const hero = state.hero;
+  if (!hero || hero.hp <= 0 || hero.uid !== queuedStep.heroUid) return [];
+  const definition = HERO_TYPES[queuedStep.heroType] || HERO_TYPES.shell;
+  const skill = definition.skill;
+  const stats = heroStatsForRank(queuedStep.heroType, hero.rank);
+  const step = stats.skillSteps[queuedStep.stepIndex];
+  if (!step) return [];
+  const origin = { x: queuedStep.originX, y: queuedStep.originY };
+  const radius = Math.max(0, Number(step.radius) || Number(skill.radius) || 0);
+  const targets = state.enemies
+    .filter((enemy) => enemy.hp > 0 && distance(origin, enemy) <= radius)
+    .sort((left, right) => (
+      distance(origin, left) - distance(origin, right)
+      || right.travelled - left.travelled
+      || String(left.uid).localeCompare(String(right.uid))
+    ))
+    .slice(0, Math.max(0, Math.floor(Number(step.maxTargets) || state.enemies.length)));
+  const damage = Math.max(0, Number(step.damage) || 0);
+  for (const enemy of targets) {
+    if (damage > 0) damageEnemy(state, enemy, damage);
+    if (enemy.hp <= 0) continue;
+    const displacement = Math.max(
+      0,
+      Number(step.knockback) || Number(step.rewind) || 0,
+    );
+    if (displacement > 0) setEnemyTravelled(state, enemy, enemy.travelled - displacement);
+    if (Number(step.slowMultiplier) > 0) {
+      enemy.slowMultiplier = Math.min(
+        enemy.slowMultiplier,
+        clamp(Number(step.slowMultiplier), 0.05, 1),
+      );
+      enemy.slowTime = Math.max(enemy.slowTime, Math.max(0, Number(step.slowTime) || 0));
+    }
+    if (Number(step.poisonDps) > 0) {
+      enemy.poisonDps = Math.max(
+        enemy.poisonDps,
+        Number(step.poisonDps),
+      );
+      enemy.poisonTime = Math.max(enemy.poisonTime, Math.max(0, Number(step.poisonTime) || 0));
+    }
+    if (Number(step.rootTime) > 0) {
+      enemy.slowMultiplier = Math.min(enemy.slowMultiplier, 0.08);
+      enemy.slowTime = Math.max(enemy.slowTime, Number(step.rootTime));
+    }
+  }
+  const healed = healHeroSkillAllies(
+    state,
+    Math.max(0, Number(step.healHero) || 0),
+    Math.max(0, Number(step.healMembers) || 0),
+  );
+  if (Number(step.shieldHp) > 0) {
+    const grantedShield = Math.max(0, Number(step.shieldHp));
+    hero.shieldHp = Math.max(Number(hero.shieldHp) || 0, grantedShield);
+    hero.shieldMaxHp = Math.max(Number(hero.shieldMaxHp) || 0, grantedShield);
+    hero.shieldTime = Math.max(Number(hero.shieldTime) || 0, Number(step.shieldDuration) || 0);
+  }
+  state.effects.push({
+    uid: nextUid(state, 'fx'), type: 'hero-skill-step', age: 0,
+    duration: Math.max(0.3, Number(step.visualDuration) || 0.72),
+    x: origin.x, y: origin.y, radius, heroType: queuedStep.heroType,
+    skillId: skill.id, skillName: skill.name,
+    stage: step.stage, stepIndex: queuedStep.stepIndex, stepKind: step.kind,
+  });
+  state.events.push({
+    type: 'hero-skill-step', heroUid: hero.uid, heroType: queuedStep.heroType,
+    skillId: skill.id, skillName: skill.name,
+    stage: step.stage, stepIndex: queuedStep.stepIndex, stepKind: step.kind,
+    targetUids: targets.map(({ uid }) => uid), damage,
+    healedHero: healed.hero, healedMembers: healed.members,
+    shieldHp: Math.max(0, Number(step.shieldHp) || 0),
+  });
+  return targets.map(({ uid }) => uid);
+}
+
+function updateHeroSkillQueue(state, dt) {
+  if (!Array.isArray(state.heroSkillQueue)) state.heroSkillQueue = [];
+  state.heroSkillQueue.forEach((entry) => {
+    entry.remaining = Math.max(-1, (Number(entry.remaining) || 0) - dt);
+  });
+  const due = state.heroSkillQueue
+    .filter(({ remaining }) => remaining <= 0)
+    .sort((left, right) => left.stepIndex - right.stepIndex);
+  state.heroSkillQueue = state.heroSkillQueue.filter(({ remaining }) => remaining > 0);
+  return due.map((entry) => executeHeroSkillStep(state, entry));
 }
 
 export function activateTowerDefenseHeroSkill(state) {
@@ -969,33 +1472,35 @@ export function activateTowerDefenseHeroSkill(state) {
   ) return false;
   const hero = state.hero;
   const definition = HERO_TYPES[hero.type] || HERO_TYPES.shell;
-  const damage = definition.skillDamage * heroDamageMultiplier(state, hero.type);
-  const targets = state.enemies.filter((enemy) => (
-    enemy.hp > 0 && distance(hero, enemy) <= definition.skillRadius
-  ));
-  for (const enemy of targets) {
-    damageEnemy(state, enemy, damage);
-    if (hero.type === 'shell') setEnemyTravelled(state, enemy, enemy.travelled - 18);
-    if (hero.type === 'bubble') {
-      enemy.slowMultiplier = Math.min(enemy.slowMultiplier, 0.46);
-      enemy.slowTime = Math.max(enemy.slowTime, 2.8);
-    }
-    if (hero.type === 'sprout') {
-      const poisonMultiplier = 1 + contractRankForState(state, 'sprout') * 0.025;
-      enemy.poisonDps = Math.max(enemy.poisonDps, 12 * poisonMultiplier);
-      enemy.poisonTime = Math.max(enemy.poisonTime, 3.4);
-    }
-  }
-  hero.skillCooldown = definition.skillCooldown;
+  const skill = definition.skill;
+  if (!skill?.steps?.length) return false;
+  if (!Array.isArray(state.heroSkillQueue)) state.heroSkillQueue = [];
+  const queued = skill.steps.map((step, stepIndex) => ({
+    uid: nextUid(state, 'skill'),
+    heroUid: hero.uid,
+    heroType: hero.type,
+    skillId: skill.id,
+    stage: step.stage,
+    stepIndex,
+    remaining: Math.max(0, Number(step.at) || 0),
+    originX: hero.x,
+    originY: hero.y,
+  }));
+  state.heroSkillQueue.push(...queued);
+  hero.skillCooldown = skill.cooldown;
   hero.skillPulse = 1;
-  state.effects.push({
-    uid: nextUid(state, 'fx'), type: 'hero-skill', age: 0, duration: 0.8,
-    x: hero.x, y: hero.y, radius: definition.skillRadius, heroType: hero.type,
-  });
-  state.events.push({
+  const activationEvent = {
     type: 'hero-skill', heroUid: hero.uid, heroType: hero.type,
-    targetUids: targets.map(({ uid }) => uid), damage,
-  });
+    skillId: skill.id, skillName: skill.name, skillDescription: skill.description,
+    stageCount: skill.steps.length, targetUids: [], damage: 0,
+  };
+  state.events.push(activationEvent);
+  const [firstTargets = []] = updateHeroSkillQueue(state, 0);
+  activationEvent.targetUids = firstTargets;
+  activationEvent.damage = Math.max(
+    0,
+    Number(heroStatsForRank(hero.type, hero.rank).skillSteps[0].damage) || 0,
+  );
   return true;
 }
 
@@ -1139,6 +1644,7 @@ export function startNextTowerDefenseWave(state) {
   state.spawnQueue = queueForWave(state, state.wave);
   state.waveEnemyTotal = state.spawnQueue.length;
   state.waveEnemyResolved = 0;
+  state.heroSkillQueue = [];
   for (const soldier of state.towers) {
     soldier.x = Number.isFinite(Number(soldier.deployX))
       ? soldier.deployX : stage.pads[soldier.padIndex]?.x;
@@ -1156,6 +1662,9 @@ export function startNextTowerDefenseWave(state) {
     state.hero.y = state.hero.spawnY;
     state.hero.moveX = 0;
     state.hero.moveY = 0;
+    state.hero.shieldHp = 0;
+    state.hero.shieldMaxHp = 0;
+    state.hero.shieldTime = 0;
   }
   state.events.push({ type: 'wave-start', wave: state.wave });
   if (state.tutorial.active && state.tutorial.step === 'start') {
@@ -1349,7 +1858,7 @@ function applyProjectileHit(state, projectile, target) {
     const extras = nearbyEffectTargets(
       state,
       target,
-      104,
+      Math.max(0, Number(projectile.pierceRadius) || 104),
       Math.max(0, Math.floor(projectile.pierceTargets ?? Math.min(3, projectile.star))),
     );
     const pierceDamageScale = projectile.pierceDamageScale ?? 0.68;
@@ -1357,12 +1866,13 @@ function applyProjectileHit(state, projectile, target) {
       state, enemy, projectile.damage * Math.max(0.32, pierceDamageScale - index * 0.12),
     ));
   } else if (projectile.effect === 'slow') {
-    const slowMultiplier = Math.max(
+    const slowMultiplier = clamp(
+      Number(projectile.slowMultiplier) || 0.7 - projectile.star * 0.055,
       0.28,
-      0.7 - projectile.star * 0.055,
+      1,
     );
-    const slowTime = 1.5 + projectile.star * 0.22;
-    const rewind = 5 + projectile.star * 2.5;
+    const slowTime = Math.max(0, Number(projectile.slowTime) || 1.5 + projectile.star * 0.22);
+    const rewind = Math.max(0, Number(projectile.rewind) || 5 + projectile.star * 2.5);
     target.slowMultiplier = Math.min(target.slowMultiplier, slowMultiplier);
     target.slowTime = Math.max(target.slowTime, slowTime);
     setEnemyTravelled(state, target, target.travelled - rewind);
@@ -1381,9 +1891,15 @@ function applyProjectileHit(state, projectile, target) {
       emitProjectileImpact(state, projectile, enemy, { secondary: true });
     }
   } else if (projectile.effect === 'poison') {
-    const poisonDps = 4.5 * starPower(projectile.star)
-      * Math.max(1, Number(projectile.poisonMultiplier) || 1);
-    const poisonTime = 2.5 + projectile.star * 0.35;
+    const poisonDps = Math.max(
+      0,
+      Number(projectile.poisonDps) || 4.5 * starPower(projectile.star)
+        * Math.max(1, Number(projectile.poisonMultiplier) || 1),
+    );
+    const poisonTime = Math.max(
+      0,
+      Number(projectile.poisonTime) || 2.5 + projectile.star * 0.35,
+    );
     target.poisonDps = Math.max(target.poisonDps, poisonDps);
     target.poisonTime = Math.max(target.poisonTime, poisonTime);
     const spreadTargets = nearbyEffectTargets(
@@ -1524,7 +2040,7 @@ function contactDistanceForEnemy(enemy) {
 
 function fireSquadMember(state, tower, member, target, definition) {
   const projectiles = [];
-  if (definition.id === 'melee') {
+  if (definition.movementMode === 'contact') {
     damageEnemy(state, target, definition.damagePerMember);
     state.effects.push({
       uid: nextUid(state, 'fx'), type: 'hit', age: 0, duration: 0.36,
@@ -1532,7 +2048,7 @@ function fireSquadMember(state, tower, member, target, definition) {
     });
   } else {
     const projectile = {
-      uid: nextUid(state, 'shot'), type: definition.projectile, effect: 'direct',
+      uid: nextUid(state, 'shot'), type: definition.projectile, effect: definition.effect || 'direct',
       sourceKind: 'squad', squadType: definition.id, towerType: definition.id,
       star: 1, effectTier: 1, attackMode: definition.attackMode,
       patternProjectileCount: 1, volleyIndex: member.memberIndex, volleyCount: 1,
@@ -1540,6 +2056,8 @@ function fireSquadMember(state, tower, member, target, definition) {
       targetUid: target.uid, x: member.x, y: member.y - 24,
       targetX: target.x, targetY: target.y - 18,
       speed: definition.projectileSpeed, damage: definition.damagePerMember, age: 0,
+      poisonDps: definition.poisonDps,
+      poisonTime: definition.poisonTime,
     };
     projectiles.push(projectile);
     state.projectiles.push(projectile);
@@ -1603,7 +2121,7 @@ function updateTowers(state, dt) {
       const separation = Math.hypot(dx, dy);
       member.aimAngle = Math.atan2(dy, dx);
       if (Math.abs(dx) > 1) member.facing = dx < 0 ? -1 : 1;
-      const preferredGap = definition.id === 'melee'
+      const preferredGap = definition.movementMode === 'contact'
         ? contactDistanceForEnemy(target)
         : definition.range * 0.82;
       if (separation > preferredGap && separation > 0.001) {
@@ -1652,6 +2170,7 @@ function targetForHero(state, hero, range) {
 
 function fireHero(state, hero, target) {
   const definition = HERO_TYPES[hero.type] || HERO_TYPES.shell;
+  const stats = heroStatsForRank(hero.type, hero.rank);
   const evolution = towerAttackEvolution(hero.type, 1);
   const {
     projectileCount: patternProjectileCount,
@@ -1679,10 +2198,8 @@ function fireHero(state, hero, target) {
     targetX: target.x,
     targetY: target.y - 18,
     speed: definition.projectileSpeed,
-    damage: definition.damage * heroDamageMultiplier(state, hero.type),
-    poisonMultiplier: hero.type === 'sprout'
-      ? 1 + contractRankForState(state, 'sprout') * 0.025
-      : 1,
+    damage: stats.damage,
+    poisonMultiplier: stats.multipliers.skillPoison,
     age: 0,
   };
   state.projectiles.push(projectile);
@@ -1699,8 +2216,15 @@ function fireHero(state, hero, target) {
 
 function updateHero(state, dt) {
   const hero = state.hero;
-  if (!hero || hero.hp <= 0) return;
+  if (!hero) return;
+  hero.shieldTime = Math.max(0, (Number(hero.shieldTime) || 0) - dt);
+  if (hero.shieldTime <= 0) {
+    hero.shieldHp = 0;
+    hero.shieldMaxHp = 0;
+  }
+  if (hero.hp <= 0) return;
   const definition = HERO_TYPES[hero.type] || HERO_TYPES.shell;
+  const stats = heroStatsForRank(hero.type, hero.rank);
   hero.cooldown -= dt;
   hero.skillCooldown = Math.max(0, hero.skillCooldown - dt);
   hero.attackPulse = Math.max(0, hero.attackPulse - dt * 5.5);
@@ -1723,10 +2247,7 @@ function updateHero(state, dt) {
     return;
   }
   fireHero(state, hero, target);
-  const attackSpeedMultiplier = hero.type === 'bubble'
-    ? 1 + contractRankForState(state, 'bubble') * 0.02
-    : 1;
-  hero.cooldown += definition.interval / attackSpeedMultiplier;
+  hero.cooldown += stats.interval;
 }
 
 function updateTurrets(state, dt) {
@@ -1745,16 +2266,25 @@ function updateTurrets(state, dt) {
     const projectile = {
       uid: nextUid(state, 'shot'),
       type: definition.projectile,
-      effect: 'splash',
+      effect: definition.effect || 'direct',
       sourceKind: 'turret',
       turretType: turret.type,
       towerType: `turret-${turret.type}`,
       star: 1,
       effectTier: 1,
-      attackMode: 'turret-blast',
+      attackMode: definition.attackMode || `turret-${definition.effect || 'direct'}`,
       splashRadius: definition.splashRadius,
-      splashDamageScale: 0.66,
-      areaAllLanes: true,
+      splashDamageScale: definition.splashDamageScale,
+      areaAllLanes: definition.areaAllLanes ?? definition.effect === 'splash',
+      pierceTargets: definition.pierceTargets,
+      pierceRadius: definition.pierceRadius,
+      pierceDamageScale: definition.pierceDamageScale,
+      slowMultiplier: definition.slowMultiplier,
+      slowTime: definition.slowTime,
+      rewind: definition.rewind,
+      chainTargets: definition.chainTargets,
+      chainRadius: definition.chainRadius,
+      chainPower: definition.chainPower,
       targetUid: target.uid,
       x: turret.x,
       y: turret.y - 22,
@@ -1835,8 +2365,12 @@ function nextBlockingTower(state, enemy) {
 }
 
 function damageHero(state, enemy, hero, amount) {
-  const damage = Math.max(0, Number(amount) || 0);
-  if (!hero || hero.hp <= 0 || damage <= 0) return false;
+  const incomingDamage = Math.max(0, Number(amount) || 0);
+  if (!hero || hero.hp <= 0 || incomingDamage <= 0) return false;
+  const shieldBefore = Math.max(0, Number(hero.shieldHp) || 0);
+  const absorbed = Math.min(shieldBefore, incomingDamage);
+  hero.shieldHp = shieldBefore - absorbed;
+  const damage = incomingDamage - absorbed;
   hero.hp = Math.max(0, hero.hp - damage);
   hero.hitPulse = 1;
   state.effects.push({
@@ -1845,7 +2379,8 @@ function damageHero(state, enemy, hero, amount) {
   });
   state.events.push({
     type: 'hero-hit', heroUid: hero.uid, heroType: hero.type,
-    enemyUid: enemy.uid, damage, hp: hero.hp, maxHp: hero.maxHp,
+    enemyUid: enemy.uid, damage, incomingDamage, absorbed,
+    hp: hero.hp, maxHp: hero.maxHp, shieldHp: hero.shieldHp,
   });
   if (hero.hp > 0) return false;
   hero.moveX = 0;
@@ -2023,6 +2558,7 @@ function finishRun(state, result) {
   state.phase = 'prep';
   state.spawnQueue = [];
   state.projectiles = [];
+  state.heroSkillQueue = [];
   state.screen = 'result';
   if (result === 'victory') {
     const stage = stageForState(state);
@@ -2083,7 +2619,11 @@ function completeWave(state) {
     state.hero.moveY = 0;
     state.hero.cooldown = 0.12;
     state.hero.skillCooldown = 0;
+    state.hero.shieldHp = 0;
+    state.hero.shieldMaxHp = 0;
+    state.hero.shieldTime = 0;
   }
+  state.heroSkillQueue = [];
   state.projectiles = [];
   state.events.push({ type: 'wave-clear', wave: state.wave });
   if (state.mode === 'stage' && state.wave >= stageForState(state).waves.length) {
@@ -2121,6 +2661,7 @@ export function updateTowerDefense(state, dt) {
     const spawn = state.spawnQueue.shift();
     spawnEnemy(state, spawn.type, spawn.laneIndex);
   }
+  updateHeroSkillQueue(state, delta);
   updateEnemies(state, delta);
   updateTowers(state, delta);
   updateHero(state, delta);
@@ -2148,6 +2689,7 @@ export function returnToTowerDefenseMenu(state) {
   state.phase = 'prep';
   state.enemies = [];
   state.projectiles = [];
+  state.heroSkillQueue = [];
   state.effects = [];
   state.selectedTowerUid = null;
   state.selectedHeroId = state.progress.selectedHero;

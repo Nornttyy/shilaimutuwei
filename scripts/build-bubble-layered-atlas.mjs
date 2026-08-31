@@ -33,7 +33,7 @@ const BASE_ATLAS = Object.freeze({
   ),
   width: 768,
   height: 512,
-  pngSha256: 'aef48879a568430f6da2bd66a68f84bc182aab1a70612460e0c50db476e04adc',
+  pngSha256: '9b85df215d9e663d19b5bb5d32b6a4eef04fb851b6b51175031b7e2be362190b',
 });
 
 export const BUBBLE_LAYERED_ATLAS_LAYOUT = Object.freeze({

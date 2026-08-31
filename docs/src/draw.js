@@ -1316,26 +1316,91 @@ function soldierAnimationSample(options) {
   };
 }
 
+const ATLAS_FALLBACK_COLORS = Object.freeze({
+  'hero-berry-burst-atlas-v1': ['#F06483', '#A93661', '#FFD2DE'],
+  'hero-dew-bloom-atlas-v1': ['#73D6E6', '#287EAF', '#D8FBFF'],
+  'soldier-bounce-hammer-atlas-v1': ['#F2A45E', '#AA5B39', '#FFE3B1'],
+  'soldier-leaf-spinner-atlas-v1': ['#85D86B', '#3E9157', '#DFFFB9'],
+  ranged: ['#8C83E8', '#5046A7', '#D9D4FF'],
+  melee: ['#61D6A2', '#2F9B78', '#C9FFE5'],
+});
+
 /**
- * Draw a formal 3x3 soldier skeletal atlas. The caller supplies the ordinary
- * asset-store key, so melee/ranged art stays independent from hero rig assets.
+ * A deliberately neutral, limb-free emergency silhouette for a formal atlas.
+ * It is never a disguised legacy hero: a missing Berry, Dew, or soldier atlas
+ * remains visibly un-authored until its own PNG is available.
  */
-export function drawSoldier(ctx, x, y, size, options = {}) {
+function drawAtlasCharacterFallback(ctx, x, y, size, options, facing) {
+  const palette = ATLAS_FALLBACK_COLORS[options.assetKey]
+    || ATLAS_FALLBACK_COLORS[options.squadType === 'ranged' ? 'ranged' : 'melee'];
+  const [fill, deep, light] = palette;
+  const expression = options.expression || (options.hit > 0 ? 'hurt' : options.attackPulse > 0
+    ? 'attack' : 'normal');
+  ctx.save();
+  try {
+    ctx.translate(x, y);
+    ctx.scale((size / 100) * facing, size / 100);
+    ctx.fillStyle = 'rgba(38, 54, 66, 0.2)';
+    ellipsePath(ctx, 0, 3, 40, 8);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(-43, -4);
+    ctx.bezierCurveTo(-48, -28, -27, -59, -5, -64);
+    ctx.bezierCurveTo(19, -71, 43, -46, 46, -17);
+    ctx.bezierCurveTo(50, 14, 28, 22, 0, 22);
+    ctx.bezierCurveTo(-28, 22, -47, 15, -43, -4);
+    ctx.closePath();
+    ctx.fillStyle = fill;
+    ctx.fill();
+    ctx.strokeStyle = PALETTE.ink;
+    ctx.lineWidth = 3.6;
+    ctx.stroke();
+    ctx.fillStyle = light;
+    ellipsePath(ctx, -16, -42, 16, 8);
+    ctx.fill();
+    ctx.fillStyle = deep;
+    ellipsePath(ctx, 0, 12, 30, 6);
+    ctx.fill();
+    ctx.fillStyle = PALETTE.ink;
+    ellipsePath(ctx, -15, -18, 7, 10);
+    ctx.fill();
+    ellipsePath(ctx, 15, -18, 7, 10);
+    ctx.fill();
+    ctx.fillStyle = PALETTE.white;
+    ellipsePath(ctx, -17, -22, 2.4, 3.4);
+    ctx.fill();
+    ellipsePath(ctx, 13, -22, 2.4, 3.4);
+    ctx.fill();
+    ctx.strokeStyle = PALETTE.ink;
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    if (expression === 'hurt') {
+      ctx.moveTo(-5, -3);
+      ctx.lineTo(5, 4);
+      ctx.lineTo(12, -3);
+    } else if (expression === 'attack') {
+      ctx.moveTo(-9, 2);
+      ctx.lineTo(0, 7);
+      ctx.lineTo(9, 2);
+    } else {
+      ctx.arc(0, -1, 8, 0.12 * Math.PI, 0.88 * Math.PI);
+    }
+    ctx.stroke();
+  } finally {
+    ctx.restore();
+  }
+}
+
+/**
+ * Draw any formal 3x3 skeletal slime atlas. The body, equipment and all face
+ * states are independent cells, so heroes and soldiers share the same smooth
+ * animation clips without borrowing art from another character.
+ */
+export function drawAtlasCharacter(ctx, x, y, size, options = {}) {
   const assetKey = options.assetKey;
   const facing = safeNumber(options.facing, 1) < 0 ? -1 : 1;
-  const fallbackVariant = options.variant === 'needle' || options.squadType === 'ranged'
-    ? 'needle'
-    : 'shell';
-  const kind = fallbackVariant === 'needle' ? 'ranged' : 'melee';
-  const fallback = () => drawSlime(ctx, x, y, size, fallbackVariant, {
-    time: options.time,
-    facing,
-    hit: options.hit,
-    attackPulse: options.attackPulse,
-    animate: options.animate,
-    assetStore: null,
-    allowGeneratedStandalone: false,
-  });
+  const fallback = () => drawAtlasCharacterFallback(ctx, x, y, size, options, facing);
   if (!assetKey || !options.assetStore || typeof options.assetStore.useOrFallback !== 'function') {
     fallback();
     return false;
@@ -1366,6 +1431,93 @@ export function drawSoldier(ctx, x, y, size, options = {}) {
     }
     if (!rendered) throw new Error(`Soldier atlas ${assetKey} could not render atomically.`);
   }, fallback);
+  return rendered && result !== false;
+}
+
+/** Backward-compatible soldier name used by the battle renderer. */
+export const drawSoldier = drawAtlasCharacter;
+
+/** Maps simulation step kinds to their authored nine-frame effect atlases. */
+export const SKILL_EFFECT_ASSET_KEY_BY_STEP_KIND = Object.freeze({
+  'shell-quake': 'effect-shell-triple-shock-frames-v1',
+  'crystal-volley': 'effect-crystal-rain-frames-v1',
+  'crystal-refraction': 'effect-crystal-rain-frames-v1',
+  'bubble-field': 'effect-bubble-tide-domain-frames-v1',
+  'bubble-rewind': 'effect-bubble-tide-domain-frames-v1',
+  'bubble-burst': 'effect-bubble-tide-domain-frames-v1',
+  'sprout-pulse': 'effect-sprout-forest-dance-frames-v1',
+  'sprout-root': 'effect-sprout-forest-dance-frames-v1',
+  'berry-barrage': 'effect-berry-chain-barrage-frames-v1',
+  'berry-finale': 'effect-berry-chain-barrage-frames-v1',
+  'dew-pulse': 'effect-dew-garland-frames-v1',
+  'dew-bloom': 'effect-dew-garland-frames-v1',
+});
+
+/**
+ * Draw one stateful frame from a generated 3×3 skill-effect sheet. Callers only
+ * feed simulation time, so every effect changes authored artwork as it expands
+ * and rotates instead of behaving as a static image that merely fades out.
+ */
+export function drawSkillEffectFrames(ctx, x, y, size, options = {}) {
+  const assetKey = options.assetKey
+    || SKILL_EFFECT_ASSET_KEY_BY_STEP_KIND[options.stepKind];
+  if (!assetKey || !options.assetStore || typeof options.assetStore.useOrFallback !== 'function') {
+    return false;
+  }
+  const duration = Math.max(0.001, safeNumber(options.duration, 0.45));
+  const progress = clamp(safeNumber(options.age, 0) / duration);
+  let rendered = false;
+  const result = options.assetStore.useOrFallback(assetKey, (sheet) => {
+    const width = Number(sheet?.naturalWidth || sheet?.width);
+    const height = Number(sheet?.naturalHeight || sheet?.height);
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+      throw new TypeError(`Skill effect sheet ${assetKey} has invalid dimensions.`);
+    }
+    const authoredThreeByThree = width === height && width % 3 === 0 && height % 3 === 0;
+    const columns = Number.isInteger(options.columns) && options.columns > 0
+      ? options.columns : authoredThreeByThree ? 3 : width === height ? 2 : 4;
+    const sheetFrameCount = Number.isInteger(options.sheetFrameCount)
+      && options.sheetFrameCount > 0
+      ? options.sheetFrameCount : authoredThreeByThree ? 9 : 4;
+    const rows = Math.ceil(sheetFrameCount / columns);
+    if (width % columns !== 0 || height % rows !== 0) {
+      throw new TypeError(`Skill effect sheet ${assetKey} must divide into ${columns} columns.`);
+    }
+    const requestedStartFrame = Math.floor(safeNumber(options.startFrame, 0));
+    const startFrame = clamp(requestedStartFrame, 0, sheetFrameCount - 1);
+    const requestedFrameCount = Number.isInteger(options.frameCount) && options.frameCount > 0
+      ? options.frameCount : sheetFrameCount - startFrame;
+    const frameCount = Math.max(1, Math.min(requestedFrameCount, sheetFrameCount - startFrame));
+    const frame = startFrame
+      + Math.min(frameCount - 1, Math.floor(progress * frameCount));
+    const frameWidth = width / columns;
+    const frameHeight = height / rows;
+    const sourceX = (frame % columns) * frameWidth;
+    const sourceY = Math.floor(frame / columns) * frameHeight;
+    const baseScale = Number.isFinite(Number(options.scale)) ? Number(options.scale) : 1;
+    const growth = Number.isFinite(Number(options.growth)) ? Number(options.growth) : 0.22;
+    const rotation = safeNumber(options.rotation, 0) + progress * safeNumber(options.spin, 0.16) * TAU;
+    ctx.save();
+    try {
+      ctx.translate(x, y);
+      ctx.rotate(rotation);
+      ctx.scale(baseScale * (1 + progress * growth), baseScale * (1 + progress * growth));
+      ctx.drawImage(
+        sheet,
+        sourceX,
+        sourceY,
+        frameWidth,
+        frameHeight,
+        -size / 2,
+        -size / 2,
+        size,
+        size,
+      );
+      rendered = true;
+    } finally {
+      ctx.restore();
+    }
+  }, () => {});
   return rendered && result !== false;
 }
 

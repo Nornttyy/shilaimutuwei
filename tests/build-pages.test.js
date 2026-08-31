@@ -75,7 +75,7 @@ const REQUIRED_GAMEPLAY_MODULES = Object.freeze([
 const REQUIRED_GAMEPLAY_ASSET_CATEGORIES = Object.freeze({
   terrain: 11,
   'terrain-waste': 7,
-  region: 5,
+  region: 6,
   nest: 2,
   landmark: 5,
   expedition: 14,
@@ -124,9 +124,9 @@ test('the browser shell loads formal loading and rotation art without JavaScript
   assert.doesNotMatch(css, /@media \(orientation:\s*portrait\)/);
 });
 
-test('the project asset whitelist covers all 141 canonical nested PNG paths', () => {
+test('the project asset whitelist covers all 162 canonical nested PNG paths', () => {
   const paths = collectDeclaredAssetPaths(PROJECT_ASSET_SPEC);
-  assert.equal(paths.length, 141);
+  assert.equal(paths.length, 162);
   assert.equal(new Set(paths).size, paths.length);
   assert.equal(paths.every((assetPath) => (
     /^assets\/generated\/[a-z][a-z0-9-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*\.png$/.test(assetPath)

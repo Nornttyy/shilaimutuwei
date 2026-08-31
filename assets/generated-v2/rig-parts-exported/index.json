@@ -80,11 +80,11 @@
           "output": "survivor-shell-shell/eyes.png",
           "width": 172,
           "height": 84,
-          "visiblePixels": 5628,
-          "transparentPixels": 8820,
-          "translucentPixels": 1245,
-          "pixelSha256": "10a4149880717374312b940e0b2031c2c61e223d1fa45ddbfa829b2ee8b46cba",
-          "pngSha256": "b2b79a497d10d9e5a859654cb23a3c4bb6f0c20766b28621ff1977e376eb6f0c"
+          "visiblePixels": 6168,
+          "transparentPixels": 8280,
+          "translucentPixels": 1232,
+          "pixelSha256": "ceefccc5b773d6f4c7f3a40480300b6e2aed90b52c8c5c4800f50cf5691bb81f",
+          "pngSha256": "89a96ca86f8454446c60dc91031783016589dc600a94430184065f3e6eb4c5e9"
         },
         {
           "id": "mouth",
@@ -121,11 +121,11 @@
           "output": "survivor-shell-shell/expressions/eyes--normal.png",
           "width": 172,
           "height": 84,
-          "visiblePixels": 5628,
-          "transparentPixels": 8820,
-          "translucentPixels": 1245,
-          "pixelSha256": "10a4149880717374312b940e0b2031c2c61e223d1fa45ddbfa829b2ee8b46cba",
-          "pngSha256": "b2b79a497d10d9e5a859654cb23a3c4bb6f0c20766b28621ff1977e376eb6f0c"
+          "visiblePixels": 6168,
+          "transparentPixels": 8280,
+          "translucentPixels": 1232,
+          "pixelSha256": "ceefccc5b773d6f4c7f3a40480300b6e2aed90b52c8c5c4800f50cf5691bb81f",
+          "pngSha256": "89a96ca86f8454446c60dc91031783016589dc600a94430184065f3e6eb4c5e9"
         },
         {
           "partId": "eyes",
@@ -140,11 +140,11 @@
           "output": "survivor-shell-shell/expressions/eyes--blink.png",
           "width": 172,
           "height": 84,
-          "visiblePixels": 758,
-          "transparentPixels": 13690,
-          "translucentPixels": 585,
-          "pixelSha256": "ef3161363e9517f0bd7eb037d118712188064d0a41f0f03de5893fc98a38cca2",
-          "pngSha256": "1428776993207d5246c0a9c4dba3b6e575c27f5baa7a133c0c4487b12cf1c297"
+          "visiblePixels": 831,
+          "transparentPixels": 13617,
+          "translucentPixels": 645,
+          "pixelSha256": "d38b9e32c8c71effb3227a0559390fb52410ec3fdb5af18a9dd8a5e2b630bc3e",
+          "pngSha256": "83873c4b296c4e4ee3a2ab4a1b5b2740c393fa00abbd099752b6b9a477d74c64"
         },
         {
           "partId": "eyes",
@@ -159,11 +159,11 @@
           "output": "survivor-shell-shell/expressions/eyes--hurt.png",
           "width": 172,
           "height": 84,
-          "visiblePixels": 5072,
-          "transparentPixels": 9376,
-          "translucentPixels": 1321,
-          "pixelSha256": "8dde80256740d2587bc8a760c2e292154abb7ef02df74ce601c8601c243f1c57",
-          "pngSha256": "8b1c2cfe28b642bb575e75e1689980e77e7694e768b54de0156b5ed19264481c"
+          "visiblePixels": 5556,
+          "transparentPixels": 8892,
+          "translucentPixels": 1283,
+          "pixelSha256": "d95f949b75596f7e974d29e3bb395a1c716b711c6327a2c3ed6975554b1c6175",
+          "pngSha256": "01bafef1ec967233f65be2cb6b260b723926f6d6525e5f5159ff6fa9874e55b0"
         },
         {
           "partId": "eyes",
@@ -178,11 +178,11 @@
           "output": "survivor-shell-shell/expressions/eyes--attack.png",
           "width": 172,
           "height": 84,
-          "visiblePixels": 5357,
-          "transparentPixels": 9091,
-          "translucentPixels": 1328,
-          "pixelSha256": "f581ffd65ba8cf6f134fb5fdbe36496c7529568d0b167a3f39d9afc01e976ca4",
-          "pngSha256": "54d13bc69a8bf5664b143de0d0fc862bfdba94e53e4e67db6401ac5c2dc2e142"
+          "visiblePixels": 5871,
+          "transparentPixels": 8577,
+          "translucentPixels": 1318,
+          "pixelSha256": "b40a5db1f5367819176dc8d9c3e275a0f27b19a53a00655517c7a170438a517e",
+          "pngSha256": "e0ec0f90aaaac546c404e521870a06d7d162b8f5caa7eaf8cc3f7e8757db74d5"
         },
         {
           "partId": "mouth",
@@ -403,8 +403,8 @@
           "visiblePixels": 91362,
           "transparentPixels": 24918,
           "translucentPixels": 90638,
-          "pixelSha256": "e0cf3e28dbc762ab6bf6a9ff960e521cb1db1beefc36d10f80e7cf1f0a0297af",
-          "pngSha256": "aeb45abe86bc48160ae0b518583b752e0a3ed21a681f452183fbb16c88b631bb"
+          "pixelSha256": "4c3e2bf4464416b2fa6f827f2cd489d2a8d473463a0d8baa76bd537a9b69dbf5",
+          "pngSha256": "a3f51b8836c78776b6861eb8ff4237724e44c28181a72f2e59b03e567529ff9a"
         },
         {
           "id": "eyes",
@@ -420,11 +420,11 @@
           "output": "survivor-crystal-pin/eyes.png",
           "width": 151,
           "height": 88,
-          "visiblePixels": 4941,
-          "transparentPixels": 8347,
-          "translucentPixels": 4696,
-          "pixelSha256": "d766871284c7c7da370e050f72286069062f95cbd8a4aaab461bb1f353c8d06b",
-          "pngSha256": "24bc42e75b28367c1e4b408b609a06c5dc1e4afdf5ddb1e60e5a8dfe7d144b45"
+          "visiblePixels": 4994,
+          "transparentPixels": 8294,
+          "translucentPixels": 1185,
+          "pixelSha256": "e20077b66317ecb49dc1d2d82852d6e46612289bb1d74ee1e01075b39837f5e1",
+          "pngSha256": "f18176d9282c3f447819e3fc1c2dea5ef029c9094657fa1aa787548aeacd1e35"
         },
         {
           "id": "mouth",
@@ -481,11 +481,11 @@
           "output": "survivor-crystal-pin/expressions/eyes--normal.png",
           "width": 151,
           "height": 88,
-          "visiblePixels": 4941,
-          "transparentPixels": 8347,
-          "translucentPixels": 4696,
-          "pixelSha256": "d766871284c7c7da370e050f72286069062f95cbd8a4aaab461bb1f353c8d06b",
-          "pngSha256": "24bc42e75b28367c1e4b408b609a06c5dc1e4afdf5ddb1e60e5a8dfe7d144b45"
+          "visiblePixels": 4994,
+          "transparentPixels": 8294,
+          "translucentPixels": 1185,
+          "pixelSha256": "e20077b66317ecb49dc1d2d82852d6e46612289bb1d74ee1e01075b39837f5e1",
+          "pngSha256": "f18176d9282c3f447819e3fc1c2dea5ef029c9094657fa1aa787548aeacd1e35"
         },
         {
           "partId": "eyes",
@@ -500,11 +500,11 @@
           "output": "survivor-crystal-pin/expressions/eyes--blink.png",
           "width": 151,
           "height": 88,
-          "visiblePixels": 648,
-          "transparentPixels": 12640,
-          "translucentPixels": 497,
-          "pixelSha256": "ae3895d23d721f925d377fefb07d33db1e8cc3324ff71a0f8dc4e197a16f5458",
-          "pngSha256": "b2fb53e0938e8bd2ceed1cb799e96096ec6a10776b61e7e45a9754ca3f2f20fd"
+          "visiblePixels": 666,
+          "transparentPixels": 12622,
+          "translucentPixels": 504,
+          "pixelSha256": "fe347a1bd091eb2d80444f585c2c1d4dc30465703141628e9820a620d77b08bb",
+          "pngSha256": "07e2597d880dddc90c69d6f559edbf3803ae6ff83316b458fdf0ed7ba453799a"
         },
         {
           "partId": "eyes",
@@ -519,11 +519,11 @@
           "output": "survivor-crystal-pin/expressions/eyes--hurt.png",
           "width": 151,
           "height": 88,
-          "visiblePixels": 4667,
-          "transparentPixels": 8621,
-          "translucentPixels": 4473,
-          "pixelSha256": "e1ef1287f19380e411829e4e44172b23ab42de6add4df4d677b40346ab0570fc",
-          "pngSha256": "09fa95cfa0ed1b8a517c04b2f504fe8cea0a3b4650aaba7c29e087ce2759000e"
+          "visiblePixels": 4775,
+          "transparentPixels": 8513,
+          "translucentPixels": 1278,
+          "pixelSha256": "4c108bced750790a3a510c564525b705ece8b6fb14b3bb7adc3ee7ad4f32f09a",
+          "pngSha256": "5aceeddd70ed81137beadb29e4277509989394575266919975ae57c771bb2c2f"
         },
         {
           "partId": "eyes",
@@ -538,11 +538,11 @@
           "output": "survivor-crystal-pin/expressions/eyes--attack.png",
           "width": 151,
           "height": 88,
-          "visiblePixels": 4866,
-          "transparentPixels": 8422,
-          "translucentPixels": 4648,
-          "pixelSha256": "334cd8e2a8818bac39a2896c0d74cc17d8624561a6798fe95283fde1f25ba9a8",
-          "pngSha256": "7a08a149b247648b270f5671e8cf66c8b46af4731e1c23263a4d2e0e9d3cd988"
+          "visiblePixels": 4883,
+          "transparentPixels": 8405,
+          "translucentPixels": 1239,
+          "pixelSha256": "4bc50a6dda22a675a8f818f1fdc5a2f6e9e5661cb2476309e921cbdaba9aeba9",
+          "pngSha256": "b8009286fbc4a6c9bfc8a109b27e65e6e4e04131d2044936e5d5345b5dc6c7e7"
         },
         {
           "partId": "mouth",
@@ -700,11 +700,11 @@
           "output": "survivor-bubble-float/eyes.png",
           "width": 152,
           "height": 76,
-          "visiblePixels": 5039,
-          "transparentPixels": 6513,
-          "translucentPixels": 4799,
-          "pixelSha256": "571efd750272e6132370fc6ed9d5140744fe611310d4aff8a5fea0bc0e3f0334",
-          "pngSha256": "32ad76f4704b15f2ae1988029f0fac4cee588c5b9c45ccf79062391db6e94e17"
+          "visiblePixels": 6133,
+          "transparentPixels": 5419,
+          "translucentPixels": 5852,
+          "pixelSha256": "7ac79c76c09657a2c817c2e353d03ea594f1c90f75f174d4d75bb02217a56cfb",
+          "pngSha256": "9c6f97aba9781bb11529e04f5a4ab54ff426acc380297b8e76fba342bf30924c"
         },
         {
           "id": "mouth",
@@ -761,11 +761,11 @@
           "output": "survivor-bubble-float/expressions/eyes--normal.png",
           "width": 152,
           "height": 76,
-          "visiblePixels": 5039,
-          "transparentPixels": 6513,
-          "translucentPixels": 4799,
-          "pixelSha256": "571efd750272e6132370fc6ed9d5140744fe611310d4aff8a5fea0bc0e3f0334",
-          "pngSha256": "32ad76f4704b15f2ae1988029f0fac4cee588c5b9c45ccf79062391db6e94e17"
+          "visiblePixels": 6133,
+          "transparentPixels": 5419,
+          "translucentPixels": 5852,
+          "pixelSha256": "7ac79c76c09657a2c817c2e353d03ea594f1c90f75f174d4d75bb02217a56cfb",
+          "pngSha256": "9c6f97aba9781bb11529e04f5a4ab54ff426acc380297b8e76fba342bf30924c"
         },
         {
           "partId": "eyes",
@@ -780,11 +780,11 @@
           "output": "survivor-bubble-float/expressions/eyes--blink.png",
           "width": 152,
           "height": 76,
-          "visiblePixels": 768,
-          "transparentPixels": 10784,
-          "translucentPixels": 602,
-          "pixelSha256": "32fcd157bcf854e38d03907950d1750b59e5c7248e3d16c91ca616b3f58415d3",
-          "pngSha256": "3242abf3ba5c5f9532c16cd09089b6d74e8e91e342536ce0e2f37e795029feee"
+          "visiblePixels": 874,
+          "transparentPixels": 10678,
+          "translucentPixels": 665,
+          "pixelSha256": "241a2171df76d2161e3452998a7158f914eb096f08da83b0c1c1116a6495073e",
+          "pngSha256": "3fac049a7bda343267fd60198f8282957b803c263c044f47c9f82ccfd65f9c63"
         },
         {
           "partId": "eyes",
@@ -799,11 +799,11 @@
           "output": "survivor-bubble-float/expressions/eyes--hurt.png",
           "width": 152,
           "height": 76,
-          "visiblePixels": 4832,
-          "transparentPixels": 6720,
-          "translucentPixels": 4632,
-          "pixelSha256": "5f5722d9ac9757a70004e937c9a55fd4fd727dd22e247133e9b98f1bb315be42",
-          "pngSha256": "b175982d3c3178b28f9343cb1d7ce0414bc99fdd776183138c51fe80eae02f9b"
+          "visiblePixels": 5819,
+          "transparentPixels": 5733,
+          "translucentPixels": 5598,
+          "pixelSha256": "53c7693cd237dda6a0e1e22fd361b2759d257bd12db53290d3449d675bb0db0c",
+          "pngSha256": "684f53c0e28631482bd9b09afec73b3dc7aa73c2b75eb3b4af0c06e076757790"
         },
         {
           "partId": "eyes",
@@ -818,11 +818,11 @@
           "output": "survivor-bubble-float/expressions/eyes--attack.png",
           "width": 152,
           "height": 76,
-          "visiblePixels": 5036,
-          "transparentPixels": 6516,
-          "translucentPixels": 4816,
-          "pixelSha256": "95e7b73da3371db43f30c5ad4033adc169e62251804203631b3238b7fbff72ac",
-          "pngSha256": "21331c5d0cc11a5af0874f326ad290eed2019f167a40ae5edebc62321c58422f"
+          "visiblePixels": 6085,
+          "transparentPixels": 5467,
+          "translucentPixels": 5839,
+          "pixelSha256": "76a591552f808b527268e270c004a8a33f97481b22ad93fc9ed2aa631af7b97e",
+          "pngSha256": "3d170df2d03b636c7e79767264310fcc68338cf3164ff1ae040bd0f18d318ea6"
         },
         {
           "partId": "mouth",
@@ -903,8 +903,8 @@
           "visiblePixels": 109855,
           "transparentPixels": 27233,
           "translucentPixels": 4688,
-          "pixelSha256": "9ca421788ab8c97529b91838e673e73bc3a68716b97f08e69068214600b7b98c",
-          "pngSha256": "e8b85d45b372b8956e9d873c49872ff2689c6841cc5fdec54c47ea2f006b21b8"
+          "pixelSha256": "a9d622bd0afd6cd1ae962d088830a6a47615d4436412d545e6bef513a844301c",
+          "pngSha256": "4954277c569a72d8083bf6b8a6a947039d9a6bcb300b54982a5145989d2a204b"
         },
         {
           "id": "eyes",
@@ -920,11 +920,11 @@
           "output": "survivor-moss-sprout/eyes.png",
           "width": 201,
           "height": 108,
-          "visiblePixels": 7482,
-          "transparentPixels": 14226,
-          "translucentPixels": 1529,
-          "pixelSha256": "e8771a36c7e427d2a6e5a9fe4986fd1655976ab24ae2a4337dda2660849b3972",
-          "pngSha256": "b2508f7c29879fad7ea4dac8b7cd65b4d9f9872210734d0a02818c5a6f552c61"
+          "visiblePixels": 6696,
+          "transparentPixels": 15012,
+          "translucentPixels": 1396,
+          "pixelSha256": "5f319843b774af0d84bf1212791308dad8079f29acdedd3c58ed9619c96d6243",
+          "pngSha256": "ea269665f69852ab3a40df9e97d130351a4c39d7c5f441f883d0b69e038436c7"
         },
         {
           "id": "mouth",
@@ -1041,11 +1041,11 @@
           "output": "survivor-moss-sprout/expressions/eyes--normal.png",
           "width": 201,
           "height": 108,
-          "visiblePixels": 7482,
-          "transparentPixels": 14226,
-          "translucentPixels": 1529,
-          "pixelSha256": "e8771a36c7e427d2a6e5a9fe4986fd1655976ab24ae2a4337dda2660849b3972",
-          "pngSha256": "b2508f7c29879fad7ea4dac8b7cd65b4d9f9872210734d0a02818c5a6f552c61"
+          "visiblePixels": 6696,
+          "transparentPixels": 15012,
+          "translucentPixels": 1396,
+          "pixelSha256": "5f319843b774af0d84bf1212791308dad8079f29acdedd3c58ed9619c96d6243",
+          "pngSha256": "ea269665f69852ab3a40df9e97d130351a4c39d7c5f441f883d0b69e038436c7"
         },
         {
           "partId": "eyes",
@@ -1060,11 +1060,11 @@
           "output": "survivor-moss-sprout/expressions/eyes--blink.png",
           "width": 201,
           "height": 108,
-          "visiblePixels": 1032,
-          "transparentPixels": 20676,
-          "translucentPixels": 743,
-          "pixelSha256": "55fc32b85cab3ef5a63b0358d516681b8e5dfe7b2554416728b6d00efb049c49",
-          "pngSha256": "e855628c392be50efc596c45b4c8268767846cd83cb8f41d98cab792c32e7ca0"
+          "visiblePixels": 997,
+          "transparentPixels": 20711,
+          "translucentPixels": 711,
+          "pixelSha256": "4ec985e6941f176666b9f18be00a3aa67b6e2480ac0782219fe3ab3d5cb67a1e",
+          "pngSha256": "1298dddfd4200bc9af6974ff37c76762643d1cd7dc79f99bd3d11d88749de7a6"
         },
         {
           "partId": "eyes",
@@ -1079,11 +1079,11 @@
           "output": "survivor-moss-sprout/expressions/eyes--hurt.png",
           "width": 201,
           "height": 108,
-          "visiblePixels": 984,
-          "transparentPixels": 20724,
-          "translucentPixels": 710,
-          "pixelSha256": "a16c59b198c209ba17c1d77c690d8b384822b94d1a3b45bc762021caec2e30d5",
-          "pngSha256": "5cfe7d393ca390715b9ab55ca216ff0b5fb8cfcb303d2988b343d86c8e362c33"
+          "visiblePixels": 972,
+          "transparentPixels": 20736,
+          "translucentPixels": 706,
+          "pixelSha256": "ae91b4a88bd0f94eca6d98d1957baba55025e93f9011c86df152a8c1517e42c9",
+          "pngSha256": "5dc54b2d51ca24f6b38d0a5dddfb91e182d05de8bd15355c78ad07c9de3d8a7e"
         },
         {
           "partId": "eyes",
@@ -1098,11 +1098,11 @@
           "output": "survivor-moss-sprout/expressions/eyes--attack.png",
           "width": 201,
           "height": 108,
-          "visiblePixels": 7381,
-          "transparentPixels": 14327,
-          "translucentPixels": 1590,
-          "pixelSha256": "370d0cb4e032afd17604c36bbc7c6a82d7a85e55efd74e13daf91af9c50be9d4",
-          "pngSha256": "dd2c75345d01f2d2117659d0cfc32ed689f39738cdcb347c8772e4219350fe17"
+          "visiblePixels": 6605,
+          "transparentPixels": 15103,
+          "translucentPixels": 1450,
+          "pixelSha256": "f5ba3facc75e13c63cf201d50754acb0aaf93f599a8ca3e42c08ebfadfc448b6",
+          "pngSha256": "fda6761dd409247a0d8677b17b9a9587621496d8159e76e39b65cb56a8f5ed9b"
         },
         {
           "partId": "mouth",

@@ -60,7 +60,7 @@ ROLE_PROFILES = {
         "blink_offsets": (0.00, -0.02),
         "attack_depths": (0.055, 0.055),
         "attack_focus": 0.0,
-        "hurt_depths": (0.13, 0.13),
+        "hurt_depths": (0.10, 0.10),
         "open_mouth": (0.96, 1.06, 0.0, 0.0, False),
         "hurt_mouth": (0.90, 0.78, 0.0, 1.0, True),
     },

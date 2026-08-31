@@ -50,12 +50,12 @@ const PROJECT_ASSET_SPEC = JSON.parse(await readFile(
   'utf8',
 ));
 
-test('the workspace asset manifest strictly validates all 141 finished PNGs', async () => {
+test('the workspace asset manifest strictly validates every finished PNG', async () => {
   const result = await verifyAssets({ cwd: PROJECT_ROOT, allowMissingSpec: false });
   assert.equal(result.ok, true, formatErrors(result));
   assert.equal(result.skipped, false);
-  assert.equal(result.summary.declaredAssets, 141);
-  assert.equal(result.summary.checkedAssets, 141);
+  assert.equal(result.summary.declaredAssets, PROJECT_ASSET_SPEC.assets.length);
+  assert.equal(result.summary.checkedAssets, PROJECT_ASSET_SPEC.assets.length);
   assert.deepEqual(result.errors, [], formatErrors(result));
   assert.deepEqual(result.warnings, [], formatErrors(result));
 });
@@ -386,8 +386,7 @@ test('missing asset-spec is skippable by default and an error in strict mode', a
   }, { writeAssetsDirectory: false });
 });
 
-test('runtime asset map covers all 141 canonical nested paths and three aliases', () => {
-  assert.equal(PROJECT_ASSET_SPEC.assets.length, 141);
+test('runtime asset map covers manifest paths, formal extensions, and three aliases', () => {
   for (const asset of PROJECT_ASSET_SPEC.assets) {
     assert.equal(typeof ASSET_PATHS[asset.id], 'string', `missing runtime asset: ${asset.id}`);
     assert.ok(
@@ -396,10 +395,43 @@ test('runtime asset map covers all 141 canonical nested paths and three aliases'
     );
     assert.equal(new URL(ASSET_PATHS[asset.id]).searchParams.get('v'), ASSET_CACHE_VERSION);
   }
-  assert.equal(Object.keys(ASSET_PATHS).length, 144);
+  assert.equal(Object.keys(ASSET_PATHS).length, ALL_RUNTIME_ASSET_KEYS.length + 3);
   assert.equal(ASSET_PATHS['scene-gel-garden'], ASSET_PATHS['background-garden-base']);
   assert.equal(ASSET_PATHS['town-core'], ASSET_PATHS['town-soft-core']);
   assert.equal(ASSET_PATHS['enemy-portal'], ASSET_PATHS['rift-entry-portal']);
+});
+
+test('new tower-defense characters and multi-stage skill art use formal generated paths', () => {
+  const expected = {
+    'survivor-berry-burst': 'survivor/survivor-berry-burst.png',
+    'hero-berry-burst-atlas-v1': 'hero/hero-berry-burst-atlas-v1.png',
+    'survivor-dew-bloom': 'survivor/survivor-dew-bloom.png',
+    'hero-dew-bloom-atlas-v1': 'hero/hero-dew-bloom-atlas-v1.png',
+    'soldier-bounce-hammer-atlas-v1': 'soldier/soldier-bounce-hammer-atlas-v1.png',
+    'soldier-leaf-spinner-atlas-v1': 'soldier/soldier-leaf-spinner-atlas-v1.png',
+    'turret-bubble-coil': 'turret/turret-bubble-coil-v1.png',
+    'turret-crystal-repeater': 'turret/turret-crystal-repeater-v1.png',
+    'region-sunbud-sanctuary-field-a': 'region/region-sunbud-sanctuary-field-a.png',
+    'skill-shell-triple-shock-icon': 'skill/skill-shell-triple-shock-icon.png',
+    'skill-crystal-rain-icon': 'skill/skill-crystal-rain-icon.png',
+    'skill-bubble-tide-domain-icon': 'skill/skill-bubble-tide-domain-icon.png',
+    'skill-sprout-forest-dance-icon': 'skill/skill-sprout-forest-dance-icon.png',
+    'skill-berry-chain-barrage-icon': 'skill/skill-berry-chain-barrage-icon.png',
+    'skill-dew-garland-icon': 'skill/skill-dew-garland-icon.png',
+    'effect-shell-triple-shock-frames-v1': 'effect/effect-shell-triple-shock-frames-v1.png',
+    'effect-crystal-rain-frames-v1': 'effect/effect-crystal-rain-frames-v1.png',
+    'effect-bubble-tide-domain-frames-v1': 'effect/effect-bubble-tide-domain-frames-v1.png',
+    'effect-sprout-forest-dance-frames-v1': 'effect/effect-sprout-forest-dance-frames-v1.png',
+    'effect-berry-chain-barrage-frames-v1': 'effect/effect-berry-chain-barrage-frames-v1.png',
+    'effect-dew-garland-frames-v1': 'effect/effect-dew-garland-frames-v1.png',
+  };
+  for (const [id, relativePath] of Object.entries(expected)) {
+    assert.equal(ALL_RUNTIME_ASSET_KEYS.includes(id), true, `${id} is runtime art`);
+    assert.equal(TOWER_DEFENSE_ASSET_KEYS.includes(id), true, `${id} is battle art`);
+    assert.equal(CRITICAL_STARTUP_ASSET_KEYS.includes(id), true, `${id} is critical`);
+    assert.equal(WECHAT_CRITICAL_ASSET_KEYS.includes(id), true, `${id} is WeChat critical`);
+    assert.match(new URL(ASSET_PATHS[id]).pathname, new RegExp(`/${relativePath}$`), id);
+  }
 });
 
 test('tower-defense startup preloads every formal image used by its public renderer', () => {
@@ -750,7 +782,7 @@ test('browser startup gates game construction on every critical PNG and retries 
   assert.match(source, /resolvePath: \(assetPath\) => versionedBrowserUrl\(`\.\.\/\$\{assetPath\}`\)/);
   assert.match(source, /hostname: window\.location\.hostname/);
   assert.doesNotMatch(source, /Promise\.race/);
-  assert.equal(ALL_RUNTIME_ASSET_KEYS.length, 141);
+  assert.ok(ALL_RUNTIME_ASSET_KEYS.length >= PROJECT_ASSET_SPEC.assets.length);
   assert.equal(new Set(ALL_RUNTIME_ASSET_KEYS).size, ALL_RUNTIME_ASSET_KEYS.length);
   ALL_RUNTIME_ASSET_KEYS.forEach((key) => {
     assert.equal(typeof ASSET_PATHS[key], 'string', `runtime asset ${key}`);

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "builder": "scripts/build-master-derived-rigs.py",
   "sourceMaster": "assets/original-masters/survivor-crystal-pin.png",
-  "sourceMasterSha256": "931ddcb5ab21d71f0c5e07ee611ad3c309fa6c5a16e2dca8d00d84c963614722",
+  "sourceMasterSha256": "058b108adc6dd536c5eac22d0cb19cbcfbbd1f5816e646c572fd6c0293bace78",
   "sourceMasterSize": [
     1402,
     1122
@@ -359,19 +359,19 @@
     "bindRecomposition": "assets/generated-v2/rig/survivor-crystal-pin/bind-recomposition-v1.png",
     "metrics": {
       "alphaIoU": 0.983968,
-      "meanAlphaError": 2.522646,
-      "visibleRgbPsnrDb": 25.5045,
-      "visiblePixelsChangedOver8": 20360,
+      "meanAlphaError": 2.496658,
+      "visibleRgbPsnrDb": 25.5058,
+      "visiblePixelsChangedOver8": 20128,
       "visiblePixels": 859888
     }
   },
-  "atlasSha256": "6069def908050283f2ccea1adc4df635ebe2568ce462be185771aa32ec8f5caf",
-  "expressionsSha256": "f0185ae47761b91169701d034309dc6f805aaf18749619d86ae9c3a2aaf40345",
+  "atlasSha256": "76b84f72657a2f2704f317a852262dbe789fc0d0ac6a33598e17a71447d29814",
+  "expressionsSha256": "d2011cdd979b2a3a880ffb83ecb926f108ef59cdd8632d363fc839492353b2cb",
   "layerPngSha256": {
-    "body": "4644faf3c879113d12d0ae874e2a100fa4a67481f21a7698d01d1d1965ec244e",
-    "eyeLeft": "3fd9c1fbff9607e4eb5214f7042ebd2f29cd827594b168671aa66c84e59dd8ed",
-    "eyeRight": "98f7f774d05d6286fabf722099f823f5642aa2a778146891ac14dce2339fd163",
-    "eyes": "8407bc595e4ea74149a0bac652464f6e20c82d6501ffede6e0f5930bf2556ab3",
+    "body": "1875f6ed1dd187bd3232f613d2f9c4eeaf4f161ddd793a9a95567f245828e824",
+    "eyeLeft": "c724f575b1ea911777898d3c76d307342e283d02f87b979752bb09fb6b4a1755",
+    "eyeRight": "5d3afb5136ec47539f472e62f8742b2be781f083445de73e85940d7cfab7f428",
+    "eyes": "f4fb44e67aefdb690f424d55c8467b5c17c719540c3deae25d680b9f919d2550",
     "front": "9e1dc0743ddc4765a17e3498d6ae7ffd20520de11907c5fac0153813609fcbf5",
     "mouth": "e1832d7db4771762df552c090fba3632014fa209f8b70c2703bb830791adbdae",
     "needleBottom": "9c6f8a5a8ef71fabdc58c6ce2757e726786cbbfe258ede6dc17825b4ddd22493",

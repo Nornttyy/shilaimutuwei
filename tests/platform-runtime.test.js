@@ -946,7 +946,7 @@ async function listTree(root, relative = '') {
   return files.sort();
 }
 
-test('WeChat production remote gate contains 141 canonical images and all 16 versioned rig PNGs', async () => {
+test('WeChat production remote gate contains 162 canonical images and all 16 versioned rig PNGs', async () => {
   const assetSpec = JSON.parse(await readFile(path.join(PROJECT_ROOT, 'assets', 'asset-spec.json'), 'utf8'));
   const rigManifest = JSON.parse(await readFile(path.join(PROJECT_ROOT, 'assets', 'rig-parts.json'), 'utf8'));
   const declaredRigPaths = assertRigBuildContract(rigManifest, PRODUCTION_RIG_OWNER_IDS);
@@ -954,15 +954,15 @@ test('WeChat production remote gate contains 141 canonical images and all 16 ver
   const ordinary = packagedAssetPaths(assets, 'https://cdn.example.com/game');
   const rigs = packagedRigImagePaths(assets, 'https://cdn.example.com/game');
 
-  assert.equal(Object.keys(ordinary).length, 141);
-  assert.equal(new Set(Object.values(ordinary)).size, 141);
+  assert.equal(Object.keys(ordinary).length, 162);
+  assert.equal(new Set(Object.values(ordinary)).size, 162);
   assert.equal(Object.hasOwn(ordinary, 'scene-gel-garden'), false);
   assert.equal(Object.hasOwn(ordinary, 'town-core'), false);
   assert.equal(Object.hasOwn(ordinary, 'enemy-portal'), false);
   assert.equal(declaredRigPaths.length, 16);
   assert.equal(Object.keys(rigs).length, 16);
   assert.equal(new Set(Object.values(rigs)).size, 16);
-  assert.equal(new Set([...Object.values(ordinary), ...Object.values(rigs)]).size, 157);
+  assert.equal(new Set([...Object.values(ordinary), ...Object.values(rigs)]).size, 178);
   for (const url of [...Object.values(ordinary), ...Object.values(rigs)]) {
     assert.match(url, /\?v=[a-f0-9]{12}$/);
   }

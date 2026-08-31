@@ -48,11 +48,43 @@ function readyStore(asset, requested) {
   };
 }
 
-test('soldier atlas cells keep a transparent sampling gutter around every layer', async () => {
+function highAlphaBounds(atlas, slot, threshold = 32) {
   const cell = 418;
+  const originX = (slot % 3) * cell;
+  const originY = Math.floor(slot / 3) * cell;
+  let minX = cell;
+  let minY = cell;
+  let maxX = -1;
+  let maxY = -1;
+  for (let y = 0; y < cell; y += 1) {
+    for (let x = 0; x < cell; x += 1) {
+      const alpha = atlas.pixels[((originY + y) * atlas.width + originX + x) * 4 + 3];
+      if (alpha < threshold) continue;
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+    }
+  }
+  return { minX, minY, maxX, maxY };
+}
+
+function boundsCenter(bounds) {
+  return {
+    x: (bounds.minX + bounds.maxX) / 2,
+    y: (bounds.minY + bounds.maxY) / 2,
+  };
+}
+
+test('formal 3x3 character atlas cells keep a two-pixel transparent sampling gutter', async () => {
+  const cell = 418;
+  const gutter = 2;
   const atlases = [
     new URL('../assets/generated/soldier/soldier-shield-dun-atlas-v1.png', import.meta.url),
     new URL('../assets/generated/soldier/soldier-bean-bow-atlas-v1.png', import.meta.url),
+    new URL('../assets/generated/soldier/soldier-bounce-hammer-atlas-v1.png', import.meta.url),
+    new URL('../assets/generated/soldier/soldier-leaf-spinner-atlas-v1.png', import.meta.url),
+    new URL('../assets/generated/hero/hero-berry-burst-atlas-v1.png', import.meta.url),
   ];
   for (const atlasUrl of atlases) {
     const atlas = decodeRgbaPng(await readFile(atlasUrl), atlasUrl.pathname);
@@ -62,20 +94,67 @@ test('soldier atlas cells keep a transparent sampling gutter around every layer'
       const originX = (index % 3) * cell;
       const originY = Math.floor(index / 3) * cell;
       let visiblePixels = 0;
-      let edgePixels = 0;
+      let gutterPixels = 0;
       for (let y = 0; y < cell; y += 1) {
         for (let x = 0; x < cell; x += 1) {
           const alpha = atlas.pixels[
             ((originY + y) * atlas.width + originX + x) * 4 + 3
           ];
           if (alpha > 0) visiblePixels += 1;
-          if (alpha > 0 && (x === 0 || y === 0 || x === cell - 1 || y === cell - 1)) {
-            edgePixels += 1;
+          if (alpha > 0 && (
+            x < gutter || y < gutter || x >= cell - gutter || y >= cell - gutter
+          )) {
+            gutterPixels += 1;
           }
         }
       }
       assert.ok(visiblePixels > 0, `${atlasUrl.pathname} cell ${index} is non-empty`);
-      assert.equal(edgePixels, 0, `${atlasUrl.pathname} cell ${index} has a transparent gutter`);
+      assert.equal(gutterPixels, 0, `${atlasUrl.pathname} cell ${index} has a ${gutter}px transparent gutter`);
+    }
+  }
+});
+
+test('legacy squads reuse approved limb-free bodies and keep all expressions on the normal face anchors', async () => {
+  const cases = [
+    {
+      target: new URL('../assets/generated/soldier/soldier-shield-dun-atlas-v1.png', import.meta.url),
+      source: new URL('../assets/generated/hero/hero-berry-burst-atlas-v1.png', import.meta.url),
+    },
+    {
+      target: new URL('../assets/generated/soldier/soldier-bean-bow-atlas-v1.png', import.meta.url),
+      source: new URL('../assets/generated/soldier/soldier-bounce-hammer-atlas-v1.png', import.meta.url),
+    },
+  ];
+  const cell = 418;
+  for (const { target: targetUrl, source: sourceUrl } of cases) {
+    const target = decodeRgbaPng(await readFile(targetUrl), targetUrl.pathname);
+    const source = decodeRgbaPng(await readFile(sourceUrl), sourceUrl.pathname);
+    for (const slot of [0, 3, 5, 7]) {
+      const originX = (slot % 3) * cell;
+      const originY = Math.floor(slot / 3) * cell;
+      for (let y = 0; y < cell; y += 1) {
+        for (let x = 0; x < cell; x += 1) {
+          const offset = ((originY + y) * target.width + originX + x) * 4;
+          if (source.pixels[offset + 3] < 32 && target.pixels[offset + 3] < 32) continue;
+          assert.deepEqual(
+            [...target.pixels.subarray(offset, offset + 4)],
+            [...source.pixels.subarray(offset, offset + 4)],
+            `${targetUrl.pathname} slot ${slot} keeps the approved authored component`,
+          );
+        }
+      }
+    }
+
+    const normalEyes = highAlphaBounds(target, 3);
+    for (const slot of [5, 7]) {
+      assert.deepEqual(highAlphaBounds(target, slot), normalEyes,
+        `${targetUrl.pathname} expression eyes share the normal anchor`);
+    }
+    const normalMouthCenter = boundsCenter(highAlphaBounds(target, 4));
+    for (const slot of [6, 8]) {
+      const center = boundsCenter(highAlphaBounds(target, slot));
+      assert.ok(Math.abs(center.x - normalMouthCenter.x) <= 1);
+      assert.ok(Math.abs(center.y - normalMouthCenter.y) <= 1);
     }
   }
 });
@@ -218,4 +297,65 @@ test('invalid or missing soldier atlas uses one whole vector fallback without he
     assert.deepEqual(requested, ['soldier-melee-atlas']);
     assert.ok(main.calls.length > 0, 'the complete vector soldier fallback is drawn');
   }
+});
+
+test('formal hero and new squad atlases share the generic rig without falling back to 壳壳', async () => {
+  const previous = globalThis.OffscreenCanvas;
+  globalThis.OffscreenCanvas = class {
+    constructor(width, height) {
+      this.width = width;
+      this.height = height;
+      this.context = contextFor(this);
+    }
+    getContext() { return this.context; }
+  };
+  try {
+    const { drawAtlasCharacter } = await import(`../src/draw.js?atlas=${Date.now()}`);
+    const atlas = { id: 'berry-atlas', width: 1254, height: 1254 };
+    const requested = [];
+    assert.equal(drawAtlasCharacter(contextFor(), 32, 96, 74, {
+      assetStore: readyStore(atlas, requested),
+      assetKey: 'hero-berry-burst-atlas-v1',
+      state: 'attack',
+      attackPulse: 0.7,
+    }), true);
+    assert.deepEqual(requested, ['hero-berry-burst-atlas-v1']);
+
+    const absentCalls = contextFor().calls;
+    const absentContext = contextFor();
+    assert.equal(drawAtlasCharacter(absentContext, 32, 96, 74, {
+      assetKey: 'hero-dew-bloom-atlas-v1',
+    }), false);
+    assert.ok(absentContext.calls.length > absentCalls.length,
+      'a missing formal atlas uses its neutral emergency silhouette, not another hero');
+  } finally {
+    if (previous === undefined) delete globalThis.OffscreenCanvas;
+    else globalThis.OffscreenCanvas = previous;
+  }
+});
+
+test('skill step kinds select generated animated frames instead of a fading static icon', async () => {
+  const { drawSkillEffectFrames, SKILL_EFFECT_ASSET_KEY_BY_STEP_KIND } = await import('../src/draw.js');
+  assert.equal(SKILL_EFFECT_ASSET_KEY_BY_STEP_KIND['berry-finale'],
+    'effect-berry-chain-barrage-frames-v1');
+  assert.equal(SKILL_EFFECT_ASSET_KEY_BY_STEP_KIND['dew-bloom'],
+    'effect-dew-garland-frames-v1');
+  const sheet = { id: 'skill-sheet', width: 800, height: 800 };
+  const requested = [];
+  const main = contextFor();
+  assert.equal(drawSkillEffectFrames(main, 120, 300, 160, {
+    assetStore: readyStore(sheet, requested),
+    stepKind: 'bubble-burst',
+    age: 0.31,
+    duration: 0.4,
+    spin: 0.25,
+  }), true);
+  assert.deepEqual(requested, ['effect-bubble-tide-domain-frames-v1']);
+  const frameDraw = main.calls.find(([method, image]) => method === 'drawImage' && image === sheet);
+  assert.deepEqual(frameDraw.slice(2, 6), [400, 400, 400, 400],
+    'late skill age selects the fourth 2×2 authored frame');
+  assert.ok(main.calls.some(([method, angle]) => method === 'rotate' && angle !== 0),
+    'the same sheet has deterministic time-based rotation');
+  assert.ok(main.calls.some(([method, xScale]) => method === 'scale' && xScale > 1),
+    'the effect expands during its lifetime rather than only fading');
 });

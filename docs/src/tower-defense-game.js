@@ -1,4 +1,5 @@
 import {
+  drawAtlasCharacter,
   drawAssetOrFallback,
   drawBuilding,
   drawCore,
@@ -6,6 +7,7 @@ import {
   drawParticle,
   drawPortal,
   drawProjectile,
+  drawSkillEffectFrames,
   drawSlime,
   drawSoldier,
 } from './draw.js';
@@ -41,6 +43,7 @@ import {
   drawCostForState,
   drawTowerCard,
   fusionOrbitPoint,
+  heroStatsForRank,
   mergeCardIntoTower,
   mergeTowers,
   moveTowerToPad,
@@ -73,6 +76,9 @@ const PAD_RADIUS = 38;
 const DRAG_THRESHOLD = 12;
 const LONG_PRESS_MOVE_MS = 450;
 const LONG_PRESS_DRIFT = 18;
+const SQUAD_MEMBER_RENDER_SIZE = 52;
+const SQUAD_MEMBER_DEFEAT_SIZE = 52;
+const SQUAD_PURCHASE_PREVIEW_SIZE = 44;
 const SUMMON_ENERGY_DURATION = 0.72;
 const SUMMON_RIFT_DURATION = 0.78;
 const SUMMON_REVEAL_CARD_DURATION = 0.5;
@@ -98,9 +104,13 @@ const COMMAND_DOCK = Object.freeze({
   ]),
   handZone: Object.freeze({ x: 12, y: 1104, width: 492, height: 164 }),
   purchase: Object.freeze({
-    melee: Object.freeze({ x: 12, y: 1104, width: 156, height: 164 }),
-    ranged: Object.freeze({ x: 180, y: 1104, width: 156, height: 164 }),
-    turret: Object.freeze({ x: 348, y: 1104, width: 156, height: 164 }),
+    melee: Object.freeze({ x: 8, y: 1104, width: 66, height: 164 }),
+    ranged: Object.freeze({ x: 78, y: 1104, width: 66, height: 164 }),
+    charger: Object.freeze({ x: 148, y: 1104, width: 66, height: 164 }),
+    leaf: Object.freeze({ x: 218, y: 1104, width: 66, height: 164 }),
+    turret: Object.freeze({ x: 288, y: 1104, width: 66, height: 164 }),
+    'bubble-coil': Object.freeze({ x: 358, y: 1104, width: 66, height: 164 }),
+    'crystal-repeater': Object.freeze({ x: 428, y: 1104, width: 66, height: 164 }),
   }),
   cards: Object.freeze([
     Object.freeze({ x: 12, y: 1104, width: 114, height: 164 }),
@@ -124,12 +134,14 @@ const MENU_ACTIONS = Object.freeze({
 const SUMMON_BACK_RECT = Object.freeze({ x: 22, y: 28, width: 104, height: 58 });
 const SUMMON_CURRENCY_RECT = Object.freeze({ x: 490, y: 28, width: 208, height: 62 });
 const ROSTER_BACK_RECT = Object.freeze({ x: 22, y: 28, width: 104, height: 58 });
-const ROSTER_HERO_RECTS = Object.freeze([
-  Object.freeze({ x: 32, y: 210, width: 260, height: 306 }),
-  Object.freeze({ x: 428, y: 210, width: 260, height: 306 }),
-  Object.freeze({ x: 32, y: 566, width: 260, height: 306 }),
-  Object.freeze({ x: 428, y: 566, width: 260, height: 306 }),
-]);
+const ROSTER_PAGE_SIZE = 8;
+const ROSTER_HERO_GRID = Object.freeze({
+  x: 24, y: 152, columns: 4, rows: 2, width: 159, height: 146, gapX: 12, gapY: 12,
+});
+const ROSTER_PREVIOUS_RECT = Object.freeze({ x: 222, y: 468, width: 72, height: 44 });
+const ROSTER_NEXT_RECT = Object.freeze({ x: 426, y: 468, width: 72, height: 44 });
+const ROSTER_DETAIL_RECT = Object.freeze({ x: 32, y: 526, width: 656, height: 690 });
+const ROSTER_DEPLOY_RECT = Object.freeze({ x: 398, y: 1114, width: 252, height: 72 });
 const SUMMON_ONE_RECT = Object.freeze({ x: 54, y: 1018, width: 286, height: 104 });
 const SUMMON_TEN_RECT = Object.freeze({ x: 380, y: 1018, width: 286, height: 104 });
 const SUMMON_RESULT_CLOSE_RECT = Object.freeze({ x: 210, y: 1158, width: 300, height: 72 });
@@ -152,10 +164,10 @@ const GEL_MOUNT_ASSET_LAYOUT = Object.freeze({
 });
 
 const STAGE_SELECT_CARDS = Object.freeze(TD_STAGES.map((_, index) => Object.freeze({
-  x: 62,
-  y: 170 + index * 330,
-  width: 596,
-  height: 290,
+  x: 28 + (index % 2) * 346,
+  y: 152 + Math.floor(index / 2) * 326,
+  width: 318,
+  height: 302,
 })));
 const STAGE_SELECT_BACK = Object.freeze({ x: 22, y: 28, width: 104, height: 58 });
 
@@ -186,6 +198,35 @@ function rarityStyle(rarity) {
   const key = String(rarity || 'R').toUpperCase();
   const aliases = { COMMON: 'R', RARE: 'SR', EPIC: 'SSR', LEGENDARY: 'UR' };
   return RARITY_STYLE[aliases[key] || key] || RARITY_STYLE.R;
+}
+
+function rosterHeroRect(index) {
+  const column = index % ROSTER_HERO_GRID.columns;
+  const row = Math.floor(index / ROSTER_HERO_GRID.columns);
+  return {
+    x: ROSTER_HERO_GRID.x + column * (ROSTER_HERO_GRID.width + ROSTER_HERO_GRID.gapX),
+    y: ROSTER_HERO_GRID.y + row * (ROSTER_HERO_GRID.height + ROSTER_HERO_GRID.gapY),
+    width: ROSTER_HERO_GRID.width,
+    height: ROSTER_HERO_GRID.height,
+  };
+}
+
+function drawLockedMonochrome(ctx, draw) {
+  const previousFilter = typeof ctx.filter === 'string' ? ctx.filter : 'none';
+  ctx.save();
+  try {
+    ctx.filter = 'grayscale(1) saturate(0) brightness(0.68)';
+    draw();
+  } finally {
+    ctx.restore();
+    // Some lightweight and older Canvas implementations do not restore custom
+    // properties. Reset explicitly so one locked portrait cannot gray the page.
+    try {
+      ctx.filter = previousFilter;
+    } catch {
+      // The card still uses an entirely gray palette if Canvas filters are absent.
+    }
+  }
 }
 
 function easeOutCubic(value) {
@@ -246,7 +287,17 @@ const STAGE_REGION_ASSET = Object.freeze({
   'stage-1': 'region-gel-meadow-field-a',
   'stage-2': 'region-bubble-heath-field-a',
   'stage-3': 'region-crystal-bloom-field-a',
+  'stage-4': 'region-dew-grove-field-a',
+  'stage-5': 'region-shell-canyon-field-a',
+  'stage-6': 'region-sunbud-sanctuary-field-a',
 });
+
+function stageRegionAssetKey(stageOrId) {
+  const stage = typeof stageOrId === 'string' ? TD_STAGE_BY_ID[stageOrId] : stageOrId;
+  const stageId = typeof stageOrId === 'string' ? stageOrId : stage?.id;
+  return stage?.regionAssetKey || stage?.backgroundAssetKey
+    || STAGE_REGION_ASSET[stageId] || STAGE_REGION_ASSET['stage-1'];
+}
 
 const MONSTER_DRAW_TYPE = Object.freeze({
   bug: 'bug',
@@ -256,24 +307,108 @@ const MONSTER_DRAW_TYPE = Object.freeze({
 });
 
 const HERO_SKILL_ASSET_BY_TYPE = Object.freeze({
-  shell: 'skill-jelly-bounce-icon',
-  needle: 'skill-honey-line-icon',
-  bubble: 'skill-soft-swap-icon',
-  sprout: 'skill-sprout-renewal-icon',
+  shell: 'skill-shell-triple-shock-icon',
+  needle: 'skill-crystal-rain-icon',
+  bubble: 'skill-bubble-tide-domain-icon',
+  sprout: 'skill-sprout-forest-dance-icon',
+  berry: 'skill-berry-chain-barrage-icon',
+  dew: 'skill-dew-garland-icon',
 });
+
+const HERO_ATLAS_ASSET_BY_TYPE = Object.freeze({
+  berry: 'hero-berry-burst-atlas-v1',
+  dew: 'hero-dew-bloom-atlas-v1',
+});
+
+const HERO_SKILL_DESCRIPTION_BY_TYPE = Object.freeze({
+  shell: '震开周围敌人，造成范围伤害并将它们击退。',
+  needle: '引爆周围晶针，对范围内敌人造成高额伤害。',
+  bubble: '释放减速泡潮，造成范围伤害并大幅减速敌人。',
+  sprout: '播撒毒芽，造成范围伤害并让敌人持续中毒。',
+});
+
+function heroSkillDescription(type, definition) {
+  const authored = definition?.skill?.description || definition?.skillDescription;
+  if (typeof authored === 'string' && authored.trim()) return authored.trim();
+  return HERO_SKILL_DESCRIPTION_BY_TYPE[type]
+    || `对周围敌人造成 ${Math.round(Number(definition?.skillDamage) || 0)} 点范围伤害。`;
+}
 
 const SOLDIER_VISUALS = Object.freeze({
   melee: Object.freeze({
     id: 'melee', ownerId: 'soldier-shield-dun',
     assetKey: 'soldier-shield-dun-atlas-v1', name: '盾墩小队', shortName: '盾墩',
-    color: '#E66A73', fallbackType: 'shell',
+    color: '#E66A73', fallbackType: 'shell', legacyType: 'shell',
   }),
   ranged: Object.freeze({
     id: 'ranged', ownerId: 'soldier-bean-bow',
     assetKey: 'soldier-bean-bow-atlas-v1', name: '豆弩小队', shortName: '豆弩',
-    color: '#EFA52E', fallbackType: 'needle',
+    color: '#EFA52E', fallbackType: 'needle', legacyType: 'needle',
+  }),
+  charger: Object.freeze({
+    id: 'charger', ownerId: 'soldier-bounce-hammer',
+    assetKey: 'soldier-bounce-hammer-atlas-v1', name: '跳槌小队', shortName: '跳槌',
+    color: '#F08B55', fallbackType: 'shell',
+  }),
+  leaf: Object.freeze({
+    id: 'leaf', ownerId: 'soldier-leaf-spinner',
+    assetKey: 'soldier-leaf-spinner-atlas-v1', name: '叶旋小队', shortName: '叶旋',
+    color: '#79C95E', fallbackType: 'sprout',
   }),
 });
+
+const TURRET_VISUALS = Object.freeze({
+  'gel-mortar': Object.freeze({
+    assetKey: 'turret-gel-mortar', layout: GEL_MORTAR_ASSET_LAYOUT,
+  }),
+  'bubble-coil': Object.freeze({
+    assetKey: 'turret-bubble-coil', layout: GEL_MORTAR_ASSET_LAYOUT,
+  }),
+  'crystal-repeater': Object.freeze({
+    assetKey: 'turret-crystal-repeater', layout: GEL_MORTAR_ASSET_LAYOUT,
+  }),
+});
+
+const PURCHASE_ITEMS = Object.freeze([
+  Object.freeze({ id: 'melee', kind: 'squad', type: 'melee' }),
+  Object.freeze({ id: 'ranged', kind: 'squad', type: 'ranged' }),
+  Object.freeze({ id: 'charger', kind: 'squad', type: 'charger' }),
+  Object.freeze({ id: 'leaf', kind: 'squad', type: 'leaf' }),
+  Object.freeze({ id: 'turret', kind: 'turret', type: 'gel-mortar', shortName: '凝胶炮' }),
+  Object.freeze({ id: 'bubble-coil', kind: 'turret', type: 'bubble-coil', shortName: '泡泡塔' }),
+  Object.freeze({
+    id: 'crystal-repeater', kind: 'turret', type: 'crystal-repeater', shortName: '晶连弩',
+  }),
+]);
+
+const PURCHASE_ITEM_BY_ID = Object.freeze(Object.fromEntries(
+  PURCHASE_ITEMS.map((entry) => [entry.id, entry]),
+));
+const SQUAD_TYPE_BY_LEGACY_TYPE = Object.freeze(Object.fromEntries(
+  Object.values(SOLDIER_VISUALS)
+    .filter(({ legacyType }) => typeof legacyType === 'string')
+    .map(({ id, legacyType }) => [legacyType, id]),
+));
+const ATLAS_CHARACTER_OWNER_IDS = Object.freeze(Object.fromEntries([
+  ...Object.values(SOLDIER_VISUALS).map(({ ownerId }) => [ownerId, true]),
+  ...Object.keys(HERO_ATLAS_ASSET_BY_TYPE)
+    .map((type) => [TOWER_TYPES[type]?.ownerId, true])
+    .filter(([ownerId]) => typeof ownerId === 'string'),
+]));
+
+const isSquadType = (type) => typeof type === 'string'
+  && Object.hasOwn(SOLDIER_VISUALS, type)
+  && Object.hasOwn(SQUAD_TYPES, type);
+const purchaseItemFor = (id) => PURCHASE_ITEM_BY_ID[id] || null;
+const squadTypeForPurchase = (id) => {
+  const entry = purchaseItemFor(id);
+  return entry?.kind === 'squad' && isSquadType(entry.type) ? entry.type : null;
+};
+const turretTypeForPurchase = (id) => {
+  const entry = purchaseItemFor(id);
+  return entry?.kind === 'turret' && TURRET_TYPES[entry.type] ? entry.type : null;
+};
+const turretVisualFor = (type) => TURRET_VISUALS[type] || TURRET_VISUALS['gel-mortar'];
 
 const ANIMATION_CLIPS_BY_OWNER_ID = Object.freeze({
   'survivor-shell-shell': SHELL_CLIPS,
@@ -282,6 +417,10 @@ const ANIMATION_CLIPS_BY_OWNER_ID = Object.freeze({
   'survivor-moss-sprout': SPROUT_CLIPS,
   'soldier-shield-dun': SOLDIER_CLIPS,
   'soldier-bean-bow': SOLDIER_CLIPS,
+  'soldier-bounce-hammer': SOLDIER_CLIPS,
+  'soldier-leaf-spinner': SOLDIER_CLIPS,
+  'survivor-berry-burst': SOLDIER_CLIPS,
+  'survivor-dew-bloom': SOLDIER_CLIPS,
   'enemy-soft-biter': BUG_CLIPS,
   'enemy-windcap': WINDCAP_CLIPS,
   'enemy-stone-lump': STONE_CLIPS,
@@ -320,23 +459,28 @@ const insideRect = (point, rect) => (
   point.x >= rect.x && point.x <= rect.x + rect.width
   && point.y >= rect.y && point.y <= rect.y + rect.height
 );
+const squadTypeFor = (type, squadType = null) => {
+  if (isSquadType(squadType)) return squadType;
+  if (isSquadType(type)) return type;
+  return SQUAD_TYPE_BY_LEGACY_TYPE[squadType]
+    || SQUAD_TYPE_BY_LEGACY_TYPE[type]
+    || 'melee';
+};
+const soldierVisualFor = (type, squadType = null) => (
+  SOLDIER_VISUALS[squadTypeFor(type, squadType)] || SOLDIER_VISUALS.melee
+);
 const slimeVisualType = (type, squadType = null) => {
-  if (squadType === 'ranged' || type === 'ranged') return 'needle';
-  if (squadType === 'melee' || type === 'melee') return 'shell';
+  if (isSquadType(squadType) || isSquadType(type)) {
+    return soldierVisualFor(type, squadType).fallbackType;
+  }
   return TOWER_TYPES[type] ? type : 'shell';
 };
-const squadTypeFor = (type, squadType = null) => (
-  squadType === 'ranged' || type === 'ranged' || type === 'needle' ? 'ranged' : 'melee'
-);
-const soldierVisualFor = (type, squadType = null) => SOLDIER_VISUALS[
-  squadTypeFor(type, squadType)
-];
 const isSquadTower = (tower) => Boolean(
   tower && (
     tower.kind === 'soldier'
     || Number.isFinite(Number(tower.aliveMembers))
-    || ['melee', 'ranged'].includes(tower.squadType)
-    || ['melee', 'ranged'].includes(tower.type)
+    || isSquadType(tower.squadType)
+    || isSquadType(tower.type)
   )
 );
 const squadMemberAnimationKey = (squad, member, fallbackIndex = 0) => {
@@ -630,6 +774,8 @@ export class TowerDefenseGame {
     this.selectedCardUid = null;
     this.hoverPoint = null;
     this.menuPage = 'main';
+    this.rosterInspectType = this.state.progress?.selectedHero || Object.keys(HERO_TYPES)[0] || 'shell';
+    this.rosterPage = 0;
     this.summonResults = [];
     this.summonAnimation = null;
     const performanceClock = safeGlobal('performance');
@@ -724,7 +870,7 @@ export class TowerDefenseGame {
       controller,
       expressionMixer: new ExpressionMixer({
         ownerId,
-        spec: ownerId.startsWith('soldier-') ? SOLDIER_RIG.expression : undefined,
+        spec: ATLAS_CHARACTER_OWNER_IDS[ownerId] ? SOLDIER_RIG.expression : undefined,
       }),
     };
     this.characterAnimations.set(key, entry);
@@ -907,7 +1053,7 @@ export class TowerDefenseGame {
       const towerUid = event.towerUid || event.soldierUid;
       const tower = this.state.towers.find(({ uid }) => uid === towerUid);
       const towerType = event.towerType || event.soldierType || tower?.type;
-      const squad = isSquadTower(tower) || ['melee', 'ranged'].includes(towerType);
+      const squad = isSquadTower(tower) || isSquadType(towerType);
       const squadType = squad ? squadTypeFor(towerType, tower?.squadType) : null;
       const soldierVisual = squad ? soldierVisualFor(towerType, squadType) : null;
       const visualType = slimeVisualType(towerType, tower?.squadType);
@@ -1030,8 +1176,8 @@ export class TowerDefenseGame {
         const definition = TOWER_TYPES[offer.type];
         if (definition) advance(`offer:${offer.uid}`, definition.ownerId, 'idle');
       }
-      for (const type of ['melee', 'ranged']) {
-        const definition = SOLDIER_VISUALS[type];
+      for (const definition of Object.values(SOLDIER_VISUALS)) {
+        const { id: type } = definition;
         for (let memberIndex = 0; memberIndex < 4; memberIndex += 1) {
           advance(`purchase:${type}:${memberIndex}`, definition.ownerId, 'idle');
         }
@@ -1328,7 +1474,7 @@ export class TowerDefenseGame {
   }
 
   hitAt(point, predicate = null) {
-    if (!predicate && this.selectedPurchase === 'turret') {
+    if (!predicate && turretTypeForPurchase(this.selectedPurchase)) {
       for (let index = this.hits.length - 1; index >= 0; index -= 1) {
         const hit = this.hits[index];
         if (
@@ -1374,8 +1520,11 @@ export class TowerDefenseGame {
     return best;
   }
 
-  emptyTurretSlotHitAt(point) {
+  emptyTurretSlotHitAt(point, requestedType = null) {
     if (!this.isPreparation()) return null;
+    const turretType = TURRET_TYPES[requestedType]
+      ? requestedType
+      : turretTypeForPurchase(this.selectedPurchase) || 'gel-mortar';
     const stage = stageForState(this.state);
     const slots = this.turretSlots(stage);
     const turrets = Array.isArray(this.state.turrets) ? this.state.turrets : [];
@@ -1392,7 +1541,7 @@ export class TowerDefenseGame {
         id: typeof slot.id === 'string' && slot.id ? slot.id : `turret-slot-${slotIndex}`,
         ...rect,
         action: 'build-turret',
-        data: { slotIndex, slotId: slot.id, turretType: 'gel-mortar' },
+        data: { slotIndex, slotId: slot.id, turretType },
         enabled: true,
       };
     }
@@ -1554,19 +1703,19 @@ export class TowerDefenseGame {
         if (drag.hit && this.tutorialAllows(drag.hit)) this.activateHit(drag.hit);
         return;
       }
-      const purchaseType = drag.purchaseType;
-      if (purchaseType === 'turret') {
-        const turretHit = this.emptyTurretSlotHitAt(point);
+      const purchase = purchaseItemFor(drag.purchaseType);
+      if (purchase?.kind === 'turret') {
+        const turretHit = this.emptyTurretSlotHitAt(point, purchase.type);
         if (turretHit) buildTowerDefenseTurret(
-          this.state, turretHit.data.slotIndex, 'gel-mortar',
+          this.state, turretHit.data.slotIndex, purchase.type,
         );
-      } else if (['melee', 'ranged'].includes(purchaseType)) {
+      } else if (purchase?.kind === 'squad' && isSquadType(purchase.type)) {
         const padHit = this.emptyPadHitAt(point);
         const target = tutorialTargetForState(this.state);
         const tutorialMatches = !target || target.type !== 'squad'
-          || (target.squadType === purchaseType && target.padIndex === padHit?.data.padIndex);
+          || (target.squadType === purchase.type && target.padIndex === padHit?.data.padIndex);
         if (padHit && tutorialMatches) {
-          buyTowerDefenseSquad(this.state, purchaseType, padHit.data.padIndex);
+          buyTowerDefenseSquad(this.state, purchase.type, padHit.data.padIndex);
         }
       }
       this.selectedPurchase = null;
@@ -1698,12 +1847,33 @@ export class TowerDefenseGame {
       case 'open-roster':
         if (this.state.screen === 'menu') {
           this.menuPage = 'roster';
+          const heroTypes = Object.keys(HERO_TYPES);
+          const selectedType = this.state.progress?.selectedHero || this.state.selectedHeroId;
+          this.rosterInspectType = heroTypes.includes(selectedType)
+            ? selectedType : heroTypes[0] || 'shell';
+          this.rosterPage = Math.floor(
+            Math.max(0, heroTypes.indexOf(this.rosterInspectType)) / ROSTER_PAGE_SIZE,
+          );
           this.selectedCardUid = null;
           this.state.selectedTowerUid = null;
         }
         break;
       case 'roster-back':
         this.menuPage = 'main';
+        break;
+      case 'inspect-hero':
+        if (this.menuPage === 'roster' && HERO_TYPES[hit.data.heroType]) {
+          this.rosterInspectType = hit.data.heroType;
+        }
+        break;
+      case 'roster-previous':
+        if (this.menuPage === 'roster') this.rosterPage = Math.max(0, this.rosterPage - 1);
+        break;
+      case 'roster-next':
+        if (this.menuPage === 'roster') {
+          const pageCount = Math.max(1, Math.ceil(Object.keys(HERO_TYPES).length / ROSTER_PAGE_SIZE));
+          this.rosterPage = Math.min(pageCount - 1, this.rosterPage + 1);
+        }
         break;
       case 'open-summon':
         if (this.state.screen === 'menu') {
@@ -1760,7 +1930,9 @@ export class TowerDefenseGame {
         break;
       case 'endless':
         if (this.endlessUnlocked()) {
-          beginTowerDefenseRun(this.state, { mode: 'endless', stageId: 'stage-3' });
+          beginTowerDefenseRun(this.state, {
+            mode: 'endless', stageId: TD_STAGES.at(-1)?.id || TD_STAGES[0]?.id,
+          });
           this.menuPage = 'main';
           this.selectedPurchase = null;
           this.selectedCardUid = null;
@@ -1779,18 +1951,20 @@ export class TowerDefenseGame {
         this.state.selectedTowerUid = null;
         break;
       case 'build-turret': {
-        const turret = this.selectedPurchase === 'turret'
-          ? buildTowerDefenseTurret(this.state, hit.data.slotIndex, 'gel-mortar')
+        const turretType = turretTypeForPurchase(this.selectedPurchase);
+        const turret = turretType && turretType === hit.data.turretType
+          ? buildTowerDefenseTurret(this.state, hit.data.slotIndex, turretType)
           : null;
         if (turret) this.selectedPurchase = null;
         this.processEvents();
         break;
       }
-      case 'pad':
-        if (['melee', 'ranged'].includes(this.selectedPurchase)) {
+      case 'pad': {
+        const squadType = squadTypeForPurchase(this.selectedPurchase);
+        if (squadType) {
           const squad = buyTowerDefenseSquad(
             this.state,
-            this.selectedPurchase,
+            squadType,
             hit.data.padIndex,
           );
           if (squad) this.selectedPurchase = null;
@@ -1802,6 +1976,7 @@ export class TowerDefenseGame {
           if (tower) this.selectOrMergeTower(tower.uid);
         }
         break;
+      }
       case 'tower':
         this.selectOrMergeTower(hit.data.towerUid);
         break;
@@ -1855,7 +2030,8 @@ export class TowerDefenseGame {
   }
 
   endlessUnlocked() {
-    return this.state.progress.clearedStages.includes('stage-3');
+    const finalStageId = TD_STAGES.at(-1)?.id;
+    return Boolean(finalStageId && this.state.progress.clearedStages.includes(finalStageId));
   }
 
   resetTransform() {
@@ -1898,7 +2074,7 @@ export class TowerDefenseGame {
     background.addColorStop(1, '#BBDDE4');
     ctx.fillStyle = background;
     ctx.fillRect(0, 0, TD_VIEW.width, TD_VIEW.height);
-    const key = STAGE_REGION_ASSET[stageId] || STAGE_REGION_ASSET['stage-1'];
+    const key = stageRegionAssetKey(stageId);
     drawAssetOrFallback(ctx, this.assetStore, key, (asset) => {
       ctx.globalAlpha *= 0.78;
       drawCoverImage(ctx, asset);
@@ -1914,6 +2090,21 @@ export class TowerDefenseGame {
         ctx.fill();
       }
       ctx.restore();
+    });
+  }
+
+  drawFriendlyCharacter(ctx, x, y, size, type, options = {}) {
+    const atlasAssetKey = HERO_ATLAS_ASSET_BY_TYPE[type];
+    if (atlasAssetKey) {
+      return drawAtlasCharacter(ctx, x, y, size, {
+        ...options,
+        assetKey: atlasAssetKey,
+        assetStore: this.assetStore,
+      });
+    }
+    return drawSlime(ctx, x, y, size, type, {
+      ...options,
+      assetStore: this.assetStore,
     });
   }
 
@@ -1950,8 +2141,12 @@ export class TowerDefenseGame {
     label(ctx, '史莱姆守望团', TD_VIEW.width / 2, 112, {
       size: 46, color: COLORS.ink, weight: 950,
     });
+    const stageMarkerGap = TD_STAGES.length > 1
+      ? Math.min(28, 238 / (TD_STAGES.length - 1)) : 0;
+    const stageMarkerStart = TD_VIEW.width / 2
+      - stageMarkerGap * Math.max(0, TD_STAGES.length - 1) / 2;
     TD_STAGES.forEach((stage, index) => {
-      const x = TD_VIEW.width / 2 - 28 + index * 28;
+      const x = stageMarkerStart + index * stageMarkerGap;
       const cleared = this.state.progress.clearedStages.includes(stage.id);
       const unlocked = stage.index <= this.state.progress.unlockedStage;
       ctx.save();
@@ -2007,10 +2202,9 @@ export class TowerDefenseGame {
         'preview:menu:' + tower.id,
         tower.ownerId,
       );
-      drawSlime(ctx, member.x, member.y, member.size, member.type, {
+      this.drawFriendlyCharacter(ctx, member.x, member.y, member.size, member.type, {
         time: this.state.time + index * 0.22,
         facing: member.facing,
-        assetStore: this.assetStore,
         ...animation,
         ...this.characterRigOptions(tower.ownerId),
         allowGeneratedStandalone: this.generatedCharacterArtEnabled,
@@ -2061,7 +2255,7 @@ export class TowerDefenseGame {
     ctx.lineWidth = 3;
     ctx.stroke();
     ctx.restore();
-    label(ctx, allCleared ? '3↻' : String(storyStage.index),
+    label(ctx, allCleared ? `${TD_STAGES.length}↻` : String(storyStage.index),
       storyRect.x + storyRect.width - 54,
       storyRect.y + storyRect.height / 2, {
         size: allCleared ? 18 : 24, color: COLORS.mintDeep, weight: 950,
@@ -2116,7 +2310,7 @@ export class TowerDefenseGame {
         weight: 950,
       });
     if (!endlessUnlocked) {
-      label(ctx, '3 ✓', endlessRect.x + endlessRect.width / 2,
+      label(ctx, `${TD_STAGES.length} ✓`, endlessRect.x + endlessRect.width / 2,
         endlessRect.y + endlessRect.height - 22, {
           size: 13, color: '#75817B', weight: 850,
         });
@@ -2182,6 +2376,41 @@ export class TowerDefenseGame {
     this.addHit('open-summon', summonRect, 'open-summon');
   }
 
+  drawRosterHeroPortrait(ctx, type, x, y, size, { locked = false, phase = 0 } = {}) {
+    const heroDefinition = HERO_TYPES[type] || TOWER_TYPES[type] || HERO_TYPES.shell;
+    const visualType = heroDefinition?.visualType || type;
+    const ownerId = heroDefinition?.ownerId || TOWER_TYPES[visualType]?.ownerId;
+    const drawPortrait = () => {
+      if (TOWER_TYPES[visualType]) {
+        const animation = ownerId
+          ? this.characterAnimationSample(`preview:roster:${type}`, ownerId)
+          : {};
+        this.drawFriendlyCharacter(ctx, x, y, size, visualType, {
+          time: this.state.time + phase,
+          facing: phase % 0.34 > 0.17 ? -1 : 1,
+          ...animation,
+          ...this.characterRigOptions(ownerId),
+          allowGeneratedStandalone: this.generatedCharacterArtEnabled,
+        });
+        return;
+      }
+
+      const portraitAssetKey = heroDefinition?.portraitAssetKey
+        || heroDefinition?.assetKey || ownerId;
+      if (!portraitAssetKey) return;
+      drawAssetOrFallback(ctx, this.assetStore, portraitAssetKey, (asset) => {
+        const sourceWidth = Number(asset?.naturalWidth || asset?.width) || 1;
+        const sourceHeight = Number(asset?.naturalHeight || asset?.height) || 1;
+        const fit = size / Math.max(sourceWidth, sourceHeight);
+        const width = sourceWidth * fit;
+        const height = sourceHeight * fit;
+        ctx.drawImage(asset, x - width / 2, y - height, width, height);
+      }, () => {});
+    };
+    if (locked) drawLockedMonochrome(ctx, drawPortrait);
+    else drawPortrait();
+  }
+
   drawHeroRosterPage(ctx) {
     ctx.fillStyle = '#B9E4D2';
     ctx.fillRect(0, 0, TD_VIEW.width, TD_VIEW.height);
@@ -2206,73 +2435,170 @@ export class TowerDefenseGame {
     label(ctx, '英雄编队', TD_VIEW.width / 2, 72, {
       size: 40, color: COLORS.ink, weight: 950,
     });
-    label(ctx, '选择一名已拥有史莱姆出战', TD_VIEW.width / 2, 116, {
+    label(ctx, '点击英雄查看数值与技能', TD_VIEW.width / 2, 116, {
       size: 17, color: COLORS.inkSoft, weight: 850,
     });
 
+    const heroTypes = Object.keys(HERO_TYPES);
     const contractRanks = this.state.progress?.contractRanks || {};
     const selectedType = this.state.progress?.selectedHero
-      || this.state.selectedHeroId || 'shell';
+      || this.state.selectedHeroId || heroTypes[0] || 'shell';
+    if (!heroTypes.includes(this.rosterInspectType)) this.rosterInspectType = selectedType;
+    const pageCount = Math.max(1, Math.ceil(heroTypes.length / ROSTER_PAGE_SIZE));
+    this.rosterPage = clamp(Math.floor(Number(this.rosterPage) || 0), 0, pageCount - 1);
+    const pageStart = this.rosterPage * ROSTER_PAGE_SIZE;
+    const visibleTypes = heroTypes.slice(pageStart, pageStart + ROSTER_PAGE_SIZE);
     let ownedCount = 0;
-    ['shell', 'needle', 'bubble', 'sprout'].forEach((type, index) => {
-      const rect = ROSTER_HERO_RECTS[index];
-      const definition = TOWER_TYPES[type];
-      const heroDefinition = HERO_TYPES[type] || definition;
+    heroTypes.forEach((type) => {
+      if (Math.max(0, Math.floor(Number(contractRanks[type]) || 0)) > 0) ownedCount += 1;
+    });
+    visibleTypes.forEach((type, index) => {
+      const rect = rosterHeroRect(index);
+      const heroDefinition = HERO_TYPES[type] || TOWER_TYPES[type];
       const rank = Math.max(0, Math.floor(Number(contractRanks[type]) || 0));
       const owned = rank > 0;
-      if (owned) ownedCount += 1;
       const selected = type === selectedType;
-      const hot = owned && Boolean(this.hoverPoint && insideRect(this.hoverPoint, rect));
+      const inspected = type === this.rosterInspectType;
+      const hot = Boolean(this.hoverPoint && insideRect(this.hoverPoint, rect));
       const rarity = rarityStyle(heroDefinition.rarity);
       panel(ctx, rect, {
-        fill: owned ? selected ? '#FFF4CC' : '#F5FFF5' : 'rgba(198,210,204,0.9)',
-        stroke: selected ? '#E5A93F' : owned ? rarity.color : '#84928D',
-        lineWidth: selected || hot ? 5 : 3,
-        radius: 28,
+        fill: owned ? selected ? '#FFF4CC' : '#F5FFF5' : '#C8CCCA',
+        stroke: !owned ? inspected ? '#555D5A' : '#7B827F'
+          : inspected ? '#2F8B72' : selected ? '#E5A93F' : rarity.color,
+        lineWidth: inspected || hot ? 5 : selected ? 4 : 3,
+        radius: 22,
         shadow: owned,
       });
-      panel(ctx, { x: rect.x + 18, y: rect.y + 16, width: 72, height: 38 }, {
-        fill: rarity.fill, stroke: rarity.color, lineWidth: 2, radius: 14,
+      panel(ctx, { x: rect.x + 10, y: rect.y + 9, width: 44, height: 26 }, {
+        fill: owned ? rarity.fill : '#AEB3B1',
+        stroke: owned ? rarity.color : '#6E7472', lineWidth: 2, radius: 11,
       });
-      label(ctx, rarity.label, rect.x + 54, rect.y + 36, {
-        size: rarity.label.length > 2 ? 14 : 18, color: rarity.deep, weight: 950,
+      label(ctx, rarity.label, rect.x + 32, rect.y + 22, {
+        size: rarity.label.length > 2 ? 11 : 14,
+        color: owned ? rarity.deep : '#4E5552', weight: 950,
       });
-      label(ctx, heroDefinition.name, rect.x + rect.width - 18, rect.y + 36, {
-        size: 24, align: 'right', color: COLORS.ink, weight: 950,
+      label(ctx, heroDefinition.name, rect.x + rect.width - 10, rect.y + 22, {
+        size: 17, align: 'right', color: owned ? COLORS.ink : '#4E5552', weight: 950,
       });
-      const animation = this.characterAnimationSample(
-        `preview:menu:${definition.id}`,
-        definition.ownerId,
-      );
-      ctx.save();
-      ctx.globalAlpha *= owned ? 1 : 0.28;
-      drawSlime(ctx, rect.x + rect.width / 2, rect.y + 238, 126, type, {
-        time: this.state.time + index * 0.17,
-        facing: index % 2 ? -1 : 1,
-        assetStore: this.assetStore,
-        ...animation,
-        ...this.characterRigOptions(definition.ownerId),
-        allowGeneratedStandalone: this.generatedCharacterArtEnabled,
-      });
-      ctx.restore();
+      this.drawRosterHeroPortrait(ctx, type, rect.x + rect.width / 2,
+        rect.y + rect.height - 5, 94, { locked: !owned, phase: index * 0.17 });
       if (!owned) {
-        label(ctx, '锁定 · 请先招募', rect.x + rect.width / 2,
-          rect.y + rect.height - 30, {
-            size: 16, color: '#53645F', weight: 950,
-          });
-      } else {
-        label(ctx, selected ? '◆ 当前出战' : '点击切换',
-          rect.x + rect.width / 2, rect.y + rect.height - 30, {
-            size: 17, color: selected ? '#99641C' : COLORS.mintDeep, weight: 950,
+        panel(ctx, { x: rect.x + 34, y: rect.y + rect.height - 31, width: 91, height: 24 }, {
+          fill: '#8D9390', stroke: '#626865', lineWidth: 1.5, radius: 10,
+        });
+        label(ctx, '未解锁', rect.x + rect.width / 2, rect.y + rect.height - 19, {
+          size: 13, color: '#F2F3F2', weight: 950,
           });
       }
-      this.addHit(`hero-select-${type}`, rect, 'select-hero', { heroType: type }, owned);
+      this.addHit(`hero-inspect-${type}`, rect, 'inspect-hero', { heroType: type });
     });
-    panel(ctx, { x: 226, y: 928, width: 268, height: 58 }, {
-      fill: 'rgba(255,249,225,0.92)', stroke: '#6EA78B', lineWidth: 2, radius: 22,
+
+    if (pageCount > 1) {
+      button(ctx, ROSTER_PREVIOUS_RECT, '‹', {
+        enabled: this.rosterPage > 0, fill: '#F4F8ED', color: COLORS.ink,
+        accent: '#81938A', size: 28,
+      });
+      button(ctx, ROSTER_NEXT_RECT, '›', {
+        enabled: this.rosterPage < pageCount - 1, fill: '#F4F8ED', color: COLORS.ink,
+        accent: '#81938A', size: 28,
+      });
+      label(ctx, `${this.rosterPage + 1}/${pageCount}`, TD_VIEW.width / 2, 490, {
+        size: 16, color: COLORS.inkSoft, weight: 900,
+      });
+      this.addHit('roster-previous', ROSTER_PREVIOUS_RECT, 'roster-previous', {}, this.rosterPage > 0);
+      this.addHit('roster-next', ROSTER_NEXT_RECT, 'roster-next', {}, this.rosterPage < pageCount - 1);
+    }
+
+    const inspectType = heroTypes.includes(this.rosterInspectType)
+      ? this.rosterInspectType : selectedType;
+    const inspected = HERO_TYPES[inspectType] || TOWER_TYPES[inspectType] || HERO_TYPES.shell;
+    const inspectedRank = Math.max(0, Math.floor(Number(contractRanks[inspectType]) || 0));
+    const rosterStats = this.state.heroes?.find(({ type }) => type === inspectType);
+    const inspectedStats = rosterStats || heroStatsForRank(inspectType, Math.max(1, inspectedRank));
+    const inspectedOwned = inspectedRank > 0;
+    const inspectedSelected = inspectType === selectedType;
+    const inspectedRarity = rarityStyle(inspected.rarity);
+    const detailInk = inspectedOwned ? COLORS.ink : '#505653';
+    const detailSoft = inspectedOwned ? COLORS.inkSoft : '#6D7471';
+    panel(ctx, ROSTER_DETAIL_RECT, {
+      fill: inspectedOwned ? 'rgba(255,249,225,0.96)' : '#CED1CF',
+      stroke: inspectedOwned ? inspectedRarity.color : '#777E7B',
+      lineWidth: 4, radius: 30, shadow: inspectedOwned,
     });
-    label(ctx, `已拥有 ${ownedCount}/4`, TD_VIEW.width / 2, 958, {
-      size: 18, color: COLORS.ink, weight: 900,
+    panel(ctx, { x: 58, y: 552, width: 76, height: 38 }, {
+      fill: inspectedOwned ? inspectedRarity.fill : '#AEB3B1',
+      stroke: inspectedOwned ? inspectedRarity.color : '#6E7472', lineWidth: 2, radius: 14,
+    });
+    label(ctx, inspectedRarity.label, 96, 572, {
+      size: inspectedRarity.label.length > 2 ? 14 : 18,
+      color: inspectedOwned ? inspectedRarity.deep : '#4E5552', weight: 950,
+    });
+    label(ctx, inspected.name, 154, 570, {
+      size: 31, align: 'left', color: detailInk, weight: 950,
+    });
+    const roleLabel = typeof inspected.role === 'string'
+      ? inspected.role : inspected.role?.name;
+    label(ctx, `${roleLabel || '英雄'} · 契约 ${inspectedRank}阶`, 650, 572, {
+      size: 16, align: 'right', color: detailSoft, weight: 900,
+    });
+
+    this.drawRosterHeroPortrait(ctx, inspectType, 184, 902, 238, {
+      locked: !inspectedOwned, phase: 0.09,
+    });
+    const statEntries = [
+      ['攻击', Math.round(Number(inspectedStats.damage) || 0)],
+      ['生命', Math.round(Number(inspectedStats.maxHp) || 0)],
+      ['射程', Math.round(Number(inspected.range) || 0)],
+      ['攻速', `${Math.max(0, Number(inspectedStats.attackSpeed) || 0).toFixed(2)}/秒`],
+    ];
+    statEntries.forEach(([name, value], index) => {
+      const column = index % 2;
+      const row = Math.floor(index / 2);
+      const rect = { x: 324 + column * 164, y: 642 + row * 92, width: 148, height: 76 };
+      panel(ctx, rect, {
+        fill: inspectedOwned ? '#F5FFF5' : '#B8BCBA',
+        stroke: inspectedOwned ? '#8BC9A7' : '#7A817E', lineWidth: 2, radius: 18,
+      });
+      label(ctx, name, rect.x + 14, rect.y + 23, {
+        size: 14, align: 'left', color: detailSoft, weight: 850,
+      });
+      label(ctx, value, rect.x + rect.width - 14, rect.y + 51, {
+        size: 22, align: 'right', color: detailInk, weight: 950,
+      });
+    });
+
+    const skillRect = { x: 64, y: 944, width: 592, height: 148 };
+    panel(ctx, skillRect, {
+      fill: inspectedOwned ? '#EEF8F0' : '#B8BCBA',
+      stroke: inspectedOwned ? inspectedRarity.color : '#777E7B', lineWidth: 2, radius: 22,
+    });
+    const skillName = inspected.skill?.name || inspected.skillName || '主动技能';
+    label(ctx, skillName, 88, 970, {
+      size: 19, align: 'left', color: detailInk, weight: 950,
+    });
+    const skillCooldown = Number(inspected.skill?.cooldown ?? inspected.skillCooldown) || 0;
+    const skillRadius = Number(inspected.skill?.radius ?? inspected.skillRadius) || 0;
+    label(ctx, `${skillCooldown}秒 · 范围${Math.round(skillRadius)}`, 632, 970, {
+      size: 14, align: 'right', color: detailSoft, weight: 850,
+    });
+    drawWrappedLabel(ctx, inspectedStats.skillEffect
+      || heroSkillDescription(inspectType, inspected), 360, 1015, 520, {
+      maxLines: 2, lineHeight: 28, size: 17, color: detailInk, weight: 820,
+    });
+    label(ctx, inspectedStats.growthSummary || '升阶强化基础能力', 360, 1080, {
+      size: 14, color: inspectedOwned ? inspectedRarity.deep : detailSoft, weight: 850,
+    });
+
+    button(ctx, ROSTER_DEPLOY_RECT, !inspectedOwned ? '未解锁'
+      : inspectedSelected ? '当前出战' : '设为出战', {
+      enabled: inspectedOwned && !inspectedSelected,
+      fill: '#64D3A0', accent: '#27866B', size: 21,
+    });
+    this.addHit(`hero-select-${inspectType}`, ROSTER_DEPLOY_RECT, 'select-hero', {
+      heroType: inspectType,
+    }, inspectedOwned && !inspectedSelected);
+    label(ctx, `已拥有 ${ownedCount}/${heroTypes.length}`, 86, 1150, {
+      size: 16, align: 'left', color: detailSoft, weight: 900,
     });
   }
 
@@ -2615,14 +2941,20 @@ export class TowerDefenseGame {
         `preview:menu:${definition.id}`,
         definition.ownerId,
       );
-      drawSlime(ctx, 0, single ? 166 : 29, single ? 176 : 56, definition.id, {
-        time: this.state.time + index * 0.11,
-        facing: index % 2 ? -1 : 1,
-        assetStore: this.assetStore,
-        ...characterAnimation,
-        ...this.characterRigOptions(definition.ownerId),
-        allowGeneratedStandalone: this.generatedCharacterArtEnabled,
-      });
+      this.drawFriendlyCharacter(
+        ctx,
+        0,
+        single ? 166 : 29,
+        single ? 176 : 56,
+        definition.id,
+        {
+          time: this.state.time + index * 0.11,
+          facing: index % 2 ? -1 : 1,
+          ...characterAnimation,
+          ...this.characterRigOptions(definition.ownerId),
+          allowGeneratedStandalone: this.generatedCharacterArtEnabled,
+        },
+      );
       const converted = Math.max(0, Math.floor(Number(result.convertedCurrency) || 0));
       const rankUps = Math.max(0, Math.floor(Number(result.rankUps) || 0));
       const shards = Math.max(0, Math.floor(Number(result.shards) || 0));
@@ -2709,15 +3041,15 @@ export class TowerDefenseGame {
       });
 
       const artRect = {
-        x: rect.x + 18,
-        y: rect.y + 18,
-        width: 244,
-        height: rect.height - 36,
+        x: rect.x + 14,
+        y: rect.y + 14,
+        width: rect.width - 28,
+        height: 132,
       };
       ctx.save();
       roundedPath(ctx, artRect.x, artRect.y, artRect.width, artRect.height, 20);
       ctx.clip();
-      drawAssetOrFallback(ctx, this.assetStore, STAGE_REGION_ASSET[stage.id], (asset) => {
+      drawAssetOrFallback(ctx, this.assetStore, stageRegionAssetKey(stage), (asset) => {
         ctx.globalAlpha *= unlocked ? 0.94 : 0.28;
         drawCoverImage(ctx, asset, artRect);
       }, () => {
@@ -2729,10 +3061,10 @@ export class TowerDefenseGame {
 
       ctx.save();
       ctx.beginPath();
-      ctx.moveTo(rect.x + 42, rect.y + 15);
-      ctx.lineTo(rect.x + 69, rect.y + 42);
-      ctx.lineTo(rect.x + 42, rect.y + 69);
-      ctx.lineTo(rect.x + 15, rect.y + 42);
+      ctx.moveTo(rect.x + 38, rect.y + 18);
+      ctx.lineTo(rect.x + 58, rect.y + 38);
+      ctx.lineTo(rect.x + 38, rect.y + 58);
+      ctx.lineTo(rect.x + 18, rect.y + 38);
       ctx.closePath();
       ctx.fillStyle = unlocked ? '#FFF4C8' : '#B9C1BD';
       ctx.fill();
@@ -2740,34 +3072,34 @@ export class TowerDefenseGame {
       ctx.lineWidth = 3;
       ctx.stroke();
       ctx.restore();
-      label(ctx, unlocked ? stage.index : '锁', rect.x + 42, rect.y + 42, {
-        size: unlocked ? 22 : 16,
+      label(ctx, unlocked ? stage.index : '锁', rect.x + 38, rect.y + 38, {
+        size: unlocked ? 18 : 14,
         color: unlocked ? stage.accent : '#66736D',
         weight: 950,
       });
 
-      const infoCenterX = rect.x + 420;
-      label(ctx, stage.name, infoCenterX, rect.y + 70, {
-        size: 27, color: unlocked ? COLORS.ink : '#68746E', weight: 920,
+      const infoCenterX = rect.x + rect.width / 2;
+      label(ctx, stage.name, infoCenterX, rect.y + 174, {
+        size: 24, color: unlocked ? COLORS.ink : '#68746E', weight: 920,
       });
-      label(ctx, `${stage.waves.length}波`, infoCenterX, rect.y + 112, {
-        size: 17, color: unlocked ? COLORS.inkSoft : '#7A8580', weight: 780,
+      label(ctx, `${stage.waves.length}波`, infoCenterX, rect.y + 207, {
+        size: 15, color: unlocked ? COLORS.inkSoft : '#7A8580', weight: 780,
       });
       const statusRect = {
-        x: rect.x + 292,
-        y: rect.y + 158,
-        width: 256,
-        height: 70,
+        x: rect.x + 42,
+        y: rect.y + 236,
+        width: rect.width - 84,
+        height: 48,
       };
       panel(ctx, statusRect, {
         fill: !unlocked ? '#BCC5C0' : cleared ? '#DDF6CD' : stage.accent,
         stroke: !unlocked ? '#8B9791' : cleared ? '#6BAE62' : stage.accent,
         lineWidth: 2,
-        radius: 20,
+        radius: 17,
       });
       label(ctx, !unlocked ? '未解锁' : cleared ? '✓ 已通关' : '可挑战',
         infoCenterX, statusRect.y + statusRect.height / 2, {
-          size: 18,
+          size: 16,
           color: !unlocked ? '#68746E' : cleared ? '#397B45' : COLORS.white,
           weight: 900,
         });
@@ -2893,12 +3225,11 @@ export class TowerDefenseGame {
       ctx.drawImage(asset, hero.x - width / 2, hero.y - height / 2 + 6, width, height);
     }, () => {});
     ctx.restore();
-    drawSlime(ctx, hero.x, hero.y + 7, 68, type, {
+    this.drawFriendlyCharacter(ctx, hero.x, hero.y + 7, 68, type, {
       time: this.state.time,
       facing: hero.facing === -1 ? -1 : 1,
       hit: clamp(Number(hero.hitPulse) || 0, 0, 1),
       expression: Number(hero.hitPulse) > 0.35 ? 'hurt' : 'normal',
-      assetStore: this.assetStore,
       ...animation,
       ...this.characterRigOptions(definition.ownerId),
       allowGeneratedStandalone: this.generatedCharacterArtEnabled,
@@ -2947,12 +3278,11 @@ export class TowerDefenseGame {
       const x = Number.isFinite(Number(slot.x)) ? Number(slot.x) : 102 + slotIndex * 172;
       const y = Number.isFinite(Number(slot.y)) ? Number(slot.y) : 914;
       const buildingGroundY = y + 28;
-      const type = 'gel-mortar';
-      const turretDefinition = TURRET_TYPES[type] || {
-        id: type, name: '凝胶迫击炮', cost: 175, color: '#72D7A3',
-      };
+      const selectedTurretType = turretTypeForPurchase(this.selectedPurchase);
+      const type = turret?.type || selectedTurretType || slot.type || 'gel-mortar';
+      const turretDefinition = TURRET_TYPES[type] || TURRET_TYPES['gel-mortar'];
+      const turretVisual = turretVisualFor(type);
       const buildingType = 'tower';
-      const assetKey = 'turret-gel-mortar';
       drawAssetOrFallback(ctx, this.assetStore, 'turret-gel-mount', (asset) => {
         ctx.globalAlpha *= turret ? 1 : this.isPreparation() ? 0.94 : 0.38;
         ctx.drawImage(
@@ -2977,9 +3307,9 @@ export class TowerDefenseGame {
           ctx.restore();
         }
         drawBuilding(ctx, x, buildingGroundY, 92 * (1 + pulse * 0.045), buildingType, {
-          assetKey,
+          assetKey: turretVisual.assetKey,
           assetStore: this.assetStore,
-          ...GEL_MORTAR_ASSET_LAYOUT,
+          ...turretVisual.layout,
           selected: false,
           damage: Number.isFinite(turret.hp) && turret.maxHp > 0
             ? 1 - clamp(turret.hp / turret.maxHp, 0, 1)
@@ -2989,7 +3319,7 @@ export class TowerDefenseGame {
       }
 
       const cost = Math.max(0, Math.floor(Number(slot.cost) || turretDefinition.cost));
-      const buildingSelected = this.selectedPurchase === 'turret';
+      const buildingSelected = Boolean(selectedTurretType);
       label(ctx, this.isPreparation() && buildingSelected
         ? `${turretDefinition.name} ${cost}` : '炮台位', x, y - 36, {
         size: 13, color: this.isPreparation() ? COLORS.cream : COLORS.inkSoft, weight: 900,
@@ -3167,22 +3497,21 @@ export class TowerDefenseGame {
   }
 
   drawSquadMembers(ctx, squad, x, y, { anchorIndependentMembers = false } = {}) {
-    const squadType = squad.squadType || squad.unitType
-      || (squad.type === 'needle' ? 'ranged' : 'melee');
-    const visual = SOLDIER_VISUALS[squadType] || SOLDIER_VISUALS.melee;
+    const squadType = squadTypeFor(squad.type, squad.squadType || squad.unitType);
+    const visual = soldierVisualFor(squad.type, squadType);
     const formations = {
       1: [{ x: 0, y: 6, scale: 1 }],
-      2: [{ x: -20, y: 5, scale: 1 }, { x: 20, y: 5, scale: 1 }],
+      2: [{ x: -24, y: 5, scale: 1 }, { x: 24, y: 5, scale: 1 }],
       3: [
-        { x: 0, y: -16, scale: 0.88 },
-        { x: -21, y: 8, scale: 1 },
-        { x: 21, y: 8, scale: 1 },
+        { x: 0, y: -19, scale: 0.92 },
+        { x: -26, y: 9, scale: 1 },
+        { x: 26, y: 9, scale: 1 },
       ],
       4: [
-        { x: -18, y: -17, scale: 0.86 },
-        { x: 18, y: -17, scale: 0.86 },
-        { x: -22, y: 9, scale: 1 },
-        { x: 22, y: 9, scale: 1 },
+        { x: -22, y: -20, scale: 0.92 },
+        { x: 22, y: -20, scale: 0.92 },
+        { x: -27, y: 11, scale: 1 },
+        { x: 27, y: 11, scale: 1 },
       ],
     };
     const hasIndependentMembers = Array.isArray(squad.members);
@@ -3219,7 +3548,7 @@ export class TowerDefenseGame {
         visual.ownerId,
         moving ? 'move' : 'idle',
       );
-      drawSoldier(ctx, memberX, memberY, 44 * memberScale, {
+      drawSoldier(ctx, memberX, memberY, SQUAD_MEMBER_RENDER_SIZE * memberScale, {
         assetKey: visual.assetKey,
         squadType,
         time: this.state.time + animationPhaseIndex * 0.12,
@@ -3255,7 +3584,7 @@ export class TowerDefenseGame {
       if (!tower) dropIntent = 'move';
       else if (canMergeTowers(activeTower, tower)) dropIntent = 'merge';
     }
-    if (!tower && ['melee', 'ranged'].includes(this.selectedPurchase)) dropIntent = 'place';
+    if (!tower && squadTypeForPurchase(this.selectedPurchase)) dropIntent = 'place';
     const hoverRect = {
       x: pad.x - DEPLOY_CELL_SIZE.width / 2,
       y: pad.y - DEPLOY_CELL_SIZE.height / 2,
@@ -3304,12 +3633,11 @@ export class TowerDefenseGame {
       width: DEPLOY_CELL_SIZE.width,
       height: DEPLOY_CELL_SIZE.height,
     }, 'pad', { padIndex }, preparation && !tower
-      && (['melee', 'ranged'].includes(this.selectedPurchase)
+      && (Boolean(squadTypeForPurchase(this.selectedPurchase))
         || Boolean(activeCard) || Boolean(activeTower)));
 
     if (!tower) return;
-    const squadVisualType = tower.squadType === 'ranged' || tower.type === 'needle'
-      ? 'needle' : 'shell';
+    const squadVisualType = slimeVisualType(tower.type, tower.squadType);
     const isSquad = isSquadTower(tower);
     const definition = isSquad
       ? soldierVisualFor(tower.type, tower.squadType)
@@ -3324,7 +3652,7 @@ export class TowerDefenseGame {
     if (isSquad) {
       this.drawSquadMembers(ctx, tower, drawX, drawY);
     } else {
-      drawSlime(ctx, drawX, drawY + 6, 76, tower.type, {
+      this.drawFriendlyCharacter(ctx, drawX, drawY + 6, 76, tower.type, {
         time: this.state.time,
         phase: padIndex * 0.41,
         star: tower.star,
@@ -3332,7 +3660,6 @@ export class TowerDefenseGame {
         selected,
         hit: clamp(Number(tower.hitPulse) || 0, 0, 1),
         expression: Number(tower.hitPulse) > 0.35 ? 'hurt' : 'normal',
-        assetStore: this.assetStore,
         ...animation,
         ...this.characterRigOptions(definition.ownerId),
         allowGeneratedStandalone: this.generatedCharacterArtEnabled,
@@ -3340,7 +3667,8 @@ export class TowerDefenseGame {
       const starY = Math.max(BATTLE_FIELD.top + 22, drawY - 70);
       this.drawStars(ctx, drawX, starY, tower.star, definition.color);
     }
-    if (Number.isFinite(tower.hp) && Number.isFinite(tower.maxHp) && tower.maxHp > 0) {
+    if (!isSquad
+      && Number.isFinite(tower.hp) && Number.isFinite(tower.maxHp) && tower.maxHp > 0) {
       const hpRatio = clamp(tower.hp / tower.maxHp, 0, 1);
       const bar = {
         x: drawX - 29,
@@ -3444,8 +3772,8 @@ export class TowerDefenseGame {
       ctx.globalAlpha *= clamp(1 - Math.max(0, progress - 0.48) / 0.52, 0, 1);
       ctx.translate(Math.sin(progress * 28) * (1 - progress) * 3, progress * 7);
       if (actor.squadType) {
-        const visual = SOLDIER_VISUALS[actor.squadType];
-        drawSoldier(ctx, actor.x, actor.y + 19, 44, {
+        const visual = soldierVisualFor(actor.type, actor.squadType);
+        drawSoldier(ctx, actor.x, actor.y + 19, SQUAD_MEMBER_DEFEAT_SIZE, {
           assetKey: visual.assetKey,
           squadType: actor.squadType,
           time: this.state.time,
@@ -3455,12 +3783,11 @@ export class TowerDefenseGame {
           ...animation,
         });
       } else {
-        drawSlime(ctx, actor.x, actor.y + 6, 76, actor.type, {
+        this.drawFriendlyCharacter(ctx, actor.x, actor.y + 6, 76, actor.type, {
           time: this.state.time,
           star: actor.star,
           facing: actor.facing,
           expression: 'hurt',
-          assetStore: this.assetStore,
           ...animation,
           ...this.characterRigOptions(actor.ownerId),
           allowGeneratedStandalone: this.generatedCharacterArtEnabled,
@@ -3526,6 +3853,37 @@ export class TowerDefenseGame {
   drawEffects(ctx) {
     for (const effect of this.state.effects) {
       const progress = clamp(effect.phase ?? effect.age / effect.duration, 0, 1);
+      if (effect.type === 'hero-skill-step') {
+        const radius = Math.max(1, Number(effect.radius) || 1);
+        const stage = clamp(Math.floor(Number(effect.stepIndex) || 0), 0, 2);
+        const rendered = drawSkillEffectFrames(ctx, effect.x, effect.y, radius, {
+          stepKind: effect.stepKind,
+          age: effect.age,
+          duration: effect.duration,
+          columns: 3,
+          startFrame: stage * 3,
+          frameCount: 3,
+          sheetFrameCount: 9,
+          growth: 0,
+          spin: 0,
+          assetStore: this.assetStore,
+        });
+        if (!rendered) {
+          drawParticle(ctx, effect.x, effect.y, radius * 2, 'ring', {
+            progress,
+            alpha: (1 - progress) * 0.72,
+            assetStore: this.assetStore,
+          });
+        }
+        drawParticle(ctx, effect.x, effect.y,
+          Math.min(38, Math.max(16, radius * 0.12)), 'spark', {
+            progress,
+            alpha: (1 - progress) * 0.34,
+            rotation: progress * 0.8,
+            assetStore: this.assetStore,
+          });
+        continue;
+      }
       if (effect.type === 'merge') {
         for (let index = 0; index < 4; index += 1) {
           const orbit = fusionOrbitPoint(effect, index * TAU / 4);
@@ -3705,8 +4063,14 @@ export class TowerDefenseGame {
 
   drawSquadPurchasePreview(ctx, rect, type) {
     const squadType = squadTypeFor(type);
-    const visual = SOLDIER_VISUALS[squadType];
-    const positions = [
+    const visual = soldierVisualFor(type, squadType);
+    const compact = rect.width < 100;
+    const positions = compact ? [
+      { x: -12, y: -15, scale: 0.82 },
+      { x: 12, y: -15, scale: 0.82 },
+      { x: -13, y: 6, scale: 0.94 },
+      { x: 13, y: 6, scale: 0.94 },
+    ] : [
       { x: -27, y: -18, scale: 0.86 },
       { x: 27, y: -18, scale: 0.86 },
       { x: -28, y: 9, scale: 1 },
@@ -3716,7 +4080,8 @@ export class TowerDefenseGame {
       const key = `purchase:${squadType}:${memberIndex}`;
       const animation = this.characterAnimationSample(key, visual.ownerId);
       drawSoldier(ctx, rect.x + rect.width / 2 + position.x,
-        rect.y + 108 + position.y, 38 * position.scale, {
+        rect.y + (compact ? 124 : 108) + position.y,
+        (compact ? 28 : SQUAD_PURCHASE_PREVIEW_SIZE) * position.scale, {
           assetKey: visual.assetKey,
           squadType,
           time: this.state.time + memberIndex * 0.13,
@@ -3730,26 +4095,26 @@ export class TowerDefenseGame {
   drawDirectPurchaseDock(ctx, stage) {
     const preparation = this.isPreparation();
     if (!preparation) {
-      ['melee', 'ranged', 'turret'].forEach((purchaseType) => {
+      PURCHASE_ITEMS.forEach(({ id: purchaseType }) => {
         this.addHit(`purchase-${purchaseType}`, COMMAND_DOCK.purchase[purchaseType],
           'select-purchase', { purchaseType }, false);
       });
       this.addHit('start-wave', COMMAND_DOCK.start, 'start-wave', {}, false);
       return;
     }
-    const entries = [
-      { id: 'melee', label: '盾墩小队', cost: 100, type: 'melee' },
-      { id: 'ranged', label: '豆弩小队', cost: 150, type: 'ranged' },
-      { id: 'turret', label: '固定炮台', cost: 175, type: null },
-    ];
-    entries.forEach((entry) => {
+    PURCHASE_ITEMS.forEach((entry) => {
       const rect = COMMAND_DOCK.purchase[entry.id];
+      const definition = entry.kind === 'squad'
+        ? SQUAD_TYPES[entry.type] : TURRET_TYPES[entry.type];
+      const soldierVisual = entry.kind === 'squad'
+        ? soldierVisualFor(entry.type, entry.type) : null;
+      const turretVisual = entry.kind === 'turret' ? turretVisualFor(entry.type) : null;
+      const cost = Math.max(0, Math.floor(Number(definition?.cost) || 0));
+      const shortName = soldierVisual?.shortName || entry.shortName || definition?.name || entry.id;
       const selected = this.selectedPurchase === entry.id;
-      const enabled = preparation && this.state.currency >= entry.cost;
+      const enabled = preparation && this.state.currency >= cost;
       const hot = enabled && Boolean(this.hoverPoint && insideRect(this.hoverPoint, rect));
-      const accent = entry.id === 'melee'
-        ? SOLDIER_VISUALS.melee.color
-        : entry.id === 'ranged' ? SOLDIER_VISUALS.ranged.color : '#6BC9A0';
+      const accent = soldierVisual?.color || definition?.color || '#6BC9A0';
       drawAssetOrFallback(ctx, this.assetStore, 'ui-card-frame-deploy', (asset) => {
         ctx.globalAlpha *= enabled ? 1 : 0.48;
         ctx.drawImage(asset, rect.x, rect.y, rect.width, rect.height);
@@ -3758,30 +4123,30 @@ export class TowerDefenseGame {
           fill: enabled ? selected ? '#FFF2B8' : hot ? '#FFFEF1' : '#FFF8E8' : '#AEBBB5',
           stroke: selected ? '#E0A129' : enabled ? accent : '#74837D',
           lineWidth: selected || hot ? 5 : 2,
-          radius: 22,
+          radius: 13,
           shadow: enabled,
         });
       });
-      label(ctx, entry.label, rect.x + 14, rect.y + 20, {
-        size: 17, align: 'left', color: COLORS.ink, weight: 950,
+      label(ctx, shortName, rect.x + rect.width / 2, rect.y + 18, {
+        size: 11, color: COLORS.ink, weight: 950,
       });
       drawAssetOrFallback(ctx, this.assetStore, 'ui-gel-energy', (asset) => {
         ctx.globalAlpha *= enabled ? 0.95 : 0.4;
-        ctx.drawImage(asset, rect.x + rect.width - 62, rect.y + 7, 24, 24);
+        ctx.drawImage(asset, rect.x + 11, rect.y + 33, 17, 17);
       }, () => {});
-      label(ctx, entry.cost, rect.x + rect.width - 12, rect.y + 20, {
-        size: 15, align: 'right', color: enabled ? COLORS.ink : COLORS.disabled, weight: 950,
+      label(ctx, cost, rect.x + rect.width - 9, rect.y + 42, {
+        size: 12, align: 'right', color: enabled ? COLORS.ink : COLORS.disabled, weight: 950,
       });
-      if (entry.type) {
+      if (entry.kind === 'squad') {
         ctx.save();
         ctx.globalAlpha *= enabled ? 1 : 0.42;
         this.drawSquadPurchasePreview(ctx, rect, entry.type);
         ctx.restore();
       } else {
-        drawBuilding(ctx, rect.x + rect.width / 2, rect.y + 119, 88, 'tower', {
-          assetKey: 'turret-gel-mortar',
+        drawBuilding(ctx, rect.x + rect.width / 2, rect.y + 142, 62, 'tower', {
+          assetKey: turretVisual.assetKey,
           assetStore: this.assetStore,
-          ...GEL_MORTAR_ASSET_LAYOUT,
+          ...turretVisual.layout,
           disabled: !enabled,
         });
       }
@@ -3789,7 +4154,7 @@ export class TowerDefenseGame {
         ctx.save();
         ctx.strokeStyle = selected ? '#E0A129' : accent;
         ctx.lineWidth = selected ? 5 : 4;
-        roundedPath(ctx, rect.x + 2, rect.y + 2, rect.width - 4, rect.height - 4, 21);
+        roundedPath(ctx, rect.x + 2, rect.y + 2, rect.width - 4, rect.height - 4, 12);
         ctx.stroke();
         ctx.restore();
       }
@@ -3826,7 +4191,7 @@ export class TowerDefenseGame {
     if (selectedTower) {
       if (isSquadTower(selectedTower)) {
         const squadType = squadTypeFor(selectedTower.type, selectedTower.squadType);
-        const visual = SOLDIER_VISUALS[squadType];
+        const visual = soldierVisualFor(selectedTower.type, squadType);
         const squadDefinition = SQUAD_TYPES[squadType];
         const animation = this.characterAnimationSample(
           `tower:${selectedTower.uid}`,
@@ -3834,7 +4199,7 @@ export class TowerDefenseGame {
           selectedTower.moving ? 'move' : 'idle',
         );
         drawSoldier(ctx, COMMAND_DOCK.selection.x + 38,
-          COMMAND_DOCK.selection.y + 113, 49, {
+          COMMAND_DOCK.selection.y + 113, 58, {
             assetKey: visual.assetKey,
             squadType,
             time: this.state.time,
@@ -3867,12 +4232,12 @@ export class TowerDefenseGame {
         `tower:${selectedTower.uid}`,
         definition.ownerId,
       );
-      drawSlime(ctx, COMMAND_DOCK.selection.x + 38, COMMAND_DOCK.selection.y + 113,
+      this.drawFriendlyCharacter(
+        ctx, COMMAND_DOCK.selection.x + 38, COMMAND_DOCK.selection.y + 113,
         45, visualType, {
           time: this.state.time,
           star: selectedTower.star,
           facing: 1,
-          assetStore: this.assetStore,
           ...animation,
           ...this.characterRigOptions(definition.ownerId),
           allowGeneratedStandalone: this.generatedCharacterArtEnabled,
@@ -3955,16 +4320,16 @@ export class TowerDefenseGame {
       `card:${card.uid}`,
       definition.ownerId,
     );
-    drawSlime(ctx, rect.x + rect.width / 2, rect.y + rect.height - (compact ? 2 : 6),
+    this.drawFriendlyCharacter(
+      ctx, rect.x + rect.width / 2, rect.y + rect.height - (compact ? 2 : 6),
       compact ? 59 : 82, card.type, {
-      time: this.state.time,
-      star: card.star,
-      facing: 1,
-      assetStore: this.assetStore,
-      ...animation,
-      ...this.characterRigOptions(definition.ownerId),
-      allowGeneratedStandalone: this.generatedCharacterArtEnabled,
-    });
+        time: this.state.time,
+        star: card.star,
+        facing: 1,
+        ...animation,
+        ...this.characterRigOptions(definition.ownerId),
+        allowGeneratedStandalone: this.generatedCharacterArtEnabled,
+      });
     label(ctx, definition.name, rect.x + (compact ? 7 : 13), rect.y + 20, {
       size: compact ? 12 : 17, align: 'left', color: COLORS.ink, weight: 900,
     });
@@ -3986,22 +4351,23 @@ export class TowerDefenseGame {
   drawDragPreview(ctx) {
     if (!this.drag?.moved || !this.drag.point) return;
     if (this.drag.kind === 'purchase') {
+      const purchase = purchaseItemFor(this.drag.purchaseType);
       ctx.save();
       ctx.globalAlpha = 0.82;
-      if (this.drag.purchaseType === 'turret') {
+      if (purchase?.kind === 'turret') {
+        const visual = turretVisualFor(purchase.type);
         drawBuilding(ctx, this.drag.point.x, this.drag.point.y + 38, 86, 'tower', {
-          assetKey: 'turret-gel-mortar',
+          assetKey: visual.assetKey,
           assetStore: this.assetStore,
-          ...GEL_MORTAR_ASSET_LAYOUT,
+          ...visual.layout,
         });
-      } else {
-        const slimeType = this.drag.purchaseType === 'ranged' ? 'needle' : 'shell';
+      } else if (purchase?.kind === 'squad') {
         this.drawSquadPurchasePreview(ctx, {
           x: this.drag.point.x - 78,
           y: this.drag.point.y - 94,
           width: 156,
           height: 164,
-        }, slimeType);
+        }, purchase.type);
       }
       ctx.restore();
       return;
@@ -4016,10 +4382,9 @@ export class TowerDefenseGame {
       );
       ctx.save();
       ctx.globalAlpha = 0.8;
-      drawSlime(ctx, this.drag.point.x, this.drag.point.y + 28, 76, card.type, {
+      this.drawFriendlyCharacter(ctx, this.drag.point.x, this.drag.point.y + 28, 76, card.type, {
         time: this.state.time,
         star: card.star,
-        assetStore: this.assetStore,
         ...animation,
         ...this.characterRigOptions(definition.ownerId),
         allowGeneratedStandalone: this.generatedCharacterArtEnabled,
@@ -4054,14 +4419,14 @@ export class TowerDefenseGame {
           anchorIndependentMembers: true,
         });
       } else {
-        drawSlime(ctx, this.drag.point.x, this.drag.point.y + 30, 76, visualType, {
-          time: this.state.time,
-          star: tower.star,
-          assetStore: this.assetStore,
-          ...animation,
-          ...this.characterRigOptions(definition.ownerId),
-          allowGeneratedStandalone: this.generatedCharacterArtEnabled,
-        });
+        this.drawFriendlyCharacter(
+          ctx, this.drag.point.x, this.drag.point.y + 30, 76, visualType, {
+            time: this.state.time,
+            star: tower.star,
+            ...animation,
+            ...this.characterRigOptions(definition.ownerId),
+            allowGeneratedStandalone: this.generatedCharacterArtEnabled,
+          });
         this.drawStars(ctx, this.drag.point.x, this.drag.point.y - 42,
           tower.star, definition.color);
       }
@@ -4129,10 +4494,9 @@ export class TowerDefenseGame {
         'preview:result:shell',
         definition.ownerId,
       );
-      drawSlime(ctx, TD_VIEW.width / 2, 600, 164, 'shell', {
+      this.drawFriendlyCharacter(ctx, TD_VIEW.width / 2, 600, 164, 'shell', {
         time: this.state.time,
         star: TD_MAX_STAR,
-        assetStore: this.assetStore,
         ...animation,
         ...this.characterRigOptions(definition.ownerId),
         allowGeneratedStandalone: this.generatedCharacterArtEnabled,

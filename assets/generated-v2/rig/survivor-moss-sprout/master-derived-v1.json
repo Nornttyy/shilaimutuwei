@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "builder": "scripts/build-master-derived-rigs.py",
   "sourceMaster": "assets/original-masters/survivor-moss-sprout.png",
-  "sourceMasterSha256": "383c877305c35a3fed5ac79310532d3bad283d1df65b870266360fd2f03f3aa4",
+  "sourceMasterSha256": "43c9fd0fe82341756555637e188fc49e39dd4eeedb952d5b5a49492b18fa74af",
   "sourceMasterSize": [
     1536,
     1024
@@ -256,18 +256,18 @@
     "metrics": {
       "alphaIoU": 0.992569,
       "meanAlphaError": 0.890723,
-      "visibleRgbPsnrDb": 38.4018,
-      "visiblePixelsChangedOver8": 9855,
+      "visibleRgbPsnrDb": 38.4234,
+      "visiblePixelsChangedOver8": 9695,
       "visiblePixels": 669699
     }
   },
-  "atlasSha256": "ff19ab358ee66688da18083b32297e72d11609bdbf0d9b0ac770bfd25254a540",
-  "expressionsSha256": "e2c23af0af588682532adac6821588d0fc222f8e826712ca326748f12beecd01",
+  "atlasSha256": "e40e6862abcea42d5c532ad9efc01abd9b80a56ec1b5ce00a3cd0445edd8293e",
+  "expressionsSha256": "643585db06f600fd857302e0b240bb81c38b67b4e07f7208c2fcc7e2c23d89a9",
   "layerPngSha256": {
-    "body": "6f987650ec93241b92072c96a3b5d2b66605124eaa323db0a6e25161c6e24950",
-    "eyeLeft": "eb6b5e32c54a0dc2cf5ca3f7c0691990d1314357564c7685c57beca1da749217",
-    "eyeRight": "e826c9113a52ad7f5b85269673599db1a4f2f5c9e1d8905833efb9b249385205",
-    "eyes": "11a6985275a4cb9f9ab91d0c4104ce7b85af0a6419e637940367026b01631593",
+    "body": "767887f0fbf352844e7f73f52ec2f9c6e9b7ca41855a22edd381d87704e7ceb1",
+    "eyeLeft": "cffdb1a8970c0e5f78fca13a9272674d0fe57a7d2a29f468ab2d7b5e481bf5c4",
+    "eyeRight": "35ef63f97ca836a28299ccbed52a2d1a534ca4f0a0e0667616180e60247f8f2b",
+    "eyes": "08e01b58b2b3742883983d79d3a538dda849e71448575a871353b0c915479c6f",
     "leafLeft": "27caa375f56921abb38032be071abf941547f0d1e2d037ce0763b0a46359f7c6",
     "leafRight": "e01e37d338b2ba504087a81e4de6839ca5cb192acb63abc434127c7944a396f9",
     "mouth": "7bf3919586d7ecf526a9db7c71584b488b2aa20ced3cc86c3b86c8120a4f829a",

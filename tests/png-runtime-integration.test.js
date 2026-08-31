@@ -83,7 +83,9 @@ class FakeOffscreenCanvas {
 globalThis.OffscreenCanvas = FakeOffscreenCanvas;
 
 const {
+  drawAtlasCharacter,
   drawMonster,
+  drawSkillEffectFrames,
   drawSlime,
   slimeEvolutionArmorLayout,
   slimeEvolutionProfile,
@@ -294,11 +296,94 @@ test('placed squads draw four fixed-size independent members without star scalin
   );
   assert.match(squadRenderer, /squad\.members\.filter\(\(member\) => \(/);
   assert.match(squadRenderer, /4:\s*\[[\s\S]*?\],\n\s*\};/);
-  assert.match(squadRenderer, /drawSoldier\(ctx,[\s\S]*?44 \* memberScale, \{/);
+  assert.match(TOWER_DEFENSE_SOURCE, /const SQUAD_MEMBER_RENDER_SIZE = 52;/);
+  assert.match(
+    squadRenderer,
+    /drawSoldier\(ctx,[\s\S]*?SQUAD_MEMBER_RENDER_SIZE \* memberScale, \{/,
+  );
   assert.match(squadRenderer, /squadMemberAnimationKey\(squad, member, memberIndex\)/);
   assert.match(squadRenderer, /assetKey: visual\.assetKey/);
   assert.doesNotMatch(squadRenderer, /drawSlime\(/);
   assert.doesNotMatch(squadRenderer, /\.star\b/);
+});
+
+test('generic hero atlases and skill sheets use exact 418px cells at runtime', () => {
+  for (const assetKey of ['hero-berry-burst-atlas-v1', 'hero-dew-bloom-atlas-v1']) {
+    resetOffscreen();
+    const atlas = { id: assetKey, kind: assetKey, width: 1254, height: 1254 };
+    const ctx = createMainContext();
+    const rendered = drawAtlasCharacter(ctx, 120, 240, 96, {
+      assetKey,
+      time: 0.3,
+      assetStore: {
+        useOrFallback(requestedKey, drawAsset) {
+          assert.equal(requestedKey, assetKey);
+          drawAsset(atlas);
+          return true;
+        },
+      },
+    });
+    assert.equal(rendered, true);
+    const sourceCells = offscreenState.layerDrawDetails
+      .filter(({ image }) => image === atlas)
+      .map(({ rect: [sx, sy, sw, sh] }) => [sx, sy, sw, sh]);
+    for (const cell of [
+      [0, 0, 418, 418],
+      [418, 0, 418, 418],
+      [836, 0, 418, 418],
+      [0, 418, 418, 418],
+      [418, 418, 418, 418],
+    ]) assert.ok(sourceCells.some((candidate) => (
+      candidate.length === cell.length
+      && candidate.every((value, index) => value === cell[index])
+    )), `${assetKey} draws cell ${cell.join(',')}`);
+  }
+
+  const ctx = createMainContext();
+  const sheet = { kind: 'skill-sheet', width: 1254, height: 1254 };
+  const rendered = drawSkillEffectFrames(ctx, 300, 400, 300, {
+    stepKind: 'shell-quake',
+    age: 0.72,
+    duration: 0.72,
+    columns: 3,
+    startFrame: 6,
+    frameCount: 3,
+    sheetFrameCount: 9,
+    growth: 0,
+    spin: 0,
+    assetStore: {
+      useOrFallback(key, drawAsset) {
+        assert.equal(key, 'effect-shell-triple-shock-frames-v1');
+        drawAsset(sheet);
+        return true;
+      },
+    },
+  });
+  assert.equal(rendered, true);
+  const draw = ctx.calls.find(([method, kind]) => method === 'drawImage' && kind === 'skill-sheet');
+  assert.deepEqual(draw, [
+    'drawImage', 'skill-sheet',
+    836, 836, 418, 418,
+    -150, -150, 300, 300,
+  ]);
+});
+
+test('tower defense routes each hero skill stage through its own 3-frame sheet band', () => {
+  const effectRenderer = TOWER_DEFENSE_SOURCE.match(
+    /if \(effect\.type === 'hero-skill-step'\) \{[\s\S]*?\n\s*continue;\n\s*\}/,
+  )?.[0] || '';
+  assert.match(effectRenderer, /drawSkillEffectFrames\(ctx, effect\.x, effect\.y, radius,/);
+  assert.match(effectRenderer, /age: effect\.age/);
+  assert.match(effectRenderer, /duration: effect\.duration/);
+  assert.match(effectRenderer, /columns: 3/);
+  assert.match(effectRenderer, /const stage = clamp\(Math\.floor\(Number\(effect\.stepIndex\) \|\| 0\), 0, 2\)/);
+  assert.match(effectRenderer, /startFrame: stage \* 3/);
+  assert.match(effectRenderer, /frameCount: 3/);
+  assert.match(effectRenderer, /sheetFrameCount: 9/);
+  assert.match(effectRenderer, /if \(!rendered\)/,
+    'the procedural ring only replaces a missing generated sheet');
+  assert.ok(effectRenderer.indexOf('drawSkillEffectFrames') < effectRenderer.indexOf('drawParticle'),
+    'the animated generated sheet is layered before the lightweight spark');
 });
 
 test('armor layouts map each exact star row to three fixed non-replacement skeletal slots', () => {

@@ -9,6 +9,7 @@ import {
   heroStatsForRank,
 } from '../src/tower-defense-core.js';
 import { SOLDIER_RIG } from '../src/animation/rigs.js';
+import { createWebRuntime } from '../src/platform/runtime.js';
 
 function createContext() {
   const gradient = () => ({ addColorStop() {} });
@@ -214,7 +215,7 @@ test('constructs and renders its first menu frame without DOM globals', () => {
   assert.equal(canvas.height, 1280);
   assert.ok(game.hits.some(({ id }) => id === 'start-story'));
   assert.deepEqual(game.hits.map(({ id }) => id), [
-    'start-story', 'endless', 'open-roster', 'open-summon',
+    'start-story', 'endless', 'open-roster', 'open-summon', 'audio-toggle',
   ]);
   assert.ok(canvas.context.calls.some(([kind, text]) => (
     kind === 'fillText' && text === '史莱姆守望团'
@@ -309,7 +310,7 @@ test('summoning and hero formation are separate portrait menu flows', () => {
   canvas.context.calls.length = 0;
   game.render();
   assert.deepEqual(game.hits.map(({ id }) => id), [
-    'summon-back', 'summon-one', 'summon-ten',
+    'summon-back', 'summon-one', 'summon-ten', 'audio-toggle',
   ]);
   assert.equal(game.hits.some(({ id }) => id.startsWith('hero-select-')), false,
     'the summon page cannot switch the active hero');
@@ -331,7 +332,7 @@ test('summoning and hero formation are separate portrait menu flows', () => {
   assert.equal(game.state.progress.summonCurrency, 900,
     'a stale summon hit cannot buy again while the ceremony is running');
   game.render();
-  assert.deepEqual(game.hits.map(({ id }) => id), ['summon-animation-skip']);
+  assert.deepEqual(game.hits.map(({ id }) => id), ['summon-animation-skip', 'audio-toggle']);
   assert.ok(canvas.context.calls.some(([kind, text]) => (
     kind === 'fillText' && text === '能量汇聚'
   )), 'the first ceremony stage gathers energy');
@@ -339,7 +340,7 @@ test('summoning and hero formation are separate portrait menu flows', () => {
   assert.equal(game.summonAnimation, null);
   assert.equal(game.summonResults.length, 1);
   game.render();
-  assert.deepEqual(game.hits.map(({ id }) => id), ['summon-result-close']);
+  assert.deepEqual(game.hits.map(({ id }) => id), ['summon-result-close', 'audio-toggle']);
   click(game, canvas, hitCenter(game, 'summon-result-close'));
   assert.equal(game.summonResults.length, 0);
 
@@ -351,7 +352,7 @@ test('summoning and hero formation are separate portrait menu flows', () => {
   for (let index = 0; index < 15; index += 1) game.updateCharacterAnimations(0.05);
   canvas.context.calls.length = 0;
   game.render();
-  assert.deepEqual(game.hits.map(({ id }) => id), ['summon-animation-skip']);
+  assert.deepEqual(game.hits.map(({ id }) => id), ['summon-animation-skip', 'audio-toggle']);
   assert.ok(canvas.context.calls.some(([kind, text]) => (
     kind === 'fillText' && text === '契约裂隙开启'
   )), 'the second ceremony stage opens the rift and flips a card');
@@ -362,13 +363,13 @@ test('summoning and hero formation are separate portrait menu flows', () => {
   assert.ok(canvas.context.calls.some(([kind, text]) => (
     kind === 'fillText' && text === '契约显现'
   )), 'the third ceremony stage reveals the results in sequence');
-  assert.deepEqual(game.hits.map(({ id }) => id), ['summon-animation-skip']);
+  assert.deepEqual(game.hits.map(({ id }) => id), ['summon-animation-skip', 'audio-toggle']);
 
   for (let index = 0; index < 24; index += 1) game.updateCharacterAnimations(0.05);
   assert.equal(game.summonAnimation, null);
   assert.equal(game.summonResults.length, 10);
   game.render();
-  assert.deepEqual(game.hits.map(({ id }) => id), ['summon-result-close']);
+  assert.deepEqual(game.hits.map(({ id }) => id), ['summon-result-close', 'audio-toggle']);
   click(game, canvas, hitCenter(game, 'summon-result-close'));
 
   const heroTypes = Object.keys(HERO_TYPES);
@@ -1022,7 +1023,7 @@ test('story opens stage selection with lock, clear, selectable, and back states'
   game.render();
 
   assert.deepEqual(game.hits.map(({ id }) => id), [
-    'start-story', 'endless', 'open-roster', 'open-summon',
+    'start-story', 'endless', 'open-roster', 'open-summon', 'audio-toggle',
   ]);
   const storyHit = game.hits.find(({ id }) => id === 'start-story');
   assert.equal(storyHit.action, 'open-stage-select');
@@ -1035,6 +1036,7 @@ test('story opens stage selection with lock, clear, selectable, and back states'
 
   assert.deepEqual(game.hits.map(({ id }) => id), [
     'stage-select-back', ...TD_STAGES.map(({ index }) => `select-stage-${index}`),
+    'audio-toggle',
   ]);
   assert.equal(game.hits.find(({ id }) => id === 'select-stage-1').enabled, true);
   assert.equal(game.hits.find(({ id }) => id === 'select-stage-2').enabled, true);
@@ -1067,7 +1069,7 @@ test('story opens stage selection with lock, clear, selectable, and back states'
   assert.equal(game.menuPage, 'main');
   game.render();
   assert.deepEqual(game.hits.map(({ id }) => id), [
-    'start-story', 'endless', 'open-roster', 'open-summon',
+    'start-story', 'endless', 'open-roster', 'open-summon', 'audio-toggle',
   ]);
 
   click(game, canvas, hitCenter(game, 'start-story'));
@@ -1814,6 +1816,48 @@ test('save, background, and foreground use runtime storage and frame scheduler s
   assert.equal(canvas.flushFrame(100), true);
   assert.equal(canvas.pendingFrameCount(), 1, 'a running frame schedules its successor');
   game.dispose();
+});
+
+test('legacy browser JSON progress is preserved and migrated to runtime storage format', () => {
+  const legacyProgress = {
+    unlockedStage: 3,
+    clearedStages: ['stage-1', 'stage-2'],
+    bestEndlessWave: 8,
+    tutorialSeen: true,
+    summonCurrency: 777,
+  };
+  const values = new Map([[TD_STORAGE_KEY, JSON.stringify(legacyProgress)]]);
+  const storage = {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+    removeItem: (key) => values.delete(key),
+  };
+  const runtime = createWebRuntime({
+    storage,
+    windowRef: null,
+    documentRef: null,
+    AudioClass: null,
+  });
+  const game = new TowerDefenseGame(createCanvas(), { runtime, pixelRatio: 1 });
+
+  assert.deepEqual({
+    unlockedStage: game.state.progress.unlockedStage,
+    clearedStages: game.state.progress.clearedStages,
+    bestEndlessWave: game.state.progress.bestEndlessWave,
+    tutorialSeen: game.state.progress.tutorialSeen,
+    summonCurrency: game.state.progress.summonCurrency,
+  }, legacyProgress);
+
+  assert.equal(game.save(), true);
+  const migrated = values.get(TD_STORAGE_KEY);
+  assert.match(migrated, /^__slime_runtime_json_v1__:/);
+  assert.equal(
+    JSON.parse(migrated.slice('__slime_runtime_json_v1__:'.length)).summonCurrency,
+    legacyProgress.summonCurrency,
+  );
+
+  game.dispose();
+  runtime.dispose();
 });
 
 test('dispose is idempotent, saves, cancels animation, and removes pointer listeners', () => {

@@ -13,7 +13,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   collectDeclaredAssetPaths,
+  collectDeclaredAudioPaths,
   collectRigImagePaths,
+  readAudioManifest,
 } from './build-pages.mjs';
 import { validateRigPartManifest } from '../src/animation/rig-assets.js';
 import { TOWER_DEFENSE_ASSET_KEYS } from '../src/assets.js';
@@ -90,7 +92,7 @@ async function describeAsset(projectRoot, assetPath, metadata) {
   };
 }
 
-export async function collectRemoteAssets(projectRoot, assetSpec, rigManifest) {
+export async function collectRemoteAssets(projectRoot, assetSpec, rigManifest, audioManifest = null) {
   const records = new Map();
   const assetsByPath = new Map((assetSpec?.assets || []).map((asset) => [asset.path, asset]));
   for (const assetPath of collectDeclaredAssetPaths(assetSpec)) {
@@ -108,6 +110,17 @@ export async function collectRemoteAssets(projectRoot, assetSpec, rigManifest) {
       kind: 'rig',
       category: 'rig',
     });
+  }
+  if (audioManifest) {
+    const audioByPath = new Map(audioManifest.assets.map((asset) => [asset.path, asset]));
+    for (const assetPath of collectDeclaredAudioPaths(audioManifest)) {
+      const asset = audioByPath.get(assetPath);
+      records.set(assetPath, {
+        id: asset.id,
+        kind: 'audio',
+        category: asset.kind,
+      });
+    }
   }
 
   const described = [];
@@ -158,6 +171,12 @@ export function packagedRigImagePaths(assets, assetBaseUrl) {
     .map((asset) => [asset.path, versionedRemoteUrl(assetBaseUrl, asset)])));
 }
 
+export function packagedAudioPaths(assets, assetBaseUrl) {
+  return Object.freeze(Object.fromEntries(assets
+    .filter((asset) => asset.kind === 'audio' && asset.id)
+    .map((asset) => [asset.id, versionedRemoteUrl(assetBaseUrl, asset)])));
+}
+
 export function selectStartupAssetPaths(paths, requiredKeys) {
   const selected = {};
   for (const key of [...new Set(requiredKeys || [])]) {
@@ -202,6 +221,7 @@ function gameEntrySource({
   rigManifest = null,
   rigOwnerIds = [],
   rigImagePaths = {},
+  audioPaths = {},
 } = {}) {
   return `import { startWechatGame } from './src/platform/wechat-entry.js';
 
@@ -213,6 +233,7 @@ const buildConfig = ${JSON.stringify({
     rigManifest,
     rigOwnerIds,
     rigImagePaths,
+    audioPaths,
   }, null, 2)};
 const runtimeConfig = {
   ...buildConfig,
@@ -275,11 +296,12 @@ function remoteManifest(assets, assetBaseUrl, copiedSources) {
       configured: Boolean(assetBaseUrl),
       baseUrl: assetBaseUrl || null,
       mainPackagePngCount: 0,
+      mainPackageAudioCount: 0,
       downloadDomainMustBeWhitelisted: true,
       cacheRecommendation: 'Download on demand, verify sha256, then cache under wx.env.USER_DATA_PATH.',
       fallbackPolicy: 'Missing ordinary or rig art must block startup until a successful retry.',
       notes: [
-        'The main package contains JavaScript and manifests only; canonical PNG files are not copied.',
+        'The main package contains JavaScript and manifests only; canonical PNG and audio files are not copied.',
         'Set WECHAT_ASSET_BASE_URL to an HTTPS CDN origin before a production build.',
         'Do not grant paid goods from a client-only callback; payment results require server verification.',
       ],
@@ -359,14 +381,16 @@ export async function buildWechatPackage({
   const rigManifest = validateRigPartManifest(
     await readJson(path.join(root, 'assets', 'rig-parts.json')),
   );
+  const audioManifest = await readAudioManifest(root);
   const rigOwnerIds = Object.freeze([...new Set(requiredRigOwnerIds)]);
   const rigImagePathList = assertRigBuildContract(rigManifest, rigOwnerIds);
-  const assets = await collectRemoteAssets(root, assetSpec, rigManifest);
+  const assets = await collectRemoteAssets(root, assetSpec, rigManifest, audioManifest);
   const allAssetPaths = packagedAssetPaths(assets, normalizedBaseUrl);
   const allAssetRelativePaths = packagedAssetPaths(assets, '');
   const assetPaths = selectStartupAssetPaths(allAssetPaths, startupAssetKeys);
   const assetRelativePaths = selectStartupAssetPaths(allAssetRelativePaths, startupAssetKeys);
   const rigImagePaths = packagedRigImagePaths(assets, normalizedBaseUrl);
+  const audioPaths = packagedAudioPaths(assets, normalizedBaseUrl);
   if (
     Object.keys(rigImagePaths).length !== rigImagePathList.length
     || rigImagePathList.some((assetPath) => !rigImagePaths[assetPath])
@@ -385,6 +409,13 @@ export async function buildWechatPackage({
     await mkdir(path.join(staging, 'assets'), { recursive: true });
     await cp(path.join(root, 'assets', 'asset-spec.json'), path.join(staging, 'assets', 'asset-spec.json'));
     await cp(path.join(root, 'assets', 'rig-parts.json'), path.join(staging, 'assets', 'rig-parts.json'));
+    if (audioManifest) {
+      await mkdir(path.join(staging, 'assets', 'audio'), { recursive: true });
+      await cp(
+        path.join(root, 'assets', 'audio', 'manifest.json'),
+        path.join(staging, 'assets', 'audio', 'manifest.json'),
+      );
+    }
     await writeFile(path.join(staging, 'game.js'), gameEntrySource({
       assetPaths: normalizedBaseUrl ? assetPaths : {},
       assetRelativePaths,
@@ -392,6 +423,7 @@ export async function buildWechatPackage({
       rigManifest,
       rigOwnerIds,
       rigImagePaths,
+      audioPaths,
     }), 'utf8');
     await writeFile(path.join(staging, 'game.json'), `${JSON.stringify(gameConfiguration(), null, 2)}\n`, 'utf8');
     await writeFile(
@@ -442,6 +474,7 @@ export async function buildWechatPackage({
       ordinaryAssets: Object.keys(allAssetPaths).length,
       startupOrdinaryAssets: Object.keys(assetPaths).length,
       rigAssets: Object.keys(rigImagePaths).length,
+      audioAssets: Object.keys(audioPaths).length,
       remoteBytes: assets.reduce((total, asset) => total + asset.bytes, 0),
       remoteConfigured: Boolean(normalizedBaseUrl),
     };

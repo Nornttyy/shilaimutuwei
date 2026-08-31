@@ -15,8 +15,10 @@ import { fileURLToPath } from 'node:url';
 
 import {
   ASSET_SPEC_PATH,
+  AUDIO_MANIFEST_PATH,
   buildPages,
   collectDeclaredAssetPaths,
+  collectDeclaredAudioPaths,
   collectRigImagePaths,
   listImageFiles,
   RIG_MANIFEST_PATH,
@@ -56,9 +58,15 @@ const PROJECT_ASSET_SPEC = JSON.parse(await readFile(
   new URL('../assets/asset-spec.json', import.meta.url),
   'utf8',
 ));
+const PROJECT_AUDIO_MANIFEST = JSON.parse(await readFile(
+  new URL('../assets/audio/manifest.json', import.meta.url),
+  'utf8',
+));
 const PROJECT_ROOT = fileURLToPath(new URL('../', import.meta.url));
 const SHELL_SLIME_IMAGE_PATH = `./assets/generated/survivor/survivor-moss-sprout.png?v=${ASSET_CACHE_VERSION}`;
 const REQUIRED_GAMEPLAY_MODULES = Object.freeze([
+  'src/audio-catalog.js',
+  'src/tower-defense-audio.js',
   'src/tower-defense-core.js',
   'src/tower-defense-game.js',
   'src/world.js',
@@ -131,6 +139,15 @@ test('the project asset whitelist covers all 162 canonical nested PNG paths', ()
   assert.equal(paths.every((assetPath) => (
     /^assets\/generated\/[a-z][a-z0-9-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*\.png$/.test(assetPath)
   )), true);
+});
+
+test('the project audio whitelist contains two BGM loops and fourteen formal effects', () => {
+  const paths = collectDeclaredAudioPaths(PROJECT_AUDIO_MANIFEST);
+  assert.equal(paths.length, 16);
+  assert.equal(PROJECT_AUDIO_MANIFEST.assets.filter(({ kind }) => kind === 'bgm').length, 2);
+  assert.equal(PROJECT_AUDIO_MANIFEST.assets.filter(({ kind }) => kind === 'sfx').length, 14);
+  assert.equal(paths.every((assetPath) => /^assets\/audio\/[a-z0-9-]+\.(?:m4a|wav)$/.test(assetPath)), true);
+  assert.equal(AUDIO_MANIFEST_PATH, 'assets/audio/manifest.json');
 });
 
 test('the project whitelist includes every terrain, expedition, and resource PNG contract', () => {

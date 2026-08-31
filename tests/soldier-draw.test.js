@@ -187,6 +187,24 @@ test('formal atlases keep stable expressions and the newest slimes reuse the app
   }
 });
 
+test('every formal soldier mouth is centered beneath its matching eyes', async () => {
+  const atlasUrls = [
+    new URL('../assets/generated/soldier/soldier-shield-dun-atlas-v1.png', import.meta.url),
+    new URL('../assets/generated/soldier/soldier-bean-bow-atlas-v1.png', import.meta.url),
+    new URL('../assets/generated/soldier/soldier-bounce-hammer-atlas-v1.png', import.meta.url),
+    new URL('../assets/generated/soldier/soldier-leaf-spinner-atlas-v1.png', import.meta.url),
+  ];
+  for (const atlasUrl of atlasUrls) {
+    const atlas = decodeRgbaPng(await readFile(atlasUrl), atlasUrl.pathname);
+    for (const [eyesSlot, mouthSlot] of [[3, 4], [5, 6], [7, 8]]) {
+      const offset = boundsCenter(highAlphaBounds(atlas, mouthSlot)).x
+        - boundsCenter(highAlphaBounds(atlas, eyesSlot)).x;
+      assert.ok(Math.abs(offset) <= 1,
+        `${atlasUrl.pathname} expression ${mouthSlot} mouth offset is ${offset.toFixed(2)}px`);
+    }
+  }
+});
+
 test('soldier rig keeps deform, headgear inertia, and equipment recoil independent', () => {
   assert.equal(SOLDIER_RIG.bones.body.parent, 'deform');
   assert.equal(SOLDIER_RIG.bones.face.parent, 'deform');

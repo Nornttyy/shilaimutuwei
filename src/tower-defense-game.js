@@ -25,6 +25,7 @@ import {
   WINDCAP_CLIPS,
 } from './animation/clips.js';
 import { SOLDIER_RIG } from './animation/rigs.js';
+import { createTowerDefenseAudio } from './tower-defense-audio.js';
 import {
   HERO_TYPES,
   SQUAD_TYPES,
@@ -127,6 +128,7 @@ const MENU_ACTIONS = Object.freeze({
   roster: Object.freeze({ x: 290, y: 1026, width: 178, height: 98 }),
   summon: Object.freeze({ x: 480, y: 1026, width: 192, height: 98 }),
 });
+const AUDIO_TOGGLE_RECT = Object.freeze({ x: 658, y: 100, width: 46, height: 46 });
 
 const SUMMON_BACK_RECT = Object.freeze({ x: 22, y: 28, width: 104, height: 58 });
 const SUMMON_CURRENCY_RECT = Object.freeze({ x: 490, y: 28, width: 208, height: 62 });
@@ -769,6 +771,12 @@ export class TowerDefenseGame {
       && typeof this.runtime.storage.set === 'function'
       ? this.runtime.storage
       : localStorageAdapter(options.storage || safeGlobal('localStorage'));
+    this.audio = createTowerDefenseAudio({
+      runtime: this.runtime,
+      storage: this.storage,
+      paths: options.audioPaths || {},
+      now: options.audioNow,
+    });
     const progress = this.loadProgress();
     this.state = createTowerDefenseState({
       progress,
@@ -1257,7 +1265,9 @@ export class TowerDefenseGame {
 
   loadProgress() {
     try {
-      return normalizeTowerDefenseProgress(this.storage?.get(TD_STORAGE_KEY, {}) || {});
+      const stored = this.storage?.get(TD_STORAGE_KEY, {}) || {};
+      const progress = typeof stored === 'string' ? JSON.parse(stored) : stored;
+      return normalizeTowerDefenseProgress(progress);
     } catch {
       return normalizeTowerDefenseProgress({});
     }
@@ -1353,6 +1363,7 @@ export class TowerDefenseGame {
       }
       if (event.type === 'run-end' || event.type === 'tutorial-complete') this.save();
     }
+    this.audio.consumeEvents(events, this.state.screen);
     return events;
   }
 
@@ -1362,6 +1373,7 @@ export class TowerDefenseGame {
     this.scheduler.cancel(this.frameId);
     this.frameId = null;
     this.cancelInteraction();
+    this.audio.onBackground();
     this.save();
     return this;
   }
@@ -1369,6 +1381,7 @@ export class TowerDefenseGame {
   onForeground() {
     this.backgrounded = false;
     this.lastTimestamp = 0;
+    this.audio.onForeground(this.state.screen);
     this.render();
     this.scheduleFrame();
     return this;
@@ -1399,6 +1412,7 @@ export class TowerDefenseGame {
     this.turretPulses.clear();
     this.defeatedActors.length = 0;
     this.defeatedTowers.length = 0;
+    this.audio.dispose();
   }
 
   toGamePoint(eventOrPoint) {
@@ -1617,6 +1631,7 @@ export class TowerDefenseGame {
   }
 
   tutorialAllows(hit) {
+    if (hit?.action === 'toggle-audio') return true;
     if (this.state.screen === 'menu' && this.menuPage === 'summon' && this.summonAnimation) {
       return hit?.action === 'summon-animation-skip';
     }
@@ -1664,6 +1679,7 @@ export class TowerDefenseGame {
 
   handlePointerDown(event) {
     event?.preventDefault?.();
+    this.audio.activate(this.state.screen);
     const point = this.toGamePoint(event);
     const hit = this.hitAt(point);
     if (!this.tutorialAllows(hit)) return;
@@ -1941,6 +1957,12 @@ export class TowerDefenseGame {
   }
 
   activateHit(hit) {
+    if (hit.action === 'toggle-audio') {
+      if (this.audio.enabled) this.audio.playUiTap();
+      this.audio.toggle(this.state.screen);
+      return;
+    }
+    this.audio.playUiTap();
     switch (hit.action) {
       case 'open-stage-select':
         if (this.state.screen === 'menu') {
@@ -2164,6 +2186,7 @@ export class TowerDefenseGame {
 
   render() {
     const ctx = this.ctx;
+    this.audio.syncScreen(this.state.screen);
     this.updateLongPressState();
     this.hits = [];
     this.resetTransform();
@@ -2180,9 +2203,35 @@ export class TowerDefenseGame {
     }
     else if (this.state.screen === 'result') this.drawResult(ctx);
     else this.drawBattle(ctx);
+    this.drawAudioToggle(ctx);
     if (this.state.tutorial.active) this.drawTutorial(ctx);
     ctx.restore();
     return this;
+  }
+
+  drawAudioToggle(ctx) {
+    const rect = AUDIO_TOGGLE_RECT;
+    ctx.save();
+    ctx.shadowColor = 'rgba(22, 54, 58, 0.22)';
+    ctx.shadowBlur = 8;
+    ctx.shadowOffsetY = 3;
+    panel(ctx, rect, {
+      fill: 'rgba(255, 248, 233, 0.92)',
+      stroke: this.audio.enabled ? '#4A9B79' : '#87948E',
+      radius: 15,
+    });
+    ctx.shadowColor = 'transparent';
+    const assetKey = this.audio.enabled ? 'ui-audio-on' : 'ui-audio-off';
+    drawAssetOrFallback(ctx, this.assetStore, assetKey, (asset) => {
+      ctx.drawImage(asset, rect.x + 7, rect.y + 7, rect.width - 14, rect.height - 14);
+    }, () => {
+      label(ctx, this.audio.enabled ? '♪' : '×', rect.x + rect.width / 2,
+        rect.y + rect.height / 2 + 1, {
+          size: 24, color: this.audio.enabled ? COLORS.mintDeep : COLORS.inkSoft, weight: 950,
+        });
+    });
+    ctx.restore();
+    this.addHit('audio-toggle', rect, 'toggle-audio');
   }
 
   drawBackdrop(ctx, stageId = 'stage-1') {

@@ -960,6 +960,7 @@ export function startWechatGame({
         rigAssetStore,
         generatedCharacterArtEnabled: true,
         runtime,
+        audioPaths: config.audioPaths || {},
       });
       attachAssetStore(candidate, assetStore);
       if (rigAssetStore) {

@@ -1,0 +1,117 @@
+{
+  "schemaVersion": 1,
+  "assets": [
+    {
+      "id": "bgm-menu",
+      "kind": "bgm",
+      "path": "assets/audio/bgm-menu.m4a",
+      "loop": true,
+      "volume": 0.42
+    },
+    {
+      "id": "bgm-battle",
+      "kind": "bgm",
+      "path": "assets/audio/bgm-battle.m4a",
+      "loop": true,
+      "volume": 0.38
+    },
+    {
+      "id": "sfx-ui-tap",
+      "kind": "sfx",
+      "path": "assets/audio/sfx-ui-tap.wav",
+      "loop": false,
+      "volume": 0.52
+    },
+    {
+      "id": "sfx-deploy-gel",
+      "kind": "sfx",
+      "path": "assets/audio/sfx-deploy-gel.wav",
+      "loop": false,
+      "volume": 0.64
+    },
+    {
+      "id": "sfx-turret-build",
+      "kind": "sfx",
+      "path": "assets/audio/sfx-turret-build.wav",
+      "loop": false,
+      "volume": 0.66
+    },
+    {
+      "id": "sfx-wave-start",
+      "kind": "sfx",
+      "path": "assets/audio/sfx-wave-start.wav",
+      "loop": false,
+      "volume": 0.68
+    },
+    {
+      "id": "sfx-attack-plop",
+      "kind": "sfx",
+      "path": "assets/audio/sfx-attack-plop.wav",
+      "loop": false,
+      "volume": 0.48
+    },
+    {
+      "id": "sfx-turret-shot",
+      "kind": "sfx",
+      "path": "assets/audio/sfx-turret-shot.wav",
+      "loop": false,
+      "volume": 0.52
+    },
+    {
+      "id": "sfx-hit-soft",
+      "kind": "sfx",
+      "path": "assets/audio/sfx-hit-soft.wav",
+      "loop": false,
+      "volume": 0.46
+    },
+    {
+      "id": "sfx-enemy-pop",
+      "kind": "sfx",
+      "path": "assets/audio/sfx-enemy-pop.wav",
+      "loop": false,
+      "volume": 0.56
+    },
+    {
+      "id": "sfx-hero-skill",
+      "kind": "sfx",
+      "path": "assets/audio/sfx-hero-skill.wav",
+      "loop": false,
+      "volume": 0.72
+    },
+    {
+      "id": "sfx-core-hit",
+      "kind": "sfx",
+      "path": "assets/audio/sfx-core-hit.wav",
+      "loop": false,
+      "volume": 0.7
+    },
+    {
+      "id": "sfx-wave-clear",
+      "kind": "sfx",
+      "path": "assets/audio/sfx-wave-clear.wav",
+      "loop": false,
+      "volume": 0.68
+    },
+    {
+      "id": "sfx-victory",
+      "kind": "sfx",
+      "path": "assets/audio/sfx-victory.wav",
+      "loop": false,
+      "volume": 0.72
+    },
+    {
+      "id": "sfx-defeat",
+      "kind": "sfx",
+      "path": "assets/audio/sfx-defeat.wav",
+      "loop": false,
+      "volume": 0.62
+    },
+    {
+      "id": "sfx-summon",
+      "kind": "sfx",
+      "path": "assets/audio/sfx-summon.wav",
+      "loop": false,
+      "volume": 0.7
+    }
+  ]
+}

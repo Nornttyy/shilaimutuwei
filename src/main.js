@@ -8,6 +8,8 @@ import {
 import { createRigAssetStoreFromUrl } from './animation/rig-assets.js';
 import { shouldUseGeneratedRigs } from './animation/rig-mode.js';
 import { ENEMIES, SURVIVORS } from './catalog.js';
+import { AUDIO_ASSETS } from './audio-catalog.js';
+import { createPlatformRuntime } from './platform/runtime.js';
 
 const clampProgress = (value) => Math.max(0, Math.min(1, Number(value) || 0));
 
@@ -173,6 +175,8 @@ export function createBrowserStartup({
   wait = waitFor,
   exposeGame = () => {},
   bindLifecycle = () => {},
+  runtime = null,
+  audioPaths = {},
 } = {}) {
   if (!canvas) throw new TypeError('Browser startup requires a game canvas.');
   if (!loadingView) throw new TypeError('Browser startup requires a loading view.');
@@ -255,6 +259,8 @@ export function createBrowserStartup({
       const candidate = createGame(canvas, {
         assetStore,
         rigAssetStore: rigResult.store,
+        runtime,
+        audioPaths,
       });
       if (typeof candidate.setAssetStore === 'function') candidate.setAssetStore(assetStore);
       else candidate.assetStore = assetStore;
@@ -299,6 +305,11 @@ function installBrowserEntry() {
   const loadingRoot = document.querySelector('#loading');
   if (!canvas || !loadingRoot) return null;
   const assetStore = createAssetStore();
+  const runtime = createPlatformRuntime({ platform: 'web' });
+  const audioPaths = Object.freeze(Object.fromEntries(AUDIO_ASSETS.map((asset) => [
+    asset.id,
+    versionedBrowserUrl(`../${asset.path}`),
+  ])));
   const useGeneratedCharacterArt = shouldUseGeneratedRigs(
     window.location.search,
     { hostname: window.location.hostname },
@@ -307,6 +318,8 @@ function installBrowserEntry() {
     canvas,
     loadingView: createDomLoadingView({ root: loadingRoot, canvas }),
     assetStore,
+    runtime,
+    audioPaths,
     criticalKeys: TOWER_DEFENSE_ASSET_KEYS,
     useGeneratedCharacterArt,
     prepareRigStore: async () => {

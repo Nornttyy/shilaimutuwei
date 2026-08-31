@@ -18,6 +18,7 @@ import { parsePng, verifyAssets } from './verify-assets.mjs';
 
 export const RIG_MANIFEST_PATH = 'assets/rig-parts.json';
 export const ASSET_SPEC_PATH = 'assets/asset-spec.json';
+export const AUDIO_MANIFEST_PATH = 'assets/audio/manifest.json';
 export const PUBLISH_ENTRIES = Object.freeze(['index.html', 'styles.css', 'src']);
 export const LOCAL_OUTPUT_DIRECTORY = '_site';
 export const DOCS_OUTPUT_DIRECTORY = 'docs';
@@ -29,6 +30,8 @@ const RIG_IMAGE_PATTERN =
   /^assets\/generated-v2\/rig\/[A-Za-z0-9_-]+\/[A-Za-z0-9][A-Za-z0-9_.-]*\.png$/;
 const DECLARED_ASSET_PATTERN =
   /^assets\/generated\/([a-z][a-z0-9-]*)\/([A-Za-z0-9][A-Za-z0-9_.-]*\.png)$/;
+const DECLARED_AUDIO_PATTERN =
+  /^assets\/audio\/([a-z][a-z0-9-]*\.(?:m4a|wav))$/;
 const FORBIDDEN_DERIVATIVE_PATTERN =
   /(?:^|[-_.])(source|alpha|preview|review|legacy|candidates?)(?:[-_.]|$)/i;
 const VERSIONED_ATLAS_PATHS = Object.freeze({
@@ -99,6 +102,52 @@ export function collectDeclaredAssetPaths(spec) {
   }
 
   return [...references].sort();
+}
+
+export function collectDeclaredAudioPaths(manifest) {
+  if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) {
+    throw new TypeError('Audio manifest must be a JSON object.');
+  }
+  if (manifest.schemaVersion !== 1) {
+    throw new TypeError('Audio manifest schemaVersion must be 1.');
+  }
+  if (!Array.isArray(manifest.assets) || manifest.assets.length === 0) {
+    throw new TypeError('Audio manifest must contain a non-empty "assets" array.');
+  }
+  const ids = new Set();
+  const paths = new Set();
+  for (const [index, asset] of manifest.assets.entries()) {
+    const label = asset?.id ?? `assets[${index}]`;
+    if (typeof asset?.id !== 'string' || !/^(?:bgm|sfx)-[a-z0-9-]+$/.test(asset.id)) {
+      throw new TypeError(`Audio asset ${label} must declare a stable bgm-* or sfx-* id.`);
+    }
+    if (ids.has(asset.id)) throw new TypeError(`Audio manifest contains duplicate id: ${asset.id}`);
+    ids.add(asset.id);
+    const match = typeof asset.path === 'string' && DECLARED_AUDIO_PATTERN.exec(asset.path);
+    if (!match || path.posix.normalize(asset.path) !== asset.path || path.posix.isAbsolute(asset.path)) {
+      throw new TypeError(`Audio asset "${label}" must reference assets/audio/<filename>.m4a or .wav.`);
+    }
+    if (paths.has(asset.path)) {
+      throw new TypeError(`Audio manifest cannot publish one file twice: ${asset.path}`);
+    }
+    paths.add(asset.path);
+    if (!['bgm', 'sfx'].includes(asset.kind)) {
+      throw new TypeError(`Audio asset "${label}" kind must be bgm or sfx.`);
+    }
+    if (asset.loop !== (asset.kind === 'bgm')) {
+      throw new TypeError(`Audio asset "${label}" loop must match its bgm/sfx kind.`);
+    }
+    if (!Number.isFinite(asset.volume) || asset.volume < 0 || asset.volume > 1) {
+      throw new TypeError(`Audio asset "${label}" volume must be between 0 and 1.`);
+    }
+    if (asset.kind === 'bgm' && !asset.path.endsWith('.m4a')) {
+      throw new TypeError(`Audio asset "${label}" BGM must use AAC M4A.`);
+    }
+    if (asset.kind === 'sfx' && !asset.path.endsWith('.wav')) {
+      throw new TypeError(`Audio asset "${label}" SFX must use PCM WAV.`);
+    }
+  }
+  return [...paths].sort();
 }
 
 export function collectRigImagePaths(manifest) {
@@ -241,6 +290,29 @@ export async function readAssetSpec(projectRoot) {
   return parsed;
 }
 
+export async function readAudioManifest(projectRoot, { optional = true } = {}) {
+  const manifestFile = path.join(projectRoot, AUDIO_MANIFEST_PATH);
+  let source;
+  try {
+    source = await readFile(manifestFile, 'utf8');
+  } catch (error) {
+    if (optional && error?.code === 'ENOENT') return null;
+    throw new Error(`Cannot read audio manifest at ${AUDIO_MANIFEST_PATH}: ${error.message}`);
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(source);
+  } catch (error) {
+    throw new Error(`Invalid JSON in ${AUDIO_MANIFEST_PATH}: ${error.message}`);
+  }
+  try {
+    collectDeclaredAudioPaths(parsed);
+  } catch (error) {
+    throw new Error(`Invalid audio contract in ${AUDIO_MANIFEST_PATH}: ${error.message}`);
+  }
+  return parsed;
+}
+
 async function assertPngImagesExist(projectRoot, imagePaths, kind) {
   const missing = [];
   const invalid = [];
@@ -309,6 +381,44 @@ export async function listImageFiles(directory) {
     .map((entry) => entry.split(path.sep).join('/'))
     .filter((entry) => IMAGE_PATTERN.test(entry))
     .sort();
+}
+
+export async function listAudioFiles(directory) {
+  const entries = await readdir(directory, { recursive: true });
+  return entries
+    .map((entry) => entry.split(path.sep).join('/'))
+    .filter((entry) => /\.(?:m4a|wav)$/i.test(entry))
+    .sort();
+}
+
+export async function assertAudioAssetsExist(projectRoot, audioPaths) {
+  const problems = [];
+  await Promise.all(audioPaths.map(async (audioPath) => {
+    const filename = path.join(projectRoot, ...audioPath.split('/'));
+    try {
+      const info = await lstat(filename);
+      if (!info.isFile() || info.size < 64) {
+        problems.push(`${audioPath} is missing usable audio data`);
+        return;
+      }
+      const contents = await readFile(filename);
+      const validWav = audioPath.endsWith('.wav')
+        && contents.toString('ascii', 0, 4) === 'RIFF'
+        && contents.toString('ascii', 8, 12) === 'WAVE';
+      const validM4a = audioPath.endsWith('.m4a')
+        && contents.toString('ascii', 4, 8) === 'ftyp';
+      if (!validWav && !validM4a) problems.push(`${audioPath} has an invalid container header`);
+    } catch (error) {
+      if (error?.code === 'ENOENT') problems.push(`${audioPath} is missing`);
+      else throw error;
+    }
+  }));
+  if (problems.length) {
+    throw new Error(
+      `Cannot build GitHub Pages: ${problems.length} audio asset(s) failed validation:\n`
+      + problems.sort().map((problem) => `  - ${problem}`).join('\n'),
+    );
+  }
 }
 
 function pathIsInside(parentDirectory, candidatePath) {
@@ -405,7 +515,11 @@ export async function verifyPublishedModules(outputDirectory) {
 
 export async function verifyPagesOutput(
   outputDirectory,
-  { assetPaths: expectedAssetPaths, rigImagePaths: expectedRigImagePaths },
+  {
+    assetPaths: expectedAssetPaths,
+    rigImagePaths: expectedRigImagePaths,
+    audioPaths: expectedAudioPaths = [],
+  },
 ) {
   await verifyPublishedModules(outputDirectory);
   const copiedSpec = await readAssetSpec(outputDirectory);
@@ -437,6 +551,21 @@ export async function verifyPagesOutput(
   await assertAssetSpecPngsValid(outputDirectory, 'staging');
   await assertDeclaredAssetsExist(outputDirectory, expectedAssetPaths);
   await assertRigImagesExist(outputDirectory, expectedRigImagePaths);
+  const outputAudio = await listAudioFiles(outputDirectory);
+  assertSamePaths(
+    outputAudio,
+    expectedAudioPaths,
+    'Pages output audio files must exactly equal the audio manifest reference set.',
+  );
+  if (expectedAudioPaths.length) {
+    const copiedAudioManifest = await readAudioManifest(outputDirectory, { optional: false });
+    assertSamePaths(
+      collectDeclaredAudioPaths(copiedAudioManifest),
+      expectedAudioPaths,
+      'The copied audio manifest does not match the source audio manifest.',
+    );
+    await assertAudioAssetsExist(outputDirectory, expectedAudioPaths);
+  }
 }
 
 export async function buildPages({ projectRoot, outputDirectory } = {}) {
@@ -449,6 +578,8 @@ export async function buildPages({ projectRoot, outputDirectory } = {}) {
   const manifest = await readRigManifest(root);
   const rigImagePaths = collectRigImagePaths(manifest);
   const imagePaths = [...new Set([...assetPaths, ...rigImagePaths])].sort();
+  const audioManifest = await readAudioManifest(root);
+  const audioPaths = audioManifest ? collectDeclaredAudioPaths(audioManifest) : [];
 
   for (const entry of PUBLISH_ENTRIES) {
     try {
@@ -460,6 +591,7 @@ export async function buildPages({ projectRoot, outputDirectory } = {}) {
   await assertAssetSpecPngsValid(root, 'source');
   await assertDeclaredAssetsExist(root, assetPaths);
   await assertRigImagesExist(root, rigImagePaths);
+  await assertAudioAssetsExist(root, audioPaths);
 
   const stagingDirectory = await mkdtemp(path.join(root, '.pages-build-'));
   try {
@@ -471,11 +603,15 @@ export async function buildPages({ projectRoot, outputDirectory } = {}) {
 
     await copyProjectFile(root, stagingDirectory, ASSET_SPEC_PATH);
     await copyProjectFile(root, stagingDirectory, RIG_MANIFEST_PATH);
+    if (audioManifest) await copyProjectFile(root, stagingDirectory, AUDIO_MANIFEST_PATH);
     for (const assetPath of imagePaths) {
       await copyProjectFile(root, stagingDirectory, assetPath);
     }
+    for (const audioPath of audioPaths) {
+      await copyProjectFile(root, stagingDirectory, audioPath);
+    }
 
-    await verifyPagesOutput(stagingDirectory, { assetPaths, rigImagePaths });
+    await verifyPagesOutput(stagingDirectory, { assetPaths, rigImagePaths, audioPaths });
     await rm(target, { recursive: true, force: true });
     await rename(stagingDirectory, target);
   } catch (error) {
@@ -490,6 +626,8 @@ export async function buildPages({ projectRoot, outputDirectory } = {}) {
     assetPaths,
     rigImagePaths,
     imagePaths,
+    audioManifestPath: audioManifest ? AUDIO_MANIFEST_PATH : null,
+    audioPaths,
   };
 }
 
@@ -552,7 +690,8 @@ if (isDirectRun) {
     const result = await buildPages({ projectRoot, outputDirectory });
     console.log(
       `GitHub Pages site built at ${result.outputDirectory} `
-      + `with ${result.imagePaths.length} manifest-listed PNG files.`,
+      + `with ${result.imagePaths.length} manifest-listed PNG files `
+      + `and ${result.audioPaths.length} audio files.`,
     );
   } catch (error) {
     console.error(error instanceof Error ? error.message : error);

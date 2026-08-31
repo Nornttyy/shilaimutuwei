@@ -31,6 +31,7 @@ import {
   buildWechatPackage,
   collectRemoteAssets,
   packagedAssetPaths,
+  packagedAudioPaths,
   packagedRigImagePaths,
 } from '../scripts/build-wechat.mjs';
 
@@ -946,13 +947,15 @@ async function listTree(root, relative = '') {
   return files.sort();
 }
 
-test('WeChat production remote gate contains 162 canonical images and all 16 versioned rig PNGs', async () => {
+test('WeChat production remote gate contains all canonical images, rigs, and audio', async () => {
   const assetSpec = JSON.parse(await readFile(path.join(PROJECT_ROOT, 'assets', 'asset-spec.json'), 'utf8'));
   const rigManifest = JSON.parse(await readFile(path.join(PROJECT_ROOT, 'assets', 'rig-parts.json'), 'utf8'));
+  const audioManifest = JSON.parse(await readFile(path.join(PROJECT_ROOT, 'assets', 'audio', 'manifest.json'), 'utf8'));
   const declaredRigPaths = assertRigBuildContract(rigManifest, PRODUCTION_RIG_OWNER_IDS);
-  const assets = await collectRemoteAssets(PROJECT_ROOT, assetSpec, rigManifest);
+  const assets = await collectRemoteAssets(PROJECT_ROOT, assetSpec, rigManifest, audioManifest);
   const ordinary = packagedAssetPaths(assets, 'https://cdn.example.com/game');
   const rigs = packagedRigImagePaths(assets, 'https://cdn.example.com/game');
+  const audio = packagedAudioPaths(assets, 'https://cdn.example.com/game');
 
   assert.equal(Object.keys(ordinary).length, 162);
   assert.equal(new Set(Object.values(ordinary)).size, 162);
@@ -961,9 +964,13 @@ test('WeChat production remote gate contains 162 canonical images and all 16 ver
   assert.equal(Object.hasOwn(ordinary, 'enemy-portal'), false);
   assert.equal(declaredRigPaths.length, 16);
   assert.equal(Object.keys(rigs).length, 16);
+  assert.equal(Object.keys(audio).length, 16);
   assert.equal(new Set(Object.values(rigs)).size, 16);
-  assert.equal(new Set([...Object.values(ordinary), ...Object.values(rigs)]).size, 178);
-  for (const url of [...Object.values(ordinary), ...Object.values(rigs)]) {
+  assert.equal(new Set(Object.values(audio)).size, 16);
+  assert.equal(new Set([
+    ...Object.values(ordinary), ...Object.values(rigs), ...Object.values(audio),
+  ]).size, 194);
+  for (const url of [...Object.values(ordinary), ...Object.values(rigs), ...Object.values(audio)]) {
     assert.match(url, /\?v=[a-f0-9]{12}$/);
   }
 });

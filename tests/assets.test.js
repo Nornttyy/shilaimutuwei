@@ -827,15 +827,21 @@ test('browser startup gates game construction on every critical PNG and retries 
   let gameCreations = 0;
   let gameStarts = 0;
   let exposedGame = null;
+  const runtime = { kind: 'web', audio: { available: false } };
+  const audioPaths = { 'bgm-menu': 'menu.m4a' };
   const controller = createBrowserStartup({
     canvas: { id: 'game' },
     loadingView,
     minimumLoadingMs: 0,
     assetStore,
     criticalKeys,
+    runtime,
+    audioPaths,
     createGame: (_canvas, options) => {
       gameCreations += 1;
       assert.equal(options.assetStore, assetStore);
+      assert.equal(options.runtime, runtime);
+      assert.equal(options.audioPaths, audioPaths);
       assert.equal(assetStore.status('critical-a').status, 'loaded');
       assert.equal(assetStore.status('critical-b').status, 'loaded');
       return {

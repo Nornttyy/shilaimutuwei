@@ -3,6 +3,7 @@ import {
   drawAssetOrFallback,
   drawBuilding,
   drawCore,
+  drawLayeredTurret,
   drawMonster,
   drawParticle,
   drawPortal,
@@ -173,6 +174,47 @@ const SKILL_COMPONENT_ASSETS = Object.freeze({
   berryBomb: 'effect-skill-berry-bomb-v1',
   berryBurst: 'effect-skill-berry-burst-v1',
   dewWaveCrest: 'effect-skill-dew-wave-crest-v1',
+  bellSonicRing: 'skill-bell-sonic-ring-icon',
+  drillRupture: 'skill-drill-rupture-dash-icon',
+  emberScorch: 'skill-ember-scorch-line-icon',
+  inkCone: 'skill-ink-cone-burst-icon',
+  cloudVortex: 'skill-cloud-vortex-icon',
+  frostShard: 'skill-frost-shard-lane-icon',
+  honeyCluster: 'skill-honey-cluster-icon',
+  sparkChain: 'skill-spark-chain-arc-icon',
+  starOrbit: 'skill-star-orbit-barrage-icon',
+});
+const EXPANDED_SKILL_COMPONENT_BY_TYPE = Object.freeze({
+  bell: SKILL_COMPONENT_ASSETS.bellSonicRing,
+  drill: SKILL_COMPONENT_ASSETS.drillRupture,
+  ember: SKILL_COMPONENT_ASSETS.emberScorch,
+  ink: SKILL_COMPONENT_ASSETS.inkCone,
+  cloud: SKILL_COMPONENT_ASSETS.cloudVortex,
+  frost: SKILL_COMPONENT_ASSETS.frostShard,
+  honey: SKILL_COMPONENT_ASSETS.honeyCluster,
+  spark: SKILL_COMPONENT_ASSETS.sparkChain,
+  star: SKILL_COMPONENT_ASSETS.starOrbit,
+});
+const REINFORCEMENT_PROJECTILE_ATLAS_KEY = 'effect-reinforcement-projectiles-atlas-v1';
+const REINFORCEMENT_PROJECTILE_SOURCE_SIZE = Object.freeze({ width: 768, height: 512 });
+const REINFORCEMENT_PROJECTILE_STYLE = Object.freeze({
+  spore: Object.freeze({ column: 0, row: 0, width: 54, height: 36, spinRate: 1.35 }),
+  gale: Object.freeze({ column: 1, row: 0, width: 62, height: 41, spinRate: 6.4 }),
+  volt: Object.freeze({ column: 0, row: 1, width: 56, height: 37, spinRate: -4.8 }),
+  thunder: Object.freeze({ column: 1, row: 1, width: 66, height: 44, spinRate: 0.42 }),
+});
+const REINFORCEMENT_PROJECTILE_BY_SQUAD = Object.freeze({
+  'spore-lobber': 'spore',
+  'volt-orbiter': 'volt',
+});
+const REINFORCEMENT_PROJECTILE_BY_TURRET = Object.freeze({
+  'spore-bomber': 'spore',
+  'gale-fan': 'gale',
+  'thunder-prism': 'thunder',
+});
+const REINFORCEMENT_PROJECTILE_BY_ENEMY = Object.freeze({
+  lantern: 'spore',
+  'rift-boss': 'thunder',
 });
 const SKILL_VISUAL_STYLE = Object.freeze({
   shell: Object.freeze({ color: '#51D9A2', light: '#DFFFF0', deep: '#197B64' }),
@@ -181,19 +223,31 @@ const SKILL_VISUAL_STYLE = Object.freeze({
   sprout: Object.freeze({ color: '#7CDA5A', light: '#EFFFAC', deep: '#367E3C' }),
   berry: Object.freeze({ color: '#F06D88', light: '#FFF0B8', deep: '#A8325B' }),
   dew: Object.freeze({ color: '#58D9D0', light: '#E8FFFF', deep: '#247F86' }),
+  bell: Object.freeze({ color: '#F0B84D', light: '#FFF3B7', deep: '#9A5A23' }),
+  drill: Object.freeze({ color: '#E68A5B', light: '#FFE1BD', deep: '#91472D' }),
+  ember: Object.freeze({ color: '#F0694D', light: '#FFF0A8', deep: '#A8342E' }),
+  ink: Object.freeze({ color: '#6F6BD7', light: '#EAE5FF', deep: '#38347F' }),
+  cloud: Object.freeze({ color: '#80D6D3', light: '#ECFFFF', deep: '#347D8A' }),
+  frost: Object.freeze({ color: '#70BCEF', light: '#F0FCFF', deep: '#3568A5' }),
+  honey: Object.freeze({ color: '#F0B941', light: '#FFF3AF', deep: '#9D6722' }),
+  spark: Object.freeze({ color: '#F2D94F', light: '#FFFBD1', deep: '#8D7322' }),
+  star: Object.freeze({ color: '#9D83F2', light: '#F3ECFF', deep: '#59449F' }),
 });
 const GEL_MOUNT_ASSET_LAYOUT = Object.freeze({
   width: 118,
   height: 118 * 400 / 768,
 });
 
-const STAGE_SELECT_CARDS = Object.freeze(TD_STAGES.map((_, index) => Object.freeze({
+const STAGE_SELECT_PAGE_SIZE = 6;
+const STAGE_SELECT_CARDS = Object.freeze(Array.from({ length: STAGE_SELECT_PAGE_SIZE }, (_, index) => Object.freeze({
   x: 28 + (index % 2) * 346,
   y: 152 + Math.floor(index / 2) * 326,
   width: 318,
   height: 302,
 })));
 const STAGE_SELECT_BACK = Object.freeze({ x: 22, y: 28, width: 104, height: 58 });
+const STAGE_SELECT_PREVIOUS = Object.freeze({ x: 222, y: 1140, width: 96, height: 58 });
+const STAGE_SELECT_NEXT = Object.freeze({ x: 402, y: 1140, width: 96, height: 58 });
 
 const COLORS = Object.freeze({
   ink: '#273844',
@@ -316,6 +370,20 @@ const STAGE_REGION_ASSET = Object.freeze({
   'stage-4': 'region-dew-grove-field-a',
   'stage-5': 'region-shell-canyon-field-a',
   'stage-6': 'region-sunbud-sanctuary-field-a',
+  'stage-7': 'region-dew-grove-field-a',
+  'stage-8': 'region-bubble-heath-field-a',
+  'stage-9': 'region-shell-canyon-field-a',
+  'stage-10': 'region-bubble-heath-field-a',
+  'stage-11': 'region-crystal-bloom-field-a',
+  'stage-12': 'region-dew-grove-field-a',
+  'stage-13': 'region-gel-meadow-field-a',
+  'stage-14': 'region-bubble-heath-field-a',
+  'stage-15': 'region-sunbud-sanctuary-field-a',
+  'stage-16': 'region-shell-canyon-field-a',
+  'stage-17': 'region-crystal-bloom-field-a',
+  'stage-18': 'region-dew-grove-field-a',
+  'stage-19': 'region-sunbud-sanctuary-field-a',
+  'stage-20': 'region-crystal-bloom-field-a',
 });
 
 function stageRegionAssetKey(stageOrId) {
@@ -332,6 +400,13 @@ const MONSTER_DRAW_TYPE = Object.freeze({
   boss: 'boss',
 });
 
+const ENEMY_ATLAS_ASSET_BY_TYPE = Object.freeze({
+  thorn: 'enemy-thorn-roller-atlas-v1',
+  lantern: 'enemy-lantern-spore-atlas-v1',
+  mud: 'enemy-mud-bulwark-atlas-v1',
+  'rift-boss': 'enemy-rift-beacon-king-atlas-v1',
+});
+
 const HERO_SKILL_ASSET_BY_TYPE = Object.freeze({
   shell: 'skill-shell-triple-shock-icon',
   needle: 'skill-crystal-rain-icon',
@@ -339,11 +414,29 @@ const HERO_SKILL_ASSET_BY_TYPE = Object.freeze({
   sprout: 'skill-sprout-forest-dance-icon',
   berry: 'skill-berry-chain-barrage-icon',
   dew: 'skill-dew-garland-icon',
+  bell: 'skill-bell-sonic-ring-icon',
+  drill: 'skill-drill-rupture-dash-icon',
+  ember: 'skill-ember-scorch-line-icon',
+  ink: 'skill-ink-cone-burst-icon',
+  cloud: 'skill-cloud-vortex-icon',
+  frost: 'skill-frost-shard-lane-icon',
+  honey: 'skill-honey-cluster-icon',
+  spark: 'skill-spark-chain-arc-icon',
+  star: 'skill-star-orbit-barrage-icon',
 });
 
 const HERO_ATLAS_ASSET_BY_TYPE = Object.freeze({
   berry: 'hero-berry-burst-atlas-v1',
   dew: 'hero-dew-bloom-atlas-v1',
+  bell: 'hero-bell-boom-atlas-v1',
+  drill: 'hero-drill-gum-atlas-v1',
+  ember: 'hero-ember-fizz-atlas-v1',
+  ink: 'hero-ink-splash-atlas-v1',
+  cloud: 'hero-cloud-spin-atlas-v1',
+  frost: 'hero-frost-drop-atlas-v1',
+  honey: 'hero-honey-pop-atlas-v1',
+  spark: 'hero-spark-bean-atlas-v1',
+  star: 'hero-star-core-atlas-v1',
 });
 
 const HERO_SKILL_DESCRIPTION_BY_TYPE = Object.freeze({
@@ -381,6 +474,21 @@ const SOLDIER_VISUALS = Object.freeze({
     assetKey: 'soldier-leaf-spinner-atlas-v1', name: '叶旋小队', shortName: '叶旋',
     color: '#79C95E', fallbackType: 'sprout',
   }),
+  'drill-lancer': Object.freeze({
+    id: 'drill-lancer', ownerId: 'soldier-drill-lancer',
+    assetKey: 'soldier-drill-lancer-atlas-v1', name: '钻枪小队', shortName: '钻枪',
+    color: '#E78B5C',
+  }),
+  'spore-lobber': Object.freeze({
+    id: 'spore-lobber', ownerId: 'soldier-spore-lobber',
+    assetKey: 'soldier-spore-lobber-atlas-v1', name: '孢投小队', shortName: '孢投',
+    color: '#B58BD8',
+  }),
+  'volt-orbiter': Object.freeze({
+    id: 'volt-orbiter', ownerId: 'soldier-volt-orbiter',
+    assetKey: 'soldier-volt-orbiter-atlas-v1', name: '电环小队', shortName: '电环',
+    color: '#F1D84F',
+  }),
 });
 
 const TURRET_VISUALS = Object.freeze({
@@ -393,6 +501,15 @@ const TURRET_VISUALS = Object.freeze({
   'crystal-repeater': Object.freeze({
     assetKey: 'turret-crystal-repeater', layout: GEL_MORTAR_ASSET_LAYOUT,
   }),
+  'gale-fan': Object.freeze({
+    assetKey: 'turret-gale-fan-atlas-v1', layered: true,
+  }),
+  'spore-bomber': Object.freeze({
+    assetKey: 'turret-spore-bomber-atlas-v1', layered: true,
+  }),
+  'thunder-prism': Object.freeze({
+    assetKey: 'turret-thunder-prism-atlas-v1', layered: true,
+  }),
 });
 
 const PURCHASE_ITEMS = Object.freeze([
@@ -404,6 +521,16 @@ const PURCHASE_ITEMS = Object.freeze([
   Object.freeze({ id: 'bubble-coil', kind: 'turret', type: 'bubble-coil', shortName: '泡泡塔' }),
   Object.freeze({
     id: 'crystal-repeater', kind: 'turret', type: 'crystal-repeater', shortName: '晶连弩',
+  }),
+  Object.freeze({ id: 'drill-lancer', kind: 'squad', type: 'drill-lancer' }),
+  Object.freeze({ id: 'spore-lobber', kind: 'squad', type: 'spore-lobber' }),
+  Object.freeze({ id: 'volt-orbiter', kind: 'squad', type: 'volt-orbiter' }),
+  Object.freeze({ id: 'gale-fan', kind: 'turret', type: 'gale-fan', shortName: '风旋塔' }),
+  Object.freeze({
+    id: 'spore-bomber', kind: 'turret', type: 'spore-bomber', shortName: '孢子榴塔',
+  }),
+  Object.freeze({
+    id: 'thunder-prism', kind: 'turret', type: 'thunder-prism', shortName: '雷棱塔',
   }),
 ]);
 
@@ -426,8 +553,11 @@ const SQUAD_TYPE_BY_LEGACY_TYPE = Object.freeze(Object.fromEntries(
 const ATLAS_CHARACTER_OWNER_IDS = Object.freeze(Object.fromEntries([
   ...Object.values(SOLDIER_VISUALS).map(({ ownerId }) => [ownerId, true]),
   ...Object.keys(HERO_ATLAS_ASSET_BY_TYPE)
-    .map((type) => [TOWER_TYPES[type]?.ownerId, true])
+    .map((type) => [HERO_TYPES[type]?.ownerId, true])
     .filter(([ownerId]) => typeof ownerId === 'string'),
+  ...Object.values(TD_ENEMIES)
+    .filter(({ id }) => Object.hasOwn(ENEMY_ATLAS_ASSET_BY_TYPE, id))
+    .map(({ ownerId }) => [ownerId, true]),
 ]));
 
 const isSquadType = (type) => typeof type === 'string'
@@ -442,7 +572,7 @@ const turretTypeForPurchase = (id) => {
   const entry = purchaseItemFor(id);
   return entry?.kind === 'turret' && TURRET_TYPES[entry.type] ? entry.type : null;
 };
-const turretVisualFor = (type) => TURRET_VISUALS[type] || TURRET_VISUALS['gel-mortar'];
+const turretVisualFor = (type) => TURRET_VISUALS[type] || null;
 
 const ANIMATION_CLIPS_BY_OWNER_ID = Object.freeze({
   'survivor-shell-shell': SHELL_CLIPS,
@@ -455,10 +585,26 @@ const ANIMATION_CLIPS_BY_OWNER_ID = Object.freeze({
   'soldier-leaf-spinner': SOLDIER_CLIPS,
   'survivor-berry-burst': SOLDIER_CLIPS,
   'survivor-dew-bloom': SOLDIER_CLIPS,
+  'survivor-bell-boom': SOLDIER_CLIPS,
+  'survivor-drill-gum': SOLDIER_CLIPS,
+  'survivor-ember-fizz': SOLDIER_CLIPS,
+  'survivor-ink-splash': SOLDIER_CLIPS,
+  'survivor-cloud-spin': SOLDIER_CLIPS,
+  'survivor-frost-drop': SOLDIER_CLIPS,
+  'survivor-honey-pop': SOLDIER_CLIPS,
+  'survivor-spark-bean': SOLDIER_CLIPS,
+  'survivor-star-core': SOLDIER_CLIPS,
+  'soldier-drill-lancer': SOLDIER_CLIPS,
+  'soldier-spore-lobber': SOLDIER_CLIPS,
+  'soldier-volt-orbiter': SOLDIER_CLIPS,
   'enemy-soft-biter': BUG_CLIPS,
   'enemy-windcap': WINDCAP_CLIPS,
   'enemy-stone-lump': STONE_CLIPS,
   'enemy-acid-shell-king': BOSS_CLIPS,
+  'enemy-thorn-roller': SOLDIER_CLIPS,
+  'enemy-lantern-spore': SOLDIER_CLIPS,
+  'enemy-mud-bulwark': SOLDIER_CLIPS,
+  'enemy-rift-beacon-king': SOLDIER_CLIPS,
 });
 
 const ENEMY_DEATH_DURATION_BY_TYPE = Object.freeze({
@@ -466,6 +612,10 @@ const ENEMY_DEATH_DURATION_BY_TYPE = Object.freeze({
   windcap: WINDCAP_CLIPS.death.duration,
   stone: STONE_CLIPS.death.duration,
   boss: BOSS_CLIPS.death.duration,
+  thorn: SOLDIER_CLIPS.downed.duration,
+  lantern: SOLDIER_CLIPS.downed.duration,
+  mud: SOLDIER_CLIPS.downed.duration,
+  'rift-boss': SOLDIER_CLIPS.downed.duration,
 });
 
 const ATTACK_MODE_LABEL = Object.freeze({
@@ -509,6 +659,15 @@ const skillHeroType = (effect) => {
   if (kind.includes('sprout')) return 'sprout';
   if (kind.includes('berry')) return 'berry';
   if (kind.includes('dew')) return 'dew';
+  if (kind.includes('bell')) return 'bell';
+  if (kind.includes('drill')) return 'drill';
+  if (kind.includes('ember')) return 'ember';
+  if (kind.includes('ink')) return 'ink';
+  if (kind.includes('cloud')) return 'cloud';
+  if (kind.includes('frost')) return 'frost';
+  if (kind.includes('honey')) return 'honey';
+  if (kind.includes('spark')) return 'spark';
+  if (kind.includes('star')) return 'star';
   return 'shell';
 };
 const skillStyle = (effect) => SKILL_VISUAL_STYLE[skillHeroType(effect)];
@@ -521,6 +680,11 @@ const isHeroSkillProjectile = (projectile) => (
   || String(projectile?.kind || '').includes('skill-projectile')
   || String(projectile?.type || '').includes('skill-projectile')
 );
+const reinforcementProjectileStyleFor = (projectile) => {
+  const visualId = REINFORCEMENT_PROJECTILE_BY_SQUAD[projectile?.squadType]
+    || REINFORCEMENT_PROJECTILE_BY_TURRET[projectile?.turretType];
+  return REINFORCEMENT_PROJECTILE_STYLE[visualId] || null;
+};
 const heroSkillEffectLayer = (effect) => {
   if (effect?.type !== 'hero-skill-step') return 'front';
   const kind = String(effect.stepKind || '');
@@ -864,6 +1028,7 @@ export class TowerDefenseGame {
     this.selectedCardUid = null;
     this.hoverPoint = null;
     this.menuPage = 'main';
+    this.stageSelectPage = 0;
     this.rosterInspectType = this.state.progress?.selectedHero || Object.keys(HERO_TYPES)[0] || 'shell';
     this.rosterPage = 0;
     this.summonResults = [];
@@ -1001,7 +1166,7 @@ export class TowerDefenseGame {
     if (['hero-shot', 'hero-attack', 'hero-skill'].includes(event.type)) {
       const hero = this.state.hero;
       const type = hero?.type || hero?.heroId || this.state.selectedHeroId;
-      const ownerId = TOWER_TYPES[type]?.ownerId;
+      const ownerId = (HERO_TYPES[type] || TOWER_TYPES[type])?.ownerId;
       if (hero && ownerId) {
         this.playCharacterAnimation(`hero:${hero.uid || type}`, ownerId, 'attack');
       }
@@ -1010,7 +1175,7 @@ export class TowerDefenseGame {
     if (event.type === 'hero-hit') {
       const hero = this.state.hero;
       const type = hero?.type || hero?.heroId || this.state.selectedHeroId;
-      const ownerId = TOWER_TYPES[type]?.ownerId;
+      const ownerId = (HERO_TYPES[type] || TOWER_TYPES[type])?.ownerId;
       if (hero && ownerId) {
         this.playCharacterAnimation(`hero:${hero.uid || type}`, ownerId, 'hurt', {
           restart: false,
@@ -1023,7 +1188,7 @@ export class TowerDefenseGame {
       const tower = this.state.towers.find(({ uid }) => uid === towerUid);
       const squad = isSquadTower(tower);
       const ownerId = tower && (squad
-        ? soldierVisualFor(tower.type, tower.squadType).ownerId
+        ? soldierVisualFor(tower.type, tower.squadType)?.ownerId
         : TOWER_TYPES[slimeVisualType(tower.type, tower.squadType)]?.ownerId);
       if (ownerId) {
         if (squad) {
@@ -1050,7 +1215,7 @@ export class TowerDefenseGame {
     if (event.type === 'merge') {
       const tower = this.state.towers.find(({ uid }) => uid === event.towerUid);
       const ownerId = tower && (isSquadTower(tower)
-        ? soldierVisualFor(tower.type, tower.squadType).ownerId
+        ? soldierVisualFor(tower.type, tower.squadType)?.ownerId
         : TOWER_TYPES[slimeVisualType(tower.type, tower.squadType)]?.ownerId);
       if (ownerId) this.playCharacterAnimation(`tower:${tower.uid}`, ownerId, 'attack');
       return;
@@ -1071,7 +1236,7 @@ export class TowerDefenseGame {
       const tower = this.state.towers.find(({ uid }) => uid === towerUid);
       const squad = isSquadTower(tower);
       const ownerId = tower && (squad
-        ? soldierVisualFor(tower.type, tower.squadType).ownerId
+        ? soldierVisualFor(tower.type, tower.squadType)?.ownerId
         : TOWER_TYPES[slimeVisualType(tower.type, tower.squadType)]?.ownerId);
       if (ownerId) {
         if (squad) {
@@ -1163,7 +1328,7 @@ export class TowerDefenseGame {
       const key = `defeated-tower:${towerUid || `${towerType}-${this.state.time}`}`;
       const actor = {
         key,
-        type: soldierVisual?.fallbackType || visualType,
+        type: soldierVisual?.fallbackType || towerType || visualType,
         squadType,
         ownerId: definition.ownerId,
         x,
@@ -1201,7 +1366,9 @@ export class TowerDefenseGame {
     };
     this.defeatedActors = this.defeatedActors.filter(({ key: currentKey }) => currentKey !== key);
     this.defeatedActors.push(actor);
-    this.playCharacterAnimation(key, actor.ownerId, 'death', { base: 'move' });
+    const clips = this.animationClipsForOwner(actor.ownerId);
+    const deathAction = clips && Object.hasOwn(clips, 'death') ? 'death' : 'downed';
+    this.playCharacterAnimation(key, actor.ownerId, deathAction, { base: 'move' });
   }
 
   updateCharacterAnimations(dt) {
@@ -1222,14 +1389,14 @@ export class TowerDefenseGame {
       entry.expressionMixer.tick(delta);
     };
 
-    if (this.state.screen === 'menu') {
-      for (const tower of Object.values(TOWER_TYPES)) {
-        advance(`preview:menu:${tower.id}`, tower.ownerId, 'idle');
+    if (this.state.screen === 'menu' && ['roster', 'summon'].includes(this.menuPage)) {
+      for (const heroDefinition of Object.values(HERO_TYPES)) {
+        advance(`preview:menu:${heroDefinition.id}`, heroDefinition.ownerId, 'idle');
       }
     } else if (this.state.screen === 'battle') {
       const hero = this.state.hero;
       const heroType = hero?.type || hero?.heroId || this.state.selectedHeroId;
-      const heroDefinition = TOWER_TYPES[heroType];
+      const heroDefinition = HERO_TYPES[heroType] || TOWER_TYPES[heroType];
       if (hero && heroDefinition) {
         const heroBase = Math.hypot(Number(hero.moveX) || 0, Number(hero.moveY) || 0) > 0.01
           ? 'move' : 'idle';
@@ -1572,7 +1739,12 @@ export class TowerDefenseGame {
 
   purchaseItemsForCategory(category = this.purchaseCategory) {
     const resolved = PURCHASE_CATEGORIES[category] ? category : 'squad';
-    return PURCHASE_ITEMS.filter(({ kind }) => kind === resolved);
+    const ranks = resolved === 'squad'
+      ? this.state.progress?.squadRanks || {}
+      : this.state.progress?.turretRanks || {};
+    return PURCHASE_ITEMS.filter(({ kind, type }) => (
+      kind === resolved && Math.max(0, Math.floor(Number(ranks[type]) || 0)) > 0
+    ));
   }
 
   purchaseTrackMaxOffset(category = this.purchaseCategory) {
@@ -2033,12 +2205,24 @@ export class TowerDefenseGame {
       case 'open-stage-select':
         if (this.state.screen === 'menu') {
           this.menuPage = 'stage-select';
+          this.stageSelectPage = 0;
           this.selectedCardUid = null;
           this.state.selectedTowerUid = null;
         }
         break;
       case 'stage-select-back':
         this.menuPage = 'main';
+        break;
+      case 'stage-select-previous':
+        if (this.menuPage === 'stage-select') {
+          this.stageSelectPage = Math.max(0, this.stageSelectPage - 1);
+        }
+        break;
+      case 'stage-select-next':
+        if (this.menuPage === 'stage-select') {
+          const pageCount = Math.max(1, Math.ceil(TD_STAGES.length / STAGE_SELECT_PAGE_SIZE));
+          this.stageSelectPage = Math.min(pageCount - 1, this.stageSelectPage + 1);
+        }
         break;
       case 'open-roster':
         if (this.state.screen === 'menu') {
@@ -2352,6 +2536,78 @@ export class TowerDefenseGame {
     return uncleared.at(-1) || unlocked.at(-1) || TD_STAGES[0];
   }
 
+  drawMenuTacticalDiorama(ctx) {
+    const columns = 5;
+    const rows = 5;
+    const cellWidth = 96;
+    const cellHeight = 66;
+    const gapX = 2;
+    const gapY = 10;
+    const startX = (TD_VIEW.width - (columns * cellWidth + (columns - 1) * gapX)) / 2;
+    const startY = 272;
+
+    ctx.save();
+    ctx.globalAlpha = 0.22;
+    ctx.fillStyle = '#214F4D';
+    ctx.beginPath();
+    ctx.ellipse(TD_VIEW.width / 2, 620, 284, 176, 0, 0, TAU);
+    ctx.fill();
+    ctx.restore();
+
+    const tilePositions = {
+      'tile-build-light': [],
+      'tile-build-dark': [],
+    };
+    for (let row = 0; row < rows; row += 1) {
+      for (let column = 0; column < columns; column += 1) {
+        const key = (row + column) % 2 ? 'tile-build-dark' : 'tile-build-light';
+        tilePositions[key].push({
+          x: startX + column * (cellWidth + gapX),
+          y: startY + row * (cellHeight + gapY),
+        });
+      }
+    }
+    for (const [key, positions] of Object.entries(tilePositions)) {
+      drawAssetOrFallback(ctx, this.assetStore, key, (asset) => {
+        ctx.globalAlpha *= 0.72;
+        for (const { x, y } of positions) {
+          ctx.drawImage(asset, x, y, cellWidth, cellHeight);
+        }
+      }, () => {});
+    }
+
+    drawAssetOrFallback(ctx, this.assetStore, 'tile-route-open', (asset) => {
+      ctx.save();
+      ctx.globalAlpha *= 0.92;
+      ctx.translate(TD_VIEW.width / 2, 512);
+      ctx.rotate(Math.PI / 2);
+      ctx.drawImage(asset, -190, -14, 380, 28);
+      ctx.restore();
+      ctx.globalAlpha *= 0.7;
+      ctx.drawImage(asset, 174, 515, 372, 26);
+    }, () => {});
+
+    drawAssetOrFallback(ctx, this.assetStore, 'turret-gel-mount', (asset) => {
+      ctx.globalAlpha *= 0.92;
+      for (const x of [174, 546]) {
+        ctx.drawImage(asset, x - 51, 559, 102, 53);
+      }
+    }, () => {});
+
+    drawPortal(ctx, TD_VIEW.width / 2, 424, 158, {
+      time: this.state.time,
+      open: 0.86 + Math.sin(this.state.time * 1.7) * 0.08,
+      assetStore: this.assetStore,
+    });
+    drawCore(ctx, TD_VIEW.width / 2, 824, 242, {
+      assetKey: 'fortress-slime-core',
+      ...FORTRESS_CORE_ASSET_LAYOUT,
+      time: this.state.time,
+      health: 1,
+      assetStore: this.assetStore,
+    });
+  }
+
   drawMenu(ctx) {
     ctx.fillStyle = '#B9E4D2';
     ctx.fillRect(0, 0, TD_VIEW.width, TD_VIEW.height);
@@ -2401,48 +2657,7 @@ export class TowerDefenseGame {
       ctx.restore();
     });
 
-    const corePulse = 1 + Math.sin(this.state.time * 1.8) * 0.018;
-    ctx.save();
-    ctx.translate(TD_VIEW.width / 2, 520);
-    ctx.scale(corePulse, corePulse);
-    const halo = ctx.createRadialGradient(0, 0, 18, 0, 0, 164);
-    halo.addColorStop(0, 'rgba(214, 255, 236, 0.58)');
-    halo.addColorStop(0.55, 'rgba(105, 217, 183, 0.22)');
-    halo.addColorStop(1, 'rgba(105, 217, 183, 0)');
-    ctx.fillStyle = halo;
-    ctx.beginPath();
-    ctx.ellipse(0, 0, 164, 132, 0, 0, TAU);
-    ctx.fill();
-    ctx.restore();
-
-    drawCore(ctx, TD_VIEW.width / 2, 688, 252, {
-      assetKey: 'fortress-slime-core',
-      ...FORTRESS_CORE_ASSET_LAYOUT,
-      time: this.state.time,
-      health: 1,
-      assetStore: this.assetStore,
-    });
-
-    const squad = [
-      { type: 'shell', x: 128, y: 822, size: 118, facing: 1 },
-      { type: 'bubble', x: 278, y: 838, size: 108, facing: 1 },
-      { type: 'sprout', x: 442, y: 838, size: 108, facing: -1 },
-      { type: 'needle', x: 592, y: 822, size: 118, facing: -1 },
-    ];
-    squad.forEach((member, index) => {
-      const tower = TOWER_TYPES[member.type];
-      const animation = this.characterAnimationSample(
-        'preview:menu:' + tower.id,
-        tower.ownerId,
-      );
-      this.drawFriendlyCharacter(ctx, member.x, member.y, member.size, member.type, {
-        time: this.state.time + index * 0.22,
-        facing: member.facing,
-        ...animation,
-        ...this.characterRigOptions(tower.ownerId),
-        allowGeneratedStandalone: this.generatedCharacterArtEnabled,
-      });
-    });
+    this.drawMenuTacticalDiorama(ctx);
 
     const storyStage = this.menuStoryStage();
     const storyRect = MENU_ACTIONS.story;
@@ -2592,7 +2807,7 @@ export class TowerDefenseGame {
       ctx.stroke();
       ctx.restore();
     }
-    label(ctx, '史莱姆招募', summonRect.x + summonRect.width / 2,
+    label(ctx, '战团招募', summonRect.x + summonRect.width / 2,
       summonRect.y + 35, {
         size: 18, color: COLORS.ink, weight: 950,
       });
@@ -2614,7 +2829,7 @@ export class TowerDefenseGame {
     const visualType = heroDefinition?.visualType || type;
     const ownerId = heroDefinition?.ownerId || TOWER_TYPES[visualType]?.ownerId;
     const drawPortrait = () => {
-      if (TOWER_TYPES[visualType]) {
+      if (HERO_ATLAS_ASSET_BY_TYPE[visualType] || TOWER_TYPES[visualType]) {
         const animation = ownerId
           ? this.characterAnimationSample(`preview:roster:${type}`, ownerId)
           : {};
@@ -2889,10 +3104,10 @@ export class TowerDefenseGame {
       });
     this.addHit('summon-back', SUMMON_BACK_RECT, 'summon-back');
 
-    label(ctx, '史莱姆招募', TD_VIEW.width / 2, 70, {
+    label(ctx, '战团招募', TD_VIEW.width / 2, 70, {
       size: 40, color: COLORS.ink, weight: 950,
     });
-    label(ctx, '契约裂隙  ·  R → UR', TD_VIEW.width / 2, 114, {
+    label(ctx, '英雄 · 小队 · 炮塔  ·  R → UR', TD_VIEW.width / 2, 114, {
       size: 17, color: COLORS.inkSoft, weight: 850,
     });
 
@@ -3117,6 +3332,83 @@ export class TowerDefenseGame {
     this.addHit('summon-animation-skip', SUMMON_SKIP_RECT, 'summon-animation-skip');
   }
 
+  recruitmentDefinition(result) {
+    if (result?.kind === 'squad') return SQUAD_TYPES[result.type] || null;
+    if (result?.kind === 'turret') return TURRET_TYPES[result.type] || null;
+    return HERO_TYPES[result?.type] || null;
+  }
+
+  drawRecruitmentResultVisual(ctx, result, { single = false, index = 0 } = {}) {
+    const kind = result?.kind || 'hero';
+    const definition = this.recruitmentDefinition(result);
+    if (!definition) return false;
+
+    if (kind === 'squad') {
+      const visual = SOLDIER_VISUALS[result.type];
+      if (!visual) return false;
+      const memberSize = single ? 86 : 30;
+      const centerY = single ? 172 : 32;
+      const spreadX = single ? 48 : 17;
+      const spreadY = single ? 32 : 12;
+      const positions = [
+        [-spreadX, -spreadY], [spreadX, -spreadY],
+        [-spreadX, spreadY], [spreadX, spreadY],
+      ];
+      let rendered = false;
+      positions.forEach(([offsetX, offsetY], memberIndex) => {
+        rendered = drawSoldier(ctx, offsetX, centerY + offsetY, memberSize, {
+          assetKey: visual.assetKey,
+          squadType: result.type,
+          time: this.state.time + memberIndex * 0.12,
+          facing: memberIndex % 2 ? -1 : 1,
+          assetStore: this.assetStore,
+        }) || rendered;
+      });
+      return rendered;
+    }
+
+    if (kind === 'turret') {
+      const visual = turretVisualFor(result.type);
+      if (!visual) return false;
+      const baselineY = single ? 262 : 62;
+      const size = single ? 236 : 74;
+      if (visual.layered) {
+        return drawLayeredTurret(ctx, 0, baselineY, size, {
+          assetKey: visual.assetKey,
+          assetStore: this.assetStore,
+          aimAngle: -Math.PI / 2,
+          attackPulse: 0,
+        });
+      }
+      drawBuilding(ctx, 0, baselineY, size, 'tower', {
+        assetKey: visual.assetKey,
+        assetStore: this.assetStore,
+        ...visual.layout,
+      });
+      return true;
+    }
+
+    const ownerId = definition.ownerId;
+    const characterAnimation = this.characterAnimationSample(
+      `preview:menu:${definition.id}`,
+      ownerId,
+    );
+    return this.drawFriendlyCharacter(
+      ctx,
+      0,
+      single ? 166 : 29,
+      single ? 176 : 56,
+      definition.id,
+      {
+        time: this.state.time + index * 0.11,
+        facing: index % 2 ? -1 : 1,
+        ...characterAnimation,
+        ...this.characterRigOptions(ownerId),
+        allowGeneratedStandalone: this.generatedCharacterArtEnabled,
+      },
+    );
+  }
+
   drawSummonResults(ctx, {
     results = this.summonResults,
     revealElapsed = null,
@@ -3152,8 +3444,8 @@ export class TowerDefenseGame {
 
     visibleResults.forEach((result, index) => {
       const rect = cards[index];
-      const definition = TOWER_TYPES[result.type] || TOWER_TYPES.shell;
-      const heroDefinition = HERO_TYPES[result.type] || definition;
+      const definition = this.recruitmentDefinition(result);
+      if (!definition) return;
       const rarity = rarityStyle(result.rarity);
       const reveal = revealElapsed == null
         ? 1
@@ -3193,33 +3485,19 @@ export class TowerDefenseGame {
       label(ctx, rarity.label, localRect.x + 16, localRect.y + (single ? 30 : 20), {
         size: single ? 28 : 15, align: 'left', color: rarity.deep, weight: 950,
       });
-      label(ctx, heroDefinition.name, localRect.x + localRect.width - 16,
+      label(ctx, definition.name, localRect.x + localRect.width - 16,
         localRect.y + (single ? 30 : 20), {
           size: single ? 28 : 16, align: 'right', color: COLORS.ink, weight: 950,
         });
-      const characterAnimation = this.characterAnimationSample(
-        `preview:menu:${definition.id}`,
-        definition.ownerId,
-      );
-      this.drawFriendlyCharacter(
-        ctx,
-        0,
-        single ? 166 : 29,
-        single ? 176 : 56,
-        definition.id,
-        {
-          time: this.state.time + index * 0.11,
-          facing: index % 2 ? -1 : 1,
-          ...characterAnimation,
-          ...this.characterRigOptions(definition.ownerId),
-          allowGeneratedStandalone: this.generatedCharacterArtEnabled,
-        },
-      );
+      this.drawRecruitmentResultVisual(ctx, result, { single, index });
       const converted = Math.max(0, Math.floor(Number(result.convertedCurrency) || 0));
       const rankUps = Math.max(0, Math.floor(Number(result.rankUps) || 0));
       const shards = Math.max(0, Math.floor(Number(result.shards) || 0));
+      const unlockedLabel = result.kind === 'squad'
+        ? '新小队'
+        : result.kind === 'turret' ? '新炮塔' : '新英雄';
       const rewardText = result.unlocked
-        ? '新史莱姆'
+        ? unlockedLabel
         : converted ? `◆ +${converted}` : rankUps ? `升阶 +${rankUps}` : `碎片 +${shards}`;
       label(ctx, rewardText,
         0, localRect.y + localRect.height - (single ? 68 : 18), {
@@ -3287,8 +3565,17 @@ export class TowerDefenseGame {
       size: 40, color: COLORS.ink, weight: 950,
     });
 
-    TD_STAGES.forEach((stage, index) => {
-      const rect = STAGE_SELECT_CARDS[index];
+    const pageCount = Math.max(1, Math.ceil(TD_STAGES.length / STAGE_SELECT_PAGE_SIZE));
+    this.stageSelectPage = clamp(
+      Math.floor(Number(this.stageSelectPage) || 0),
+      0,
+      pageCount - 1,
+    );
+    const pageStart = this.stageSelectPage * STAGE_SELECT_PAGE_SIZE;
+    const visibleStages = TD_STAGES.slice(pageStart, pageStart + STAGE_SELECT_PAGE_SIZE);
+    visibleStages.forEach((stage, localIndex) => {
+      const index = pageStart + localIndex;
+      const rect = STAGE_SELECT_CARDS[localIndex];
       const unlocked = stage.index <= this.state.progress.unlockedStage;
       const cleared = this.state.progress.clearedStages.includes(stage.id);
       const hot = unlocked && Boolean(this.hoverPoint && insideRect(this.hoverPoint, rect));
@@ -3368,6 +3655,26 @@ export class TowerDefenseGame {
         stageIndex: index,
       }, unlocked);
     });
+
+    if (pageCount > 1) {
+      const hasPrevious = this.stageSelectPage > 0;
+      const hasNext = this.stageSelectPage < pageCount - 1;
+      button(ctx, STAGE_SELECT_PREVIOUS, '‹', {
+        enabled: hasPrevious, fill: '#F4F8ED', color: COLORS.ink,
+        accent: '#81938A', size: 30,
+      });
+      button(ctx, STAGE_SELECT_NEXT, '›', {
+        enabled: hasNext, fill: '#F4F8ED', color: COLORS.ink,
+        accent: '#81938A', size: 30,
+      });
+      label(ctx, `${this.stageSelectPage + 1}/${pageCount}`, TD_VIEW.width / 2, 1169, {
+        size: 17, color: COLORS.inkSoft, weight: 900,
+      });
+      this.addHit('stage-select-previous', STAGE_SELECT_PREVIOUS,
+        'stage-select-previous', {}, hasPrevious);
+      this.addHit('stage-select-next', STAGE_SELECT_NEXT,
+        'stage-select-next', {}, hasNext);
+    }
   }
 
   drawBattle(ctx) {
@@ -3391,7 +3698,7 @@ export class TowerDefenseGame {
     const active = this.isHeroControlActive();
     const hero = this.state.hero || {};
     const heroType = hero.type || hero.heroId || this.state.selectedHeroId || 'shell';
-    const definition = TOWER_TYPES[heroType] || TOWER_TYPES.shell;
+    const definition = HERO_TYPES[heroType] || TOWER_TYPES[heroType] || HERO_TYPES.shell;
 
     if (!this.state.waveActive) {
       this.addHit('hero-joystick', HERO_JOYSTICK.hit, 'hero-joystick', {}, false);
@@ -3458,6 +3765,22 @@ export class TowerDefenseGame {
       && !this.state.result;
   }
 
+  shouldShowDeploymentGrid() {
+    if (!this.isPreparation()) return false;
+    if (squadTypeForPurchase(this.selectedPurchase)) return true;
+    if (this.selectedCardUid
+      && this.state.hand.some(({ uid }) => uid === this.selectedCardUid)) return true;
+    if (this.drag?.kind === 'card'
+      && this.state.hand.some(({ uid }) => uid === this.drag.uid)) return true;
+    if (this.drag?.kind === 'purchase') {
+      const purchase = purchaseItemFor(this.drag.purchaseType);
+      if (purchase?.kind === 'squad' && isSquadType(purchase.type)) return true;
+    }
+    return this.drag?.kind === 'tower'
+      && this.drag.longPressReady === true
+      && this.drag.longPressCancelled !== true;
+  }
+
   isHeroControlActive() {
     return this.state.screen === 'battle'
       && this.state.phase === 'combat'
@@ -3470,8 +3793,8 @@ export class TowerDefenseGame {
     const hero = this.state.hero;
     if (!hero || !Number.isFinite(hero.x) || !Number.isFinite(hero.y)) return;
     const type = hero.type || hero.heroId || this.state.selectedHeroId || 'shell';
-    const definition = TOWER_TYPES[type] || TOWER_TYPES.shell;
-    const heroDefinition = HERO_TYPES[type] || definition;
+    const definition = HERO_TYPES[type] || TOWER_TYPES[type] || HERO_TYPES.shell;
+    const heroDefinition = definition;
     const key = `hero:${hero.uid || type}`;
     const heroBase = Math.hypot(Number(hero.moveX) || 0, Number(hero.moveY) || 0) > 0.01
       ? 'move' : 'idle';
@@ -3543,16 +3866,18 @@ export class TowerDefenseGame {
       const turretDefinition = TURRET_TYPES[type] || TURRET_TYPES['gel-mortar'];
       const turretVisual = turretVisualFor(type);
       const buildingType = 'tower';
-      drawAssetOrFallback(ctx, this.assetStore, 'turret-gel-mount', (asset) => {
-        ctx.globalAlpha *= turret ? 1 : this.isPreparation() ? 0.94 : 0.38;
-        ctx.drawImage(
-          asset,
-          x - GEL_MOUNT_ASSET_LAYOUT.width / 2,
-          buildingGroundY - GEL_MOUNT_ASSET_LAYOUT.height,
-          GEL_MOUNT_ASSET_LAYOUT.width,
-          GEL_MOUNT_ASSET_LAYOUT.height,
-        );
-      }, () => {});
+      if (!turret || !turretVisual?.layered) {
+        drawAssetOrFallback(ctx, this.assetStore, 'turret-gel-mount', (asset) => {
+          ctx.globalAlpha *= turret ? 1 : this.isPreparation() ? 0.94 : 0.38;
+          ctx.drawImage(
+            asset,
+            x - GEL_MOUNT_ASSET_LAYOUT.width / 2,
+            buildingGroundY - GEL_MOUNT_ASSET_LAYOUT.height,
+            GEL_MOUNT_ASSET_LAYOUT.width,
+            GEL_MOUNT_ASSET_LAYOUT.height,
+          );
+        }, () => {});
+      }
       if (turret) {
         const pulseKey = String(turret.uid ?? slot.id ?? slotIndex);
         const pulse = clamp(Number(this.turretPulses.get(pulseKey)) || 0, 0, 1);
@@ -3566,15 +3891,27 @@ export class TowerDefenseGame {
           ctx.fill();
           ctx.restore();
         }
-        drawBuilding(ctx, x, buildingGroundY, 92 * (1 + pulse * 0.045), buildingType, {
-          assetKey: turretVisual.assetKey,
-          assetStore: this.assetStore,
-          ...turretVisual.layout,
-          selected: false,
-          damage: Number.isFinite(turret.hp) && turret.maxHp > 0
-            ? 1 - clamp(turret.hp / turret.maxHp, 0, 1)
-            : 0,
-        });
+        const damage = Number.isFinite(turret.hp) && turret.maxHp > 0
+          ? 1 - clamp(turret.hp / turret.maxHp, 0, 1)
+          : 0;
+        if (turretVisual?.layered) {
+          drawLayeredTurret(ctx, x, buildingGroundY, 92, {
+            assetKey: turretVisual.assetKey,
+            assetStore: this.assetStore,
+            aimAngle: Number.isFinite(Number(turret.aimAngle))
+              ? Number(turret.aimAngle) : -Math.PI / 2,
+            attackPulse: Math.max(pulse, Number(turret.attackPulse) || 0),
+            damage,
+          });
+        } else if (turretVisual) {
+          drawBuilding(ctx, x, buildingGroundY, 92 * (1 + pulse * 0.045), buildingType, {
+            assetKey: turretVisual.assetKey,
+            assetStore: this.assetStore,
+            ...turretVisual.layout,
+            selected: false,
+            damage,
+          });
+        }
         return;
       }
 
@@ -3673,13 +4010,14 @@ export class TowerDefenseGame {
   }
 
   drawDeploymentGrid(ctx, lanes, stage) {
+    if (!this.shouldShowDeploymentGrid()) return false;
     const columns = lanes.map((lane) => Number(lane.x)).filter(Number.isFinite);
     const authoredRows = Array.isArray(stage?.pads)
       ? [...new Set(stage.pads.map((pad) => Number(pad.y)).filter(Number.isFinite))]
         .sort((left, right) => left - right)
       : [];
     const rows = authoredRows.length === 7 ? authoredRows : DEPLOY_GRID_ROWS;
-    if (columns.length !== 5 || rows.length !== 7) return;
+    if (columns.length !== 5 || rows.length !== 7) return false;
 
     const boundariesFor = (values) => [
       values[0] - (values[1] - values[0]) / 2,
@@ -3705,6 +4043,7 @@ export class TowerDefenseGame {
     });
     ctx.stroke();
     ctx.restore();
+    return true;
   }
 
   drawLaneField(ctx, lanes, stage) {
@@ -4006,12 +4345,13 @@ export class TowerDefenseGame {
   drawEnemy(ctx, enemy) {
     const definition = TD_ENEMIES[enemy.type] || TD_ENEMIES.bug;
     const type = MONSTER_DRAW_TYPE[enemy.type] || 'bug';
+    const atlasAssetKey = ENEMY_ATLAS_ASSET_BY_TYPE[enemy.type];
     const animation = this.characterAnimationSample(
       `enemy:${enemy.uid}`,
       definition.ownerId,
       'move',
     );
-    drawMonster(ctx, enemy.x, enemy.y + definition.size * 0.33, definition.size, type, {
+    const drawOptions = {
       time: this.state.time,
       phase: Number(enemy.uid.split('-').at(-1)) * 0.31 || 0,
       facing: enemy.facing === -1 ? -1 : 1,
@@ -4019,9 +4359,20 @@ export class TowerDefenseGame {
       expression: enemy.hitPulse > 0.35 ? 'hurt' : 'normal',
       assetStore: this.assetStore,
       ...animation,
-      ...this.characterRigOptions(definition.ownerId),
-      allowGeneratedStandalone: this.generatedCharacterArtEnabled,
-    });
+    };
+    if (atlasAssetKey) {
+      drawAtlasCharacter(ctx,
+        enemy.x,
+        enemy.y + definition.size * 0.33,
+        definition.size,
+        { ...drawOptions, assetKey: atlasAssetKey });
+    } else {
+      drawMonster(ctx, enemy.x, enemy.y + definition.size * 0.33, definition.size, type, {
+        ...drawOptions,
+        ...this.characterRigOptions(definition.ownerId),
+        allowGeneratedStandalone: this.generatedCharacterArtEnabled,
+      });
+    }
     const width = definition.boss ? 82 : 52;
     const ratio = clamp(enemy.hp / Math.max(1, enemy.maxHp), 0, 1);
     ctx.save();
@@ -4039,7 +4390,10 @@ export class TowerDefenseGame {
 
   drawDefeatedTowers(ctx) {
     for (const actor of this.defeatedTowers) {
-      const definition = TOWER_TYPES[actor.type];
+      const soldierVisual = actor.squadType
+        ? soldierVisualFor(actor.type, actor.squadType)
+        : null;
+      const definition = soldierVisual || TOWER_TYPES[actor.type];
       if (!definition) continue;
       const progress = clamp(actor.age / Math.max(0.001, actor.duration), 0, 1);
       const animation = this.characterAnimationSample(actor.key, actor.ownerId);
@@ -4047,7 +4401,7 @@ export class TowerDefenseGame {
       ctx.globalAlpha *= clamp(1 - Math.max(0, progress - 0.48) / 0.52, 0, 1);
       ctx.translate(Math.sin(progress * 28) * (1 - progress) * 3, progress * 7);
       if (actor.squadType) {
-        const visual = soldierVisualFor(actor.type, actor.squadType);
+        const visual = soldierVisual;
         drawSoldier(ctx, actor.x, actor.y + 19, SQUAD_MEMBER_DEFEAT_SIZE, {
           assetKey: visual.assetKey,
           squadType: actor.squadType,
@@ -4089,6 +4443,7 @@ export class TowerDefenseGame {
     for (const actor of this.defeatedActors) {
       const definition = TD_ENEMIES[actor.type] || TD_ENEMIES.bug;
       const type = MONSTER_DRAW_TYPE[actor.type] || 'bug';
+      const atlasAssetKey = ENEMY_ATLAS_ASSET_BY_TYPE[actor.type];
       const animation = this.characterAnimationSample(
         actor.key,
         actor.ownerId,
@@ -4098,15 +4453,26 @@ export class TowerDefenseGame {
       const alpha = actor.age <= fadeStart
         ? 1
         : clamp(1 - (actor.age - fadeStart) / Math.max(0.001, actor.duration - fadeStart), 0, 1);
-      drawMonster(ctx, actor.x, actor.y + definition.size * 0.33, definition.size, type, {
+      const drawOptions = {
         time: this.state.time,
         facing: actor.facing,
         alpha,
         assetStore: this.assetStore,
         ...animation,
-        ...this.characterRigOptions(actor.ownerId),
-        allowGeneratedStandalone: this.generatedCharacterArtEnabled,
-      });
+      };
+      if (atlasAssetKey) {
+        drawAtlasCharacter(ctx,
+          actor.x,
+          actor.y + definition.size * 0.33,
+          definition.size,
+          { ...drawOptions, assetKey: atlasAssetKey });
+      } else {
+        drawMonster(ctx, actor.x, actor.y + definition.size * 0.33, definition.size, type, {
+          ...drawOptions,
+          ...this.characterRigOptions(actor.ownerId),
+          allowGeneratedStandalone: this.generatedCharacterArtEnabled,
+        });
+      }
     }
   }
 
@@ -4287,7 +4653,8 @@ export class TowerDefenseGame {
     ctx.stroke();
     ctx.restore();
 
-    if (skillHeroType(actor) === 'bubble') {
+    const heroType = skillHeroType(actor);
+    if (heroType === 'bubble') {
       this.drawSkillComponents(ctx, SKILL_COMPONENT_ASSETS.bubbleOrb,
         Array.from({ length: 4 }, (_, index) => {
           const angle = age * (index % 2 ? -1.25 : 1.08) + index * TAU / 4;
@@ -4301,6 +4668,42 @@ export class TowerDefenseGame {
             alpha: fade * (0.72 + (index % 2) * 0.16),
           };
         }));
+    } else if (heroType === 'ember') {
+      this.drawSkillComponents(ctx, SKILL_COMPONENT_ASSETS.emberScorch,
+        Array.from({ length: 4 }, (_, index) => {
+          const angle = age * (1.68 + index * 0.12) + index * TAU / 4;
+          const orbit = radius * (0.16 + index * 0.095) * reveal;
+          const pulseScale = 1 + Math.sin(age * 8.6 + index * 1.4) * 0.09;
+          return {
+            x: x + Math.cos(angle) * orbit,
+            y: y + Math.sin(angle) * orbit,
+            size: radius * (0.34 - index * 0.025) * pulseScale,
+            rotation: angle + age * 1.9,
+            alpha: fade * (0.82 - index * 0.1),
+          };
+        }));
+    } else if (heroType === 'cloud') {
+      const vortexPulse = 1 + Math.sin(age * 6.4) * 0.08;
+      this.drawSkillComponents(ctx, SKILL_COMPONENT_ASSETS.cloudVortex, [
+        {
+          x,
+          y,
+          size: radius * 0.88 * reveal * vortexPulse,
+          rotation: -age * 2.25,
+          alpha: fade * 0.9,
+        },
+        ...Array.from({ length: 3 }, (_, index) => {
+          const angle = age * (2.05 + index * 0.18) + index * TAU / 3;
+          const orbit = radius * (0.48 + index * 0.1) * reveal;
+          return {
+            x: x + Math.cos(angle) * orbit,
+            y: y + Math.sin(angle) * orbit,
+            size: radius * (0.28 - index * 0.025),
+            rotation: angle - age * 2.7,
+            alpha: fade * (0.7 - index * 0.09),
+          };
+        }),
+      ]);
     }
 
     for (let index = 0; index < 6; index += 1) {
@@ -4367,7 +4770,8 @@ export class TowerDefenseGame {
     ctx.stroke();
     ctx.restore();
 
-    if (skillHeroType(actor) === 'needle') {
+    const heroType = skillHeroType(actor);
+    if (heroType === 'needle') {
       const rotation = Math.atan2(dy, dx);
       this.drawSkillComponents(ctx, SKILL_COMPONENT_ASSETS.crystalLaserEmitter, [{
         x: startX,
@@ -4383,6 +4787,21 @@ export class TowerDefenseGame {
         rotation: -age * 2.2,
         alpha: fade * reveal,
       }]);
+    } else if (heroType === 'spark') {
+      const rotation = Math.atan2(dy, dx);
+      this.drawSkillComponents(ctx, SKILL_COMPONENT_ASSETS.sparkChain,
+        Array.from({ length: 5 }, (_, index) => {
+          const along = ((age * 2.15 + index / 5) % 1) * reveal;
+          const side = Math.sin(age * 18 + index * 1.8) * width * 0.32;
+          const pulseScale = 1 + Math.sin(age * 12 + index) * 0.12;
+          return {
+            x: lerp(startX, endX, along) + px * side,
+            y: lerp(startY, endY, along) + py * side,
+            size: Math.min(96, width * 2.2) * pulseScale,
+            rotation: rotation + Math.sin(age * 15 + index) * 0.13,
+            alpha: fade * (0.58 + along * 0.36),
+          };
+        }));
     }
 
     for (let index = 0; index < 3; index += 1) {
@@ -4454,7 +4873,8 @@ export class TowerDefenseGame {
     ctx.stroke();
     ctx.restore();
 
-    if (skillHeroType(actor) === 'dew') {
+    const heroType = skillHeroType(actor);
+    if (heroType === 'dew') {
       this.drawSkillComponents(ctx, SKILL_COMPONENT_ASSETS.dewWaveCrest, [{
         x: x + dx * width * 0.06,
         y: y + dy * width * 0.06,
@@ -4463,6 +4883,25 @@ export class TowerDefenseGame {
         rotation: Math.atan2(dy, dx),
         alpha: fade,
       }]);
+    } else if (heroType === 'drill' || heroType === 'frost') {
+      const assetKey = EXPANDED_SKILL_COMPONENT_BY_TYPE[heroType];
+      const travelAngle = Math.atan2(dy, dx);
+      this.drawSkillComponents(ctx, assetKey,
+        Array.from({ length: 3 }, (_, index) => {
+          const lag = tail * index * 0.28;
+          const sway = Math.sin(age * 16 + index * 1.6) * width * 0.045 * index;
+          const pulseScale = 1 + Math.sin(age * 10.5 + index) * 0.065;
+          return {
+            x: x - dx * lag + px * sway,
+            y: y - dy * lag + py * sway,
+            width: width * (heroType === 'drill' ? 1.08 : 1.18)
+              * (1 - index * 0.16) * pulseScale,
+            height: width * (heroType === 'drill' ? 0.86 : 1.02)
+              * (1 - index * 0.16) * pulseScale,
+            rotation: travelAngle + Math.sin(age * 12 + index) * 0.045,
+            alpha: fade * (0.94 - index * 0.25),
+          };
+        }));
     }
 
     for (let index = 0; index < 4; index += 1) {
@@ -4526,6 +4965,110 @@ export class TowerDefenseGame {
         rotation: progress * (skillHeroType(effect) === 'berry' ? 0.62 : -0.32),
         alpha: fade * 0.96,
       }]);
+    }
+    const heroType = skillHeroType(effect);
+    const expandedImpactAsset = EXPANDED_SKILL_COMPONENT_BY_TYPE[heroType];
+    if (expandedImpactAsset) {
+      let instances = [];
+      if (heroType === 'bell') {
+        instances = Array.from({ length: 3 }, (_, index) => {
+          const delay = index * 0.1;
+          const local = clamp((progress - delay) / Math.max(0.001, 1 - delay), 0, 1);
+          return {
+            x,
+            y,
+            size: radius * (0.35 + easeOutCubic(local) * (0.58 + index * 0.18)),
+            rotation: (index % 2 ? -1 : 1) * local * 0.5,
+            alpha: local > 0 ? (1 - local) * (0.9 - index * 0.12) : 0,
+          };
+        });
+      } else if (heroType === 'ember') {
+        instances = Array.from({ length: 4 }, (_, index) => {
+          const angle = index * TAU / 4 + progress * 1.35;
+          const travel = radius * (0.08 + expand * (0.3 + index * 0.055));
+          return {
+            x: x + Math.cos(angle) * travel,
+            y: y + Math.sin(angle) * travel,
+            size: radius * (0.56 - index * 0.045) * (1 + Math.sin(progress * 18 + index) * 0.08),
+            rotation: angle + progress * 2.4,
+            alpha: fade * (0.88 - index * 0.11),
+          };
+        });
+      } else if (heroType === 'ink') {
+        instances = Array.from({ length: 5 }, (_, index) => {
+          const angle = -Math.PI * 0.86 + index * Math.PI * 0.18 + progress * 0.42;
+          const travel = radius * (0.12 + expand * (0.42 + index * 0.055));
+          return {
+            x: x + Math.cos(angle) * travel,
+            y: y + Math.sin(angle) * travel,
+            size: radius * (0.52 - index * 0.035),
+            rotation: angle + Math.PI / 2 + progress * 1.1,
+            alpha: fade * (0.9 - index * 0.08),
+          };
+        });
+      } else if (heroType === 'cloud') {
+        instances = [{
+          x,
+          y,
+          size: radius * (0.62 + expand * 0.62),
+          rotation: -progress * 2.8,
+          alpha: fade * 0.9,
+        }, ...Array.from({ length: 3 }, (_, index) => {
+          const angle = progress * 5.4 + index * TAU / 3;
+          const travel = radius * (0.18 + expand * 0.62);
+          return {
+            x: x + Math.cos(angle) * travel,
+            y: y + Math.sin(angle) * travel,
+            size: radius * (0.34 - index * 0.025),
+            rotation: angle - progress * 3.2,
+            alpha: fade * (0.72 - index * 0.08),
+          };
+        })];
+      } else if (heroType === 'honey') {
+        instances = Array.from({ length: 4 }, (_, index) => {
+          const angle = index * TAU / 4 - progress * 1.6;
+          const travel = radius * (index === 0 ? 0 : 0.12 + expand * 0.48);
+          return {
+            x: x + Math.cos(angle) * travel,
+            y: y + Math.sin(angle) * travel,
+            size: radius * (index === 0 ? 0.82 : 0.48)
+              * (1 + Math.sin(progress * 14 + index) * 0.08),
+            rotation: angle + progress * (index % 2 ? -2.2 : 2.2),
+            alpha: fade * (index === 0 ? 0.94 : 0.72),
+          };
+        });
+      } else if (heroType === 'star') {
+        instances = [{
+          x,
+          y,
+          size: radius * (0.56 + expand * 0.72),
+          rotation: progress * 3.2,
+          alpha: fade * 0.96,
+        }, ...Array.from({ length: 5 }, (_, index) => {
+          const angle = progress * (index % 2 ? -4.2 : 4.2) + index * TAU / 5;
+          const travel = radius * (0.22 + expand * 0.68);
+          return {
+            x: x + Math.cos(angle) * travel,
+            y: y + Math.sin(angle) * travel,
+            size: radius * 0.3 * (1 + Math.sin(progress * 16 + index) * 0.1),
+            rotation: angle + progress * 3.8,
+            alpha: fade * 0.72,
+          };
+        })];
+      } else {
+        const direction = finiteNumber(effect.directionAngle, effect.stage, 1) * 0.34;
+        instances = Array.from({ length: 3 }, (_, index) => {
+          const travel = radius * expand * index * 0.26;
+          return {
+            x: x + Math.cos(direction) * travel,
+            y: y + Math.sin(direction) * travel,
+            size: radius * (0.72 - index * 0.14) * (1 + Math.sin(progress * 15 + index) * 0.07),
+            rotation: direction + progress * (index % 2 ? -2.1 : 2.1),
+            alpha: fade * (0.9 - index * 0.18),
+          };
+        });
+      }
+      this.drawSkillComponents(ctx, expandedImpactAsset, instances);
     }
     for (let index = 0; index < 4; index += 1) {
       const angle = index * TAU / 4 + finiteNumber(effect.stage, 1) * 0.3;
@@ -4595,6 +5138,30 @@ export class TowerDefenseGame {
       ctx.restore();
     }
 
+    const heroType = skillHeroType(projectile);
+    const expandedProjectileAsset = EXPANDED_SKILL_COMPONENT_BY_TYPE[heroType];
+    if (expandedProjectileAsset) {
+      const spinRate = heroType === 'star' ? 4.8
+        : heroType === 'honey' ? -2.7
+          : heroType === 'ink' ? 1.9 : 2.4;
+      const baseScale = heroType === 'honey' ? 2.05
+        : heroType === 'ink' ? 1.86 : 1.72;
+      this.drawSkillComponents(ctx, expandedProjectileAsset,
+        Array.from({ length: 3 }, (_, index) => {
+          const lag = index * size * 0.42;
+          const side = Math.sin(age * 17 + index * 1.7) * index * size * 0.08;
+          const pulseScale = 1 + Math.sin(age * 12 + index) * 0.08;
+          return {
+            x: renderX - cos * lag - sin * side,
+            y: renderY - sin * lag + cos * side,
+            size: size * baseScale * (1 - index * 0.19) * pulseScale,
+            rotation: angle + age * spinRate + index * 0.22,
+            alpha: 1 - index * 0.28,
+          };
+        }));
+      return;
+    }
+
     if (projectile.type !== 'berry') {
       drawProjectile(ctx, renderX, renderY, size, projectile.type, {
         angle,
@@ -4620,6 +5187,11 @@ export class TowerDefenseGame {
       this.drawSkillProjectile(ctx, projectile, angle);
       return;
     }
+    const reinforcementStyle = reinforcementProjectileStyleFor(projectile);
+    if (reinforcementStyle) {
+      this.drawReinforcementProjectile(ctx, projectile, angle, reinforcementStyle);
+      return;
+    }
     const star = clamp(Math.floor(projectile.star || 1), 1, TD_MAX_STAR);
     const baseSize = projectile.type === 'needle' ? 19 : 16;
     const evolvedSize = (baseSize + (star - 1) * 1.8) * (projectile.secondary ? 0.82 : 1);
@@ -4631,6 +5203,97 @@ export class TowerDefenseGame {
         progress: clamp(projectile.age / 1.2, 0, 1),
         assetStore: this.assetStore,
       });
+  }
+
+  drawReinforcementProjectile(ctx, projectile, angle, style) {
+    if (!this.assetStore || typeof this.assetStore.useOrFallback !== 'function') return false;
+    const sourceWidth = REINFORCEMENT_PROJECTILE_SOURCE_SIZE.width;
+    const sourceHeight = REINFORCEMENT_PROJECTILE_SOURCE_SIZE.height;
+    const sourceX = style.column * sourceWidth;
+    const sourceY = style.row * sourceHeight;
+    const age = Math.max(0, finiteNumber(projectile.age));
+    const alpha = clamp(finiteNumber(
+      projectile.alpha,
+      projectile.secondary ? 0.82 : 1,
+    ), 0, 1);
+    const bob = Math.sin(age * 13 + style.row * 0.9 + style.column * 0.55) * 1.8;
+    const normalX = -Math.sin(angle);
+    const normalY = Math.cos(angle);
+    const x = finiteNumber(projectile.x) + normalX * bob;
+    const y = finiteNumber(projectile.y) + normalY * bob;
+
+    return this.assetStore.useOrFallback(REINFORCEMENT_PROJECTILE_ATLAS_KEY, (asset) => {
+      for (let trailIndex = 3; trailIndex >= 0; trailIndex -= 1) {
+        const isHead = trailIndex === 0;
+        const lag = isHead ? 0 : trailIndex * 9 + (age * 78 % 7);
+        const scale = isHead ? 1 : 0.88 - trailIndex * 0.1;
+        const width = style.width * scale;
+        const height = style.height * scale;
+        const frameAge = Math.max(0, age - trailIndex * 0.028);
+        const rotation = angle + frameAge * style.spinRate
+          + Math.sin(frameAge * 10 + style.column) * 0.045;
+        ctx.save();
+        ctx.globalAlpha = (Number.isFinite(ctx.globalAlpha) ? ctx.globalAlpha : 1)
+          * alpha * (isHead ? 1 : 0.3 - trailIndex * 0.055);
+        ctx.translate(x - Math.cos(angle) * lag, y - Math.sin(angle) * lag);
+        ctx.rotate(rotation);
+        ctx.drawImage(
+          asset,
+          sourceX,
+          sourceY,
+          sourceWidth,
+          sourceHeight,
+          -width / 2,
+          -height / 2,
+          width,
+          height,
+        );
+        ctx.restore();
+      }
+    }, () => {});
+  }
+
+  drawEnemyReinforcementEffect(ctx, effect, progress) {
+    if (effect.type === 'enemy-ranged-shot') {
+      const visualId = REINFORCEMENT_PROJECTILE_BY_ENEMY[effect.enemyType];
+      const style = REINFORCEMENT_PROJECTILE_STYLE[visualId];
+      if (!style) return false;
+      const sourceX = finiteNumber(effect.x);
+      const sourceY = finiteNumber(effect.y);
+      const targetX = finiteNumber(effect.targetX, sourceX);
+      const targetY = finiteNumber(effect.targetY, sourceY);
+      const travel = clamp(progress, 0, 1);
+      const x = lerp(sourceX, targetX, travel);
+      const y = lerp(sourceY, targetY, travel) - Math.sin(travel * Math.PI) * 8;
+      this.drawReinforcementProjectile(ctx, {
+        x,
+        y,
+        targetX,
+        targetY,
+        age: finiteNumber(effect.age),
+        alpha: 1 - travel * 0.12,
+      }, Math.atan2(targetY - sourceY, targetX - sourceX), style);
+      return true;
+    }
+    if (effect.type !== 'enemy-charge-start' && effect.type !== 'enemy-charge-impact') {
+      return false;
+    }
+    const style = REINFORCEMENT_PROJECTILE_STYLE.gale;
+    const impact = effect.type === 'enemy-charge-impact';
+    const travel = clamp(progress, 0, 1);
+    const angle = impact ? Math.PI / 2 : -Math.PI / 2;
+    const distance = impact ? 22 + travel * 34 : 34 - travel * 52;
+    const x = finiteNumber(effect.x) + Math.cos(angle) * distance;
+    const y = finiteNumber(effect.y) + Math.sin(angle) * distance;
+    this.drawReinforcementProjectile(ctx, {
+      x,
+      y,
+      targetX: x + Math.cos(angle) * 20,
+      targetY: y + Math.sin(angle) * 20,
+      age: finiteNumber(effect.age) + travel * 0.18,
+      alpha: (1 - travel) * (impact ? 0.92 : 0.78),
+    }, angle, style);
+    return true;
   }
 
   drawHeroSkillStep(ctx, effect, progress) {
@@ -4679,6 +5342,7 @@ export class TowerDefenseGame {
         this.drawSkillImpact(ctx, effect, progress);
         continue;
       }
+      if (this.drawEnemyReinforcementEffect(ctx, effect, progress)) continue;
       if (effect.type === 'merge') {
         for (let index = 0; index < 4; index += 1) {
           const orbit = fusionOrbitPoint(effect, index * TAU / 4);
@@ -4993,7 +5657,18 @@ export class TowerDefenseGame {
         ctx.globalAlpha *= enabled ? 1 : 0.42;
         this.drawSquadPurchasePreview(ctx, rect, entry.type);
         ctx.restore();
-      } else {
+      } else if (turretVisual?.layered) {
+        drawLayeredTurret(ctx,
+          rect.x + rect.width / 2,
+          rect.y + rect.height - 8,
+          68,
+          {
+            assetKey: turretVisual.assetKey,
+            assetStore: this.assetStore,
+            aimAngle: -Math.PI / 2,
+            disabled: !enabled,
+          });
+      } else if (turretVisual) {
         drawBuilding(ctx, rect.x + rect.width / 2, rect.y + rect.height - 14, 56, 'tower', {
           assetKey: turretVisual.assetKey,
           assetStore: this.assetStore,
@@ -5220,11 +5895,20 @@ export class TowerDefenseGame {
       ctx.globalAlpha = 0.82;
       if (purchase?.kind === 'turret') {
         const visual = turretVisualFor(purchase.type);
-        drawBuilding(ctx, this.drag.point.x, this.drag.point.y + 38, 86, 'tower', {
-          assetKey: visual.assetKey,
-          assetStore: this.assetStore,
-          ...visual.layout,
-        });
+        if (visual?.layered) {
+          drawLayeredTurret(ctx, this.drag.point.x, this.drag.point.y + 38, 94, {
+            assetKey: visual.assetKey,
+            assetStore: this.assetStore,
+            aimAngle: -Math.PI / 2,
+            alpha: 0.82,
+          });
+        } else if (visual) {
+          drawBuilding(ctx, this.drag.point.x, this.drag.point.y + 38, 86, 'tower', {
+            assetKey: visual.assetKey,
+            assetStore: this.assetStore,
+            ...visual.layout,
+          });
+        }
       } else if (purchase?.kind === 'squad') {
         this.drawSquadPurchasePreview(ctx, {
           x: this.drag.point.x - 78,
@@ -5408,7 +6092,10 @@ export class TowerDefenseGame {
     if (!target) return [];
     if (target.type === 'stage') {
       if (this.menuPage === 'stage-select') {
-        const card = STAGE_SELECT_CARDS[target.stageIndex];
+        const targetPage = Math.floor(target.stageIndex / STAGE_SELECT_PAGE_SIZE);
+        const card = targetPage === this.stageSelectPage
+          ? STAGE_SELECT_CARDS[target.stageIndex % STAGE_SELECT_PAGE_SIZE]
+          : null;
         return card ? [{
           x: card.x + card.width / 2,
           y: card.y + card.height / 2,

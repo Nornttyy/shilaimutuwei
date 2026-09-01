@@ -1073,7 +1073,8 @@ test('tower-defense attack controllers reach the real layered rig pipeline for a
     assert.ok(offscreenState.layerDraws.includes(`${ownerId}:eyes:attack`));
     assert.ok(offscreenState.layerDraws.includes(`${ownerId}:mouth:open`));
   }
-  assert.ok(context.compositeDraws >= 8, 'menu and battle frames composite complete rig surfaces');
+  assert.ok(context.compositeDraws >= 4,
+    'the battle frame composites all four complete rig surfaces without menu heroes');
   game.dispose();
 });
 

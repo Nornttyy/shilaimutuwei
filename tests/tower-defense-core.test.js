@@ -13,9 +13,12 @@ import {
   TD_ENEMIES,
   TD_FIELD,
   TD_HERO_BOUNDS,
+  TD_RECRUITMENT_POOL,
+  TD_SQUAD_TYPES,
   TD_STAGE_SCALE_CAPS,
   TD_STAGES,
   TD_TURRET_SLOTS,
+  TD_TURRET_TYPES,
   TD_VIEW,
   TOWER_ATTACK_EVOLUTIONS,
   TOWER_TYPES,
@@ -103,13 +106,26 @@ function holdCombat(state) {
   return state;
 }
 
+function holdCombatWithHero(state) {
+  state.phase = 'combat';
+  state.waveActive = true;
+  state.wave = Math.max(1, state.wave);
+  state.spawnQueue = [{ uid: 'held-spawn', type: 'bug', laneIndex: 0, at: 999 }];
+  state.hero.hp = state.hero.maxHp;
+  state.hero.cooldown = 999;
+  state.hero.skillCooldown = 999;
+  state.hero.moveX = 0;
+  state.hero.moveY = 0;
+  return state;
+}
+
 function resolveProjectiles(state, maxTicks = 100) {
   for (let tick = 0; tick < maxTicks && state.projectiles.length; tick += 1) {
     updateTowerDefense(state, 0.05);
   }
 }
 
-test('old progress owns only shell and starts with exactly one active hero', () => {
+test('old progress migrates to the exact starter collection and one active R hero', () => {
   assert.deepEqual(Object.fromEntries(Object.entries(HERO_TYPES).map(([type, hero]) => (
     [type, { name: hero.name, rarity: hero.rarity }]
   ))), {
@@ -119,12 +135,28 @@ test('old progress owns only shell and starts with exactly one active hero', () 
     sprout: { name: '芽芽', rarity: 'UR' },
     berry: { name: '莓莓', rarity: 'SR' },
     dew: { name: '露露', rarity: 'SSR' },
+    bell: { name: '铃铃', rarity: 'R' },
+    drill: { name: '钻钻', rarity: 'R' },
+    ember: { name: '燃燃', rarity: 'SR' },
+    ink: { name: '墨墨', rarity: 'SR' },
+    cloud: { name: '云卷', rarity: 'SR' },
+    frost: { name: '霜糖', rarity: 'SSR' },
+    honey: { name: '蜜团', rarity: 'SSR' },
+    spark: { name: '闪豆', rarity: 'UR' },
+    star: { name: '星核', rarity: 'UR' },
   });
+  assert.equal(Object.keys(HERO_TYPES).length, 15);
   const state = createTowerDefenseState({ progress: {} });
   assert.equal(state.progress.summonCurrency, TD_CONTRACT_START_CURRENCY);
-  assert.deepEqual(state.progress.contractRanks, {
-    shell: 1, needle: 0, bubble: 0, sprout: 0, berry: 0, dew: 0,
-  });
+  assert.deepEqual(state.progress.contractRanks, Object.fromEntries(
+    TD_CONTRACT_TYPES.map((type) => [type, type === 'shell' ? 1 : 0]),
+  ));
+  assert.deepEqual(state.progress.squadRanks, Object.fromEntries(
+    TD_SQUAD_TYPES.map((type) => [type, ['melee', 'ranged'].includes(type) ? 1 : 0]),
+  ));
+  assert.deepEqual(state.progress.turretRanks, Object.fromEntries(
+    TD_TURRET_TYPES.map((type) => [type, type === 'gel-mortar' ? 1 : 0]),
+  ));
   assert.equal(state.progress.selectedHero, 'shell');
   assert.deepEqual(state.heroes.filter(({ owned }) => owned).map(({ type }) => type), ['shell']);
   for (const type of TD_CONTRACT_TYPES) {
@@ -156,8 +188,12 @@ test('old progress owns only shell and starts with exactly one active hero', () 
   assert.equal(state.towers.length, 0);
 });
 
-test('all six hero ranks use one bounded data-driven combat growth calculation', () => {
+test('all fifteen hero ranks use one bounded data-driven combat growth calculation', () => {
   for (const type of TD_CONTRACT_TYPES) {
+    assert.equal(HERO_TYPES[type].visualType, type);
+    assert.match(HERO_TYPES[type].ownerId, /^survivor-/);
+    assert.equal(TOWER_ATTACK_EVOLUTIONS[type].length, 4,
+      `${type} owns an explicit attack presentation instead of using a fallback`);
     const rankOne = heroStatsForRank(type, 1);
     const rankTen = heroStatsForRank(type, 10);
     const skillTotal = (stats, key) => stats.skillSteps.reduce(
@@ -214,7 +250,9 @@ test('all six hero ranks use one bounded data-driven combat growth calculation',
 });
 
 test('direct squad purchase is prep-only, correctly priced, one-cell, and atomic', () => {
-  assert.deepEqual(Object.keys(SQUAD_TYPES), ['melee', 'ranged', 'charger', 'leaf']);
+  assert.deepEqual(Object.keys(SQUAD_TYPES), [
+    'melee', 'ranged', 'charger', 'leaf', 'drill-lancer', 'spore-lobber', 'volt-orbiter',
+  ]);
   assert.equal(SQUAD_TYPES.melee.cost, 100);
   assert.equal(SQUAD_TYPES.melee.squadSize, 4);
   assert.equal(SQUAD_TYPES.ranged.cost, 150);
@@ -223,12 +261,17 @@ test('direct squad purchase is prep-only, correctly priced, one-cell, and atomic
   assert.equal(SQUAD_TYPES.charger.movementMode, 'contact');
   assert.equal(SQUAD_TYPES.leaf.cost, 165);
   assert.equal(SQUAD_TYPES.leaf.effect, 'poison');
+  assert.equal(SQUAD_TYPES['drill-lancer'].rarity, 'SR');
+  assert.equal(SQUAD_TYPES['spore-lobber'].attackMode, 'spore-lob');
+  assert.equal(SQUAD_TYPES['volt-orbiter'].chainTargets, 2);
   const state = createBattleState();
   assert.equal(state.currency, 500);
 
   const invalid = clone(state);
   assert.equal(buyTowerDefenseSquad(state, 'unknown', 0), null);
   assert.deepEqual(state, invalid);
+  assert.equal(buyTowerDefenseSquad(state, 'charger', 0), null);
+  assert.deepEqual(state, invalid, 'locked squads cannot be bought or mutate the run');
   const melee = buyTowerDefenseSquad(state, 'melee', 0);
   assert.ok(melee);
   assert.equal(state.currency, 400);
@@ -377,7 +420,8 @@ test('melee closes to contact while ranged fires a long-distance projectile', ()
 });
 
 test('new squads use movementMode and apply their authored contact or poison attacks', () => {
-  const chargerState = createBattleState();
+  const unlockedSquads = { charger: 1, leaf: 1 };
+  const chargerState = createBattleState({ progress: { squadRanks: unlockedSquads } });
   const charger = buyTowerDefenseSquad(chargerState, 'charger', 1);
   const pad = TD_STAGES[0].pads[1];
   holdCombat(chargerState);
@@ -393,7 +437,7 @@ test('new squads use movementMode and apply their authored contact or poison att
     attackMode === 'bounce-hammer'
   )).length > 0, true);
 
-  const leafState = createBattleState();
+  const leafState = createBattleState({ progress: { squadRanks: unlockedSquads } });
   const leaf = buyTowerDefenseSquad(leafState, 'leaf', 1);
   holdCombat(leafState);
   const leafTarget = enemyAt({
@@ -408,6 +452,25 @@ test('new squads use movementMode and apply their authored contact or poison att
   assert.ok(leafTarget.hp < leafTarget.maxHp);
   assert.ok(leafTarget.poisonDps > 0);
   assert.ok(leafTarget.poisonTime > 0);
+});
+
+test('recruited drill, spore, and volt squads deploy as four authored independent soldiers', () => {
+  const expected = {
+    'drill-lancer': { rarity: 'SR', mode: 'contact', attack: 'drill-lance' },
+    'spore-lobber': { rarity: 'SR', mode: 'keep-range', attack: 'spore-lob' },
+    'volt-orbiter': { rarity: 'SSR', mode: 'keep-range', attack: 'volt-orbit' },
+  };
+  for (const [type, authored] of Object.entries(expected)) {
+    const state = createBattleState({ progress: { squadRanks: { [type]: 1 } } });
+    const squad = buyTowerDefenseSquad(state, type, 1);
+    assert.ok(squad);
+    assert.equal(squad.rank, 1);
+    assert.equal(squad.members.length, 4);
+    assert.equal(SQUAD_TYPES[type].rarity, authored.rarity);
+    assert.equal(SQUAD_TYPES[type].movementMode, authored.mode);
+    assert.equal(SQUAD_TYPES[type].attackMode, authored.attack);
+    assert.match(SQUAD_TYPES[type].ownerId, /^soldier-/);
+  }
 });
 
 test('contact damage downs members once and wave clear revives the retained squad', () => {
@@ -509,9 +572,13 @@ test('contact damage keeps the original member index after an earlier member is 
 test('gel mortar costs 175, uses fixed slots, cannot move, and splashes across lanes', () => {
   assert.deepEqual(Object.keys(TURRET_TYPES), [
     'gel-mortar', 'bubble-coil', 'crystal-repeater',
+    'gale-fan', 'spore-bomber', 'thunder-prism',
   ]);
   assert.equal(TURRET_TYPES['gel-mortar'].cost, 175);
   const state = createBattleState();
+  const lockedSnapshot = clone(state);
+  assert.equal(buildTowerDefenseTurret(state, 0, 'bubble-coil'), null);
+  assert.deepEqual(state, lockedSnapshot, 'locked turrets cannot be built or mutate the run');
   const slot = TD_TURRET_SLOTS['stage-1'][0];
   const turret = buildTowerDefenseTurret(state, 0);
   assert.ok(turret);
@@ -548,7 +615,8 @@ test('gel mortar costs 175, uses fixed slots, cannot move, and splashes across l
 });
 
 test('new turrets preserve their slow and pierce effects instead of inheriting mortar splash', () => {
-  const slowState = createBattleState();
+  const unlockedTurrets = { 'bubble-coil': 1, 'crystal-repeater': 1 };
+  const slowState = createBattleState({ progress: { turretRanks: unlockedTurrets } });
   const slowTurret = buildTowerDefenseTurret(slowState, 0, 'bubble-coil');
   assert.ok(slowTurret);
   holdCombat(slowState);
@@ -563,7 +631,7 @@ test('new turrets preserve their slow and pierce effects instead of inheriting m
   assert.equal(slowTarget.slowMultiplier, TURRET_TYPES['bubble-coil'].slowMultiplier);
   assert.ok(slowTarget.slowTime > 0);
 
-  const pierceState = createBattleState();
+  const pierceState = createBattleState({ progress: { turretRanks: unlockedTurrets } });
   const pierceTurret = buildTowerDefenseTurret(pierceState, 0, 'crystal-repeater');
   assert.ok(pierceTurret);
   holdCombat(pierceState);
@@ -580,6 +648,24 @@ test('new turrets preserve their slow and pierce effects instead of inheriting m
   resolveProjectiles(pierceState);
   assert.ok(primary.hp < primary.maxHp);
   assert.ok(secondary.hp < secondary.maxHp);
+});
+
+test('recruited gale, spore, and thunder turrets keep distinct authored attacks', () => {
+  const expected = {
+    'gale-fan': { rarity: 'R', effect: 'pierce', attack: 'gale-blade' },
+    'spore-bomber': { rarity: 'SR', effect: 'splash', attack: 'spore-bombard' },
+    'thunder-prism': { rarity: 'SSR', effect: 'slow', attack: 'thunder-prism-beam' },
+  };
+  for (const [type, authored] of Object.entries(expected)) {
+    const state = createBattleState({ progress: { turretRanks: { [type]: 1 } } });
+    const turret = buildTowerDefenseTurret(state, 0, type);
+    assert.ok(turret);
+    assert.equal(turret.rank, 1);
+    assert.equal(TURRET_TYPES[type].rarity, authored.rarity);
+    assert.equal(TURRET_TYPES[type].effect, authored.effect);
+    assert.equal(TURRET_TYPES[type].attackMode, authored.attack);
+    assert.equal(TURRET_TYPES[type].ownerId, `turret-${type}`);
+  }
 });
 
 test('hero movement is combat-only, normalized, and clamped to the field', () => {
@@ -645,7 +731,7 @@ test('hero auto-attacks and its active skill has cooldown and bounded area', () 
   assert.deepEqual(state, cooldown);
 });
 
-test('all six heroes execute serialisable three-step damage skills without healing allies', () => {
+test('all fifteen heroes execute serialisable three-step damage skills without healing allies', () => {
   const snapshots = {};
   const expectedActions = {
     shell: ['radial', 'radial', 'radial'],
@@ -654,6 +740,15 @@ test('all six heroes execute serialisable three-step damage skills without heali
     sprout: ['radial', 'radial', 'radial'],
     berry: ['projectile-volley', 'projectile-volley', 'projectile-volley'],
     dew: ['wave', 'wave', 'wave'],
+    bell: ['radial', 'radial', 'radial'],
+    drill: ['wave', 'wave', 'wave'],
+    ember: ['field', 'field', 'radial'],
+    ink: ['projectile-volley', 'projectile-volley', 'radial'],
+    cloud: ['field', 'radial', 'radial'],
+    frost: ['wave', 'wave', 'wave'],
+    honey: ['projectile-volley', 'projectile-volley', 'projectile-volley'],
+    spark: ['beam', 'beam', 'beam'],
+    star: ['projectile-volley', 'projectile-volley', 'radial'],
   };
   for (const type of TD_CONTRACT_TYPES) {
     const state = createBattleState({
@@ -759,9 +854,9 @@ test('all six heroes execute serialisable three-step damage skills without heali
   assert.ok(snapshots.bubble.slowMultiplier < 1 && snapshots.bubble.slowTime > 0);
   assert.ok(snapshots.sprout.poisonDps > 0 && snapshots.sprout.poisonTime > 0);
   assert.ok(snapshots.berry.damage > snapshots.dew.damage * 1.2);
-  assert.equal(new Set(TD_CONTRACT_TYPES.map((type) => HERO_TYPES[type].skill.id)).size, 6);
-  assert.equal(new Set(TD_CONTRACT_TYPES.map((type) => HERO_TYPES[type].skill.name)).size, 6);
-  assert.equal(new Set(TD_CONTRACT_TYPES.map((type) => HERO_TYPES[type].skill.description)).size, 6);
+  assert.equal(new Set(TD_CONTRACT_TYPES.map((type) => HERO_TYPES[type].skill.id)).size, 15);
+  assert.equal(new Set(TD_CONTRACT_TYPES.map((type) => HERO_TYPES[type].skill.name)).size, 15);
+  assert.equal(new Set(TD_CONTRACT_TYPES.map((type) => HERO_TYPES[type].skill.description)).size, 15);
 });
 
 test('queued hero skill steps survive a JSON save and resume in order', () => {
@@ -1276,45 +1371,159 @@ test('an unblocked enemy leaks at the bottom endpoint and damages the base', () 
   });
 });
 
+test('lantern and rift boss fire their authored ranged attacks before contact', () => {
+  for (const type of ['lantern', 'rift-boss']) {
+    const state = holdCombatWithHero(createBattleState());
+    state.hero.x = 360;
+    state.hero.y = 360;
+    const enemy = enemyAt({
+      laneIndex: 2, y: 222, uid: `${type}-ranged-probe`, type, hp: 100_000, speed: 0,
+    });
+    enemy.attackCooldown = 0;
+    state.enemies = [enemy];
+    state.events = [];
+    const heroHp = state.hero.hp;
+
+    updateTowerDefense(state, 0.01);
+
+    const ranged = state.events.find(({ type: eventType }) => (
+      eventType === 'enemy-ranged-attack'
+    ));
+    assert.ok(ranged, `${type} produces a ranged attack event`);
+    assert.equal(ranged.enemyUid, enemy.uid);
+    assert.equal(ranged.targetUid, state.hero.uid);
+    assert.equal(enemy.blockedByTowerUid, null, `${type} attacks before physical contact`);
+    const expectedDamage = TD_ENEMIES[type].attackDamage
+      * TD_ENEMIES[type].rangedDamageMultiplier;
+    assert.ok(Math.abs((heroHp - state.hero.hp) - expectedDamage) < 1e-9);
+  }
+});
+
+test('thorn periodically charges and applies one stronger impact on contact', () => {
+  const state = holdCombatWithHero(createBattleState());
+  state.hero.x = 360;
+  state.hero.y = 360;
+  const enemy = enemyAt({
+    laneIndex: 2, y: 222, uid: 'thorn-charge-probe',
+    type: 'thorn', hp: 100_000, speed: TD_ENEMIES.thorn.speed,
+  });
+  enemy.attackCooldown = 999;
+  enemy.chargeCooldown = 0;
+  enemy.chargeTime = 0;
+  state.enemies = [enemy];
+  state.events = [];
+  const heroHp = state.hero.hp;
+
+  for (let tick = 0; tick < 30 && !state.events.some(({ type }) => (
+    type === 'enemy-charge-impact'
+  )); tick += 1) updateTowerDefense(state, 0.05);
+
+  assert.ok(state.events.some(({ type }) => type === 'enemy-charge-start'));
+  const impact = state.events.find(({ type }) => type === 'enemy-charge-impact');
+  assert.ok(impact, 'the charge reaches a blocker before its short burst expires');
+  assert.equal(impact.targetUid, state.hero.uid);
+  const expectedDamage = TD_ENEMIES.thorn.attackDamage
+    * TD_ENEMIES.thorn.chargeImpactMultiplier;
+  assert.ok(Math.abs(impact.damage - expectedDamage) < 1e-9);
+  assert.ok(Math.abs((heroHp - state.hero.hp) - expectedDamage) < 1e-9,
+    'the disabled normal attack proves the damage came from the charge impact');
+});
+
+function singleHeroShotDamageAgainst(enemyType) {
+  const state = holdCombatWithHero(createBattleState());
+  state.hero.x = 360;
+  state.hero.y = 600;
+  state.hero.cooldown = 0;
+  const enemy = enemyAt({
+    laneIndex: 2, y: 500, uid: `${enemyType}-armor-probe`,
+    type: enemyType, hp: 10_000, speed: 0,
+  });
+  enemy.attackCooldown = 999;
+  state.enemies = [enemy];
+  state.events = [];
+  updateTowerDefense(state, 0.01);
+  assert.equal(state.projectiles.length, 1);
+  resolveProjectiles(state);
+  return {
+    damage: enemy.maxHp - enemy.hp,
+    hit: state.events.find(({ type, enemyUid }) => (
+      type === 'enemy-hit' && enemyUid === enemy.uid
+    )),
+  };
+}
+
+test('mud and rift boss armor reduce incoming damage without adding a health wall', () => {
+  const baseline = singleHeroShotDamageAgainst('bug');
+  const mud = singleHeroShotDamageAgainst('mud');
+  const rift = singleHeroShotDamageAgainst('rift-boss');
+
+  assert.ok(Math.abs(mud.damage - baseline.damage * (1 - TD_ENEMIES.mud.armorReduction)) < 1e-9);
+  assert.ok(Math.abs(
+    rift.damage - baseline.damage * (1 - TD_ENEMIES['rift-boss'].armorReduction)
+  ) < 1e-9);
+  assert.equal(mud.hit.armorReduction, 0.28);
+  assert.equal(rift.hit.armorReduction, 0.14);
+  assert.ok(TD_ENEMIES.mud.speed < TD_ENEMIES.bug.speed,
+    'the armored mud enemy stays visibly heavy and slow');
+  assert.ok(TD_ENEMIES['rift-boss'].hp < TD_ENEMIES.boss.hp,
+    'the hybrid boss trades some raw health for mechanics');
+});
+
 test('authored waves and endless pressure remain sharply capped', () => {
-  assert.deepEqual(TD_STAGES.map((stage) => stage.waves.map(
+  const authoredWaveTotals = TD_STAGES.map((stage) => stage.waves.map(
     (groups) => groups.reduce((sum, entry) => sum + entry.count, 0),
-  )), [
-    [5, 7, 7, 7, 7],
-    [8, 8, 8, 8, 8, 8],
-    [9, 9, 9, 9, 9, 9, 9],
-    [8, 8, 8, 8, 8, 7, 9],
-    [8, 8, 9, 8, 8, 8, 9],
-    [8, 8, 8, 9, 8, 8, 9, 9],
-  ]);
-  assert.deepEqual(TD_STAGES.map(({ id, index, name }) => ({ id, index, name })), [
-    { id: 'stage-1', index: 1, name: '软胶坡' },
-    { id: 'stage-2', index: 2, name: '泡泡湾' },
-    { id: 'stage-3', index: 3, name: '晶刺环' },
-    { id: 'stage-4', index: 4, name: '露蜜林' },
-    { id: 'stage-5', index: 5, name: '软壳峡' },
-    { id: 'stage-6', index: 6, name: '星胶庭' },
-  ]);
+  ));
+  assert.equal(TD_STAGES.length, 20);
+  assert.deepEqual(TD_STAGES.map(({ id }) => id), Array.from(
+    { length: 20 }, (_, index) => `stage-${index + 1}`,
+  ));
+  assert.deepEqual(TD_STAGES.map(({ index }) => index), Array.from(
+    { length: 20 }, (_, index) => index + 1,
+  ));
+  assert.equal(new Set(TD_STAGES.map(({ name }) => name)).size, 20);
+  assert.equal(TD_STAGES[0].name, '软胶坡');
+  assert.equal(TD_STAGES.at(-1).name, '虹胶之巅');
+  assert.deepEqual(authoredWaveTotals[0], [5, 7, 7, 7, 7]);
+  const establishedEnemyBudget = Math.max(...authoredWaveTotals.slice(0, 6).flat());
+  assert.equal(establishedEnemyBudget, 9);
   for (const stage of TD_STAGES) {
+    assert.ok(stage.waves.length >= 5 && stage.waves.length <= 7,
+      `${stage.id} stays within the five-to-seven-wave story budget`);
     assert.equal(TD_TURRET_SLOTS[stage.id].length, 4);
     const finalBossCount = stage.waves.at(-1)
-      .filter(({ type }) => type === 'boss')
+      .filter(({ type }) => TD_ENEMIES[type]?.boss)
       .reduce((total, entry) => total + entry.count, 0);
     assert.equal(finalBossCount, 1, `${stage.id} ends with one boss`);
+    const finalEscortCount = stage.waves.at(-1)
+      .filter(({ type }) => !TD_ENEMIES[type]?.boss)
+      .reduce((total, entry) => total + entry.count, 0);
+    assert.ok(finalEscortCount >= 5, `${stage.id} boss keeps a meaningful escort`);
   }
-  for (const stage of TD_STAGES.slice(3)) {
-    assert.equal(stage.waves.every((groups) => {
-      const count = groups.reduce((total, entry) => total + entry.count, 0);
-      return count >= 7 && count <= 9;
-    }), true);
+  for (const totals of authoredWaveTotals) {
+    assert.equal(totals.every((count) => count >= 5 && count <= establishedEnemyBudget), true);
   }
+  assert.equal(Math.max(...authoredWaveTotals.slice(6).flat()), establishedEnemyBudget,
+    'later chapters gain strength without increasing the authored spawn cap');
   assert.ok(TD_ENEMIES.stone.hp >= TD_ENEMIES.bug.hp * 3);
   assert.deepEqual({
     hp: TD_ENEMIES.boss.hp,
     attackDamage: TD_ENEMIES.boss.attackDamage,
     coreDamage: TD_ENEMIES.boss.coreDamage,
     attackInterval: TD_ENEMIES.boss.attackInterval,
-  }, { hp: 1850, attackDamage: 32, coreDamage: 10, attackInterval: 1.45 });
+  }, { hp: 1050, attackDamage: 32, coreDamage: 10, attackInterval: 1.45 });
+  assert.ok(TD_ENEMIES.boss.hp <= 1850 * 0.6,
+    'the slime boss durability is visibly lower than the former health wall');
+  assert.ok(TD_ENEMIES.boss.hp >= TD_ENEMIES.stone.hp * 3,
+    'the lighter boss is still meaningfully sturdier than an elite');
+  assert.deepEqual(
+    ['thorn', 'lantern', 'mud', 'rift-boss'].map((type) => TD_ENEMIES[type].ownerId),
+    ['enemy-thorn-roller', 'enemy-lantern-spore', 'enemy-mud-bulwark', 'enemy-rift-beacon-king'],
+  );
+  assert.equal(TD_ENEMIES['rift-boss'].boss, true);
+  const lateStoryTypes = new Set(TD_STAGES.slice(6).flatMap(({ waves }) => (
+    waves.flatMap((groups) => groups.map(({ type }) => type)
+  ))));
+  for (const type of ['thorn', 'lantern', 'mud', 'rift-boss']) assert.ok(lateStoryTypes.has(type));
   const formerEnemyStats = {
     bug: { hp: 40, speed: 36, attackDamage: 9, coreDamage: 1 },
     windcap: { hp: 36, speed: 54, attackDamage: 8, coreDamage: 2 },
@@ -1331,9 +1540,19 @@ test('authored waves and endless pressure remain sharply capped', () => {
       `${type} speed only rises slightly`);
   }
   const firstBossScale = stageScaleForWave(1, 5);
-  assert.equal(Math.round(TD_ENEMIES.boss.hp * firstBossScale.hp), 3645);
-  assert.equal(Math.round(TD_ENEMIES.boss.attackDamage * Math.sqrt(firstBossScale.hp)), 45);
-  assert.deepEqual(stageScaleForWave(6, 10_000), TD_STAGE_SCALE_CAPS);
+  assert.equal(Math.round(TD_ENEMIES.boss.hp * firstBossScale.hp), 1712);
+  assert.equal(Math.round(TD_ENEMIES.boss.attackDamage * Math.sqrt(firstBossScale.hp)), 41);
+  const storyScaleCheckpoints = [1, 5, 10, 15, 20]
+    .map((stageIndex) => stageScaleForWave(stageIndex, 1));
+  for (let index = 1; index < storyScaleCheckpoints.length; index += 1) {
+    assert.ok(storyScaleCheckpoints[index].hp > storyScaleCheckpoints[index - 1].hp);
+    assert.ok(storyScaleCheckpoints[index].speed > storyScaleCheckpoints[index - 1].speed);
+    assert.ok(storyScaleCheckpoints[index].reward > storyScaleCheckpoints[index - 1].reward);
+  }
+  assert.ok(stageScaleForWave(19, 7).hp < TD_STAGE_SCALE_CAPS.hp,
+    'story health scaling does not flatten before the final chapter');
+  assert.deepEqual(stageScaleForWave(20, 7), { hp: 3.397, speed: 1.4, reward: 2.195 });
+  assert.deepEqual(stageScaleForWave(20, 10_000), TD_STAGE_SCALE_CAPS);
   assert.deepEqual(endlessScaleForWave(100), { ...TD_ENDLESS_SCALE_CAPS });
   for (const waveNumber of [1, 10, 30, 100]) {
     const state = createBattleState({ mode: 'endless' });
@@ -1425,6 +1644,15 @@ test('contract summons are menu-only, deterministic, atomic, priced, and guarant
   assert.deepEqual(Object.fromEntries(Object.entries(TD_CONTRACT_RARITIES).map(([
     rarity, definition,
   ]) => [rarity, definition.weight])), { R: 60, SR: 27, SSR: 10, UR: 3 });
+  assert.equal(TD_RECRUITMENT_POOL.length, 28);
+  assert.equal(new Set(TD_RECRUITMENT_POOL.map(({ id }) => id)).size, 28);
+  assert.deepEqual(new Set(TD_RECRUITMENT_POOL.map(({ kind }) => kind)), new Set([
+    'hero', 'squad', 'turret',
+  ]));
+  const recruitmentDefinition = ({ kind, type }) => (
+    kind === 'hero' ? HERO_TYPES[type]
+      : kind === 'squad' ? SQUAD_TYPES[type] : TURRET_TYPES[type]
+  );
   const poor = createTowerDefenseState({
     progress: { tutorialSeen: true, summonCurrency: 99, summonRngState: 123 },
   });
@@ -1446,7 +1674,10 @@ test('contract summons are menu-only, deterministic, atomic, priced, and guarant
   assert.deepEqual(left.progress, right.progress);
   assert.equal(left.progress.summonCurrency, 0);
   assert.ok(results.some(({ rarity }) => ['SSR', 'UR'].includes(rarity)));
-  assert.equal(results.every(({ type, rarity }) => HERO_TYPES[type].rarity === rarity), true);
+  assert.equal(results.every((result) => (
+    result.collectibleId === `${result.kind}:${result.type}`
+    && recruitmentDefinition(result)?.rarity === result.rarity
+  )), true);
   const single = createTowerDefenseState({
     progress: { tutorialSeen: true, summonCurrency: 900, summonRngState: 456 },
   });
@@ -1460,34 +1691,45 @@ test('contract summons are menu-only, deterministic, atomic, priced, and guarant
   });
   const guaranteed = summonTowerDefenseContracts(pity, 1)[0];
   assert.ok(['SSR', 'UR'].includes(guaranteed.rarity));
-  assert.equal(guaranteed.rarity, HERO_TYPES[guaranteed.type].rarity);
+  assert.equal(guaranteed.rarity, recruitmentDefinition(guaranteed).rarity);
   assert.equal(pity.progress.summonPity, 0);
 
   const distribution = createTowerDefenseState({
     progress: { tutorialSeen: true, summonCurrency: 40_000, summonRngState: 0xA11CE },
   });
   const rarityCounts = { R: 0, SR: 0, SSR: 0, UR: 0 };
-  const typeCounts = Object.fromEntries(TD_CONTRACT_TYPES.map((type) => [type, 0]));
+  const kindCounts = { hero: 0, squad: 0, turret: 0 };
   for (let index = 0; index < 400; index += 1) {
     const result = summonTowerDefenseContracts(distribution, 1)[0];
     rarityCounts[result.rarity] += 1;
-    typeCounts[result.type] += 1;
+    kindCounts[result.kind] += 1;
   }
   assert.ok(rarityCounts.R > rarityCounts.SR * 1.5,
-    'adding multiple heroes to a rarity must not multiply that rarity weight');
+    'adding multiple collectible types to a rarity must not multiply that rarity weight');
   assert.ok(rarityCounts.SR > rarityCounts.SSR);
   assert.ok(rarityCounts.SSR > rarityCounts.UR);
-  for (const type of TD_CONTRACT_TYPES) assert.ok(typeCounts[type] > 0);
+  for (const kind of Object.keys(kindCounts)) assert.ok(kindCounts[kind] > 0);
 });
 
-test('summons unlock first, duplicates grant shards/ranks, and selected hero persists', () => {
+test('unified summons unlock heroes, squads, and turrets while selected hero persists', () => {
   const state = createTowerDefenseState({
-    progress: { tutorialSeen: true, summonCurrency: 900, summonRngState: 0xC0A7A5 },
+    progress: {
+      tutorialSeen: true,
+      summonCurrency: 900,
+      summonRngState: 0xC0A7A5,
+      contractRanks: { shell: 1, needle: 1 },
+      selectedHero: 'needle',
+    },
   });
-  const knownRanks = { ...state.progress.contractRanks };
+  const knownRanks = {
+    hero: { ...state.progress.contractRanks },
+    squad: { ...state.progress.squadRanks },
+    turret: { ...state.progress.turretRanks },
+  };
   const results = summonTowerDefenseContracts(state, 10);
   for (const result of results) {
-    if (knownRanks[result.type] === 0) {
+    const ranks = knownRanks[result.kind];
+    if (ranks[result.type] === 0) {
       assert.equal(result.unlocked, true);
       assert.equal(result.newRank, 1);
       assert.equal(result.shards, 0);
@@ -1495,22 +1737,20 @@ test('summons unlock first, duplicates grant shards/ranks, and selected hero per
       assert.equal(result.unlocked, false);
       assert.ok(result.drawShards > 0);
     }
-    knownRanks[result.type] = result.newRank;
+    ranks[result.type] = result.newRank;
   }
-  assert.deepEqual(state.progress.contractRanks, knownRanks);
+  assert.deepEqual(state.progress.contractRanks, knownRanks.hero);
+  assert.deepEqual(state.progress.squadRanks, knownRanks.squad);
+  assert.deepEqual(state.progress.turretRanks, knownRanks.turret);
   assert.ok(results.some(({ rankUps }) => rankUps > 0));
-  const unlocked = TD_CONTRACT_TYPES.find((type) => (
-    type !== 'shell' && state.progress.contractRanks[type] > 0
-  ));
-  assert.ok(unlocked);
-  assert.equal(selectTowerDefenseHero(state, unlocked), true);
+  assert.equal(selectTowerDefenseHero(state, 'needle'), true);
   assert.equal(state.heroes.filter(({ selected }) => selected).length, 1);
   const serialized = serializeTowerDefenseProgress(state);
   const restored = createTowerDefenseState({ progress: JSON.parse(JSON.stringify(serialized)) });
-  assert.equal(restored.progress.selectedHero, unlocked);
-  assert.equal(restored.heroes.find(({ selected }) => selected).type, unlocked);
+  assert.equal(restored.progress.selectedHero, 'needle');
+  assert.equal(restored.heroes.find(({ selected }) => selected).type, 'needle');
   beginTowerDefenseRun(restored, { stageId: 'stage-1' });
-  assert.equal(restored.hero.type, unlocked);
+  assert.equal(restored.hero.type, 'needle');
 });
 
 test('stage and endless outcomes grant persistent summon currency', () => {
@@ -1566,6 +1806,10 @@ test('progress normalization preserves hero meta and strips transient battle sta
     summonRngState: 12345,
     contractShards: { shell: 2, needle: 5, bubble: 99, unknown: 4 },
     contractRanks: { shell: 3, needle: 2, bubble: 99, sprout: -3 },
+    squadShards: { melee: 2, leaf: 99, unknown: 4 },
+    squadRanks: { melee: 3, ranged: 2, leaf: 99, charger: -3 },
+    turretShards: { 'gel-mortar': 3, 'bubble-coil': 99 },
+    turretRanks: { 'gel-mortar': 4, 'bubble-coil': 2, 'crystal-repeater': 99 },
     selectedHero: 'needle',
     transientValue: 123,
   };
@@ -1578,14 +1822,35 @@ test('progress normalization preserves hero meta and strips transient battle sta
     summonCurrency: 777,
     summonPity: 9,
     summonRngState: 12345,
-    contractShards: { shell: 2, needle: 5, bubble: 5, sprout: 0, berry: 0, dew: 0 },
-    contractRanks: { shell: 3, needle: 2, bubble: 10, sprout: 0, berry: 0, dew: 0 },
+    contractShards: Object.fromEntries(TD_CONTRACT_TYPES.map((type) => [
+      type, type === 'shell' ? 2 : ['needle', 'bubble'].includes(type) ? 5 : 0,
+    ])),
+    contractRanks: Object.fromEntries(TD_CONTRACT_TYPES.map((type) => [
+      type, type === 'shell' ? 3 : type === 'needle' ? 2 : type === 'bubble' ? 10 : 0,
+    ])),
+    squadShards: Object.fromEntries(TD_SQUAD_TYPES.map((type) => [
+      type, type === 'melee' ? 2 : type === 'leaf' ? 5 : 0,
+    ])),
+    squadRanks: Object.fromEntries(TD_SQUAD_TYPES.map((type) => [
+      type, type === 'melee' ? 3 : type === 'ranged' ? 2 : type === 'leaf' ? 10 : 0,
+    ])),
+    turretShards: Object.fromEntries(TD_TURRET_TYPES.map((type) => [
+      type, type === 'gel-mortar' ? 3 : type === 'bubble-coil' ? 5 : 0,
+    ])),
+    turretRanks: Object.fromEntries(TD_TURRET_TYPES.map((type) => [
+      type, type === 'gel-mortar' ? 4
+        : type === 'bubble-coil' ? 2 : type === 'crystal-repeater' ? 10 : 0,
+    ])),
     selectedHero: 'needle',
   });
   assert.equal(Object.isFrozen(normalized), true);
   assert.equal(Object.isFrozen(normalized.clearedStages), true);
   assert.equal(Object.isFrozen(normalized.contractShards), true);
   assert.equal(Object.isFrozen(normalized.contractRanks), true);
+  assert.equal(Object.isFrozen(normalized.squadShards), true);
+  assert.equal(Object.isFrozen(normalized.squadRanks), true);
+  assert.equal(Object.isFrozen(normalized.turretShards), true);
+  assert.equal(Object.isFrozen(normalized.turretRanks), true);
   const state = createTowerDefenseState({ progress: dirty });
   state.currency = 9999;
   state.wave = 44;

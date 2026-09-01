@@ -538,6 +538,59 @@ test('animation asset spec publishes the same expression contract for all eight 
   assert.deepEqual(format.clipStates, EXPRESSION_SPEC.clipStates);
 });
 
+test('code-driven 3x3 atlas rigs are documented without duplicating rig-parts owners', () => {
+  const format = ANIMATION_SPEC.atlasRigFormat;
+  assert.equal(ANIMATION_SPEC.schemaVersion, 2);
+  assert.equal(format.container, 'PNG');
+  assert.equal(format.colorMode, 'RGBA');
+  assert.equal(format.transparent, true);
+  assert.equal(format.driver, 'code-driven');
+  assert.deepEqual(format.grid, {
+    columns: 3,
+    rows: 3,
+    cellWidth: 418,
+    cellHeight: 418,
+    atlasWidth: 1254,
+    atlasHeight: 1254,
+    transparentCellGutter: 2,
+  });
+  assert.deepEqual(format.logicalBindRect, { x: -60, y: -120, width: 120, height: 120 });
+  assert.deepEqual(format.slotOrder, [
+    'body', 'headgear', 'equipment',
+    'normalEyes', 'normalMouth', 'attackEyes', 'attackMouth', 'hurtEyes', 'hurtMouth',
+  ]);
+  assert.match(format.registrationPolicy, /不重复写入assets\/rig-parts\.json/);
+  assert.match(format.layerPolicy, /英雄equipment.*最终绘制.*表情前方/);
+
+  const requiredNewOwners = {
+    'survivor-bell-boom': 'hero-bell-boom-atlas-v1',
+    'survivor-drill-gum': 'hero-drill-gum-atlas-v1',
+    'survivor-ember-fizz': 'hero-ember-fizz-atlas-v1',
+    'survivor-ink-splash': 'hero-ink-splash-atlas-v1',
+    'survivor-cloud-spin': 'hero-cloud-spin-atlas-v1',
+    'survivor-frost-drop': 'hero-frost-drop-atlas-v1',
+    'survivor-honey-pop': 'hero-honey-pop-atlas-v1',
+    'survivor-spark-bean': 'hero-spark-bean-atlas-v1',
+    'survivor-star-core': 'hero-star-core-atlas-v1',
+    'soldier-drill-lancer': 'soldier-drill-lancer-atlas-v1',
+    'soldier-spore-lobber': 'soldier-spore-lobber-atlas-v1',
+    'soldier-volt-orbiter': 'soldier-volt-orbiter-atlas-v1',
+    'enemy-thorn-roller': 'enemy-thorn-roller-atlas-v1',
+    'enemy-lantern-spore': 'enemy-lantern-spore-atlas-v1',
+    'enemy-mud-bulwark': 'enemy-mud-bulwark-atlas-v1',
+    'enemy-rift-beacon-king': 'enemy-rift-beacon-king-atlas-v1',
+  };
+  const owners = new Map(format.owners.map(({ ownerId, assetId }) => [ownerId, assetId]));
+  assert.equal(owners.size, format.owners.length, 'atlas owner ids stay unique');
+  assert.equal(new Set(format.owners.map(({ assetId }) => assetId)).size, format.owners.length,
+    'atlas asset ids stay unique');
+  for (const [ownerId, assetId] of Object.entries(requiredNewOwners)) {
+    assert.equal(owners.get(ownerId), assetId, ownerId);
+    assert.equal(RIG_PARTS_SPEC.rigs[ownerId], undefined,
+      `${ownerId} remains a code-driven atlas instead of a rig-parts duplicate`);
+  }
+});
+
 test('face parent can animate while independent expression layers stay undeformed', () => {
   assert.deepEqual(SHELL_CLIPS.attack.tracks.face.x, [
     [0, 0],

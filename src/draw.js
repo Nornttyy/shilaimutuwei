@@ -1223,9 +1223,26 @@ const SOLDIER_LAYER_INDEX = Object.freeze({
 });
 const SOLDIER_BIND_RECT = Object.freeze({ x: -60, y: -120, width: 120, height: 120 });
 const ATLAS_REAR_LAYER_Z = Object.freeze({
-  'hero-berry-burst-atlas-v1': Object.freeze({ equipment: -5 }),
-  'hero-dew-bloom-atlas-v1': Object.freeze({ headgear: -5 }),
   'soldier-leaf-spinner-atlas-v1': Object.freeze({ equipment: -5 }),
+  // Hero weapons are authored as independent foreground cells.  Keeping them
+  // above the swappable face prevents the body from swallowing a weapon while
+  // turning, attacking, or changing expression.
+  'hero-berry-burst-atlas-v1': Object.freeze({ equipment: 40 }),
+  'hero-dew-bloom-atlas-v1': Object.freeze({ equipment: 40 }),
+  'hero-bell-boom-atlas-v1': Object.freeze({ equipment: 40 }),
+  'hero-drill-gum-atlas-v1': Object.freeze({ headgear: -5, equipment: 40 }),
+  'hero-ember-fizz-atlas-v1': Object.freeze({ headgear: -5, equipment: 40 }),
+  'hero-ink-splash-atlas-v1': Object.freeze({ headgear: -5, equipment: 40 }),
+  'hero-cloud-spin-atlas-v1': Object.freeze({ headgear: -5, equipment: 40 }),
+  'hero-frost-drop-atlas-v1': Object.freeze({ equipment: 40 }),
+  'hero-honey-pop-atlas-v1': Object.freeze({ headgear: -5, equipment: 40 }),
+  'hero-spark-bean-atlas-v1': Object.freeze({ headgear: -5, equipment: 40 }),
+  'hero-star-core-atlas-v1': Object.freeze({ headgear: -5, equipment: 40 }),
+  'soldier-drill-lancer-atlas-v1': Object.freeze({ headgear: -5 }),
+  'soldier-volt-orbiter-atlas-v1': Object.freeze({ headgear: -5 }),
+  'enemy-thorn-roller-atlas-v1': Object.freeze({ headgear: -5 }),
+  'enemy-mud-bulwark-atlas-v1': Object.freeze({ headgear: -5 }),
+  'enemy-rift-beacon-king-atlas-v1': Object.freeze({ headgear: -5 }),
 });
 
 function soldierSourceRect(index) {
@@ -1324,93 +1341,17 @@ function soldierAnimationSample(options) {
   };
 }
 
-const ATLAS_FALLBACK_COLORS = Object.freeze({
-  'hero-berry-burst-atlas-v1': ['#F06483', '#A93661', '#FFD2DE'],
-  'hero-dew-bloom-atlas-v1': ['#73D6E6', '#287EAF', '#D8FBFF'],
-  'soldier-bounce-hammer-atlas-v1': ['#F2A45E', '#AA5B39', '#FFE3B1'],
-  'soldier-leaf-spinner-atlas-v1': ['#85D86B', '#3E9157', '#DFFFB9'],
-  ranged: ['#8C83E8', '#5046A7', '#D9D4FF'],
-  melee: ['#61D6A2', '#2F9B78', '#C9FFE5'],
-});
-
-/**
- * A deliberately neutral, limb-free emergency silhouette for a formal atlas.
- * It is never a disguised legacy hero: a missing Berry, Dew, or soldier atlas
- * remains visibly un-authored until its own PNG is available.
- */
-function drawAtlasCharacterFallback(ctx, x, y, size, options, facing) {
-  const palette = ATLAS_FALLBACK_COLORS[options.assetKey]
-    || ATLAS_FALLBACK_COLORS[options.squadType === 'ranged' ? 'ranged' : 'melee'];
-  const [fill, deep, light] = palette;
-  const expression = options.expression || (options.hit > 0 ? 'hurt' : options.attackPulse > 0
-    ? 'attack' : 'normal');
-  ctx.save();
-  try {
-    ctx.translate(x, y);
-    ctx.scale((size / 100) * facing, size / 100);
-    ctx.fillStyle = 'rgba(38, 54, 66, 0.2)';
-    ellipsePath(ctx, 0, 3, 40, 8);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.moveTo(-43, -4);
-    ctx.bezierCurveTo(-48, -28, -27, -59, -5, -64);
-    ctx.bezierCurveTo(19, -71, 43, -46, 46, -17);
-    ctx.bezierCurveTo(50, 14, 28, 22, 0, 22);
-    ctx.bezierCurveTo(-28, 22, -47, 15, -43, -4);
-    ctx.closePath();
-    ctx.fillStyle = fill;
-    ctx.fill();
-    ctx.strokeStyle = PALETTE.ink;
-    ctx.lineWidth = 3.6;
-    ctx.stroke();
-    ctx.fillStyle = light;
-    ellipsePath(ctx, -16, -42, 16, 8);
-    ctx.fill();
-    ctx.fillStyle = deep;
-    ellipsePath(ctx, 0, 12, 30, 6);
-    ctx.fill();
-    ctx.fillStyle = PALETTE.ink;
-    ellipsePath(ctx, -15, -18, 7, 10);
-    ctx.fill();
-    ellipsePath(ctx, 15, -18, 7, 10);
-    ctx.fill();
-    ctx.fillStyle = PALETTE.white;
-    ellipsePath(ctx, -17, -22, 2.4, 3.4);
-    ctx.fill();
-    ellipsePath(ctx, 13, -22, 2.4, 3.4);
-    ctx.fill();
-    ctx.strokeStyle = PALETTE.ink;
-    ctx.lineWidth = 3;
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    if (expression === 'hurt') {
-      ctx.moveTo(-5, -3);
-      ctx.lineTo(5, 4);
-      ctx.lineTo(12, -3);
-    } else if (expression === 'attack') {
-      ctx.moveTo(-9, 2);
-      ctx.lineTo(0, 7);
-      ctx.lineTo(9, 2);
-    } else {
-      ctx.arc(0, -1, 8, 0.12 * Math.PI, 0.88 * Math.PI);
-    }
-    ctx.stroke();
-  } finally {
-    ctx.restore();
-  }
-}
-
 /**
  * Draw any formal 3x3 skeletal slime atlas. The body, equipment and all face
  * states are independent cells, so heroes and soldiers share the same smooth
- * animation clips without borrowing art from another character.
+ * animation clips without borrowing art from another character. A formal
+ * atlas is atomic: while it is unavailable the loading layer owns the frame,
+ * so this renderer intentionally draws nothing instead of inventing a stand-in.
  */
 export function drawAtlasCharacter(ctx, x, y, size, options = {}) {
   const assetKey = options.assetKey;
   const facing = safeNumber(options.facing, 1) < 0 ? -1 : 1;
-  const fallback = () => drawAtlasCharacterFallback(ctx, x, y, size, options, facing);
   if (!assetKey || !options.assetStore || typeof options.assetStore.useOrFallback !== 'function') {
-    fallback();
     return false;
   }
   let rendered = false;
@@ -1425,6 +1366,7 @@ export function drawAtlasCharacter(ctx, x, y, size, options = {}) {
     const sample = soldierAnimationSample(options);
     ctx.save();
     try {
+      ctx.globalAlpha *= options.disabled ? 0.48 : clamp(options.alpha ?? 1);
       ctx.translate(x, y);
       ctx.scale((size / 100) * facing, size / 100);
       rendered = renderCompatibleRigAsset(
@@ -1438,7 +1380,7 @@ export function drawAtlasCharacter(ctx, x, y, size, options = {}) {
       ctx.restore();
     }
     if (!rendered) throw new Error(`Soldier atlas ${assetKey} could not render atomically.`);
-  }, fallback);
+  }, () => {});
   return rendered && result !== false;
 }
 
@@ -2448,6 +2390,82 @@ export function drawBuilding(ctx, x, y, size, typeOrOptions = 'hut', maybeOption
     }, () => drawDamageCracksLocal(ctx, damage));
   }
   ctx.restore();
+}
+
+const TURRET_ATLAS_WIDTH = 1536;
+const TURRET_ATLAS_HEIGHT = 768;
+const TURRET_ATLAS_CELL = 768;
+const TURRET_GROUND_ANCHOR = Object.freeze({ x: 384, y: 704 });
+const TURRET_MOUNT_PIVOT = Object.freeze({ x: 384, y: 432 });
+const TURRET_HEAD_PIVOT = Object.freeze({ x: 384, y: 432 });
+
+/**
+ * Draw a production two-layer turret atlas. The left cell is the immovable
+ * base and the right cell is the complete rotating head. Both cells use the
+ * same authored mount pivot, so aiming and recoil can never move the building
+ * footprint to another slot.
+ */
+export function drawLayeredTurret(ctx, x, y, size, options = {}) {
+  const assetKey = typeof options.assetKey === 'string' ? options.assetKey : '';
+  if (!assetKey || !options.assetStore
+    || typeof options.assetStore.useOrFallback !== 'function') return false;
+
+  let rendered = false;
+  const result = options.assetStore.useOrFallback(assetKey, (asset) => {
+    const width = Number(asset?.naturalWidth || asset?.width);
+    const height = Number(asset?.naturalHeight || asset?.height);
+    if (width !== TURRET_ATLAS_WIDTH || height !== TURRET_ATLAS_HEIGHT) {
+      throw new TypeError(
+        `Layered turret atlas ${assetKey} must be exactly ${TURRET_ATLAS_WIDTH}x${TURRET_ATLAS_HEIGHT}.`,
+      );
+    }
+
+    const drawSize = Math.max(1, safeNumber(size, 92));
+    const scale = drawSize / TURRET_ATLAS_CELL;
+    const aimAngle = safeNumber(options.aimAngle, -Math.PI / 2);
+    const attackPulse = clamp(safeNumber(options.attackPulse, 0));
+    const recoil = drawSize * 0.085 * attackPulse;
+    const mountX = (TURRET_MOUNT_PIVOT.x - TURRET_GROUND_ANCHOR.x) * scale;
+    const mountY = (TURRET_MOUNT_PIVOT.y - TURRET_GROUND_ANCHOR.y) * scale;
+
+    ctx.save();
+    try {
+      ctx.globalAlpha *= options.ghost
+        ? 0.55
+        : options.disabled ? 0.48 : clamp(options.alpha ?? 1);
+      ctx.translate(x, y);
+      ctx.drawImage(
+        asset,
+        0, 0, TURRET_ATLAS_CELL, TURRET_ATLAS_CELL,
+        -TURRET_GROUND_ANCHOR.x * scale,
+        -TURRET_GROUND_ANCHOR.y * scale,
+        drawSize,
+        drawSize,
+      );
+
+      ctx.save();
+      ctx.translate(mountX, mountY);
+      ctx.rotate(aimAngle);
+      ctx.translate(-recoil, 0);
+      ctx.drawImage(
+        asset,
+        TURRET_ATLAS_CELL, 0, TURRET_ATLAS_CELL, TURRET_ATLAS_CELL,
+        -TURRET_HEAD_PIVOT.x * scale,
+        -TURRET_HEAD_PIVOT.y * scale,
+        drawSize,
+        drawSize,
+      );
+      ctx.restore();
+      rendered = true;
+    } finally {
+      ctx.restore();
+    }
+  }, () => {});
+
+  if (rendered && options.selected) {
+    drawSelectionRing(ctx, x, y - size * 0.2, size, options);
+  }
+  return rendered && result !== false;
 }
 
 export const drawHut = (ctx, x, y, size, options = {}) => drawBuilding(ctx, x, y, size, 'hut', options);

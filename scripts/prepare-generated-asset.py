@@ -29,12 +29,23 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-background-fraction", type=float, default=0.08)
     parser.add_argument("--clean-alpha-radius", type=int, default=0)
     parser.add_argument("--clear-center-neutral", action="store_true")
+    parser.add_argument(
+        "--dark-background",
+        action="store_true",
+        help="remove an exterior-connected near-black matte instead of a bright checker",
+    )
+    parser.add_argument(
+        "--preserve-canvas",
+        action="store_true",
+        help="keep the authored full-canvas layout instead of fitting visible bounds",
+    )
     return parser.parse_args()
 
 
 def connected_neutral_background(
     image: Image.Image,
     min_background_fraction: float,
+    dark_background: bool = False,
 ) -> Image.Image:
     rgb = image.convert("RGB")
     width, height = rgb.size
@@ -45,6 +56,8 @@ def connected_neutral_background(
 
     def is_candidate(x: int, y: int) -> bool:
         red, green, blue = pixels[x, y]
+        if dark_background:
+            return max(red, green, blue) <= 28 and max(red, green, blue) - min(red, green, blue) <= 18
         return min(red, green, blue) >= 215 and max(red, green, blue) - min(red, green, blue) <= 24
 
     def enqueue(x: int, y: int) -> None:
@@ -95,12 +108,16 @@ def connected_neutral_background(
     return rgba
 
 
-def ensure_transparency(image: Image.Image, min_background_fraction: float) -> Image.Image:
+def ensure_transparency(
+    image: Image.Image,
+    min_background_fraction: float,
+    dark_background: bool = False,
+) -> Image.Image:
     rgba = image.convert("RGBA")
     alpha = rgba.getchannel("A")
     if alpha.getextrema()[0] == 0:
         return rgba
-    return connected_neutral_background(image, min_background_fraction)
+    return connected_neutral_background(image, min_background_fraction, dark_background)
 
 
 def fit_transparent(
@@ -221,18 +238,28 @@ def main() -> None:
     if args.opaque:
         output = fit_opaque(source, args.width, args.height)
     else:
-        prepared = ensure_transparency(source, args.min_background_fraction)
+        prepared = ensure_transparency(
+            source,
+            args.min_background_fraction,
+            args.dark_background,
+        )
         if args.clear_center_neutral:
             prepared = clear_center_neutral(prepared)
         prepared = clean_alpha_noise(prepared, args.clean_alpha_radius)
-        output = fit_transparent(
-            prepared,
-            args.width,
-            args.height,
-            args.margin,
-            args.anchor,
-            args.bottom_margin,
-        )
+        if args.preserve_canvas:
+            output = prepared.resize(
+                (args.width, args.height),
+                Image.Resampling.LANCZOS,
+            )
+        else:
+            output = fit_transparent(
+                prepared,
+                args.width,
+                args.height,
+                args.margin,
+                args.anchor,
+                args.bottom_margin,
+            )
         if output.getchannel("A").getextrema()[0] != 0:
             raise RuntimeError("Output does not contain transparent pixels.")
 

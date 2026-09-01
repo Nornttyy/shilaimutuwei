@@ -2,7 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-import { SOLDIER_RIG } from '../src/animation/rigs.js';
+import {
+  BUBBLE_RIG,
+  CRYSTAL_RIG,
+  SHELL_RIG,
+  SOLDIER_RIG,
+  SPROUT_RIG,
+} from '../src/animation/rigs.js';
 import { SOLDIER_CLIPS } from '../src/animation/clips.js';
 import { decodeRgbaPng } from '../scripts/export-rig-layers.mjs';
 
@@ -75,6 +81,19 @@ function boundsCenter(bounds) {
     y: (bounds.minY + bounds.maxY) / 2,
   };
 }
+
+test('all layered heroes keep attack equipment in front without breaking shell or ring depth', () => {
+  assert.ok(SHELL_RIG.bones.shellBack.layer < SHELL_RIG.bones.body.layer);
+  assert.ok(SHELL_RIG.bones.shellFront.layer > SHELL_RIG.bones.body.layer);
+  assert.ok(SHELL_RIG.bones.shellFront.layer < SHELL_RIG.bones.eyes.layer,
+    'the shell front stays above the body but below the face');
+  assert.ok(CRYSTAL_RIG.bones.front.layer > CRYSTAL_RIG.bones.body.layer,
+    'the forward attack crystal stays above the body');
+  assert.ok(SPROUT_RIG.bones.pack.layer > SPROUT_RIG.bones.body.layer,
+    'Sprout attack equipment stays above the body');
+  assert.ok(BUBBLE_RIG.bones.ring.layer > BUBBLE_RIG.bones.eyes.layer,
+    'the one outer bubble ring keeps its authored position outside the face');
+});
 
 test('formal 3x3 character atlas cells keep a two-pixel transparent sampling gutter', async () => {
   const cell = 418;
@@ -347,7 +366,7 @@ test('drawSoldier uses one shared atlas-space bind pose and flips facing once', 
   }
 });
 
-test('invalid or missing soldier atlas uses one whole vector fallback without hero assets', async () => {
+test('invalid or missing formal atlas draws nothing while the loading layer owns the frame', async () => {
   const { drawSoldier } = await import('../src/draw.js');
   for (const asset of [null, { width: 1253, height: 1254 }]) {
     const requested = [];
@@ -361,17 +380,19 @@ test('invalid or missing soldier atlas uses one whole vector fallback without he
       squadType: 'melee',
     }), false);
     assert.deepEqual(requested, ['soldier-melee-atlas']);
-    assert.ok(main.calls.length > 0, 'the complete vector soldier fallback is drawn');
+    assert.deepEqual(main.calls, [], 'missing production art never creates a temporary soldier');
   }
 });
 
 test('formal hero and new squad atlases share the generic rig without falling back to 壳壳', async () => {
   const previous = globalThis.OffscreenCanvas;
+  const surfaces = [];
   globalThis.OffscreenCanvas = class {
     constructor(width, height) {
       this.width = width;
       this.height = height;
       this.context = contextFor(this);
+      surfaces.push(this.context);
     }
     getContext() { return this.context; }
   };
@@ -386,18 +407,87 @@ test('formal hero and new squad atlases share the generic rig without falling ba
       attackPulse: 0.7,
     }), true);
     assert.deepEqual(requested, ['hero-berry-burst-atlas-v1']);
+    const berryLayers = surfaces.flatMap(({ calls }) => calls)
+      .filter(([method, image]) => method === 'drawImage' && image === atlas);
+    assert.deepEqual(berryLayers.map(([, , sx, sy]) => [sx, sy]), [
+      [0, 0], [418, 0], [836, 418], [0, 836], [836, 0],
+    ], 'Berry draws its attack equipment as the final foreground layer');
+
+    surfaces.forEach(({ calls }) => { calls.length = 0; });
+    const dewAtlas = { id: 'dew-atlas', width: 1254, height: 1254 };
+    assert.equal(drawAtlasCharacter(contextFor(), 32, 96, 74, {
+      assetStore: readyStore(dewAtlas, requested),
+      assetKey: 'hero-dew-bloom-atlas-v1',
+      state: 'attack',
+      attackPulse: 0.7,
+    }), true);
+    const dewLayers = surfaces.flatMap(({ calls }) => calls)
+      .filter(([method, image]) => method === 'drawImage' && image === dewAtlas);
+    assert.deepEqual(dewLayers.map(([, , sx, sy]) => [sx, sy]), [
+      [0, 0], [418, 0], [836, 418], [0, 836], [836, 0],
+    ], 'Dew draws body and expression before its foreground equipment');
 
     const absentCalls = contextFor().calls;
     const absentContext = contextFor();
     assert.equal(drawAtlasCharacter(absentContext, 32, 96, 74, {
       assetKey: 'hero-dew-bloom-atlas-v1',
     }), false);
-    assert.ok(absentContext.calls.length > absentCalls.length,
-      'a missing formal atlas uses its neutral emergency silhouette, not another hero');
+    assert.equal(absentContext.calls.length, absentCalls.length,
+      'a missing formal atlas stays empty instead of borrowing or inventing a hero');
+
+    surfaces.forEach(({ calls }) => { calls.length = 0; });
+    const drillAtlas = { id: 'drill-atlas', width: 1254, height: 1254 };
+    assert.equal(drawAtlasCharacter(contextFor(), 32, 96, 74, {
+      assetStore: readyStore(drillAtlas, requested),
+      assetKey: 'hero-drill-gum-atlas-v1',
+      state: 'attack',
+      attackPulse: 0.7,
+    }), true);
+    const drillLayers = surfaces.flatMap(({ calls }) => calls)
+      .filter(([method, image]) => method === 'drawImage' && image === drillAtlas);
+    assert.deepEqual(drillLayers.map(([, , sx, sy]) => [sx, sy]), [
+      [418, 0], [0, 0], [836, 418], [0, 836], [836, 0],
+    ], 'rear headgear stays behind while the weapon is the final foreground layer');
   } finally {
     if (previous === undefined) delete globalThis.OffscreenCanvas;
     else globalThis.OffscreenCanvas = previous;
   }
+});
+
+test('layered turret keeps the left base fixed while only the right head aims and recoils', async () => {
+  const { drawLayeredTurret } = await import('../src/draw.js');
+  const atlas = { id: 'gale-atlas', width: 1536, height: 768 };
+  const requested = [];
+  const first = contextFor();
+  assert.equal(drawLayeredTurret(first, 180, 420, 96, {
+    assetStore: readyStore(atlas, requested),
+    assetKey: 'turret-gale-fan-atlas-v1',
+    aimAngle: -Math.PI / 2,
+    attackPulse: 1,
+  }), true);
+  const second = contextFor();
+  assert.equal(drawLayeredTurret(second, 180, 420, 96, {
+    assetStore: readyStore(atlas, requested),
+    assetKey: 'turret-gale-fan-atlas-v1',
+    aimAngle: -0.25,
+    attackPulse: 0,
+  }), true);
+  assert.deepEqual(requested, [
+    'turret-gale-fan-atlas-v1', 'turret-gale-fan-atlas-v1',
+  ]);
+  const firstLayers = first.calls.filter(([method]) => method === 'drawImage');
+  const secondLayers = second.calls.filter(([method]) => method === 'drawImage');
+  assert.equal(firstLayers.length, 2);
+  assert.equal(secondLayers.length, 2);
+  assert.deepEqual(firstLayers[0], secondLayers[0],
+    'the base crop and destination are identical at every aim angle');
+  assert.equal(firstLayers[0][2], 0);
+  assert.equal(firstLayers[1][2], 768);
+  assert.ok(first.calls.some(([method, angle]) => method === 'rotate' && angle === -Math.PI / 2));
+  assert.ok(second.calls.some(([method, angle]) => method === 'rotate' && angle === -0.25));
+  assert.equal(drawLayeredTurret(contextFor(), 0, 0, 96, {
+    assetKey: 'turret-gale-fan-atlas-v1',
+  }), false, 'a missing layered turret never falls back to another building');
 });
 
 test('draw module no longer exposes the retired skill frame-atlas renderer', async () => {

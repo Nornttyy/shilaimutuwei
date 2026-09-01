@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "generatedFrom": [
     "assets/asset-spec.json",
     "src/catalog.js",
@@ -15,6 +15,59 @@
     "numbering": "从01开始连续编号",
     "anchorPolicy": "同一owner的所有帧保持画布、地面锚点和基础比例完全一致",
     "exportPolicy": "逐帧独立透明PNG，不导出视频、GIF或带底色图集"
+  },
+  "atlasRigFormat": {
+    "container": "PNG",
+    "colorMode": "RGBA",
+    "transparent": true,
+    "driver": "code-driven",
+    "registrationPolicy": "这些3×3正式图集由运行时代码按固定格位构造骨骼和表情，不重复写入assets/rig-parts.json。",
+    "grid": {
+      "columns": 3,
+      "rows": 3,
+      "cellWidth": 418,
+      "cellHeight": 418,
+      "atlasWidth": 1254,
+      "atlasHeight": 1254,
+      "transparentCellGutter": 2
+    },
+    "logicalBindRect": { "x": -60, "y": -120, "width": 120, "height": 120 },
+    "slotOrder": [
+      "body",
+      "headgear",
+      "equipment",
+      "normalEyes",
+      "normalMouth",
+      "attackEyes",
+      "attackMouth",
+      "hurtEyes",
+      "hurtMouth"
+    ],
+    "layerPolicy": "body和需要的后置头饰先绘制，eyes与mouth按表情替换；英雄equipment作为武器层最终绘制在身体与表情前方。",
+    "owners": [
+      { "ownerId": "survivor-berry-burst", "assetId": "hero-berry-burst-atlas-v1", "role": "hero" },
+      { "ownerId": "survivor-dew-bloom", "assetId": "hero-dew-bloom-atlas-v1", "role": "hero" },
+      { "ownerId": "survivor-bell-boom", "assetId": "hero-bell-boom-atlas-v1", "role": "hero" },
+      { "ownerId": "survivor-drill-gum", "assetId": "hero-drill-gum-atlas-v1", "role": "hero" },
+      { "ownerId": "survivor-ember-fizz", "assetId": "hero-ember-fizz-atlas-v1", "role": "hero" },
+      { "ownerId": "survivor-ink-splash", "assetId": "hero-ink-splash-atlas-v1", "role": "hero" },
+      { "ownerId": "survivor-cloud-spin", "assetId": "hero-cloud-spin-atlas-v1", "role": "hero" },
+      { "ownerId": "survivor-frost-drop", "assetId": "hero-frost-drop-atlas-v1", "role": "hero" },
+      { "ownerId": "survivor-honey-pop", "assetId": "hero-honey-pop-atlas-v1", "role": "hero" },
+      { "ownerId": "survivor-spark-bean", "assetId": "hero-spark-bean-atlas-v1", "role": "hero" },
+      { "ownerId": "survivor-star-core", "assetId": "hero-star-core-atlas-v1", "role": "hero" },
+      { "ownerId": "soldier-shield-dun", "assetId": "soldier-shield-dun-atlas-v1", "role": "soldier" },
+      { "ownerId": "soldier-bean-bow", "assetId": "soldier-bean-bow-atlas-v1", "role": "soldier" },
+      { "ownerId": "soldier-bounce-hammer", "assetId": "soldier-bounce-hammer-atlas-v1", "role": "soldier" },
+      { "ownerId": "soldier-leaf-spinner", "assetId": "soldier-leaf-spinner-atlas-v1", "role": "soldier" },
+      { "ownerId": "soldier-drill-lancer", "assetId": "soldier-drill-lancer-atlas-v1", "role": "soldier" },
+      { "ownerId": "soldier-spore-lobber", "assetId": "soldier-spore-lobber-atlas-v1", "role": "soldier" },
+      { "ownerId": "soldier-volt-orbiter", "assetId": "soldier-volt-orbiter-atlas-v1", "role": "soldier" },
+      { "ownerId": "enemy-thorn-roller", "assetId": "enemy-thorn-roller-atlas-v1", "role": "enemy" },
+      { "ownerId": "enemy-lantern-spore", "assetId": "enemy-lantern-spore-atlas-v1", "role": "enemy" },
+      { "ownerId": "enemy-mud-bulwark", "assetId": "enemy-mud-bulwark-atlas-v1", "role": "enemy" },
+      { "ownerId": "enemy-rift-beacon-king", "assetId": "enemy-rift-beacon-king-atlas-v1", "role": "enemy" }
+    ]
   },
   "idlePolicy": "待机呼吸、轻微弹性、选中脉冲、淡入淡出和整体位移由程序变形完成，不制作待机帧。",
   "characterMotionPolicy": {

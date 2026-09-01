@@ -50,6 +50,75 @@ const PROJECT_ASSET_SPEC = JSON.parse(await readFile(
   'utf8',
 ));
 
+const EXPANSION_CHARACTER_ASSETS = Object.freeze([
+  ...[
+    'hero-bell-boom-atlas-v1',
+    'hero-drill-gum-atlas-v1',
+    'hero-ember-fizz-atlas-v1',
+    'hero-ink-splash-atlas-v1',
+    'hero-cloud-spin-atlas-v1',
+    'hero-frost-drop-atlas-v1',
+    'hero-honey-pop-atlas-v1',
+    'hero-spark-bean-atlas-v1',
+    'hero-star-core-atlas-v1',
+  ].map((id) => Object.freeze({ id, category: 'hero', directory: 'hero' })),
+  ...[
+    'soldier-drill-lancer-atlas-v1',
+    'soldier-spore-lobber-atlas-v1',
+    'soldier-volt-orbiter-atlas-v1',
+  ].map((id) => Object.freeze({ id, category: 'soldier', directory: 'soldier' })),
+  ...[
+    'enemy-thorn-roller-atlas-v1',
+    'enemy-lantern-spore-atlas-v1',
+    'enemy-mud-bulwark-atlas-v1',
+    'enemy-rift-beacon-king-atlas-v1',
+  ].map((id) => Object.freeze({ id, category: 'enemy', directory: 'enemy' })),
+].map((entry) => Object.freeze({
+  ...entry,
+  path: `assets/generated/${entry.directory}/${entry.id}.png`,
+  width: 1254,
+  height: 1254,
+  maxBytes: 2200000,
+})));
+
+const EXPANSION_TURRET_ASSETS = Object.freeze([
+  'turret-gale-fan-atlas-v1',
+  'turret-spore-bomber-atlas-v1',
+  'turret-thunder-prism-atlas-v1',
+].map((id) => Object.freeze({
+  id,
+  category: 'turret',
+  path: `assets/generated/turret/${id}.png`,
+  width: 1536,
+  height: 768,
+  maxBytes: 1500000,
+})));
+
+const EXPANSION_SKILL_ASSETS = Object.freeze([
+  'skill-bell-sonic-ring-icon',
+  'skill-drill-rupture-dash-icon',
+  'skill-ember-scorch-line-icon',
+  'skill-ink-cone-burst-icon',
+  'skill-cloud-vortex-icon',
+  'skill-frost-shard-lane-icon',
+  'skill-honey-cluster-icon',
+  'skill-spark-chain-arc-icon',
+  'skill-star-orbit-barrage-icon',
+].map((id) => Object.freeze({
+  id,
+  category: 'skill',
+  path: `assets/generated/skill/${id}.png`,
+  width: 384,
+  height: 384,
+  maxBytes: 300000,
+})));
+
+const EXPANSION_P0_ASSETS = Object.freeze([
+  ...EXPANSION_CHARACTER_ASSETS,
+  ...EXPANSION_TURRET_ASSETS,
+  ...EXPANSION_SKILL_ASSETS,
+]);
+
 test('the workspace asset manifest strictly validates every finished PNG', async () => {
   const result = await verifyAssets({ cwd: PROJECT_ROOT, allowMissingSpec: false });
   assert.equal(result.ok, true, formatErrors(result));
@@ -58,6 +127,77 @@ test('the workspace asset manifest strictly validates every finished PNG', async
   assert.equal(result.summary.checkedAssets, PROJECT_ASSET_SPEC.assets.length);
   assert.deepEqual(result.errors, [], formatErrors(result));
   assert.deepEqual(result.warnings, [], formatErrors(result));
+});
+
+test('the 28-piece battle expansion uses unique formal RGBA PNGs and strict startup paths', async () => {
+  assert.equal(EXPANSION_P0_ASSETS.length, 28);
+  assert.equal(new Set(PROJECT_ASSET_SPEC.assets.map(({ id }) => id)).size,
+    PROJECT_ASSET_SPEC.assets.length, 'asset ids stay unique');
+  assert.equal(new Set(PROJECT_ASSET_SPEC.assets.map(({ path: assetPath }) => assetPath)).size,
+    PROJECT_ASSET_SPEC.assets.length, 'asset paths stay unique');
+
+  for (const expected of EXPANSION_P0_ASSETS) {
+    const asset = PROJECT_ASSET_SPEC.assets.find(({ id }) => id === expected.id);
+    assert.ok(asset, `${expected.id} has an asset-spec contract`);
+    assert.equal(asset.category, expected.category, expected.id);
+    assert.equal(asset.path, expected.path, expected.id);
+    assert.deepEqual(asset.recommendedCanvas,
+      { width: expected.width, height: expected.height }, expected.id);
+    assert.equal(asset.width, expected.width, expected.id);
+    assert.equal(asset.height, expected.height, expected.id);
+    assert.equal(asset.transparent, true, expected.id);
+    assert.equal(asset.priority, 'P0', expected.id);
+    assert.equal(asset.maxBytes, expected.maxBytes, expected.id);
+
+    if (EXPANSION_CHARACTER_ASSETS.some(({ id }) => id === expected.id)) {
+      assert.deepEqual(asset.logicalBindRect, { x: -60, y: -120, width: 120, height: 120 },
+        expected.id);
+    }
+
+    const png = await readFile(path.join(PROJECT_ROOT, expected.path));
+    const metadata = parsePng(png);
+    assert.equal(metadata.width, expected.width, expected.id);
+    assert.equal(metadata.height, expected.height, expected.id);
+    assert.equal(metadata.colorTypeName, 'RGBA', expected.id);
+    assert.equal(metadata.hasAlphaChannel, true, expected.id);
+    assert.ok(png.length <= expected.maxBytes, `${expected.id} stays inside its byte cap`);
+
+    assert.equal(ALL_RUNTIME_ASSET_KEYS.includes(expected.id), true, expected.id);
+    assert.equal(TOWER_DEFENSE_ASSET_KEYS.includes(expected.id), true, expected.id);
+    assert.equal(CRITICAL_STARTUP_ASSET_KEYS.includes(expected.id), true, expected.id);
+    assert.equal(WECHAT_CRITICAL_ASSET_KEYS.includes(expected.id), true, expected.id);
+    assert.ok(new URL(ASSET_PATHS[expected.id]).pathname.endsWith(`/${expected.path}`), expected.id);
+  }
+});
+
+test('reinforcement attacks use one strict code-driven 2x2 RGBA effect atlas', async () => {
+  const id = 'effect-reinforcement-projectiles-atlas-v1';
+  const asset = PROJECT_ASSET_SPEC.assets.find((entry) => entry.id === id);
+  assert.ok(asset);
+  assert.equal(asset.category, 'effect');
+  assert.equal(asset.path, `assets/generated/effect/${id}.png`);
+  assert.deepEqual(asset.recommendedCanvas, { width: 1536, height: 1024 });
+  assert.equal(asset.width, 1536);
+  assert.equal(asset.height, 1024);
+  assert.equal(asset.transparent, true);
+  assert.equal(asset.priority, 'P0');
+  assert.equal(asset.maxBytes, 2200000);
+  assert.match(asset.runtimeDisplaySize, /程序驱动2×2攻击特效图集/);
+  assert.match(asset.view, /孢子弹.*风刃.*电环弹.*雷束/);
+
+  const png = await readFile(path.join(PROJECT_ROOT, asset.path));
+  const metadata = parsePng(png);
+  assert.equal(metadata.width, 1536);
+  assert.equal(metadata.height, 1024);
+  assert.equal(metadata.colorTypeName, 'RGBA');
+  assert.equal(metadata.hasAlphaChannel, true);
+  assert.ok(png.length <= asset.maxBytes);
+
+  assert.equal(ALL_RUNTIME_ASSET_KEYS.includes(id), true);
+  assert.equal(TOWER_DEFENSE_ASSET_KEYS.includes(id), true);
+  assert.equal(CRITICAL_STARTUP_ASSET_KEYS.includes(id), true);
+  assert.equal(WECHAT_CRITICAL_ASSET_KEYS.includes(id), true);
+  assert.ok(new URL(ASSET_PATHS[id]).pathname.endsWith(`/${asset.path}`));
 });
 
 test('generated v3 armor atlases contain nine sparse transparent physical layers', async () => {

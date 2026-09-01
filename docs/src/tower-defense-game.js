@@ -3702,10 +3702,10 @@ export class TowerDefenseGame {
         { x: 26, y: 9, scale: 1 },
       ],
       4: [
-        { x: -22, y: -20, scale: 0.92 },
-        { x: 22, y: -20, scale: 0.92 },
-        { x: -27, y: 11, scale: 1 },
-        { x: 27, y: 11, scale: 1 },
+        { x: -25, y: -20, scale: 0.92 },
+        { x: 25, y: -20, scale: 0.92 },
+        { x: -28, y: 12, scale: 1 },
+        { x: 28, y: 12, scale: 1 },
       ],
     };
     const hasIndependentMembers = Array.isArray(squad.members);
@@ -4271,15 +4271,15 @@ export class TowerDefenseGame {
     const visual = soldierVisualFor(type, squadType);
     const compact = rect.width < 100 || rect.height < 140;
     const positions = compact ? [
-      { x: -18, y: -13, scale: 0.78 },
-      { x: 18, y: -13, scale: 0.78 },
-      { x: -19, y: 7, scale: 0.9 },
-      { x: 19, y: 7, scale: 0.9 },
+      { x: -21, y: -15, scale: 0.76 },
+      { x: 21, y: -15, scale: 0.76 },
+      { x: -22, y: 9, scale: 0.86 },
+      { x: 22, y: 9, scale: 0.86 },
     ] : [
-      { x: -27, y: -18, scale: 0.86 },
-      { x: 27, y: -18, scale: 0.86 },
-      { x: -28, y: 9, scale: 1 },
-      { x: 28, y: 9, scale: 1 },
+      { x: -30, y: -20, scale: 0.84 },
+      { x: 30, y: -20, scale: 0.84 },
+      { x: -31, y: 11, scale: 0.96 },
+      { x: 31, y: 11, scale: 0.96 },
     ];
     positions.forEach((position, memberIndex) => {
       const key = `purchase:${squadType}:${memberIndex}`;

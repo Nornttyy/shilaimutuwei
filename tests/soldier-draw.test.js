@@ -196,11 +196,31 @@ test('every formal soldier mouth is centered beneath its matching eyes', async (
   ];
   for (const atlasUrl of atlasUrls) {
     const atlas = decodeRgbaPng(await readFile(atlasUrl), atlasUrl.pathname);
+    const body = highAlphaBounds(atlas, 0);
+    const bodyWidth = body.maxX - body.minX + 1;
+    const bodyHeight = body.maxY - body.minY + 1;
+    const bodyCenter = boundsCenter(body);
+    const normalMouth = highAlphaBounds(atlas, 4);
+    const normalMouthWidth = normalMouth.maxX - normalMouth.minX + 1;
+    const normalMouthHeight = normalMouth.maxY - normalMouth.minY + 1;
+    assert.ok(normalMouthWidth <= bodyWidth * 0.23,
+      `${atlasUrl.pathname} normal mouth stays compact relative to its body`);
+    assert.ok(normalMouthHeight <= bodyHeight * 0.14,
+      `${atlasUrl.pathname} normal mouth stays short relative to its body`);
+    assert.ok(boundsCenter(normalMouth).y - bodyCenter.y >= bodyHeight * 0.1,
+      `${atlasUrl.pathname} mouth sits in the lower half of its face`);
     for (const [eyesSlot, mouthSlot] of [[3, 4], [5, 6], [7, 8]]) {
+      const mouth = highAlphaBounds(atlas, mouthSlot);
       const offset = boundsCenter(highAlphaBounds(atlas, mouthSlot)).x
         - boundsCenter(highAlphaBounds(atlas, eyesSlot)).x;
       assert.ok(Math.abs(offset) <= 1,
         `${atlasUrl.pathname} expression ${mouthSlot} mouth offset is ${offset.toFixed(2)}px`);
+      const mouthWidth = mouth.maxX - mouth.minX + 1;
+      const mouthHeight = mouth.maxY - mouth.minY + 1;
+      assert.ok(mouthWidth <= bodyWidth * 0.25,
+        `${atlasUrl.pathname} expression ${mouthSlot} mouth is not oversized`);
+      assert.ok(mouthHeight <= bodyHeight * 0.24,
+        `${atlasUrl.pathname} expression ${mouthSlot} mouth is not too tall`);
     }
   }
 });

@@ -536,10 +536,10 @@ export const SQUAD_TYPES = Object.freeze({
 });
 
 const SQUAD_MEMBER_OFFSETS = Object.freeze([
-  Object.freeze({ x: -12, y: -8 }),
-  Object.freeze({ x: 12, y: -8 }),
-  Object.freeze({ x: -14, y: 10 }),
-  Object.freeze({ x: 14, y: 10 }),
+  Object.freeze({ x: -24, y: -14 }),
+  Object.freeze({ x: 24, y: -14 }),
+  Object.freeze({ x: -26, y: 14 }),
+  Object.freeze({ x: 26, y: 14 }),
 ]);
 
 export const TURRET_TYPES = Object.freeze({

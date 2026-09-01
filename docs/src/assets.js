@@ -6,7 +6,7 @@
  * useful to platform builds and isolated tests.
  */
 
-export const ASSET_CACHE_VERSION = 'soft-gel-20260901-v15';
+export const ASSET_CACHE_VERSION = 'soft-gel-20260901-v16';
 
 const generatedAssetUrl = (relativePath) => {
   const url = new URL(`../assets/generated/${relativePath}`, import.meta.url);

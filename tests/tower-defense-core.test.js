@@ -895,6 +895,17 @@ test('four members keep separate positions and acquire targets in every directio
   ));
   const squad = buyTowerDefenseSquad(state, 'ranged', padIndex);
   const pad = stage.pads[padIndex];
+  const rows = [...new Set(squad.members.map(({ y }) => y))].sort((left, right) => left - right);
+  assert.equal(rows.length, 2, 'the four soldiers begin in two readable rows');
+  assert.ok(rows[1] - rows[0] >= 28, 'the two soldier rows do not overlap');
+  rows.forEach((rowY) => {
+    const row = squad.members.filter(({ y }) => y === rowY).sort((left, right) => left.x - right.x);
+    assert.equal(row.length, 2);
+    assert.ok(row[1].x - row[0].x >= 48, 'soldiers in one row keep a body-width gap');
+  });
+  assert.ok(squad.members.every(({ x, y }) => (
+    Math.abs(x - pad.x) <= 26 && Math.abs(y - pad.y) <= 14
+  )), 'the wider formation still belongs to one deployment cell');
   holdCombat(state);
   squad.members.forEach((member) => { member.attackCooldown = 999; });
   state.enemies = [

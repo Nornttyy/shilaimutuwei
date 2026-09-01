@@ -288,15 +288,23 @@ export const HERO_TYPES = Object.freeze({
     }),
     color: TOWER_TYPES.shell.color, maxHp: 900, speed: 165, range: 220,
     interval: 0.72, damage: 28, projectile: 'goo', projectileSpeed: 560,
-    effect: 'splash', skillCooldown: 11, skillRadius: 210, skillDamage: 75,
+    effect: 'splash', skillCooldown: 11, skillRadius: 220, skillDamage: 78,
     skill: freezeHeroSkill({
-      id: 'shell-triple-quake', name: '壳震三连', cooldown: 11, radius: 210,
+      id: 'shell-triple-quake', name: '壳震三连', cooldown: 11, radius: 220,
+      targeting: 'self',
       description: '三道扩张壳震逐步增伤并击退，末段获得胶壳护盾。',
       steps: [
-        { at: 0, kind: 'shell-quake', radius: 110, damage: 45, knockback: 22 },
-        { at: 0.28, kind: 'shell-quake', radius: 160, damage: 55, knockback: 32 },
         {
-          at: 0.58, kind: 'shell-quake', radius: 210, damage: 75, knockback: 45,
+          at: 0, action: 'radial', kind: 'shell-quake',
+          radius: 115, damage: 48, knockback: 20,
+        },
+        {
+          at: 0.28, action: 'radial', kind: 'shell-quake',
+          radius: 165, damage: 60, knockback: 30,
+        },
+        {
+          at: 0.58, action: 'radial', kind: 'shell-quake',
+          radius: 220, damage: 78, knockback: 45,
           shieldHp: 180, shieldDuration: 5,
         },
       ],
@@ -311,14 +319,24 @@ export const HERO_TYPES = Object.freeze({
     }),
     color: TOWER_TYPES.needle.color, maxHp: 650, speed: 180, range: 315,
     interval: 0.88, damage: 48, projectile: 'needle', projectileSpeed: 760,
-    effect: 'pierce', skillCooldown: 10.5, skillRadius: 360, skillDamage: 70,
+    effect: 'pierce', skillCooldown: 11.5, skillRadius: 430, skillDamage: 84,
     skill: freezeHeroSkill({
-      id: 'crystal-rain-refraction', name: '晶雨折射', cooldown: 10.5, radius: 360,
-      description: '锁定最多六个敌人连射三轮晶雨，末轮造成重击。',
+      id: 'crystal-beam-channel', name: '晶束贯流', cooldown: 11.5, radius: 430,
+      targeting: 'direction',
+      description: '锁定方向持续发射三段贯穿晶束，光束逐段变宽变强。',
       steps: [
-        { at: 0, kind: 'crystal-volley', radius: 360, damage: 35, maxTargets: 6 },
-        { at: 0.18, kind: 'crystal-volley', radius: 360, damage: 35, maxTargets: 6 },
-        { at: 0.36, kind: 'crystal-refraction', radius: 360, damage: 70, maxTargets: 6 },
+        {
+          at: 0, action: 'beam', kind: 'crystal-beam', duration: 0.76,
+          length: 430, width: 24, tickInterval: 0.15, tickDamage: 9, maxTargets: 6,
+        },
+        {
+          at: 0.72, action: 'beam', kind: 'crystal-beam-surge', duration: 0.76,
+          length: 430, width: 30, tickInterval: 0.15, tickDamage: 10.8, maxTargets: 6,
+        },
+        {
+          at: 1.44, action: 'beam', kind: 'crystal-beam-finale', duration: 0.76,
+          length: 430, width: 38, tickInterval: 0.15, tickDamage: 12.6, maxTargets: 6,
+        },
       ],
     }),
   }),
@@ -326,52 +344,61 @@ export const HERO_TYPES = Object.freeze({
     id: 'bubble', ownerId: TOWER_TYPES.bubble.ownerId, name: '泡泡', rarity: 'SSR', glyph: '泡',
     visualType: 'bubble', role: '控场·回卷连锁',
     rankGrowth: Object.freeze({
-      attackSpeed: 0.02, summary: '每阶普攻速度 +2.0%',
+      attackSpeed: 0.02, skillDamage: 0.018,
+      summary: '每阶普攻速度 +2.0%，技能伤害 +1.8%',
     }),
     color: TOWER_TYPES.bubble.color, maxHp: 710, speed: 192, range: 245,
     interval: 0.48, damage: 18, projectile: 'bubble', projectileSpeed: 500,
-    effect: 'slow', skillCooldown: 12, skillRadius: 230, skillDamage: 72,
+    effect: 'slow', skillCooldown: 12, skillRadius: 340, skillDamage: 60,
     skill: freezeHeroSkill({
-      id: 'bubble-tidal-field', name: '潮汐泡域', cooldown: 12, radius: 230,
-      description: '展开泡域减速，中段将敌人回卷，末段群体爆裂。',
+      id: 'bubble-tidal-field', name: '潮汐泡域', cooldown: 12, radius: 340,
+      targeting: 'cluster', clusterRadius: 165,
+      description: '在敌群中张开持续伤害泡域，中段回卷，末段群体爆裂。',
       steps: [
         {
-          at: 0, kind: 'bubble-field', radius: 230, damage: 0,
-          slowMultiplier: 0.45, slowTime: 3,
+          at: 0, action: 'field', kind: 'bubble-field', radius: 165,
+          duration: 3, tickInterval: 0.25, tickDamage: 10, maxTargets: 8,
+          slowMultiplier: 0.55, slowTime: 0.65, rewind: 2,
         },
-        { at: 0.45, kind: 'bubble-rewind', radius: 230, damage: 0, rewind: 30 },
         {
-          at: 1, kind: 'bubble-burst', radius: 230, damage: 72, maxTargets: 8,
-          slowMultiplier: 0.45, slowTime: 3,
+          at: 1, action: 'radial', origin: 'target', kind: 'bubble-rewind',
+          radius: 165, damage: 0, rewind: 18, maxTargets: 8,
+          slowMultiplier: 0.55, slowTime: 1.2,
+        },
+        {
+          at: 2.8, action: 'radial', origin: 'target', kind: 'bubble-burst',
+          radius: 185, damage: 60, maxTargets: 8,
+          slowMultiplier: 0.55, slowTime: 2.2,
         },
       ],
     }),
   }),
   sprout: Object.freeze({
     id: 'sprout', ownerId: TOWER_TYPES.sprout.ownerId, name: '芽芽', rarity: 'UR', glyph: '芽',
-    visualType: 'sprout', role: '治疗·毒藤定身',
+    visualType: 'sprout', role: '毒爆·荆芽定身',
     rankGrowth: Object.freeze({
       skillPoison: 0.025, summary: '每阶技能毒伤 +2.5%',
     }),
     color: TOWER_TYPES.sprout.color, maxHp: 680, speed: 176, range: 255,
     interval: 0.64, damage: 22, projectile: 'seed', projectileSpeed: 590,
-    effect: 'poison', skillCooldown: 12.5, skillRadius: 215, skillDamage: 30,
+    effect: 'poison', skillCooldown: 12, skillRadius: 340, skillDamage: 46,
     skill: freezeHeroSkill({
-      id: 'sprout-forest-dance', name: '森芽轮舞', cooldown: 12.5, radius: 215,
-      description: '三轮森芽脉冲伤害并中毒，同时治疗我方，末轮定身。',
+      id: 'sprout-thorn-bloom', name: '荆芽绽放', cooldown: 12, radius: 340,
+      targeting: 'cluster', clusterRadius: 105,
+      description: '锁定敌群连续引爆三轮荆芽，造成范围毒伤，末轮定身。',
       steps: [
         {
-          at: 0, kind: 'sprout-pulse', radius: 215, damage: 30,
-          poisonDps: 10, poisonTime: 3.5, healHero: 50, healMembers: 12,
+          at: 0, action: 'radial', origin: 'target', kind: 'sprout-burst',
+          radius: 105, damage: 46, poisonDps: 12, poisonTime: 4, maxTargets: 8,
         },
         {
-          at: 0.45, kind: 'sprout-pulse', radius: 215, damage: 30,
-          poisonDps: 10, poisonTime: 3.5, healHero: 50, healMembers: 12,
+          at: 0.4, action: 'radial', origin: 'target', kind: 'sprout-burst',
+          radius: 105, damage: 46, poisonDps: 12, poisonTime: 4, maxTargets: 8,
         },
         {
-          at: 0.9, kind: 'sprout-root', radius: 215, damage: 30,
-          poisonDps: 10, poisonTime: 3.5, healHero: 50, healMembers: 12,
-          rootTime: 1.2,
+          at: 0.8, action: 'radial', origin: 'target', kind: 'sprout-root-burst',
+          radius: 115, damage: 46, poisonDps: 12, poisonTime: 4,
+          rootTime: 1.2, maxTargets: 8,
         },
       ],
     }),
@@ -385,45 +412,59 @@ export const HERO_TYPES = Object.freeze({
     }),
     color: TOWER_TYPES.berry.color, maxHp: 660, speed: 184, range: 285,
     interval: 0.82, damage: 38, projectile: 'berry', projectileSpeed: 570,
-    effect: 'splash', skillCooldown: 10.5, skillRadius: 260, skillDamage: 95,
+    effect: 'splash', skillCooldown: 11.5, skillRadius: 380, skillDamage: 58,
     skill: freezeHeroSkill({
-      id: 'berry-chain-barrage', name: '莓果连爆', cooldown: 10.5, radius: 260,
-      description: '三轮悬浮莓果弹接连落下，最后一轮大范围爆裂。',
+      id: 'berry-bomb-volley', name: '莓果轰炸', cooldown: 11.5, radius: 380,
+      targeting: 'cluster', clusterRadius: 115,
+      description: '三轮发射共五枚真实飞行的莓果爆弹，落点造成范围伤害。',
       steps: [
-        { at: 0, kind: 'berry-barrage', radius: 230, damage: 55, maxTargets: 4 },
-        { at: 0.22, kind: 'berry-barrage', radius: 245, damage: 55, maxTargets: 5 },
         {
-          at: 0.44, kind: 'berry-finale', radius: 260, damage: 95,
-          maxTargets: 8, knockback: 18,
+          at: 0, action: 'projectile-volley', kind: 'berry-bomb-volley',
+          projectileCount: 2, projectileSpeed: 460, explosionRadius: 72,
+          damage: 42, maxTargets: 6,
+        },
+        {
+          at: 0.28, action: 'projectile-volley', kind: 'berry-bomb-volley',
+          projectileCount: 2, projectileSpeed: 480, explosionRadius: 80,
+          damage: 42, maxTargets: 6,
+        },
+        {
+          at: 0.56, action: 'projectile-volley', kind: 'berry-bomb-finale',
+          projectileCount: 1, projectileSpeed: 500, explosionRadius: 100,
+          damage: 58, maxTargets: 8, knockback: 18,
         },
       ],
     }),
   }),
   dew: Object.freeze({
     id: 'dew', ownerId: TOWER_TYPES.dew.ownerId, name: '露露', rarity: 'SSR', glyph: '露',
-    visualType: 'dew', role: '支援·群体治疗',
+    visualType: 'dew', role: '潮浪·横扫减速',
     rankGrowth: Object.freeze({
-      maxHp: 0.014, skillHealing: 0.022,
-      summary: '每阶生命 +1.4%，技能治疗 +2.2%',
+      maxHp: 0.014, skillDamage: 0.022,
+      summary: '每阶生命 +1.4%，技能伤害 +2.2%',
     }),
     color: TOWER_TYPES.dew.color, maxHp: 750, speed: 188, range: 245,
     interval: 0.64, damage: 24, projectile: 'dew', projectileSpeed: 520,
-    effect: 'slow', skillCooldown: 12, skillRadius: 220, skillDamage: 28,
+    effect: 'slow', skillCooldown: 11, skillRadius: 520, skillDamage: 68,
     skill: freezeHeroSkill({
-      id: 'dew-garland', name: '甘露花环', cooldown: 12, radius: 220,
-      description: '三道甘露花环伤害敌人并治疗我方，末段附加长时减速。',
+      id: 'dew-tidal-triad', name: '露潮三叠', cooldown: 11, radius: 520,
+      targeting: 'direction',
+      description: '向锁定方向推出三道逐步变宽的移动潮浪，造成范围伤害并减速。',
       steps: [
         {
-          at: 0, kind: 'dew-pulse', radius: 170, damage: 28,
-          healHero: 45, healMembers: 12,
+          at: 0, action: 'wave', kind: 'dew-wave', damage: 48,
+          length: 520, width: 110, speed: 500, angleOffset: -0.08,
+          slowMultiplier: 0.65, slowTime: 1.6, maxTargets: 8,
         },
         {
-          at: 0.4, kind: 'dew-pulse', radius: 195, damage: 28,
-          healHero: 45, healMembers: 12,
+          at: 0.32, action: 'wave', kind: 'dew-wave', damage: 56,
+          length: 520, width: 140, speed: 510, angleOffset: 0,
+          slowMultiplier: 0.62, slowTime: 1.8, maxTargets: 8,
         },
         {
-          at: 0.8, kind: 'dew-bloom', radius: 220, damage: 28,
-          healHero: 45, healMembers: 12, slowMultiplier: 0.5, slowTime: 2.8,
+          at: 0.64, action: 'wave', kind: 'dew-wave-finale', damage: 68,
+          length: 540, width: 170, speed: 520, angleOffset: 0.08,
+          slowMultiplier: 0.58, slowTime: 2.2, maxTargets: 8,
         },
       ],
     }),
@@ -434,21 +475,29 @@ function scaledSkillStep(step, multipliers) {
   return Object.freeze({
     ...step,
     damage: scaleValue((Number(step.damage) || 0) * multipliers.skillDamage),
+    tickDamage: scaleValue((Number(step.tickDamage) || 0) * multipliers.skillDamage),
     poisonDps: scaleValue((Number(step.poisonDps) || 0) * multipliers.skillPoison),
-    healHero: scaleValue((Number(step.healHero) || 0) * multipliers.skillHealing),
-    healMembers: scaleValue((Number(step.healMembers) || 0) * multipliers.skillHealing),
     shieldHp: scaleValue((Number(step.shieldHp) || 0) * multipliers.skillShield),
   });
 }
 
+function estimatedSkillStepDamage(step) {
+  const directDamage = Math.max(0, Number(step.damage) || 0);
+  if (step.action === 'projectile-volley') {
+    return directDamage * Math.max(1, Math.floor(Number(step.projectileCount) || 1));
+  }
+  if (step.action === 'beam' || step.action === 'field') {
+    const interval = Math.max(0.01, Number(step.tickInterval) || 0.1);
+    const ticks = Math.max(0, Math.floor((Number(step.duration) || 0) / interval + 1e-6));
+    return Math.max(0, Number(step.tickDamage) || 0) * ticks;
+  }
+  return directDamage;
+}
+
 function skillEffectSummary(skill, steps) {
   const parts = [`${steps.length}段`];
-  const damage = steps.map(({ damage: value }) => Math.round(value || 0)).filter(Boolean);
+  const damage = steps.map((step) => Math.round(estimatedSkillStepDamage(step))).filter(Boolean);
   if (damage.length) parts.push(`伤害 ${damage.join('/')}`);
-  const heroHealing = Math.round(steps.reduce((sum, step) => sum + (step.healHero || 0), 0));
-  const memberHealing = Math.round(steps.reduce((sum, step) => sum + (step.healMembers || 0), 0));
-  if (heroHealing) parts.push(`自身治疗 ${heroHealing}`);
-  if (memberHealing) parts.push(`每名士兵治疗 ${memberHealing}`);
   const shield = Math.round(Math.max(0, ...steps.map((step) => step.shieldHp || 0)));
   if (shield) parts.push(`护盾 ${shield}`);
   const poison = scaleValue(Math.max(0, ...steps.map((step) => step.poisonDps || 0)));
@@ -483,7 +532,6 @@ export function heroStatsForRank(type, rank = 1) {
     attackSpeed: multiplier('attackSpeed'),
     skillDamage: multiplier('skillDamage'),
     skillPoison: multiplier('skillPoison'),
-    skillHealing: multiplier('skillHealing'),
     skillShield: multiplier('skillShield'),
   });
   const skillSteps = Object.freeze(definition.skill.steps.map((step) => (
@@ -952,6 +1000,7 @@ function emptyRunState(progress, seed) {
     turretSlots: TD_TURRET_SLOTS['stage-1'],
     hero: null,
     heroSkillQueue: [],
+    heroSkillActors: [],
     selectedHeroId: copiedProgress.selectedHero,
     heroes: heroRosterForProgress(copiedProgress),
     enemies: [],
@@ -1348,33 +1397,237 @@ export function setTowerDefenseHeroMovement(state, dx, dy) {
   return state.hero;
 }
 
-function healHeroSkillAllies(state, heroHeal = 0, memberHeal = 0) {
-  const hero = state.hero;
-  const healed = { hero: 0, members: [] };
-  if (hero?.hp > 0 && heroHeal > 0) {
-    const previousHp = hero.hp;
-    hero.hp = Math.min(hero.maxHp, hero.hp + heroHeal);
-    healed.hero = hero.hp - previousHp;
+function heroSkillTargetsInCircle(state, center, radius, maxTargets = Infinity) {
+  const boundedRadius = Math.max(0, Number(radius) || 0);
+  const requestedLimit = Math.floor(Number(maxTargets));
+  const limit = Number.isFinite(requestedLimit) && requestedLimit > 0
+    ? requestedLimit
+    : state.enemies.length;
+  return state.enemies
+    .filter((enemy) => enemy.hp > 0 && distance(center, enemy) <= boundedRadius)
+    .sort((left, right) => (
+      distance(center, left) - distance(center, right)
+      || right.travelled - left.travelled
+      || String(left.uid).localeCompare(String(right.uid))
+    ))
+    .slice(0, limit);
+}
+
+function heroSkillAimTarget(state, hero, skill) {
+  if (skill.targeting === 'self') return null;
+  const castRange = Math.max(0, Number(skill.radius) || 0);
+  const candidates = state.enemies.filter((enemy) => (
+    enemy.hp > 0 && distance(hero, enemy) <= castRange
+  ));
+  if (!candidates.length) return null;
+  if (skill.targeting === 'cluster') {
+    const clusterRadius = Math.max(1, Number(skill.clusterRadius) || 100);
+    return [...candidates].sort((left, right) => {
+      const density = (candidate) => candidates.reduce((count, enemy) => (
+        count + (distance(candidate, enemy) <= clusterRadius ? 1 : 0)
+      ), 0);
+      return density(right) - density(left)
+        || distance(hero, left) - distance(hero, right)
+        || right.travelled - left.travelled
+        || String(left.uid).localeCompare(String(right.uid));
+    })[0];
   }
-  if (memberHeal <= 0) return healed;
-  for (const tower of state.towers) {
-    const definition = SQUAD_TYPES[tower.squadType || tower.type];
-    if (!definition) continue;
-    const members = syncSquadMembers(tower, definition);
-    for (const member of members) {
-      if (!member.alive || member.hp <= 0 || member.hp >= member.maxHp) continue;
-      const previousHp = member.hp;
-      member.hp = Math.min(member.maxHp, member.hp + memberHeal);
-      healed.members.push({
-        squadUid: tower.uid,
-        soldierUid: member.uid,
-        amount: member.hp - previousHp,
-      });
-    }
-    tower.hp = members.reduce((total, member) => total + Math.max(0, member.hp), 0);
-    tower.aliveMembers = members.filter((member) => member.alive && member.hp > 0).length;
+  return [...candidates].sort((left, right) => (
+    distance(hero, left) - distance(hero, right)
+    || right.travelled - left.travelled
+    || String(left.uid).localeCompare(String(right.uid))
+  ))[0];
+}
+
+function applyHeroSkillStatus(state, enemy, step) {
+  if (!enemy || enemy.hp <= 0) return;
+  const displacement = Math.max(
+    0,
+    Number(step.knockback) || Number(step.rewind) || 0,
+  );
+  if (displacement > 0) setEnemyTravelled(state, enemy, enemy.travelled - displacement);
+  if (Number(step.slowMultiplier) > 0) {
+    enemy.slowMultiplier = Math.min(
+      enemy.slowMultiplier,
+      clamp(Number(step.slowMultiplier), 0.05, 1),
+    );
+    enemy.slowTime = Math.max(enemy.slowTime, Math.max(0, Number(step.slowTime) || 0));
   }
-  return healed;
+  if (Number(step.poisonDps) > 0) {
+    enemy.poisonDps = Math.max(enemy.poisonDps, Number(step.poisonDps));
+    enemy.poisonTime = Math.max(enemy.poisonTime, Math.max(0, Number(step.poisonTime) || 0));
+  }
+  if (Number(step.rootTime) > 0) {
+    enemy.slowMultiplier = Math.min(enemy.slowMultiplier, 0.08);
+    enemy.slowTime = Math.max(enemy.slowTime, Number(step.rootTime));
+  }
+}
+
+function applyRadialHeroSkillStep(state, center, step) {
+  const targets = heroSkillTargetsInCircle(
+    state,
+    center,
+    step.radius,
+    step.maxTargets,
+  );
+  const damage = Math.max(0, Number(step.damage) || 0);
+  for (const enemy of targets) {
+    if (damage > 0) damageEnemy(state, enemy, damage);
+    applyHeroSkillStatus(state, enemy, step);
+  }
+  return targets;
+}
+
+function spawnHeroSkillActor(state, queuedStep, step, hero) {
+  if (!Array.isArray(state.heroSkillActors)) state.heroSkillActors = [];
+  const base = {
+    uid: nextUid(state, 'skill-actor'),
+    heroUid: hero.uid,
+    heroType: queuedStep.heroType,
+    skillId: queuedStep.skillId,
+    stepKind: step.kind,
+    stage: step.stage,
+    age: 0,
+  };
+  let actor = null;
+  if (step.action === 'beam') {
+    const length = Math.max(1, Number(step.length) || 1);
+    const originX = hero.x;
+    const originY = hero.y - 24;
+    actor = {
+      ...base,
+      type: 'beam',
+      duration: Math.max(0.05, Number(step.duration) || 0.5),
+      originX,
+      originY,
+      endX: originX + queuedStep.directionX * length,
+      endY: originY + queuedStep.directionY * length,
+      directionX: queuedStep.directionX,
+      directionY: queuedStep.directionY,
+      length,
+      width: Math.max(1, Number(step.width) || 1),
+      tickInterval: Math.max(0.01, Number(step.tickInterval) || 0.1),
+      tickTimer: 0,
+      tickDamage: Math.max(0, Number(step.tickDamage) || 0),
+      maxTargets: Math.max(1, Math.floor(Number(step.maxTargets) || state.enemies.length || 1)),
+      followHero: true,
+    };
+  } else if (step.action === 'field') {
+    actor = {
+      ...base,
+      type: 'field',
+      x: queuedStep.targetX,
+      y: queuedStep.targetY,
+      radius: Math.max(1, Number(step.radius) || 1),
+      duration: Math.max(0.05, Number(step.duration) || 0.5),
+      tickInterval: Math.max(0.01, Number(step.tickInterval) || 0.1),
+      tickTimer: 0,
+      tickDamage: Math.max(0, Number(step.tickDamage) || 0),
+      maxTargets: Math.max(1, Math.floor(Number(step.maxTargets) || state.enemies.length || 1)),
+      slowMultiplier: Number(step.slowMultiplier) || 0,
+      slowTime: Math.max(0, Number(step.slowTime) || 0),
+      rewind: Math.max(0, Number(step.rewind) || 0),
+    };
+  } else if (step.action === 'wave') {
+    const angle = Math.atan2(queuedStep.directionY, queuedStep.directionX)
+      + (Number(step.angleOffset) || 0);
+    const directionX = Math.cos(angle);
+    const directionY = Math.sin(angle);
+    const maxDistance = Math.max(1, Number(step.length) || 1);
+    const speed = Math.max(1, Number(step.speed) || 1);
+    const originX = hero.x;
+    const originY = hero.y - 18;
+    actor = {
+      ...base,
+      type: 'wave',
+      originX,
+      originY,
+      x: originX,
+      y: originY,
+      previousX: originX,
+      previousY: originY,
+      directionX,
+      directionY,
+      speed,
+      maxDistance,
+      distanceTravelled: 0,
+      width: Math.max(1, Number(step.width) || 1),
+      damage: Math.max(0, Number(step.damage) || 0),
+      maxTargets: Math.max(1, Math.floor(Number(step.maxTargets) || state.enemies.length || 1)),
+      slowMultiplier: Number(step.slowMultiplier) || 0,
+      slowTime: Math.max(0, Number(step.slowTime) || 0),
+      hitUids: [],
+      duration: maxDistance / speed + 0.1,
+    };
+  }
+  if (actor) state.heroSkillActors.push(actor);
+  return actor;
+}
+
+function launchHeroSkillProjectiles(state, queuedStep, step, hero, skill) {
+  const count = Math.max(1, Math.floor(Number(step.projectileCount) || 1));
+  const origin = { x: hero.x, y: hero.y };
+  const candidates = state.enemies
+    .filter((enemy) => enemy.hp > 0 && distance(origin, enemy) <= skill.radius)
+    .sort((left, right) => (
+      distance({ x: queuedStep.targetX, y: queuedStep.targetY }, left)
+        - distance({ x: queuedStep.targetX, y: queuedStep.targetY }, right)
+      || right.travelled - left.travelled
+      || String(left.uid).localeCompare(String(right.uid))
+    ));
+  const offsets = [
+    { x: 0, y: 0 }, { x: -18, y: 12 }, { x: 18, y: -10 },
+    { x: -28, y: -15 }, { x: 28, y: 16 },
+  ];
+  const projectiles = [];
+  for (let index = 0; index < count; index += 1) {
+    const target = candidates[index] || candidates[index % Math.max(1, candidates.length)] || null;
+    const offset = target && candidates.length > 1 ? { x: 0, y: 0 } : offsets[index % offsets.length];
+    const projectile = {
+      uid: nextUid(state, 'skill-shot'),
+      type: 'berry',
+      effect: 'skill-splash',
+      sourceKind: 'hero-skill',
+      heroType: queuedStep.heroType,
+      skillId: queuedStep.skillId,
+      stepKind: step.kind,
+      stage: step.stage,
+      star: 1,
+      effectTier: 1,
+      volleyIndex: index,
+      volleyCount: count,
+      secondary: index > 0,
+      groundSplash: true,
+      tracksTarget: false,
+      targetUid: target?.uid || queuedStep.targetUid || null,
+      x: hero.x,
+      y: hero.y - 30,
+      targetX: (target?.x ?? queuedStep.targetX) + offset.x,
+      targetY: (target?.y ?? queuedStep.targetY) + offset.y,
+      speed: Math.max(1, Number(step.projectileSpeed) || 460),
+      damage: Math.max(0, Number(step.damage) || 0),
+      splashRadius: Math.max(1, Number(step.explosionRadius) || 1),
+      maxTargets: Math.max(1, Math.floor(Number(step.maxTargets) || state.enemies.length || 1)),
+      knockback: Math.max(0, Number(step.knockback) || 0),
+      age: 0,
+      maxAge: 3,
+    };
+    state.projectiles.push(projectile);
+    projectiles.push(projectile);
+    state.events.push({
+      type: 'hero-skill-projectile',
+      heroUid: hero.uid,
+      heroType: queuedStep.heroType,
+      skillId: queuedStep.skillId,
+      projectileUid: projectile.uid,
+      stepKind: step.kind,
+      stage: step.stage,
+      targetUid: projectile.targetUid,
+      targetX: projectile.targetX,
+      targetY: projectile.targetY,
+    });
+  }
+  return projectiles;
 }
 
 function executeHeroSkillStep(state, queuedStep) {
@@ -1386,48 +1639,27 @@ function executeHeroSkillStep(state, queuedStep) {
   const step = stats.skillSteps[queuedStep.stepIndex];
   if (!step) return [];
   const origin = { x: queuedStep.originX, y: queuedStep.originY };
+  const targetOrigin = { x: queuedStep.targetX, y: queuedStep.targetY };
+  const center = step.origin === 'target' ? targetOrigin : origin;
   const radius = Math.max(0, Number(step.radius) || Number(skill.radius) || 0);
-  const targets = state.enemies
-    .filter((enemy) => enemy.hp > 0 && distance(origin, enemy) <= radius)
-    .sort((left, right) => (
-      distance(origin, left) - distance(origin, right)
-      || right.travelled - left.travelled
-      || String(left.uid).localeCompare(String(right.uid))
-    ))
-    .slice(0, Math.max(0, Math.floor(Number(step.maxTargets) || state.enemies.length)));
-  const damage = Math.max(0, Number(step.damage) || 0);
-  for (const enemy of targets) {
-    if (damage > 0) damageEnemy(state, enemy, damage);
-    if (enemy.hp <= 0) continue;
-    const displacement = Math.max(
-      0,
-      Number(step.knockback) || Number(step.rewind) || 0,
-    );
-    if (displacement > 0) setEnemyTravelled(state, enemy, enemy.travelled - displacement);
-    if (Number(step.slowMultiplier) > 0) {
-      enemy.slowMultiplier = Math.min(
-        enemy.slowMultiplier,
-        clamp(Number(step.slowMultiplier), 0.05, 1),
-      );
-      enemy.slowTime = Math.max(enemy.slowTime, Math.max(0, Number(step.slowTime) || 0));
-    }
-    if (Number(step.poisonDps) > 0) {
-      enemy.poisonDps = Math.max(
-        enemy.poisonDps,
-        Number(step.poisonDps),
-      );
-      enemy.poisonTime = Math.max(enemy.poisonTime, Math.max(0, Number(step.poisonTime) || 0));
-    }
-    if (Number(step.rootTime) > 0) {
-      enemy.slowMultiplier = Math.min(enemy.slowMultiplier, 0.08);
-      enemy.slowTime = Math.max(enemy.slowTime, Number(step.rootTime));
-    }
+  let targets = [];
+  const actorUids = [];
+  const projectileUids = [];
+  if (step.action === 'radial') {
+    targets = applyRadialHeroSkillStep(state, center, step);
+  } else if (['beam', 'field', 'wave'].includes(step.action)) {
+    const actor = spawnHeroSkillActor(state, queuedStep, step, hero);
+    if (actor) actorUids.push(actor.uid);
+    const aimed = state.enemies.find((enemy) => (
+      enemy.uid === queuedStep.targetUid && enemy.hp > 0
+    ));
+    if (aimed) targets = [aimed];
+  } else if (step.action === 'projectile-volley') {
+    const projectiles = launchHeroSkillProjectiles(state, queuedStep, step, hero, skill);
+    projectileUids.push(...projectiles.map(({ uid }) => uid));
+    const targetIds = new Set(projectiles.map(({ targetUid }) => targetUid).filter(Boolean));
+    targets = state.enemies.filter(({ uid }) => targetIds.has(uid));
   }
-  const healed = healHeroSkillAllies(
-    state,
-    Math.max(0, Number(step.healHero) || 0),
-    Math.max(0, Number(step.healMembers) || 0),
-  );
   if (Number(step.shieldHp) > 0) {
     const grantedShield = Math.max(0, Number(step.shieldHp));
     hero.shieldHp = Math.max(Number(hero.shieldHp) || 0, grantedShield);
@@ -1437,16 +1669,20 @@ function executeHeroSkillStep(state, queuedStep) {
   state.effects.push({
     uid: nextUid(state, 'fx'), type: 'hero-skill-step', age: 0,
     duration: Math.max(0.3, Number(step.visualDuration) || 0.72),
-    x: origin.x, y: origin.y, radius, heroType: queuedStep.heroType,
+    x: center.x, y: center.y, radius, heroType: queuedStep.heroType,
     skillId: skill.id, skillName: skill.name,
     stage: step.stage, stepIndex: queuedStep.stepIndex, stepKind: step.kind,
+    action: step.action, actorUids, projectileUids,
   });
   state.events.push({
     type: 'hero-skill-step', heroUid: hero.uid, heroType: queuedStep.heroType,
     skillId: skill.id, skillName: skill.name,
     stage: step.stage, stepIndex: queuedStep.stepIndex, stepKind: step.kind,
-    targetUids: targets.map(({ uid }) => uid), damage,
-    healedHero: healed.hero, healedMembers: healed.members,
+    action: step.action,
+    targetUids: targets.map(({ uid }) => uid),
+    damage: Math.max(0, Number(step.damage) || 0),
+    tickDamage: Math.max(0, Number(step.tickDamage) || 0),
+    actorUids, projectileUids,
     shieldHp: Math.max(0, Number(step.shieldHp) || 0),
   });
   return targets.map(({ uid }) => uid);
@@ -1474,6 +1710,15 @@ export function activateTowerDefenseHeroSkill(state) {
   const definition = HERO_TYPES[hero.type] || HERO_TYPES.shell;
   const skill = definition.skill;
   if (!skill?.steps?.length) return false;
+  const aimTarget = heroSkillAimTarget(state, hero, skill);
+  if (skill.targeting !== 'self' && !aimTarget) return false;
+  const aimX = aimTarget?.x ?? hero.x;
+  const aimY = aimTarget?.y ?? hero.y - 1;
+  const aimDx = aimX - hero.x;
+  const aimDy = aimY - hero.y;
+  const aimLength = Math.hypot(aimDx, aimDy) || 1;
+  const directionX = aimDx / aimLength;
+  const directionY = aimDy / aimLength;
   if (!Array.isArray(state.heroSkillQueue)) state.heroSkillQueue = [];
   const queued = skill.steps.map((step, stepIndex) => ({
     uid: nextUid(state, 'skill'),
@@ -1485,10 +1730,19 @@ export function activateTowerDefenseHeroSkill(state) {
     remaining: Math.max(0, Number(step.at) || 0),
     originX: hero.x,
     originY: hero.y,
+    targetUid: aimTarget?.uid || null,
+    targetX: aimX,
+    targetY: aimY,
+    directionX,
+    directionY,
   }));
   state.heroSkillQueue.push(...queued);
   hero.skillCooldown = skill.cooldown;
   hero.skillPulse = 1;
+  hero.aimAngle = Math.atan2(directionY, directionX);
+  if (skill.targeting !== 'self' && Math.abs(directionX) > 0.01) {
+    hero.facing = directionX < 0 ? -1 : 1;
+  }
   const activationEvent = {
     type: 'hero-skill', heroUid: hero.uid, heroType: hero.type,
     skillId: skill.id, skillName: skill.name, skillDescription: skill.description,
@@ -1499,7 +1753,7 @@ export function activateTowerDefenseHeroSkill(state) {
   activationEvent.targetUids = firstTargets;
   activationEvent.damage = Math.max(
     0,
-    Number(heroStatsForRank(hero.type, hero.rank).skillSteps[0].damage) || 0,
+    estimatedSkillStepDamage(heroStatsForRank(hero.type, hero.rank).skillSteps[0]),
   );
   return true;
 }
@@ -1645,6 +1899,7 @@ export function startNextTowerDefenseWave(state) {
   state.waveEnemyTotal = state.spawnQueue.length;
   state.waveEnemyResolved = 0;
   state.heroSkillQueue = [];
+  state.heroSkillActors = [];
   for (const soldier of state.towers) {
     soldier.x = Number.isFinite(Number(soldier.deployX))
       ? soldier.deployX : stage.pads[soldier.padIndex]?.x;
@@ -1918,11 +2173,55 @@ function applyProjectileHit(state, projectile, target) {
   emitProjectileImpact(state, projectile, target);
 }
 
+function applyGroundSplashImpact(state, projectile) {
+  const center = {
+    x: Number(projectile.targetX) || 0,
+    y: Number(projectile.targetY) || 0,
+  };
+  const targets = heroSkillTargetsInCircle(
+    state,
+    center,
+    projectile.splashRadius,
+    projectile.maxTargets,
+  );
+  for (const enemy of targets) {
+    damageEnemy(state, enemy, projectile.damage);
+    applyHeroSkillStatus(state, enemy, projectile);
+  }
+  state.effects.push({
+    uid: nextUid(state, 'fx'),
+    type: 'hero-skill-impact',
+    age: 0,
+    duration: 0.62,
+    x: center.x,
+    y: center.y,
+    radius: Math.max(1, Number(projectile.splashRadius) || 1),
+    heroType: projectile.heroType,
+    skillId: projectile.skillId,
+    stepKind: projectile.stepKind,
+    stage: projectile.stage,
+  });
+  state.events.push({
+    type: 'hero-skill-impact',
+    heroType: projectile.heroType,
+    skillId: projectile.skillId,
+    stepKind: projectile.stepKind,
+    stage: projectile.stage,
+    projectileUid: projectile.uid,
+    x: center.x,
+    y: center.y,
+    radius: Math.max(1, Number(projectile.splashRadius) || 1),
+    damage: Math.max(0, Number(projectile.damage) || 0),
+    targetUids: targets.map(({ uid }) => uid),
+  });
+  return targets;
+}
+
 function updateProjectiles(state, dt) {
   for (const projectile of state.projectiles) {
     projectile.age += dt;
     const target = state.enemies.find((enemy) => enemy.uid === projectile.targetUid && enemy.hp > 0);
-    if (target) {
+    if (target && projectile.tracksTarget !== false) {
       projectile.targetX = target.x;
       projectile.targetY = target.y - 18;
     }
@@ -1934,13 +2233,162 @@ function updateProjectiles(state, dt) {
       projectile.x = projectile.targetX;
       projectile.y = projectile.targetY;
       projectile.done = true;
-      applyProjectileHit(state, projectile, target);
+      if (projectile.groundSplash) applyGroundSplashImpact(state, projectile);
+      else applyProjectileHit(state, projectile, target);
     } else {
       projectile.x += dx / remaining * travel;
       projectile.y += dy / remaining * travel;
     }
   }
-  state.projectiles = state.projectiles.filter((projectile) => !projectile.done && projectile.age < 2.4);
+  state.projectiles = state.projectiles.filter((projectile) => (
+    !projectile.done && projectile.age < Math.max(0.1, Number(projectile.maxAge) || 2.4)
+  ));
+}
+
+function pointToSegmentMetrics(point, start, end) {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const lengthSquared = dx * dx + dy * dy;
+  const ratio = lengthSquared > 0
+    ? clamp(((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared, 0, 1)
+    : 0;
+  const closest = { x: start.x + dx * ratio, y: start.y + dy * ratio };
+  return { ratio, distance: distance(point, closest), closest };
+}
+
+function actorCollisionPadding(enemy) {
+  return (TD_ENEMIES[enemy?.type]?.size || TD_ENEMIES.bug.size) * 0.12;
+}
+
+function actorLineTargets(state, start, end, width, maxTargets, excludedUids = []) {
+  const excluded = new Set(excludedUids);
+  return state.enemies
+    .filter((enemy) => enemy.hp > 0 && !excluded.has(enemy.uid))
+    .map((enemy) => ({
+      enemy,
+      metrics: pointToSegmentMetrics(enemy, start, end),
+    }))
+    .filter(({ enemy, metrics }) => (
+      metrics.distance <= Math.max(0.5, width / 2) + actorCollisionPadding(enemy)
+    ))
+    .sort((left, right) => (
+      left.metrics.ratio - right.metrics.ratio
+      || right.enemy.travelled - left.enemy.travelled
+      || String(left.enemy.uid).localeCompare(String(right.enemy.uid))
+    ))
+    .slice(0, Math.max(1, Math.floor(Number(maxTargets) || state.enemies.length || 1)))
+    .map(({ enemy }) => enemy);
+}
+
+function emitHeroSkillActorTick(state, actor, targets, damage) {
+  if (!targets.length) return;
+  state.events.push({
+    type: 'hero-skill-tick',
+    actorUid: actor.uid,
+    actorType: actor.type,
+    heroUid: actor.heroUid,
+    heroType: actor.heroType,
+    skillId: actor.skillId,
+    stepKind: actor.stepKind,
+    stage: actor.stage,
+    damage: Math.max(0, Number(damage) || 0),
+    targetUids: targets.map(({ uid }) => uid),
+  });
+}
+
+function tickBeamActor(state, actor) {
+  const start = { x: actor.originX, y: actor.originY };
+  const end = { x: actor.endX, y: actor.endY };
+  const targets = actorLineTargets(state, start, end, actor.width, actor.maxTargets);
+  const damage = Math.max(0, Number(actor.tickDamage) || 0);
+  for (const enemy of targets) damageEnemy(state, enemy, damage);
+  emitHeroSkillActorTick(state, actor, targets, damage);
+}
+
+function tickFieldActor(state, actor) {
+  const targets = heroSkillTargetsInCircle(
+    state,
+    actor,
+    actor.radius,
+    actor.maxTargets,
+  );
+  const damage = Math.max(0, Number(actor.tickDamage) || 0);
+  for (const enemy of targets) {
+    damageEnemy(state, enemy, damage);
+    applyHeroSkillStatus(state, enemy, actor);
+  }
+  emitHeroSkillActorTick(state, actor, targets, damage);
+}
+
+function updateTimedSkillActor(state, actor, dt, tick) {
+  const duration = Math.max(0.05, Number(actor.duration) || 0.05);
+  const activeDt = Math.min(dt, Math.max(0, duration - actor.age));
+  actor.age = Math.min(duration, actor.age + activeDt);
+  actor.phase = clamp(actor.age / duration, 0, 1);
+  actor.tickTimer = Math.max(0, Number(actor.tickTimer) || 0) + activeDt;
+  const interval = Math.max(0.01, Number(actor.tickInterval) || 0.1);
+  while (actor.tickTimer + 1e-9 >= interval) {
+    actor.tickTimer -= interval;
+    tick(state, actor);
+  }
+  if (actor.age >= duration - 1e-9) actor.done = true;
+}
+
+function updateWaveActor(state, actor, dt) {
+  const remaining = Math.max(0, actor.maxDistance - actor.distanceTravelled);
+  const travel = Math.min(remaining, Math.max(0, actor.speed * dt));
+  actor.previousX = actor.x;
+  actor.previousY = actor.y;
+  actor.distanceTravelled += travel;
+  actor.x = actor.originX + actor.directionX * actor.distanceTravelled;
+  actor.y = actor.originY + actor.directionY * actor.distanceTravelled;
+  actor.age += dt;
+  actor.phase = clamp(actor.distanceTravelled / Math.max(1, actor.maxDistance), 0, 1);
+  const remainingTargetSlots = Math.max(0, actor.maxTargets - actor.hitUids.length);
+  if (travel > 0 && remainingTargetSlots > 0) {
+    const targets = actorLineTargets(
+      state,
+      { x: actor.previousX, y: actor.previousY },
+      { x: actor.x, y: actor.y },
+      actor.width,
+      remainingTargetSlots,
+      actor.hitUids,
+    );
+    for (const enemy of targets) {
+      damageEnemy(state, enemy, actor.damage);
+      applyHeroSkillStatus(state, enemy, actor);
+      actor.hitUids.push(enemy.uid);
+    }
+    emitHeroSkillActorTick(state, actor, targets, actor.damage);
+  }
+  if (actor.distanceTravelled >= actor.maxDistance - 1e-9) actor.done = true;
+}
+
+function updateHeroSkillActors(state, dt) {
+  if (!Array.isArray(state.heroSkillActors)) state.heroSkillActors = [];
+  for (const actor of state.heroSkillActors) {
+    if (actor.type === 'beam') {
+      const hero = state.hero?.uid === actor.heroUid && state.hero.hp > 0 ? state.hero : null;
+      if (!hero) {
+        actor.done = true;
+        continue;
+      }
+      if (actor.followHero) {
+        actor.originX = hero.x;
+        actor.originY = hero.y - 24;
+        actor.endX = actor.originX + actor.directionX * actor.length;
+        actor.endY = actor.originY + actor.directionY * actor.length;
+      }
+      updateTimedSkillActor(state, actor, dt, tickBeamActor);
+    } else if (actor.type === 'field') {
+      updateTimedSkillActor(state, actor, dt, tickFieldActor);
+    } else if (actor.type === 'wave') {
+      updateWaveActor(state, actor, dt);
+    } else {
+      actor.done = true;
+    }
+  }
+  state.heroSkillActors = state.heroSkillActors.filter(({ done }) => !done);
 }
 
 function syncSquadMembers(tower, definition, { reset = false } = {}) {
@@ -2559,6 +3007,7 @@ function finishRun(state, result) {
   state.spawnQueue = [];
   state.projectiles = [];
   state.heroSkillQueue = [];
+  state.heroSkillActors = [];
   state.screen = 'result';
   if (result === 'victory') {
     const stage = stageForState(state);
@@ -2624,6 +3073,7 @@ function completeWave(state) {
     state.hero.shieldTime = 0;
   }
   state.heroSkillQueue = [];
+  state.heroSkillActors = [];
   state.projectiles = [];
   state.events.push({ type: 'wave-clear', wave: state.wave });
   if (state.mode === 'stage' && state.wave >= stageForState(state).waves.length) {
@@ -2662,6 +3112,7 @@ export function updateTowerDefense(state, dt) {
     spawnEnemy(state, spawn.type, spawn.laneIndex);
   }
   updateHeroSkillQueue(state, delta);
+  updateHeroSkillActors(state, delta);
   updateEnemies(state, delta);
   updateTowers(state, delta);
   updateHero(state, delta);
@@ -2690,6 +3141,7 @@ export function returnToTowerDefenseMenu(state) {
   state.enemies = [];
   state.projectiles = [];
   state.heroSkillQueue = [];
+  state.heroSkillActors = [];
   state.effects = [];
   state.selectedTowerUid = null;
   state.selectedHeroId = state.progress.selectedHero;

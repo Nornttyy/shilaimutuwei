@@ -957,8 +957,8 @@ test('WeChat production remote gate contains all canonical images, rigs, and aud
   const rigs = packagedRigImagePaths(assets, 'https://cdn.example.com/game');
   const audio = packagedAudioPaths(assets, 'https://cdn.example.com/game');
 
-  assert.equal(Object.keys(ordinary).length, 162);
-  assert.equal(new Set(Object.values(ordinary)).size, 162);
+  assert.equal(Object.keys(ordinary).length, 165);
+  assert.equal(new Set(Object.values(ordinary)).size, 165);
   assert.equal(Object.hasOwn(ordinary, 'scene-gel-garden'), false);
   assert.equal(Object.hasOwn(ordinary, 'town-core'), false);
   assert.equal(Object.hasOwn(ordinary, 'enemy-portal'), false);
@@ -969,7 +969,7 @@ test('WeChat production remote gate contains all canonical images, rigs, and aud
   assert.equal(new Set(Object.values(audio)).size, 16);
   assert.equal(new Set([
     ...Object.values(ordinary), ...Object.values(rigs), ...Object.values(audio),
-  ]).size, 194);
+  ]).size, 197);
   for (const url of [...Object.values(ordinary), ...Object.values(rigs), ...Object.values(audio)]) {
     assert.match(url, /\?v=[a-f0-9]{12}$/);
   }

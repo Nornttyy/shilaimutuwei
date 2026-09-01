@@ -400,28 +400,8 @@ test('formal hero and new squad atlases share the generic rig without falling ba
   }
 });
 
-test('skill step kinds select generated animated frames instead of a fading static icon', async () => {
-  const { drawSkillEffectFrames, SKILL_EFFECT_ASSET_KEY_BY_STEP_KIND } = await import('../src/draw.js');
-  assert.equal(SKILL_EFFECT_ASSET_KEY_BY_STEP_KIND['berry-finale'],
-    'effect-berry-chain-barrage-frames-v1');
-  assert.equal(SKILL_EFFECT_ASSET_KEY_BY_STEP_KIND['dew-bloom'],
-    'effect-dew-garland-frames-v1');
-  const sheet = { id: 'skill-sheet', width: 800, height: 800 };
-  const requested = [];
-  const main = contextFor();
-  assert.equal(drawSkillEffectFrames(main, 120, 300, 160, {
-    assetStore: readyStore(sheet, requested),
-    stepKind: 'bubble-burst',
-    age: 0.31,
-    duration: 0.4,
-    spin: 0.25,
-  }), true);
-  assert.deepEqual(requested, ['effect-bubble-tide-domain-frames-v1']);
-  const frameDraw = main.calls.find(([method, image]) => method === 'drawImage' && image === sheet);
-  assert.deepEqual(frameDraw.slice(2, 6), [400, 400, 400, 400],
-    'late skill age selects the fourth 2×2 authored frame');
-  assert.ok(main.calls.some(([method, angle]) => method === 'rotate' && angle !== 0),
-    'the same sheet has deterministic time-based rotation');
-  assert.ok(main.calls.some(([method, xScale]) => method === 'scale' && xScale > 1),
-    'the effect expands during its lifetime rather than only fading');
+test('draw module no longer exposes the retired skill frame-atlas renderer', async () => {
+  const drawModule = await import('../src/draw.js');
+  assert.equal('drawSkillEffectFrames' in drawModule, false);
+  assert.equal('SKILL_EFFECT_ASSET_KEY_BY_STEP_KIND' in drawModule, false);
 });

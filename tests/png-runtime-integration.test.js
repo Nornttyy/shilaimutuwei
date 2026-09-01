@@ -85,7 +85,6 @@ globalThis.OffscreenCanvas = FakeOffscreenCanvas;
 const {
   drawAtlasCharacter,
   drawMonster,
-  drawSkillEffectFrames,
   drawSlime,
   slimeEvolutionArmorLayout,
   slimeEvolutionProfile,
@@ -307,7 +306,7 @@ test('placed squads draw four fixed-size independent members without star scalin
   assert.doesNotMatch(squadRenderer, /\.star\b/);
 });
 
-test('generic hero atlases and skill sheets use exact 418px cells at runtime', () => {
+test('generic hero atlases use exact 418px cells at runtime', () => {
   for (const assetKey of ['hero-berry-burst-atlas-v1', 'hero-dew-bloom-atlas-v1']) {
     resetOffscreen();
     const atlas = { id: assetKey, kind: assetKey, width: 1254, height: 1254 };
@@ -339,51 +338,58 @@ test('generic hero atlases and skill sheets use exact 418px cells at runtime', (
     )), `${assetKey} draws cell ${cell.join(',')}`);
   }
 
-  const ctx = createMainContext();
-  const sheet = { kind: 'skill-sheet', width: 1254, height: 1254 };
-  const rendered = drawSkillEffectFrames(ctx, 300, 400, 300, {
-    stepKind: 'shell-quake',
-    age: 0.72,
-    duration: 0.72,
-    columns: 3,
-    startFrame: 6,
-    frameCount: 3,
-    sheetFrameCount: 9,
-    growth: 0,
-    spin: 0,
-    assetStore: {
-      useOrFallback(key, drawAsset) {
-        assert.equal(key, 'effect-shell-triple-shock-frames-v1');
-        drawAsset(sheet);
-        return true;
-      },
-    },
-  });
-  assert.equal(rendered, true);
-  const draw = ctx.calls.find(([method, kind]) => method === 'drawImage' && kind === 'skill-sheet');
-  assert.deepEqual(draw, [
-    'drawImage', 'skill-sheet',
-    836, 836, 418, 418,
-    -150, -150, 300, 300,
-  ]);
 });
 
-test('tower defense routes each hero skill stage through its own 3-frame sheet band', () => {
-  const effectRenderer = TOWER_DEFENSE_SOURCE.match(
-    /if \(effect\.type === 'hero-skill-step'\) \{[\s\S]*?\n\s*continue;\n\s*\}/,
-  )?.[0] || '';
-  assert.match(effectRenderer, /drawSkillEffectFrames\(ctx, effect\.x, effect\.y, radius,/);
-  assert.match(effectRenderer, /age: effect\.age/);
-  assert.match(effectRenderer, /duration: effect\.duration/);
-  assert.match(effectRenderer, /columns: 3/);
-  assert.match(effectRenderer, /const stage = clamp\(Math\.floor\(Number\(effect\.stepIndex\) \|\| 0\), 0, 2\)/);
-  assert.match(effectRenderer, /startFrame: stage \* 3/);
-  assert.match(effectRenderer, /frameCount: 3/);
-  assert.match(effectRenderer, /sheetFrameCount: 9/);
-  assert.match(effectRenderer, /if \(!rendered\)/,
-    'the procedural ring only replaces a missing generated sheet');
-  assert.ok(effectRenderer.indexOf('drawSkillEffectFrames') < effectRenderer.indexOf('drawParticle'),
-    'the animated generated sheet is layered before the lightweight spark');
+test('tower defense composes continuous skill actors without full-frame skill sheets', () => {
+  const componentKeys = [
+    'effect-skill-shell-impact-v1',
+    'effect-skill-crystal-laser-emitter-v1',
+    'effect-skill-crystal-laser-hit-v1',
+    'effect-skill-bubble-orb-v1',
+    'effect-skill-bubble-burst-v1',
+    'effect-skill-sprout-thorn-v1',
+    'effect-skill-berry-bomb-v1',
+    'effect-skill-berry-burst-v1',
+    'effect-skill-dew-wave-crest-v1',
+  ];
+  assert.doesNotMatch(TOWER_DEFENSE_SOURCE, /drawSkillEffectFrames/);
+  assert.doesNotMatch(TOWER_DEFENSE_SOURCE, /effect-(?:shell|crystal|bubble|sprout|berry|dew)-.+-frames-v1/);
+  assert.doesNotMatch(TOWER_DEFENSE_SOURCE, /effect-projectile-berry/);
+  for (const key of componentKeys) assert.match(TOWER_DEFENSE_SOURCE, new RegExp(key));
+  const runtimeComponentKeys = [...TOWER_DEFENSE_SOURCE.matchAll(
+    /['"](effect-skill-[a-z0-9-]+-v1)['"]/g,
+  )].map(([, key]) => key);
+  assert.deepEqual([...new Set(runtimeComponentKeys)].sort(), [...componentKeys].sort(),
+    'runtime refers only to the nine registered skill components');
+  assert.match(TOWER_DEFENSE_SOURCE, /drawHeroSkillActors\(ctx, 'back'\)/);
+  assert.match(TOWER_DEFENSE_SOURCE, /drawHeroSkillActors\(ctx, 'front'\)/);
+  const battlefieldStart = TOWER_DEFENSE_SOURCE.indexOf('  drawBattlefield(ctx, stage) {');
+  const battlefieldEnd = TOWER_DEFENSE_SOURCE.indexOf('  drawDeploymentGrid(', battlefieldStart);
+  const battlefieldSource = TOWER_DEFENSE_SOURCE.slice(battlefieldStart, battlefieldEnd);
+  const backActors = battlefieldSource.indexOf("this.drawHeroSkillActors(ctx, 'back')");
+  const backEffects = battlefieldSource.indexOf("this.drawEffects(ctx, 'back')");
+  const deployedActors = battlefieldSource.indexOf('this.drawPad(ctx, pad, padIndex)');
+  const heroLayer = battlefieldSource.indexOf('this.drawBattleHero(ctx)');
+  const frontEffects = battlefieldSource.indexOf("this.drawEffects(ctx, 'front')");
+  assert.ok(backActors >= 0 && backActors < deployedActors
+    && backEffects >= 0 && backEffects < deployedActors && deployedActors < heroLayer,
+    'ground skill effects render below deployed units, enemies, and the hero');
+  assert.ok(frontEffects > heroLayer,
+    'projectile impacts render after the hero layer');
+  assert.match(TOWER_DEFENSE_SOURCE, /actor\.type === 'beam'/);
+  assert.match(TOWER_DEFENSE_SOURCE, /actor\.type === 'field'/);
+  assert.match(TOWER_DEFENSE_SOURCE, /actor\.type === 'wave'/);
+  assert.match(TOWER_DEFENSE_SOURCE, /projectile\?\.sourceKind === 'hero-skill'/);
+  assert.match(TOWER_DEFENSE_SOURCE, /effect\.type === 'hero-skill-impact'/);
+  assert.match(TOWER_DEFENSE_SOURCE, /const SKILL_RENDER_LIMITS = Object\.freeze\(\{/);
+  assert.match(TOWER_DEFENSE_SOURCE, /actors: 8,/);
+  assert.match(TOWER_DEFENSE_SOURCE, /motes: 36,/);
+  assert.match(TOWER_DEFENSE_SOURCE, /projectileTrails: 18,/);
+  assert.match(TOWER_DEFENSE_SOURCE, /components: 24,/);
+  assert.match(TOWER_DEFENSE_SOURCE, /assetStore\.useOrFallback\(key,/);
+  assert.match(TOWER_DEFENSE_SOURCE, /const rotation = Math\.atan2\(dy, dx\);/);
+  assert.match(TOWER_DEFENSE_SOURCE, /rotation: Math\.atan2\(dy, dx\),/);
+  assert.match(TOWER_DEFENSE_SOURCE, /rotation: angle - Math\.PI \/ 2,/);
 });
 
 test('armor layouts map each exact star row to three fixed non-replacement skeletal slots', () => {

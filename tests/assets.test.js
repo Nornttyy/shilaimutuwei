@@ -401,7 +401,7 @@ test('runtime asset map covers manifest paths, formal extensions, and three alia
   assert.equal(ASSET_PATHS['enemy-portal'], ASSET_PATHS['rift-entry-portal']);
 });
 
-test('new tower-defense characters and multi-stage skill art use formal generated paths', () => {
+test('new tower-defense characters and skill icons use formal generated paths without frame atlases', () => {
   const expected = {
     'survivor-berry-burst': 'survivor/survivor-berry-burst.png',
     'hero-berry-burst-atlas-v1': 'hero/hero-berry-burst-atlas-v1.png',
@@ -418,12 +418,15 @@ test('new tower-defense characters and multi-stage skill art use formal generate
     'skill-sprout-forest-dance-icon': 'skill/skill-sprout-forest-dance-icon.png',
     'skill-berry-chain-barrage-icon': 'skill/skill-berry-chain-barrage-icon.png',
     'skill-dew-garland-icon': 'skill/skill-dew-garland-icon.png',
-    'effect-shell-triple-shock-frames-v1': 'effect/effect-shell-triple-shock-frames-v1.png',
-    'effect-crystal-rain-frames-v1': 'effect/effect-crystal-rain-frames-v1.png',
-    'effect-bubble-tide-domain-frames-v1': 'effect/effect-bubble-tide-domain-frames-v1.png',
-    'effect-sprout-forest-dance-frames-v1': 'effect/effect-sprout-forest-dance-frames-v1.png',
-    'effect-berry-chain-barrage-frames-v1': 'effect/effect-berry-chain-barrage-frames-v1.png',
-    'effect-dew-garland-frames-v1': 'effect/effect-dew-garland-frames-v1.png',
+    'effect-skill-shell-impact-v1': 'effect/effect-skill-shell-impact-v1.png',
+    'effect-skill-crystal-laser-emitter-v1': 'effect/effect-skill-crystal-laser-emitter-v1.png',
+    'effect-skill-crystal-laser-hit-v1': 'effect/effect-skill-crystal-laser-hit-v1.png',
+    'effect-skill-bubble-orb-v1': 'effect/effect-skill-bubble-orb-v1.png',
+    'effect-skill-bubble-burst-v1': 'effect/effect-skill-bubble-burst-v1.png',
+    'effect-skill-sprout-thorn-v1': 'effect/effect-skill-sprout-thorn-v1.png',
+    'effect-skill-berry-bomb-v1': 'effect/effect-skill-berry-bomb-v1.png',
+    'effect-skill-berry-burst-v1': 'effect/effect-skill-berry-burst-v1.png',
+    'effect-skill-dew-wave-crest-v1': 'effect/effect-skill-dew-wave-crest-v1.png',
   };
   for (const [id, relativePath] of Object.entries(expected)) {
     assert.equal(ALL_RUNTIME_ASSET_KEYS.includes(id), true, `${id} is runtime art`);
@@ -431,6 +434,34 @@ test('new tower-defense characters and multi-stage skill art use formal generate
     assert.equal(CRITICAL_STARTUP_ASSET_KEYS.includes(id), true, `${id} is critical`);
     assert.equal(WECHAT_CRITICAL_ASSET_KEYS.includes(id), true, `${id} is WeChat critical`);
     assert.match(new URL(ASSET_PATHS[id]).pathname, new RegExp(`/${relativePath}$`), id);
+  }
+  const skillComponentIds = Object.keys(expected).filter((id) => id.startsWith('effect-skill-'));
+  assert.equal(skillComponentIds.length, 9);
+  for (const id of skillComponentIds) {
+    const asset = PROJECT_ASSET_SPEC.assets.find((entry) => entry.id === id);
+    assert.ok(asset, `${id} has a formal asset specification`);
+    assert.deepEqual(asset.recommendedCanvas, { width: 256, height: 256 });
+    assert.equal(asset.width, 256);
+    assert.equal(asset.height, 256);
+    assert.equal(asset.transparent, true);
+    assert.equal(asset.priority, 'P0');
+    assert.equal(asset.maxBytes, 180000);
+    assert.match(asset.brief, /非治疗素材/);
+  }
+  const retiredFrameAtlases = [
+    'effect-shell-triple-shock-frames-v1',
+    'effect-crystal-rain-frames-v1',
+    'effect-bubble-tide-domain-frames-v1',
+    'effect-sprout-forest-dance-frames-v1',
+    'effect-berry-chain-barrage-frames-v1',
+    'effect-dew-garland-frames-v1',
+  ];
+  for (const id of retiredFrameAtlases) {
+    assert.equal(ALL_RUNTIME_ASSET_KEYS.includes(id), false, `${id} is not runtime art`);
+    assert.equal(TOWER_DEFENSE_ASSET_KEYS.includes(id), false, `${id} is not battle art`);
+    assert.equal(CRITICAL_STARTUP_ASSET_KEYS.includes(id), false, `${id} is not critical`);
+    assert.equal(WECHAT_CRITICAL_ASSET_KEYS.includes(id), false, `${id} is not WeChat critical`);
+    assert.equal(id in ASSET_PATHS, false, `${id} has no runtime URL`);
   }
 });
 

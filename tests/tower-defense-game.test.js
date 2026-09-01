@@ -21,6 +21,12 @@ function createContext() {
     measureText: (text) => ({ width: String(text).length * 12 }),
     drawImage: (...args) => calls.push(['drawImage', ...args]),
     fillText: (text, x, y) => calls.push(['fillText', text, x, y]),
+    moveTo: (...args) => calls.push(['moveTo', ...args]),
+    lineTo: (...args) => calls.push(['lineTo', ...args]),
+    quadraticCurveTo: (...args) => calls.push(['quadraticCurveTo', ...args]),
+    arc: (...args) => calls.push(['arc', ...args]),
+    ellipse: (...args) => calls.push(['ellipse', ...args]),
+    rotate: (...args) => calls.push(['rotate', ...args]),
   };
   base.stroke = () => calls.push([
     'stroke', base.strokeStyle, base.lineWidth, base.globalAlpha,
@@ -146,6 +152,15 @@ function createAssetStore(availableKeys = []) {
       return false;
     },
   };
+}
+
+function rotationBeforeAsset(calls, assetKey) {
+  const imageIndex = calls.findIndex(([kind, asset]) => (
+    kind === 'drawImage' && asset?.kind === assetKey
+  ));
+  if (imageIndex < 0) return null;
+  return calls.slice(0, imageIndex).reverse()
+    .find(([kind]) => kind === 'rotate')?.[1] ?? null;
 }
 
 function createRigStore() {
@@ -528,8 +543,8 @@ test('hero roster renders the same rank-adjusted combat values used by the core'
   assert.ok(labels.includes(String(stats.maxHp)));
   assert.ok(labels.includes(`${stats.attackSpeed.toFixed(2)}/秒`));
   assert.ok(labels.includes(stats.growthSummary));
-  assert.ok(labels.join('').includes(`伤害 ${stats.skillSteps
-    .map(({ damage }) => Math.round(damage || 0)).filter(Boolean).join('/')}`));
+  assert.ok(labels.join('').includes(stats.skillEffect),
+    'roster prints the same multi-hit or damage-over-time summary used by the simulation');
   assert.deepEqual({
     damage: game.state.heroes.find(({ type }) => type === 'berry').damage,
     maxHp: game.state.heroes.find(({ type }) => type === 'berry').maxHp,
@@ -596,41 +611,28 @@ test('Berry and Dew use their own 1254 atlases in battle, roster, and summon pre
   game.dispose();
 });
 
-test('hero skills use the six authored icons and each stage plays its own three-frame band', () => {
+test('hero skills combine nine authored components with continuous Canvas motion', () => {
   const canvas = createCanvas();
-  const effectCases = [
-    {
-      type: 'shell', assetKey: 'effect-shell-triple-shock-frames-v1',
-      stepKinds: ['shell-quake', 'shell-quake', 'shell-quake'],
-      radii: [110, 160, 210],
-    },
-    {
-      type: 'needle', assetKey: 'effect-crystal-rain-frames-v1',
-      stepKinds: ['crystal-volley', 'crystal-volley', 'crystal-refraction'],
-      radii: [360, 360, 360],
-    },
-    {
-      type: 'bubble', assetKey: 'effect-bubble-tide-domain-frames-v1',
-      stepKinds: ['bubble-field', 'bubble-rewind', 'bubble-burst'],
-      radii: [230, 230, 230],
-    },
-    {
-      type: 'sprout', assetKey: 'effect-sprout-forest-dance-frames-v1',
-      stepKinds: ['sprout-pulse', 'sprout-pulse', 'sprout-root'],
-      radii: [215, 215, 215],
-    },
-    {
-      type: 'berry', assetKey: 'effect-berry-chain-barrage-frames-v1',
-      stepKinds: ['berry-barrage', 'berry-barrage', 'berry-finale'],
-      radii: [230, 245, 260],
-    },
-    {
-      type: 'dew', assetKey: 'effect-dew-garland-frames-v1',
-      stepKinds: ['dew-pulse', 'dew-pulse', 'dew-bloom'],
-      radii: [170, 195, 220],
-    },
+  const retiredSkillSheets = [
+    'effect-shell-triple-shock-frames-v1',
+    'effect-crystal-rain-frames-v1',
+    'effect-bubble-tide-domain-frames-v1',
+    'effect-sprout-forest-dance-frames-v1',
+    'effect-berry-chain-barrage-frames-v1',
+    'effect-dew-garland-frames-v1',
   ];
-  const assets = createAssetStore(effectCases.map(({ assetKey }) => assetKey));
+  const skillComponents = [
+    'effect-skill-shell-impact-v1',
+    'effect-skill-crystal-laser-emitter-v1',
+    'effect-skill-crystal-laser-hit-v1',
+    'effect-skill-bubble-orb-v1',
+    'effect-skill-bubble-burst-v1',
+    'effect-skill-sprout-thorn-v1',
+    'effect-skill-berry-bomb-v1',
+    'effect-skill-berry-burst-v1',
+    'effect-skill-dew-wave-crest-v1',
+  ];
+  const assets = createAssetStore([...retiredSkillSheets, ...skillComponents]);
   const game = new TowerDefenseGame(canvas, {
     runtime: createRuntime({ tutorialSeen: true }),
     pixelRatio: 1,
@@ -658,34 +660,176 @@ test('hero skills use the six authored icons and each stage plays its own three-
     assert.ok(assets.requests.includes(iconKey), `${type} uses ${iconKey}`);
   }
 
-  for (const { type, assetKey, stepKinds, radii } of effectCases) {
-    for (let stage = 0; stage < 3; stage += 1) {
-      const radius = radii[stage];
-      game.state.effects = [{
-        uid: `${type}-skill-${stage}`,
-        type: 'hero-skill-step',
-        stepKind: stepKinds[stage],
-        stepIndex: stage,
-        x: 310,
-        y: 470,
-        radius,
-        age: 0.72,
-        duration: 0.72,
-      }];
-      assets.requests.length = 0;
-      canvas.context.calls.length = 0;
-      game.drawEffects(canvas.context);
-      assert.ok(assets.requests.includes(assetKey), `${type} stage ${stage + 1} uses its sheet`);
-      const frameDraw = canvas.context.calls.find(([kind, image]) => (
-        kind === 'drawImage' && image?.key === assetKey
-      ));
-      assert.ok(frameDraw, `${type} stage ${stage + 1} keeps the generated sheet primary`);
-      assert.deepEqual(frameDraw.slice(2), [
-        836, stage * 418, 418, 418,
-        -radius / 2, -radius / 2, radius, radius,
-      ], `${type} stage ${stage + 1} ends on its own band and matches effect.radius`);
-    }
+  game.state.hero = {
+    uid: 'dynamic-hero', type: 'needle', x: 300, y: 760,
+    hp: 100, maxHp: 100, skillCooldown: 0,
+  };
+  game.state.heroSkillActors = [
+    {
+      uid: 'field', type: 'field', heroType: 'bubble', stepKind: 'bubble-field',
+      x: 360, y: 520, radius: 130, age: 0.4, duration: 2,
+    },
+    {
+      uid: 'beam', type: 'beam', heroUid: 'dynamic-hero', heroType: 'needle',
+      stepKind: 'crystal-beam', age: 0.3, duration: 1.8,
+      originX: 300, originY: 760, endX: 540, endY: 310,
+      directionX: 0.47, directionY: -0.88, length: 510, width: 18, followHero: true,
+    },
+    {
+      uid: 'wave', type: 'wave', heroType: 'dew', stepKind: 'dew-wave',
+      originX: 240, originY: 700, previousX: 240, previousY: 640,
+      x: 240, y: 610, directionX: 0, directionY: -1,
+      speed: 320, width: 104, age: 0.28, duration: 1.2,
+    },
+  ];
+  assets.requests.length = 0;
+  canvas.context.calls.length = 0;
+  game.resetSkillRenderBudget();
+  game.drawHeroSkillActors(canvas.context, 'back');
+  game.drawHeroSkillActors(canvas.context, 'front');
+  assert.ok(canvas.context.calls.filter(([kind]) => kind === 'stroke').length >= 9,
+    'beam, field, and wave use continuously drawn strokes');
+  assert.ok(canvas.context.calls.some(([kind, , , radius]) => kind === 'arc' && radius > 120),
+    'the field reaches its real gameplay radius');
+  assert.ok(canvas.context.calls.some(([kind]) => kind === 'quadraticCurveTo'),
+    'the travelling wave has a curved crest');
+  assert.ok(canvas.context.calls.filter(([kind]) => kind === 'drawImage').length >= 7,
+    'field orbs, beam endpoints, and the wave head use formal generated components');
+  const beamAngle = Math.atan2(310 - (760 - 24), 540 - 300);
+  assert.ok(Math.abs(rotationBeforeAsset(
+    canvas.context.calls,
+    'effect-skill-crystal-laser-emitter-v1',
+  ) - beamAngle) < 1e-9, 'the right-facing laser emitter rotates directly onto the beam');
+  assert.ok(Math.abs(rotationBeforeAsset(
+    canvas.context.calls,
+    'effect-skill-dew-wave-crest-v1',
+  ) - (-Math.PI / 2)) < 1e-9, 'the right-facing wave crest rotates onto its travel direction');
+  assert.equal(assets.requests.some((key) => retiredSkillSheets.includes(key)), false,
+    'runtime skill actors never request the retired nine-frame sheets');
+
+  const earlyBeam = game.state.heroSkillActors[1];
+  earlyBeam.age = 0.02;
+  canvas.context.calls.length = 0;
+  game.resetSkillRenderBudget();
+  game.drawHeroSkillActors(canvas.context, 'front');
+  const earlyReach = Math.max(...canvas.context.calls
+    .filter(([kind]) => kind === 'lineTo')
+    .map(([, x]) => x));
+  earlyBeam.age = 0.3;
+  canvas.context.calls.length = 0;
+  game.resetSkillRenderBudget();
+  game.drawHeroSkillActors(canvas.context, 'front');
+  const fullReach = Math.max(...canvas.context.calls
+    .filter(([kind]) => kind === 'lineTo')
+    .map(([, x]) => x));
+  assert.ok(fullReach > earlyReach + 50, 'the beam grows toward its endpoint over time');
+
+  canvas.context.calls.length = 0;
+  game.resetSkillRenderBudget();
+  game.drawShot(canvas.context, {
+    uid: 'berry-skill-shot', sourceKind: 'hero-skill', heroType: 'berry',
+    type: 'berry', x: 360, y: 420, targetX: 490, targetY: 300,
+    age: 0.25, maxAge: 1, splashRadius: 76,
+  });
+  assert.ok(canvas.context.calls.filter(([kind]) => kind === 'ellipse').length >= 3,
+    'the authored bomb flies along several continuously drawn trail pieces');
+  assert.ok(assets.requests.includes('effect-skill-berry-bomb-v1'));
+  assert.ok(canvas.context.calls.some(([kind, asset]) => (
+    kind === 'drawImage' && asset?.kind === 'effect-skill-berry-bomb-v1'
+  )), 'the flying bomb itself is the formal generated component');
+  const projectileAngle = Math.atan2(300 - 420, 490 - 360);
+  assert.ok(Math.abs(rotationBeforeAsset(
+    canvas.context.calls,
+    'effect-skill-berry-bomb-v1',
+  ) - (projectileAngle - Math.PI / 2)) < 1e-9,
+  'the berry cap points behind the bomb while it flies');
+
+  canvas.context.calls.length = 0;
+  game.state.effects = [{
+    uid: 'berry-impact', type: 'hero-skill-impact', heroType: 'berry',
+    stepKind: 'berry-bomb-finale', x: 490, y: 300,
+    radius: 76, age: 0.18, duration: 0.48,
+  }];
+  game.resetSkillRenderBudget();
+  game.drawEffects(canvas.context);
+  assert.ok(canvas.context.calls.filter(([kind]) => kind === 'stroke').length >= 7,
+    'impact is a growing ring plus radial rays instead of another full-frame picture');
+  assert.ok(assets.requests.includes('effect-skill-berry-burst-v1'));
+
+  for (const sample of [
+    {
+      heroType: 'shell', stepKind: 'shell-quake',
+      assetKey: 'effect-skill-shell-impact-v1',
+    },
+    {
+      heroType: 'bubble', stepKind: 'bubble-burst',
+      assetKey: 'effect-skill-bubble-burst-v1',
+    },
+    {
+      heroType: 'sprout', stepKind: 'sprout-root-burst',
+      assetKey: 'effect-skill-sprout-thorn-v1',
+    },
+  ]) {
+    game.resetSkillRenderBudget();
+    game.drawHeroSkillStep(canvas.context, {
+      uid: `step-${sample.heroType}`,
+      type: 'hero-skill-step',
+      heroType: sample.heroType,
+      stepKind: sample.stepKind,
+      x: 360,
+      y: 430,
+      radius: 110,
+      stage: 3,
+      age: 0.16,
+      duration: 0.6,
+    }, 0.28);
+    assert.ok(assets.requests.includes(sample.assetKey),
+      `${sample.stepKind} requests ${sample.assetKey}`);
   }
+
+  for (const key of skillComponents) {
+    assert.ok(assets.requests.includes(key), `${key} is requested by its matching mechanism`);
+  }
+  assert.equal(assets.requests.includes('effect-projectile-berry'), false,
+    'the berry projectile has no unregistered legacy fallback key');
+  assert.equal(assets.requests.some((key) => retiredSkillSheets.includes(key)), false);
+
+  game.state.effects = [
+    {
+      uid: 'ground-shell', type: 'hero-skill-step', heroType: 'shell',
+      stepKind: 'shell-quake', x: 300, y: 700, radius: 120,
+      stage: 2, age: 0.18, duration: 0.6,
+    },
+    {
+      uid: 'ground-sprout', type: 'hero-skill-step', heroType: 'sprout',
+      stepKind: 'sprout-burst', x: 380, y: 620, radius: 110,
+      stage: 2, age: 0.18, duration: 0.6,
+    },
+    {
+      uid: 'ground-bubble', type: 'hero-skill-step', heroType: 'bubble',
+      stepKind: 'bubble-field', x: 340, y: 500, radius: 145,
+      stage: 1, age: 0.18, duration: 1.6,
+    },
+    {
+      uid: 'front-impact', type: 'hero-skill-impact', heroType: 'berry',
+      stepKind: 'berry-bomb-finale', x: 460, y: 340, radius: 74,
+      stage: 3, age: 0.18, duration: 0.62,
+    },
+  ];
+  assets.requests.length = 0;
+  game.resetSkillRenderBudget();
+  game.drawEffects(canvas.context, 'back');
+  assert.ok(assets.requests.includes('effect-skill-shell-impact-v1'));
+  assert.ok(assets.requests.includes('effect-skill-sprout-thorn-v1'));
+  assert.ok(assets.requests.includes('effect-skill-bubble-orb-v1'));
+  assert.equal(assets.requests.includes('effect-skill-berry-burst-v1'), false,
+    'front impact art is not painted below the actors');
+
+  assets.requests.length = 0;
+  game.resetSkillRenderBudget();
+  game.drawEffects(canvas.context, 'front');
+  assert.deepEqual(assets.requests, ['effect-skill-berry-burst-v1'],
+    'only the impact explosion stays in the character front layer');
   game.dispose();
 });
 

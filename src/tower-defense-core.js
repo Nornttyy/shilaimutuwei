@@ -28,7 +28,7 @@ export const TD_ROW_COUNT = 7;
 // Kept as an alias because older renderers call a deployment row a column.
 export const TD_COLUMN_COUNT = TD_ROW_COUNT;
 export const TD_STORAGE_KEY = 'slime-fusion-defense-v1';
-export const TD_TUTORIAL_VERSION = 2;
+export const TD_TUTORIAL_VERSION = 3;
 export const TD_STAGE_SCALE_CAPS = Object.freeze({ hp: 3.4, speed: 1.4, reward: 2.2 });
 export const TD_ENDLESS_SCALE_CAPS = Object.freeze({
   count: 8,
@@ -1858,7 +1858,10 @@ export function buyTowerDefenseSquad(state, squadType, padIndex) {
   state.events.push({
     type: 'place', towerUid: squad.uid, towerType: squadType, padIndex: index,
   });
-  if (state.tutorial.active && state.tutorial.step === 'squad') state.tutorial.step = 'start';
+  if (state.tutorial.active && state.tutorial.step === 'squad') {
+    state.tutorial.step = 'category';
+    state.events.push({ type: 'tutorial-step', step: 'category' });
+  }
   return squad;
 }
 
@@ -1942,7 +1945,8 @@ export function moveTowerToPad(state, towerUid, padIndex) {
 
 export function buildTowerDefenseTurret(state, slotIndex, type = 'gel-mortar') {
   if (state?.screen !== 'battle' || state.result || state.phase !== 'prep') return null;
-  if (state.tutorial.active) return null;
+  const tutorialBuild = state.tutorial.active && state.tutorial.step === 'turret';
+  if (state.tutorial.active && !tutorialBuild) return null;
   const definition = TURRET_TYPES[type];
   if (!definition) return null;
   const turretRank = clamp(
@@ -1954,6 +1958,7 @@ export function buildTowerDefenseTurret(state, slotIndex, type = 'gel-mortar') {
   const slots = TD_TURRET_SLOTS[state.stageId] || TD_TURRET_SLOTS['stage-1'];
   const index = Math.floor(Number(slotIndex));
   const slot = slots[index];
+  if (tutorialBuild && (type !== 'gel-mortar' || index !== 0)) return null;
   if (!slot || state.turrets.some((turret) => turret.slotIndex === index)) return null;
   if (state.currency < definition.cost) return null;
   state.currency -= definition.cost;
@@ -1978,7 +1983,23 @@ export function buildTowerDefenseTurret(state, slotIndex, type = 'gel-mortar') {
     type: 'build-turret', turretUid: turret.uid, turretType: type,
     slotIndex: index, cost: definition.cost,
   });
+  if (tutorialBuild) {
+    state.tutorial.step = 'start';
+    state.events.push({ type: 'tutorial-step', step: 'start' });
+  }
   return turret;
+}
+
+/** Records the required purchase-tab choice without coupling rules to UI state. */
+export function acknowledgeTowerDefenseTutorialCategory(state, category) {
+  if (
+    state?.screen !== 'battle' || state.result || state.phase !== 'prep'
+    || !state.tutorial?.active || state.tutorial.step !== 'category'
+    || category !== 'turret'
+  ) return false;
+  state.tutorial.step = 'turret';
+  state.events.push({ type: 'tutorial-step', step: 'turret' });
+  return true;
 }
 
 export function setTowerDefenseHeroMovement(state, dx, dy) {
@@ -4016,6 +4037,12 @@ export function tutorialTargetForState(state) {
         type: 'squad', squadType: 'melee', padIndex: openPad, label: '近',
       });
     }
+    case 'category': return Object.freeze({
+      type: 'category', category: 'turret', label: '塔',
+    });
+    case 'turret': return Object.freeze({
+      type: 'turret', turretType: 'gel-mortar', slotIndex: 0, label: '炮',
+    });
     case 'place-1': {
       const openPad = stageForState(state).pads.findIndex((_, index) => !towerByPad(state, index));
       return Object.freeze({ type: 'pad', padIndex: openPad, label: '放' });

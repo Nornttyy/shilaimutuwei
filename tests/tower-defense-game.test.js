@@ -2419,7 +2419,7 @@ test('completed story keeps all three main menu actions and unlocks endless', ()
   game.dispose();
 });
 
-test('spotlight tutorial gates every input through movement and a live-enemy skill cast', () => {
+test('seven-step spotlight tutorial teaches card categories, turret prep, movement, and a live-enemy skill cast', () => {
   const canvas = createCanvas();
   const runtime = createRuntime();
   const game = new TowerDefenseGame(canvas, {
@@ -2429,7 +2429,7 @@ test('spotlight tutorial gates every input through movement and a live-enemy ski
   });
   game.render();
   assert.ok(game.hits.some(({ id }) => id === 'tutorial-skip'));
-  assert.ok(canvas.context.calls.some(([kind, text]) => kind === 'fillText' && text === '1/5'));
+  assert.ok(canvas.context.calls.some(([kind, text]) => kind === 'fillText' && text === '1/7'));
   assert.ok(canvas.context.calls.some(([kind, text]) => kind === 'fillText' && text === '选第1关'));
 
   click(game, canvas, hitCenter(game, 'start-story'));
@@ -2454,7 +2454,7 @@ test('spotlight tutorial gates every input through movement and a live-enemy ski
   game.render();
   assert.equal(game.hits.find(({ id }) => id === 'pad-0').enabled, true);
   click(game, canvas, hitCenter(game, 'pad-0'));
-  assert.equal(game.state.tutorial.step, 'start');
+  assert.equal(game.state.tutorial.step, 'category');
   assert.equal(game.state.towers.length, 1);
   assert.equal(game.state.towers[0].squadType, 'melee');
   assert.equal(game.state.towers[0].squadSize, 4);
@@ -2462,6 +2462,51 @@ test('spotlight tutorial gates every input through movement and a live-enemy ski
   assert.equal(game.state.currency, 400);
 
   game.render();
+  assert.ok(canvas.context.calls.some(([kind, text]) => kind === 'fillText' && text === '3/7'));
+  assert.ok(canvas.context.calls.some(([kind, text]) => kind === 'fillText' && text === '切到炮台'));
+  assert.ok(canvas.context.calls.some(([kind, x, y, radius]) => (
+    kind === 'arc' && x === 376 && y === 1124 && radius >= 60
+  )), 'the turret category receives a focused spotlight');
+  click(game, canvas, hitCenter(game, 'start-wave'));
+  assert.equal(game.state.wave, 0, 'combat cannot bypass the card-category lesson');
+  click(game, canvas, hitCenter(game, 'purchase-category-squad'));
+  assert.equal(game.state.tutorial.step, 'category');
+  assert.equal(game.purchaseCategory, 'squad', 'the wrong category is ignored');
+
+  click(game, canvas, hitCenter(game, 'purchase-category-turret'));
+  assert.equal(game.state.tutorial.step, 'turret');
+  assert.equal(game.purchaseCategory, 'turret');
+  game.render();
+  assert.ok(canvas.context.calls.some(([kind, text]) => kind === 'fillText' && text === '4/7'));
+  assert.ok(canvas.context.calls.some(([kind, text]) => (
+    kind === 'fillText' && text === '选择凝胶炮'
+  )));
+  assert.equal(game.hits.find(({ id }) => id === 'purchase-turret').enabled, true);
+  assert.equal(game.tutorialAllows({
+    action: 'build-turret',
+    data: { turretType: 'gel-mortar', slotIndex: 1 },
+  }), false, 'a non-highlighted turret slot is gated');
+
+  click(game, canvas, hitCenter(game, 'purchase-turret'));
+  assert.equal(game.selectedPurchase, 'turret');
+  game.render();
+  assert.ok(canvas.context.calls.some(([kind, text]) => (
+    kind === 'fillText' && text === '放置凝胶炮'
+  )));
+  const firstTurretSlotId = game.state.turretSlots[0].id;
+  const secondTurretSlotId = game.state.turretSlots[1].id;
+  click(game, canvas, hitCenter(game, secondTurretSlotId));
+  assert.equal(game.state.turrets.length, 0, 'the wrong fixed slot cannot place the tutorial turret');
+  assert.equal(game.state.tutorial.step, 'turret');
+  click(game, canvas, hitCenter(game, firstTurretSlotId));
+  assert.equal(game.state.turrets.length, 1);
+  assert.equal(game.state.turrets[0].type, 'gel-mortar');
+  assert.equal(game.state.turrets[0].slotIndex, 0);
+  assert.equal(game.state.tutorial.step, 'start');
+  assert.equal(game.state.currency, 225);
+
+  game.render();
+  assert.ok(canvas.context.calls.some(([kind, text]) => kind === 'fillText' && text === '5/7'));
   click(game, canvas, hitCenter(game, 'start-wave'));
   assert.equal(game.state.wave, 1);
   assert.equal(game.state.waveActive, true);
@@ -2470,7 +2515,7 @@ test('spotlight tutorial gates every input through movement and a live-enemy ski
   assert.equal(game.state.tutorial.step, 'move');
 
   game.render();
-  assert.ok(canvas.context.calls.some(([kind, text]) => kind === 'fillText' && text === '4/5'));
+  assert.ok(canvas.context.calls.some(([kind, text]) => kind === 'fillText' && text === '6/7'));
   assert.ok(canvas.context.calls.some(([kind, text]) => kind === 'fillText' && text === '拖动摇杆'));
   assert.ok(canvas.context.calls.some(([kind, x, y, radius]) => (
     kind === 'arc' && x === 102 && y === 1190 && radius >= 75
@@ -2489,6 +2534,7 @@ test('spotlight tutorial gates every input through movement and a live-enemy ski
   assert.equal(game.state.enemies.length, 0);
 
   game.render();
+  assert.ok(canvas.context.calls.some(([kind, text]) => kind === 'fillText' && text === '7/7'));
   assert.ok(canvas.context.calls.some(([kind, text]) => (
     kind === 'fillText' && text === '等敌人出现'
   )));
@@ -2526,6 +2572,44 @@ test('spotlight tutorial gates every input through movement and a live-enemy ski
     'the taught skill keeps its normal staged battle feedback');
   assert.ok(game.combatFlash.alpha <= 0.11,
     'tutorial completion is not obscured by an over-bright skill flash');
+  game.dispose();
+});
+
+test('tutorial turret drag cannot bypass its authored card and fixed slot', () => {
+  const canvas = createCanvas();
+  const game = new TowerDefenseGame(canvas, {
+    runtime: createRuntime(),
+    pixelRatio: 1,
+    seed: 0x7A11,
+  });
+
+  game.render();
+  click(game, canvas, hitCenter(game, 'start-story'));
+  game.render();
+  click(game, canvas, hitCenter(game, 'select-stage-1'));
+  game.render();
+  click(game, canvas, hitCenter(game, 'purchase-melee'));
+  game.render();
+  click(game, canvas, hitCenter(game, 'pad-0'));
+  game.render();
+  click(game, canvas, hitCenter(game, 'purchase-category-turret'));
+  game.render();
+
+  const turretCard = hitCenter(game, 'purchase-turret');
+  const wrongSlot = hitCenter(game, game.state.turretSlots[1].id);
+  drag(game, canvas, turretCard, wrongSlot);
+  assert.equal(game.state.turrets.length, 0);
+  assert.equal(game.state.tutorial.step, 'turret',
+    'dragging to the wrong slot cannot advance the tutorial');
+
+  game.render();
+  drag(game, canvas, hitCenter(game, 'purchase-turret'),
+    hitCenter(game, game.state.turretSlots[0].id));
+  assert.equal(game.state.turrets.length, 1);
+  assert.equal(game.state.turrets[0].type, 'gel-mortar');
+  assert.equal(game.state.turrets[0].slotIndex, 0);
+  assert.equal(game.state.tutorial.step, 'start',
+    'the exact tutorial card and slot complete the drag path without a soft-lock');
   game.dispose();
 });
 

@@ -24,6 +24,7 @@ import {
   TOWER_ATTACK_EVOLUTIONS,
   TOWER_TYPES,
   TURRET_TYPES,
+  acknowledgeTowerDefenseTutorialCategory,
   activateTowerDefenseHeroSkill,
   beginTowerDefenseRun,
   buildTowerDefenseTurret,
@@ -1784,7 +1785,7 @@ test('stage and endless outcomes grant persistent summon currency', () => {
   assert.equal(endless.progress.summonCurrency, 35 + 9 * 8);
 });
 
-test('versioned tutorial teaches stage, squad, combat, joystick, and skill without soft-locking', () => {
+test('versioned tutorial teaches stage, purchase categories, turret prep, combat, movement, and skill without soft-locking', () => {
   const state = createTowerDefenseState({ seed: 0xCAFEBABE });
   assert.deepEqual(tutorialTargetForState(state), {
     type: 'stage', stageIndex: 0, label: '1',
@@ -1793,7 +1794,32 @@ test('versioned tutorial teaches stage, squad, combat, joystick, and skill witho
   assert.deepEqual(tutorialTargetForState(state), {
     type: 'squad', squadType: 'melee', padIndex: 0, label: '近',
   });
+  assert.equal(buildTowerDefenseTurret(state, 0, 'gel-mortar'), null,
+    'the turret cannot bypass the required squad lesson');
   assert.ok(buyTowerDefenseSquad(state, 'melee', 0));
+  assert.deepEqual(tutorialTargetForState(state), {
+    type: 'category', category: 'turret', label: '塔',
+  });
+  assert.equal(startNextTowerDefenseWave(state), false,
+    'combat stays locked until the preparation lessons are complete');
+  assert.equal(acknowledgeTowerDefenseTutorialCategory(state, 'squad'), false,
+    'the wrong category cannot advance the tutorial');
+  assert.equal(acknowledgeTowerDefenseTutorialCategory(state, 'turret'), true);
+  assert.equal(acknowledgeTowerDefenseTutorialCategory(state, 'turret'), false,
+    'the category acknowledgement is idempotent');
+  assert.deepEqual(tutorialTargetForState(state), {
+    type: 'turret', turretType: 'gel-mortar', slotIndex: 0, label: '炮',
+  });
+  assert.equal(buildTowerDefenseTurret(state, 1, 'gel-mortar'), null,
+    'the tutorial only accepts its highlighted construction slot');
+  assert.equal(buildTowerDefenseTurret(state, 0, 'bubble-coil'), null,
+    'the tutorial only accepts the starter turret');
+  const tutorialTurret = buildTowerDefenseTurret(state, 0, 'gel-mortar');
+  assert.ok(tutorialTurret);
+  assert.equal(tutorialTurret.type, 'gel-mortar');
+  assert.equal(tutorialTurret.slotIndex, 0);
+  assert.equal(state.currency, 225,
+    'the guided squad and turret purchases leave enough currency to continue');
   assert.deepEqual(tutorialTargetForState(state), { type: 'start', label: '战' });
   assert.equal(startNextTowerDefenseWave(state), true);
   assert.equal(state.tutorial.active, true);
@@ -1883,6 +1909,25 @@ test('tutorial version migration replays once and skip preserves all collection 
   assert.ok(state.events.some(({ type, skipped }) => (
     type === 'tutorial-complete' && skipped === true
   )));
+});
+
+test('the extended tutorial replays for version 2 saves exactly once', () => {
+  const state = createTowerDefenseState({
+    progress: { tutorialSeen: true, tutorialVersion: 2 },
+  });
+  assert.equal(TD_TUTORIAL_VERSION, 3);
+  assert.equal(state.tutorial.active, true);
+  assert.deepEqual(tutorialTargetForState(state), {
+    type: 'stage', stageIndex: 0, label: '1',
+  });
+  assert.equal(skipTowerDefenseTutorial(state), true);
+  assert.equal(state.progress.tutorialVersion, 3);
+
+  const restored = createTowerDefenseState({
+    progress: serializeTowerDefenseProgress(state),
+  });
+  assert.equal(restored.tutorial.active, false);
+  assert.equal(tutorialTargetForState(restored), null);
 });
 
 test('progress normalization preserves hero meta and strips transient battle state', () => {

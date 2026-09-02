@@ -38,6 +38,7 @@ import {
   TD_STORAGE_KEY,
   TD_VIEW,
   TOWER_TYPES,
+  acknowledgeTowerDefenseTutorialCategory,
   beginTowerDefenseRun,
   canMergeCardIntoTower,
   canMergeTowers,
@@ -133,7 +134,7 @@ const MENU_ACTIONS = Object.freeze({
 const AUDIO_TOGGLE_RECT = Object.freeze({ x: 658, y: 100, width: 46, height: 46 });
 const TUTORIAL_PANEL_RECT = Object.freeze({ x: 86, y: 86, width: 548, height: 82 });
 const TUTORIAL_SKIP_RECT = Object.freeze({ x: 536, y: 101, width: 82, height: 52 });
-const TUTORIAL_STEP_COUNT = 5;
+const TUTORIAL_STEP_COUNT = 7;
 
 const SUMMON_BACK_RECT = Object.freeze({ x: 22, y: 28, width: 104, height: 58 });
 const SUMMON_CURRENCY_RECT = Object.freeze({ x: 490, y: 28, width: 208, height: 62 });
@@ -2292,6 +2293,20 @@ export class TowerDefenseGame {
       }
       return hit.action === 'pad' && hit.data.padIndex === target.padIndex;
     }
+    if (target.type === 'category') {
+      return hit.action === 'select-purchase-category'
+        && hit.data.purchaseCategory === target.category;
+    }
+    if (target.type === 'turret') {
+      const selectedType = turretTypeForPurchase(this.selectedPurchase);
+      if (hit.action === 'select-purchase') {
+        return turretTypeForPurchase(hit.data.purchaseType) === target.turretType;
+      }
+      return hit.action === 'build-turret'
+        && hit.data.turretType === target.turretType
+        && hit.data.slotIndex === target.slotIndex
+        && (!this.selectedPurchase || selectedType === target.turretType);
+    }
     if (target.type === 'draw') return hit.action === 'draw';
     if (target.type === 'pad') {
       return hit.action === 'card'
@@ -2473,9 +2488,15 @@ export class TowerDefenseGame {
       const purchase = purchaseItemFor(drag.purchaseType);
       if (purchase?.kind === 'turret') {
         const turretHit = this.emptyTurretSlotHitAt(point, purchase.type);
-        if (turretHit) buildTowerDefenseTurret(
-          this.state, turretHit.data.slotIndex, purchase.type,
-        );
+        const guardedHit = turretHit ? {
+          ...turretHit,
+          data: { ...turretHit.data, purchaseType: drag.purchaseType },
+        } : null;
+        if (guardedHit && this.tutorialAllows(guardedHit)) {
+          buildTowerDefenseTurret(
+            this.state, guardedHit.data.slotIndex, purchase.type,
+          );
+        }
       } else if (purchase?.kind === 'squad' && isSquadType(purchase.type)) {
         const padHit = this.emptyPadHitAt(point);
         const target = tutorialTargetForState(this.state);
@@ -2745,6 +2766,9 @@ export class TowerDefenseGame {
         if (selected && selected.kind !== category) this.selectedPurchase = null;
         this.selectedCardUid = null;
         this.state.selectedTowerUid = null;
+        if (acknowledgeTowerDefenseTutorialCategory(this.state, category)) {
+          this.processEvents();
+        }
         break;
       }
       case 'select-purchase':
@@ -6909,9 +6933,12 @@ export class TowerDefenseGame {
     }
 
     const tutorialTarget = tutorialTargetForState(this.state);
-    if (tutorialTarget?.type === 'squad') {
-      this.purchaseCategory = 'squad';
-      this.setPurchaseTrackOffset('squad', 0);
+    const guidedCategory = tutorialTarget?.type === 'squad'
+      ? 'squad'
+      : tutorialTarget?.type === 'turret' ? 'turret' : null;
+    if (guidedCategory) {
+      this.purchaseCategory = guidedCategory;
+      this.setPurchaseTrackOffset(guidedCategory, 0);
     }
     if (!PURCHASE_CATEGORIES[this.purchaseCategory]) this.purchaseCategory = 'squad';
     const category = this.purchaseCategory;
@@ -7462,6 +7489,14 @@ export class TowerDefenseGame {
         radius: 82,
       }] : [];
     }
+    if (target.type === 'category') {
+      const rect = COMMAND_DOCK.purchaseTabs[target.category];
+      return rect ? [{
+        x: rect.x + rect.width / 2,
+        y: rect.y + rect.height / 2,
+        radius: 62,
+      }] : [];
+    }
     if (target.type === 'squad') {
       if (this.selectedPurchase === target.squadType) {
         const pad = stageForState(this.state).pads[target.padIndex];
@@ -7470,6 +7505,23 @@ export class TowerDefenseGame {
       const rect = this.hits.find(({ id, enabled }) => (
         id === `purchase-${target.squadType}` && enabled !== false
       ));
+      return rect ? [{
+        x: rect.x + rect.width / 2,
+        y: rect.y + rect.height / 2,
+        radius: 72,
+      }] : [];
+    }
+    if (target.type === 'turret') {
+      if (turretTypeForPurchase(this.selectedPurchase) === target.turretType) {
+        const slot = this.turretSlots(stageForState(this.state))[target.slotIndex];
+        return slot ? [{ x: slot.x, y: slot.y - 8, radius: 72 }] : [];
+      }
+      const purchase = PURCHASE_ITEMS.find(({ kind, type }) => (
+        kind === 'turret' && type === target.turretType
+      ));
+      const rect = purchase ? this.hits.find(({ id, enabled }) => (
+        id === `purchase-${purchase.id}` && enabled !== false
+      )) : null;
       return rect ? [{
         x: rect.x + rect.width / 2,
         y: rect.y + rect.height / 2,
@@ -7615,8 +7667,8 @@ export class TowerDefenseGame {
 
     const focus = holes[0] || { x: TD_VIEW.width / 2, y: TD_VIEW.height / 2, radius: 70 };
     const text = {
-      stage: '1', squad: '近', shop: '买', draw: '抽', pad: '放', fusion: '融', start: '战',
-      move: '移', skill: '技', 'skill-wait': '等',
+      stage: '1', squad: '近', category: '塔', turret: '炮', shop: '买', draw: '抽',
+      pad: '放', fusion: '融', start: '战', move: '移', skill: '技', 'skill-wait': '等',
     }[target.type] || target.label;
     const bubbleY = focus.y > 520 ? focus.y - focus.radius - 48 : focus.y + focus.radius + 48;
     panel(ctx, { x: focus.x - 34, y: bubbleY - 27, width: 68, height: 54 }, {
@@ -7632,10 +7684,16 @@ export class TowerDefenseGame {
         step: 2,
         text: this.selectedPurchase === target.squadType ? '放近战小队' : '选近战小队',
       },
-      start: { step: 3, text: '开始战斗' },
-      move: { step: 4, text: '拖动摇杆' },
-      'skill-wait': { step: 5, text: '等敌人出现' },
-      skill: { step: 5, text: '释放英雄技能' },
+      category: { step: 3, text: '切到炮台' },
+      turret: {
+        step: 4,
+        text: turretTypeForPurchase(this.selectedPurchase) === target.turretType
+          ? '放置凝胶炮' : '选择凝胶炮',
+      },
+      start: { step: 5, text: '开始战斗' },
+      move: { step: 6, text: '拖动摇杆' },
+      'skill-wait': { step: 7, text: '等敌人出现' },
+      skill: { step: 7, text: '释放英雄技能' },
     }[target.type] || { step: 1, text: '按高亮操作' };
     panel(ctx, TUTORIAL_PANEL_RECT, {
       fill: 'rgba(255, 251, 224, 0.97)',

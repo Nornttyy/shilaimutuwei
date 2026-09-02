@@ -1317,6 +1317,182 @@ test('generic battle effects layer authored motion with a bounded accent budget'
   game.dispose();
 });
 
+test('combat feedback layers hits, kill chains, skills, boss entry, and wave clear', () => {
+  const canvas = createCanvas();
+  const dynamicAtlas = 'effect-dynamic-components-v1';
+  const bossBurst = 'effect-spawn-rift-burst';
+  const particleAssets = [
+    'effect-particle-impact-spark',
+    'effect-particle-goo-drop',
+  ];
+  const assets = createAssetStore([dynamicAtlas, bossBurst, ...particleAssets]);
+  const game = new TowerDefenseGame(canvas, {
+    runtime: createRuntime({ tutorialSeen: true }),
+    pixelRatio: 1,
+  });
+  game.setAssetStore(assets);
+  game.state.screen = 'battle';
+  game.state.phase = 'combat';
+  game.state.waveActive = true;
+  game.state.result = null;
+  game.state.time = 12;
+  game.state.hero = {
+    uid: 'feedback-hero', type: 'shell', x: 360, y: 790,
+    hp: 200, maxHp: 200, facing: 1, moveX: 0, moveY: 0,
+  };
+  game.state.enemies = [
+    {
+      uid: 'feedback-bug', type: 'bug', x: 260, y: 410,
+      hp: 80, maxHp: 100, facing: 1, travelled: 0,
+    },
+    {
+      uid: 'feedback-boss', type: 'rift-boss', x: 470, y: 275,
+      hp: 980, maxHp: 980, facing: -1, travelled: 0,
+    },
+  ];
+  game.state.events.push(
+    { type: 'enemy-hit', enemyUid: 'feedback-bug', enemyType: 'bug', damage: 12 },
+    { type: 'enemy-hit', enemyUid: 'feedback-bug', enemyType: 'bug', damage: 36 },
+    { type: 'enemy-defeat', enemyUid: 'down-1', enemyType: 'bug', x: 210, y: 390 },
+    { type: 'enemy-defeat', enemyUid: 'down-2', enemyType: 'windcap', x: 310, y: 370 },
+    { type: 'enemy-defeat', enemyUid: 'down-3', enemyType: 'stone', x: 410, y: 350 },
+    { type: 'hero-skill', heroUid: 'feedback-hero', heroType: 'shell' },
+    {
+      type: 'hero-skill-step', heroUid: 'feedback-hero', heroType: 'shell',
+      stepIndex: 0, stage: 1, stepKind: 'shell-quake',
+    },
+    {
+      type: 'hero-skill-step', heroUid: 'feedback-hero', heroType: 'shell',
+      stepIndex: 1, stage: 2, stepKind: 'shell-quake',
+    },
+    { type: 'wave-clear', wave: 2 },
+  );
+
+  game.processEvents();
+  const kinds = game.combatFeedback.map(({ kind }) => kind);
+  for (const kind of [
+    'hit', 'strong-hit', 'defeat', 'skill-cast', 'skill-step', 'wave-clear', 'boss-enter',
+  ]) {
+    assert.ok(kinds.includes(kind), `${kind} receives its own coordinated feedback`);
+  }
+  assert.deepEqual(game.combatFeedback
+    .filter(({ kind }) => kind === 'defeat')
+    .map(({ combo }) => combo), [1, 2, 3]);
+  assert.equal(game.combatFeedback.filter(({ kind }) => kind === 'boss-enter').length, 1);
+  game.processEvents();
+  assert.equal(game.combatFeedback.filter(({ kind }) => kind === 'boss-enter').length, 1,
+    'the same living boss never repeats its entrance burst');
+  assert.ok(game.combatFlash.alpha <= 0.18,
+    'even the boss entrance keeps the field flash below a soft 18 percent');
+  assert.ok(Math.abs(game.directionalShake.x) <= 7 && Math.abs(game.directionalShake.y) <= 5);
+
+  assets.requests.length = 0;
+  canvas.context.calls.length = 0;
+  game.resetFeedbackRenderBudget();
+  game.drawCombatFeedback(canvas.context, 'back');
+  game.drawCombatFeedback(canvas.context, 'front');
+  game.drawCombatFlash(canvas.context);
+  assert.ok(assets.requests.includes(dynamicAtlas));
+  assert.ok(assets.requests.includes(bossBurst),
+    'boss entry uses the formal generated rift burst');
+  assert.ok(particleAssets.some((key) => assets.requests.includes(key)));
+  assert.equal(assets.requests.some((key) => /^skill-.+-icon$/.test(key)), false,
+    'battle feedback never substitutes a skill button icon');
+  const componentDraws = canvas.context.calls.filter(([kind, asset]) => (
+    kind === 'drawImage' && asset?.kind === dynamicAtlas
+  ));
+  assert.ok(componentDraws.length > 0 && componentDraws.length <= 18);
+  assert.ok(componentDraws.every((call) => call.slice(2, 6).every(Number.isInteger)),
+    'dynamic atlas crops stay integer-aligned without neighbouring-cell bleed');
+  assert.ok(canvas.context.calls.some(([kind, text]) => kind === 'fillText' && text === '×3'),
+    'the third rapid defeat receives a compact combo accent');
+  assert.ok(canvas.context.calls.some(([kind]) => kind === 'quadraticCurveTo'),
+    'wave clear sweeps a curved light ribbon across the battlefield');
+
+  for (let tick = 0; tick < 24; tick += 1) game.updateCombatFeedback(0.05);
+  assert.equal(game.combatFeedback.length, 0);
+  assert.equal(game.combatFlash, null);
+  assert.ok(Math.hypot(game.directionalShake.x, game.directionalShake.y) < 1e-6);
+  game.dispose();
+});
+
+test('combat feedback strictly clips event intake, active entries, and per-frame artwork', () => {
+  const canvas = createCanvas();
+  const dynamicAtlas = 'effect-dynamic-components-v1';
+  const bossBurst = 'effect-spawn-rift-burst';
+  const particles = ['effect-particle-impact-spark', 'effect-particle-goo-drop'];
+  const assets = createAssetStore([dynamicAtlas, bossBurst, ...particles]);
+  const game = new TowerDefenseGame(canvas, {
+    runtime: createRuntime({ tutorialSeen: true }),
+    pixelRatio: 1,
+  });
+  game.setAssetStore(assets);
+  game.state.screen = 'battle';
+  game.state.phase = 'combat';
+  game.state.waveActive = true;
+  game.state.enemies = Array.from({ length: 40 }, (_, index) => ({
+    uid: `intake-${index}`, type: 'bug', x: 80 + index * 11, y: 320,
+    hp: 90, maxHp: 100, facing: 1, travelled: 0,
+  }));
+  game.state.events.push(...game.state.enemies.map((enemy) => ({
+    type: 'enemy-hit', enemyUid: enemy.uid, enemyType: enemy.type, damage: 8,
+  })));
+  game.processEvents();
+  assert.equal(game.combatFeedback.filter(({ kind }) => kind === 'hit').length, 8,
+    'one event batch admits at most eight routine hit accents');
+
+  game.resetCombatFeedback();
+  const normalizedBoss = game.enqueueCombatFeedback('boss-enter', {
+    duration: 99, priority: 99, layer: 'menu', x: Number.NaN, y: Number.NaN,
+    seed: Number.NaN,
+  });
+  assert.deepEqual({
+    duration: normalizedBoss.duration,
+    priority: normalizedBoss.priority,
+    layer: normalizedBoss.layer,
+    x: normalizedBoss.x,
+    y: normalizedBoss.y,
+  }, {
+    duration: 1.2, priority: 5, layer: 'back', x: 360, y: 520,
+  }, 'untrusted options cannot overwrite the normalized render contract');
+  for (let index = 0; index < 80; index += 1) {
+    game.enqueueCombatFeedback('hit', { x: index * 8, y: 400 });
+  }
+  assert.equal(game.combatFeedback.length, 32);
+  assert.ok(game.combatFeedback.includes(normalizedBoss),
+    'low-priority hit spam cannot evict a boss entrance');
+
+  game.resetCombatFeedback();
+  for (let index = 0; index < 6; index += 1) {
+    game.enqueueCombatFeedback('boss-enter', {
+      x: 120 + index * 80, y: 260, enemyType: 'boss', boss: true,
+    });
+  }
+  for (let index = 0; index < 26; index += 1) {
+    game.enqueueCombatFeedback('defeat', {
+      x: 80 + index % 8 * 80, y: 380 + Math.floor(index / 8) * 70,
+      enemyType: 'bug', combo: index + 1,
+    });
+  }
+  assert.equal(game.combatFeedback.length, 32);
+  assets.requests.length = 0;
+  canvas.context.calls.length = 0;
+  game.resetFeedbackRenderBudget();
+  game.drawCombatFeedback(canvas.context, 'back');
+  game.drawCombatFeedback(canvas.context, 'front');
+
+  const countAssetDraws = (key) => canvas.context.calls.filter(([kind, asset]) => (
+    kind === 'drawImage' && asset?.kind === key
+  )).length;
+  assert.ok(countAssetDraws(dynamicAtlas) <= 18);
+  assert.ok(countAssetDraws(bossBurst) <= 2);
+  assert.ok(particles.reduce((sum, key) => sum + countAssetDraws(key), 0) <= 24);
+  assert.ok(Object.values(game.feedbackRenderBudget).every((remaining) => remaining >= 0));
+  assert.equal(game.feedbackRenderBudget.entries, 0,
+    'back and front feedback share one sixteen-entry budget for the whole frame');
+  game.dispose();
+});
+
 test('reinforcement squads and turrets use animated authored projectile atlas trails', () => {
   const canvas = createCanvas();
   const game = new TowerDefenseGame(canvas, {
@@ -2257,6 +2433,11 @@ test('spotlight tutorial gates every input through movement and a live-enemy ski
   assert.equal(game.state.progress.tutorialVersion, TD_TUTORIAL_VERSION);
   assert.equal(runtime.values.get(TD_STORAGE_KEY).tutorialSeen, true);
   assert.equal(runtime.values.get(TD_STORAGE_KEY).tutorialVersion, TD_TUTORIAL_VERSION);
+  assert.ok(game.combatFeedback.some(({ kind }) => kind === 'skill-cast'));
+  assert.ok(game.combatFeedback.some(({ kind }) => kind === 'skill-step'),
+    'the taught skill keeps its normal staged battle feedback');
+  assert.ok(game.combatFlash.alpha <= 0.11,
+    'tutorial completion is not obscured by an over-bright skill flash');
   game.dispose();
 });
 

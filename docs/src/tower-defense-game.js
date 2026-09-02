@@ -169,6 +169,24 @@ const SKILL_RENDER_LIMITS = Object.freeze({
   projectileTrails: 18,
   components: 24,
 });
+const COMBAT_FEEDBACK_LIMITS = Object.freeze({
+  active: 32,
+  batchHits: 8,
+  entries: 16,
+  formal: 2,
+  components: 18,
+  particles: 24,
+  rays: 36,
+});
+const COMBAT_FEEDBACK_DURATION = Object.freeze({
+  hit: 0.24,
+  'strong-hit': 0.34,
+  defeat: 0.58,
+  'skill-cast': 0.52,
+  'skill-step': 0.46,
+  'boss-enter': 1.05,
+  'wave-clear': 0.92,
+});
 const SKILL_COMPONENT_ASSETS = Object.freeze({
   shellImpact: 'effect-skill-shell-impact-v1',
   crystalLaserEmitter: 'effect-skill-crystal-laser-emitter-v1',
@@ -1089,6 +1107,13 @@ export class TowerDefenseGame {
     this.defeatedActors = [];
     this.defeatedTowers = [];
     this.skillRenderBudget = null;
+    this.combatFeedback = [];
+    this.combatFeedbackSerial = 0;
+    this.feedbackRenderBudget = null;
+    this.combatFlash = null;
+    this.directionalShake = { x: 0, y: 0 };
+    this.knownEnemyUids = new Set();
+    this.killChain = { count: 0, lastAt: -Infinity };
     this.visualMotion = new Map();
     this.visualAimState = new Map();
     this.visualFacingState = new Map();
@@ -1444,10 +1469,213 @@ export class TowerDefenseGame {
     this.playCharacterAnimation(key, actor.ownerId, deathAction, { base: 'move' });
   }
 
+  resetCombatFeedback() {
+    this.combatFeedback.length = 0;
+    this.combatFlash = null;
+    this.directionalShake.x = 0;
+    this.directionalShake.y = 0;
+    this.knownEnemyUids.clear();
+    this.killChain.count = 0;
+    this.killChain.lastAt = -Infinity;
+  }
+
+  enqueueCombatFeedback(kind, options = {}) {
+    const duration = clamp(finiteNumber(
+      options.duration,
+      COMBAT_FEEDBACK_DURATION[kind],
+      0.4,
+    ), 0.08, 1.2);
+    const priority = clamp(Math.floor(finiteNumber(options.priority, {
+      hit: 1,
+      'strong-hit': 2,
+      defeat: 3,
+      'skill-step': 3,
+      'skill-cast': 4,
+      'wave-clear': 4,
+      'boss-enter': 5,
+    }[kind], 1)), 1, 5);
+    const defaultLayer = ['skill-cast', 'boss-enter'].includes(kind) ? 'back' : 'front';
+    const layer = ['back', 'front'].includes(options.layer) ? options.layer : defaultLayer;
+    const entry = {
+      ...options,
+      uid: `combat-feedback-${this.combatFeedbackSerial += 1}`,
+      kind,
+      age: 0,
+      duration,
+      priority,
+      layer,
+      x: finiteNumber(options.x, TD_VIEW.width / 2),
+      y: finiteNumber(options.y, 520),
+      seed: finiteNumber(options.seed, this.combatFeedbackSerial * 13.37),
+    };
+    if (this.combatFeedback.length >= COMBAT_FEEDBACK_LIMITS.active) {
+      let discardIndex = 0;
+      for (let index = 1; index < this.combatFeedback.length; index += 1) {
+        const candidate = this.combatFeedback[index];
+        const discard = this.combatFeedback[discardIndex];
+        if (candidate.priority < discard.priority
+          || (candidate.priority === discard.priority && candidate.age > discard.age)) {
+          discardIndex = index;
+        }
+      }
+      if (this.combatFeedback[discardIndex].priority > priority) return null;
+      this.combatFeedback.splice(discardIndex, 1);
+    }
+    this.combatFeedback.push(entry);
+    return entry;
+  }
+
+  addCombatFlash(color, alpha, duration = 0.18) {
+    const nextAlpha = clamp(finiteNumber(alpha), 0, 0.3);
+    if (nextAlpha <= 0) return;
+    const currentStrength = this.combatFlash
+      ? this.combatFlash.alpha * (1 - clamp(
+        this.combatFlash.age / Math.max(0.001, this.combatFlash.duration), 0, 1,
+      ))
+      : 0;
+    if (currentStrength > nextAlpha) return;
+    this.combatFlash = {
+      color: color || '#FFFFFF', alpha: nextAlpha,
+      age: 0, duration: Math.max(0.08, finiteNumber(duration, 0.18)),
+    };
+  }
+
+  addDirectionalShake(dx, dy, strength = 1) {
+    const magnitude = Math.hypot(finiteNumber(dx), finiteNumber(dy)) || 1;
+    const boundedStrength = clamp(finiteNumber(strength), 0, 6);
+    this.directionalShake.x = clamp(
+      this.directionalShake.x + finiteNumber(dx) / magnitude * boundedStrength,
+      -7,
+      7,
+    );
+    this.directionalShake.y = clamp(
+      this.directionalShake.y + finiteNumber(dy) / magnitude * boundedStrength,
+      -5,
+      5,
+    );
+    this.shake = Math.min(10, this.shake + boundedStrength * 0.35);
+  }
+
+  processCombatFeedbackEvent(event, intake) {
+    if (!event || typeof event.type !== 'string' || this.state.screen !== 'battle') return;
+    if (event.type === 'enemy-hit') {
+      if (intake.hits >= COMBAT_FEEDBACK_LIMITS.batchHits) return;
+      const enemy = this.state.enemies.find(({ uid }) => uid === event.enemyUid);
+      if (!enemy || enemy.hp <= 0) return;
+      intake.hits += 1;
+      const damage = Math.max(0, finiteNumber(event.damage, event.incomingDamage));
+      const strong = damage >= Math.max(30, finiteNumber(enemy.maxHp, 1) * 0.2);
+      this.enqueueCombatFeedback(strong ? 'strong-hit' : 'hit', {
+        x: enemy.x,
+        y: enemy.y - 18,
+        enemyType: enemy.type,
+        damage,
+        priority: strong ? 2 : 1,
+        seed: finiteNumber(enemy.x) * 0.13 + finiteNumber(enemy.y) * 0.07 + damage,
+      });
+      if (strong) {
+        this.addCombatFlash('#FFF3A6', 0.045, 0.12);
+        this.addDirectionalShake(enemy.x - TD_VIEW.width / 2, -0.35, 1.2);
+      }
+      return;
+    }
+    if (event.type === 'enemy-defeat') {
+      const now = finiteNumber(this.state.time, this.animationTime);
+      this.killChain.count = now - this.killChain.lastAt <= 1.1
+        ? Math.min(12, this.killChain.count + 1)
+        : 1;
+      this.killChain.lastAt = now;
+      const boss = Boolean(TD_ENEMIES[event.enemyType]?.boss);
+      this.enqueueCombatFeedback('defeat', {
+        x: event.x,
+        y: finiteNumber(event.y) - 12,
+        enemyType: event.enemyType,
+        combo: this.killChain.count,
+        boss,
+        priority: boss ? 5 : 3,
+        duration: boss ? 0.82 : COMBAT_FEEDBACK_DURATION.defeat,
+      });
+      this.addDirectionalShake(finiteNumber(event.x) - TD_VIEW.width / 2, -0.5,
+        boss ? 4.6 : Math.min(2.4, 1 + this.killChain.count * 0.15));
+      this.addCombatFlash(boss ? '#DCC8FF' : '#FFF1A4', boss ? 0.16 : 0.065,
+        boss ? 0.28 : 0.14);
+      return;
+    }
+    if (event.type === 'hero-skill') {
+      const hero = this.state.hero;
+      if (!hero) return;
+      const heroType = event.heroType || hero.type || this.state.selectedHeroId;
+      this.enqueueCombatFeedback('skill-cast', {
+        x: hero.x,
+        y: hero.y - 18,
+        heroType,
+        priority: 4,
+      });
+      this.addCombatFlash(SKILL_VISUAL_STYLE[heroType]?.light || '#FFFFFF', 0.11, 0.2);
+      this.addDirectionalShake(0, -1, 1.8);
+      return;
+    }
+    if (event.type === 'hero-skill-step') {
+      const hero = this.state.hero;
+      if (!hero) return;
+      this.enqueueCombatFeedback('skill-step', {
+        x: hero.x,
+        y: hero.y - 24,
+        heroType: event.heroType || hero.type,
+        stage: clamp(Math.floor(finiteNumber(event.stage, event.stepIndex + 1, 1)), 1, 3),
+        stepKind: event.stepKind,
+        priority: 3,
+        seed: finiteNumber(event.stepIndex, 0) * 29 + finiteNumber(this.state.time),
+      });
+      return;
+    }
+    if (event.type === 'wave-clear') {
+      this.enqueueCombatFeedback('wave-clear', {
+        x: TD_VIEW.width / 2,
+        y: 535,
+        wave: event.wave,
+        priority: 4,
+      });
+      this.addCombatFlash('#DFFFF0', 0.12, 0.3);
+      this.addDirectionalShake(0, -1, 2.1);
+    }
+  }
+
+  captureEnemyEntranceFeedback() {
+    const liveUids = new Set();
+    for (const enemy of this.state.enemies || []) {
+      liveUids.add(enemy.uid);
+      if (this.knownEnemyUids.has(enemy.uid) || !TD_ENEMIES[enemy.type]?.boss) continue;
+      this.enqueueCombatFeedback('boss-enter', {
+        x: enemy.x,
+        y: enemy.y,
+        enemyType: enemy.type,
+        priority: 5,
+      });
+      this.addCombatFlash('#CDB8FF', 0.18, 0.32);
+      this.addDirectionalShake(0, 1, 4.2);
+    }
+    this.knownEnemyUids = liveUids;
+  }
+
+  updateCombatFeedback(dt) {
+    const delta = clamp(Number(dt) || 0, 0, 0.05);
+    for (const entry of this.combatFeedback) entry.age += delta;
+    this.combatFeedback = this.combatFeedback.filter(({ age, duration }) => age < duration);
+    if (this.combatFlash) {
+      this.combatFlash.age += delta;
+      if (this.combatFlash.age >= this.combatFlash.duration) this.combatFlash = null;
+    }
+    const shakeDecay = Math.exp(-delta * 18);
+    this.directionalShake.x *= shakeDecay;
+    this.directionalShake.y *= shakeDecay;
+  }
+
   updateCharacterAnimations(dt) {
     const delta = clamp(Number(dt) || 0, 0, 0.05);
     this.animationTime += delta;
     this.updateSummonAnimation(delta);
+    this.updateCombatFeedback(delta);
     const liveKeys = new Set();
     const advance = (key, ownerId, base = 'idle') => {
       const entry = this.characterAnimationFor(key, ownerId, base);
@@ -1661,6 +1889,8 @@ export class TowerDefenseGame {
   processEvents() {
     const events = this.state.events.splice(0);
     this.eventCursor = 0;
+    if (events.some(({ type }) => type === 'run-start')) this.resetCombatFeedback();
+    const feedbackIntake = { hits: 0 };
     for (const event of events) {
       this.processCharacterAnimationEvent(event);
       if (event.type === 'core-hit') this.shake = Math.min(10, this.shake + 5);
@@ -1670,8 +1900,10 @@ export class TowerDefenseGame {
       if (['run-start', 'wave-clear', 'run-end'].includes(event.type)) {
         this.resetHeroInput();
       }
+      this.processCombatFeedbackEvent(event, feedbackIntake);
       if (event.type === 'run-end' || event.type === 'tutorial-complete') this.save();
     }
+    if (this.state.screen === 'battle') this.captureEnemyEntranceFeedback();
     this.audio.consumeEvents(events, this.state.screen);
     return events;
   }
@@ -1724,6 +1956,7 @@ export class TowerDefenseGame {
     this.defeatedActors.length = 0;
     this.defeatedTowers.length = 0;
     this.resetVisualState();
+    this.resetCombatFeedback();
     this.audio.dispose();
   }
 
@@ -3896,14 +4129,15 @@ export class TowerDefenseGame {
   drawBattle(ctx) {
     const stage = stageForState(this.state);
     ctx.save();
-    if (this.shake > 0) {
+    if (this.shake > 0 || Math.hypot(this.directionalShake.x, this.directionalShake.y) > 0.05) {
       ctx.translate(
-        Math.sin(this.state.time * 62) * this.shake,
-        Math.cos(this.state.time * 47) * this.shake * 0.55,
+        Math.sin(this.state.time * 62) * this.shake + this.directionalShake.x,
+        Math.cos(this.state.time * 47) * this.shake * 0.55 + this.directionalShake.y,
       );
     }
     this.drawBattlefield(ctx, stage);
     ctx.restore();
+    this.drawCombatFlash(ctx);
     this.drawBattleHud(ctx, stage);
     this.drawHeroControls(ctx);
     this.drawDragPreview(ctx);
@@ -4164,6 +4398,7 @@ export class TowerDefenseGame {
 
   drawBattlefield(ctx, stage) {
     this.resetSkillRenderBudget();
+    this.resetFeedbackRenderBudget();
     ctx.fillStyle = '#B8DEC8';
     ctx.fillRect(0, 0, TD_VIEW.width, TD_VIEW.height);
     drawAssetOrFallback(ctx, this.assetStore, 'background-battle-portrait-v1', (asset) => {
@@ -4186,6 +4421,7 @@ export class TowerDefenseGame {
     this.drawLaneGateways(ctx, lanes, stage, coreX, coreY);
     this.drawHeroSkillActors(ctx, 'back');
     this.drawEffects(ctx, 'back');
+    this.drawCombatFeedback(ctx, 'back');
 
     drawCore(ctx, coreX, coreY, 160, {
       assetKey: 'fortress-slime-core',
@@ -4244,6 +4480,7 @@ export class TowerDefenseGame {
     this.state.projectiles.forEach((projectile) => this.drawShot(ctx, projectile));
     this.drawHeroSkillActors(ctx, 'front');
     this.drawEffects(ctx, 'front');
+    this.drawCombatFeedback(ctx, 'front');
   }
 
   drawDeploymentGrid(ctx, lanes, stage) {
@@ -4823,6 +5060,309 @@ export class TowerDefenseGame {
         ctx.restore();
       }
     }, () => {});
+  }
+
+  resetFeedbackRenderBudget() {
+    this.feedbackRenderBudget = {
+      entries: COMBAT_FEEDBACK_LIMITS.entries,
+      formal: COMBAT_FEEDBACK_LIMITS.formal,
+      components: COMBAT_FEEDBACK_LIMITS.components,
+      particles: COMBAT_FEEDBACK_LIMITS.particles,
+      rays: COMBAT_FEEDBACK_LIMITS.rays,
+    };
+  }
+
+  spendFeedbackRenderBudget(kind, amount = 1) {
+    if (!this.feedbackRenderBudget) this.resetFeedbackRenderBudget();
+    const cost = Math.max(1, Math.floor(Number(amount) || 1));
+    if ((this.feedbackRenderBudget[kind] || 0) < cost) return false;
+    this.feedbackRenderBudget[kind] -= cost;
+    return true;
+  }
+
+  drawFeedbackDynamicComponents(ctx, componentName, instances) {
+    const cell = DYNAMIC_SKILL_COMPONENTS[componentName];
+    if (!cell || !this.assetStore || typeof this.assetStore.useOrFallback !== 'function') {
+      return false;
+    }
+    const drawable = [];
+    for (const instance of Array.isArray(instances) ? instances : []) {
+      if (!instance || !this.spendFeedbackRenderBudget('components')) break;
+      drawable.push(instance);
+    }
+    if (!drawable.length) return false;
+    return this.assetStore.useOrFallback(DYNAMIC_SKILL_COMPONENT_ATLAS_KEY, (asset) => {
+      const sourceWidth = Math.max(1, Math.round(finiteNumber(
+        asset?.naturalWidth, asset?.videoWidth, asset?.width, 1254,
+      )));
+      const sourceHeight = Math.max(1, Math.round(finiteNumber(
+        asset?.naturalHeight, asset?.videoHeight, asset?.height, 1254,
+      )));
+      const sourceLeft = Math.round(sourceWidth * cell.column / DYNAMIC_SKILL_COMPONENT_GRID);
+      const sourceTop = Math.round(sourceHeight * cell.row / DYNAMIC_SKILL_COMPONENT_GRID);
+      const sourceRight = Math.round(
+        sourceWidth * (cell.column + 1) / DYNAMIC_SKILL_COMPONENT_GRID,
+      );
+      const sourceBottom = Math.round(
+        sourceHeight * (cell.row + 1) / DYNAMIC_SKILL_COMPONENT_GRID,
+      );
+      const sourceCellWidth = Math.max(1, sourceRight - sourceLeft);
+      const sourceCellHeight = Math.max(1, sourceBottom - sourceTop);
+      for (const instance of drawable) {
+        const width = Math.max(1, finiteNumber(instance.width, instance.size, 32));
+        const height = Math.max(1, finiteNumber(instance.height, instance.size, width));
+        ctx.save();
+        ctx.globalAlpha = (Number.isFinite(ctx.globalAlpha) ? ctx.globalAlpha : 1)
+          * clamp(finiteNumber(instance.alpha, 1), 0, 1);
+        ctx.translate(finiteNumber(instance.x), finiteNumber(instance.y));
+        ctx.rotate(finiteNumber(instance.rotation));
+        ctx.drawImage(
+          asset,
+          sourceLeft,
+          sourceTop,
+          sourceCellWidth,
+          sourceCellHeight,
+          -width * clamp(finiteNumber(instance.anchorX, 0.5), 0, 1),
+          -height * clamp(finiteNumber(instance.anchorY, 0.5), 0, 1),
+          width,
+          height,
+        );
+        ctx.restore();
+      }
+    }, () => {});
+  }
+
+  drawFeedbackParticle(ctx, x, y, size, type, options = {}) {
+    if (!this.spendFeedbackRenderBudget('particles')) return false;
+    drawParticle(ctx, x, y, size, type, {
+      ...options,
+      assetStore: this.assetStore,
+    });
+    return true;
+  }
+
+  drawFeedbackRays(ctx, entry, count, radius, color, alpha) {
+    const available = Math.min(
+      Math.max(0, Math.floor(Number(count) || 0)),
+      Math.max(0, this.feedbackRenderBudget?.rays || 0),
+    );
+    if (!available || !this.spendFeedbackRenderBudget('rays', available)) return false;
+    const progress = clamp(entry.age / Math.max(0.001, entry.duration), 0, 1);
+    const expand = easeOutCubic(progress);
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = Math.max(1.5, 4.2 * (1 - progress));
+    ctx.lineCap = 'round';
+    ctx.globalAlpha = clamp(alpha, 0, 1);
+    ctx.beginPath();
+    for (let index = 0; index < available; index += 1) {
+      const angle = index * TAU / available + skillNoise(entry.seed, index) * 0.42;
+      const inner = radius * (0.16 + expand * 0.22);
+      const outer = radius * (0.42 + expand * (0.48 + skillNoise(entry.seed, index + 20) * 0.16));
+      ctx.moveTo(entry.x + Math.cos(angle) * inner, entry.y + Math.sin(angle) * inner);
+      ctx.lineTo(entry.x + Math.cos(angle) * outer, entry.y + Math.sin(angle) * outer);
+    }
+    ctx.stroke();
+    ctx.restore();
+    return true;
+  }
+
+  drawCombatFeedbackEntry(ctx, entry) {
+    const progress = clamp(entry.age / Math.max(0.001, entry.duration), 0, 1);
+    const expand = easeOutCubic(progress);
+    const fade = (1 - progress) ** 0.68;
+    const heroStyle = SKILL_VISUAL_STYLE[entry.heroType] || SKILL_VISUAL_STYLE.shell;
+    const paletteIndex = Math.floor(Math.abs(entry.seed || 0)) % 4;
+    const enemyColors = ['#FFE16B', '#63E2C0', '#72D8F2', '#F58CAB'];
+    const color = entry.boss ? '#C39BFF' : enemyColors[paletteIndex];
+
+    if (entry.kind === 'hit' || entry.kind === 'strong-hit') {
+      const strong = entry.kind === 'strong-hit';
+      const radius = strong ? 58 : 34;
+      this.drawFeedbackDynamicComponents(ctx, strong ? 'impact-streak' : 'impact-core', [{
+        x: entry.x,
+        y: entry.y,
+        size: (strong ? 66 : 38) * (0.72 + expand * 0.52),
+        alpha: fade * (strong ? 0.9 : 0.68),
+        rotation: (skillNoise(entry.seed, 1) - 0.5) * 1.5,
+      }]);
+      this.drawFeedbackRays(ctx, entry, strong ? 5 : 2, radius, color, fade * 0.82);
+      this.drawFeedbackParticle(ctx, entry.x, entry.y, strong ? 25 : 17, 'spark', {
+        progress,
+        alpha: fade * (strong ? 0.9 : 0.62),
+        rotation: progress * 2.2,
+      });
+      return;
+    }
+
+    if (entry.kind === 'defeat') {
+      const combo = Math.max(1, Math.floor(entry.combo || 1));
+      const radius = (entry.boss ? 112 : 66) * (0.7 + expand * 0.55);
+      this.drawFeedbackDynamicComponents(ctx, 'impact-core', [{
+        x: entry.x, y: entry.y,
+        size: radius * 1.15,
+        alpha: fade * (entry.boss ? 0.95 : 0.78),
+        rotation: progress * 0.8,
+      }]);
+      const satelliteCount = Math.min(entry.boss ? 5 : 4, 2 + Math.floor(combo / 3));
+      this.drawFeedbackDynamicComponents(ctx, 'sparkle', Array.from(
+        { length: satelliteCount },
+        (_, index) => {
+          const angle = index * TAU / satelliteCount + skillNoise(entry.seed, index) * 0.36;
+          const travel = 18 + expand * (entry.boss ? 74 : 42);
+          return {
+            x: entry.x + Math.cos(angle) * travel,
+            y: entry.y + Math.sin(angle) * travel * 0.72,
+            size: (entry.boss ? 30 : 21) * (0.8 + (1 - progress) * 0.4),
+            alpha: fade * 0.86,
+            rotation: angle + progress * 1.8,
+          };
+        },
+      ));
+      this.drawFeedbackRays(ctx, entry, entry.boss ? 10 : 6, radius, color, fade * 0.88);
+      for (let index = 0; index < Math.min(entry.boss ? 5 : 3, combo + 2); index += 1) {
+        const angle = index * TAU / Math.min(entry.boss ? 5 : 3, combo + 2)
+          + skillNoise(entry.seed, index + 40) * 0.5;
+        this.drawFeedbackParticle(ctx,
+          entry.x + Math.cos(angle) * expand * radius * 0.55,
+          entry.y + Math.sin(angle) * expand * radius * 0.4,
+          entry.boss ? 24 : 17,
+          index % 2 ? 'goo' : 'spark', {
+            progress,
+            alpha: fade * 0.72,
+            rotation: angle + progress,
+          });
+      }
+      if (combo >= 3) {
+        label(ctx, `×${combo}`, entry.x, entry.y - 46 - expand * 18, {
+          size: Math.min(28, 18 + combo), color, weight: 950,
+          alpha: fade,
+        });
+      }
+      return;
+    }
+
+    if (entry.kind === 'skill-cast') {
+      this.drawFeedbackDynamicComponents(ctx, 'shock-ring', [{
+        x: entry.x,
+        y: entry.y + 10,
+        width: 96 + expand * 82,
+        height: 58 + expand * 38,
+        alpha: fade * 0.82,
+        rotation: progress * 0.5,
+      }]);
+      this.drawFeedbackDynamicComponents(ctx, 'sparkle', Array.from({ length: 3 }, (_, index) => {
+        const angle = index * TAU / 3 - Math.PI / 2 + progress * 1.2;
+        return {
+          x: entry.x + Math.cos(angle) * (30 + expand * 20),
+          y: entry.y + Math.sin(angle) * (24 + expand * 16),
+          size: 18 + index * 2,
+          alpha: fade * 0.75,
+          rotation: angle,
+        };
+      }));
+      this.drawFeedbackRays(ctx, entry, 5, 72, heroStyle.color, fade * 0.64);
+      return;
+    }
+
+    if (entry.kind === 'skill-step') {
+      const stage = clamp(Math.floor(entry.stage || 1), 1, 3);
+      const componentName = EXPANDED_SKILL_COMPONENT_BY_TYPE[entry.heroType] || 'impact-core';
+      this.drawFeedbackDynamicComponents(ctx, componentName, [{
+        x: entry.x,
+        y: entry.y,
+        size: (46 + stage * 13) * (0.74 + expand * 0.45),
+        alpha: fade * 0.72,
+        rotation: (stage % 2 ? 1 : -1) * progress * 0.9,
+      }]);
+      this.drawFeedbackRays(ctx, entry, 2 + stage, 42 + stage * 10,
+        heroStyle.light, fade * 0.62);
+      return;
+    }
+
+    if (entry.kind === 'boss-enter') {
+      if (this.spendFeedbackRenderBudget('formal')) {
+        drawAssetOrFallback(ctx, this.assetStore, 'effect-spawn-rift-burst', (asset) => {
+          const size = 150 + expand * 92;
+          ctx.save();
+          ctx.globalAlpha *= fade * 0.92;
+          ctx.translate(entry.x, entry.y);
+          ctx.rotate((1 - progress) * -0.18);
+          ctx.drawImage(asset, -size / 2, -size / 2, size, size);
+          ctx.restore();
+        }, () => {});
+      }
+      this.drawFeedbackDynamicComponents(ctx, 'rift-shard', Array.from({ length: 4 }, (_, index) => {
+        const angle = index * TAU / 4 + progress * 0.45;
+        const travel = 28 + expand * 64;
+        return {
+          x: entry.x + Math.cos(angle) * travel,
+          y: entry.y + Math.sin(angle) * travel * 0.72,
+          size: 34 + index * 3,
+          alpha: fade * 0.88,
+          rotation: angle + progress,
+        };
+      }));
+      this.drawFeedbackRays(ctx, entry, 10, 126, '#D8C5FF', fade * 0.84);
+      return;
+    }
+
+    if (entry.kind === 'wave-clear') {
+      const pieces = 7;
+      this.drawFeedbackDynamicComponents(ctx, 'confetti', Array.from({ length: pieces }, (_, index) => {
+        const spread = (index - (pieces - 1) / 2) * 74;
+        return {
+          x: entry.x + spread + Math.sin(progress * 5 + index) * 18,
+          y: entry.y - 70 + expand * (65 + (index % 3) * 24),
+          width: 28,
+          height: 38,
+          alpha: fade * 0.82,
+          rotation: progress * (index % 2 ? 3.4 : -3.1) + index,
+        };
+      }));
+      this.drawFeedbackDynamicComponents(ctx, 'sparkle', Array.from({ length: 3 }, (_, index) => ({
+        x: entry.x + (index - 1) * 118,
+        y: entry.y - 18 - Math.sin(progress * Math.PI) * (38 + index * 8),
+        size: 32 + index * 4,
+        alpha: fade * 0.82,
+        rotation: progress * 1.6,
+      })));
+      if (this.spendFeedbackRenderBudget('rays', 2)) {
+        ctx.save();
+        ctx.globalAlpha = fade * 0.62;
+        ctx.strokeStyle = '#E8FFF2';
+        ctx.lineWidth = 5 * (1 - progress) + 1;
+        ctx.beginPath();
+        ctx.moveTo(54, entry.y + 34 - expand * 42);
+        ctx.quadraticCurveTo(entry.x, entry.y - 54 - expand * 20,
+          TD_VIEW.width - 54, entry.y + 34 - expand * 42);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+  }
+
+  drawCombatFeedback(ctx, layer = 'front') {
+    const entries = this.combatFeedback
+      .filter((entry) => entry.layer === layer && entry.age < entry.duration)
+      .sort((left, right) => right.priority - left.priority || left.uid.localeCompare(right.uid));
+    for (const entry of entries) {
+      if (!this.spendFeedbackRenderBudget('entries')) break;
+      this.drawCombatFeedbackEntry(ctx, entry);
+    }
+  }
+
+  drawCombatFlash(ctx) {
+    if (!this.combatFlash || this.combatFlash.age >= this.combatFlash.duration) return;
+    const progress = clamp(
+      this.combatFlash.age / Math.max(0.001, this.combatFlash.duration), 0, 1,
+    );
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    ctx.globalAlpha = this.combatFlash.alpha * (1 - progress) ** 1.8;
+    ctx.fillStyle = this.combatFlash.color;
+    ctx.fillRect(0, BATTLE_FIELD.top, TD_VIEW.width, BATTLE_FIELD.bottom - BATTLE_FIELD.top);
+    ctx.restore();
   }
 
   drawSkillMote(ctx, x, y, size, color, alpha = 1, rotation = 0) {

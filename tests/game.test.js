@@ -22,6 +22,7 @@ import {
   drawBuilding,
   drawCore,
   drawParticle,
+  drawProjectile,
   drawStatusIcon,
 } from '../src/draw.js';
 import {
@@ -2409,6 +2410,69 @@ test('generated ring and bubble particles transform through their lifetime', () 
     'the generated bubble visibly floats upward');
   assert.notDeepEqual(lateBubble.matrix, earlyBubble.matrix,
     'the generated bubble also grows, stretches, and rotates over time');
+});
+
+test('generated projectiles add bounded two-color Canvas trails after the formal PNG', () => {
+  const store = createReadyAssetStore([
+    'effect-projectile-goo',
+    'effect-projectile-bubble',
+  ]);
+  const renderProjectile = (type, progress) => {
+    const recording = createDynamicEffectRecordingContext();
+    drawProjectile(recording.ctx, 20, 30, 18, type, {
+      assetStore: store,
+      progress,
+    });
+    return recording.calls;
+  };
+  const early = renderProjectile('goo', 0.1);
+  const late = renderProjectile('goo', 0.8);
+  const imageIndex = early.findIndex(([method]) => method === 'drawImage');
+  const strokeIndexes = early
+    .map(([method], index) => method === 'stroke' ? index : -1)
+    .filter((index) => index >= 0);
+  assert.ok(imageIndex >= 0, 'the formal projectile PNG remains the primary layer');
+  assert.equal(strokeIndexes.length, 2,
+    'the tail uses exactly two inexpensive color strokes');
+  assert.ok(strokeIndexes.every((index) => index > imageIndex),
+    'accents run only after drawImage succeeds, preserving atomic fallback');
+  assert.notDeepEqual(
+    late.find(([method]) => method === 'moveTo').slice(1),
+    early.find(([method]) => method === 'moveTo').slice(1),
+    'tail length and bend animate with progress',
+  );
+  assert.ok(early.length < 20 && late.length < 20,
+    'a standard projectile tail keeps a fixed low draw-call budget');
+
+  const bubble = renderProjectile('bubble', 0.5);
+  assert.equal(bubble.filter(([method]) => method === 'arc').length, 2,
+    'bubble trails add two small moving bubbles without an image strip');
+});
+
+test('formal PNG particles receive small composable Canvas impact accents', () => {
+  const particleAssets = {
+    goo: 'effect-particle-goo-drop',
+    spark: 'effect-particle-impact-spark',
+    ring: 'effect-particle-expanding-ring',
+    leaf: 'effect-particle-healing-leaf',
+    bubble: 'effect-particle-bubble',
+    dust: 'effect-particle-dust-puff',
+  };
+  const store = createReadyAssetStore(Object.values(particleAssets));
+  for (const type of Object.keys(particleAssets)) {
+    const recording = createDynamicEffectRecordingContext();
+    drawParticle(recording.ctx, 12, 18, 24, type, {
+      assetStore: store,
+      progress: 0.45,
+    });
+    const imageIndex = recording.calls.findIndex(([method]) => method === 'drawImage');
+    const geometry = recording.calls.slice(imageIndex + 1).filter(([method]) => (
+      method === 'arc' || method === 'ellipse' || method === 'lineTo'
+    ));
+    assert.ok(imageIndex >= 0, `${type} keeps its formal particle PNG`);
+    assert.ok(geometry.length > 0, `${type} adds a Canvas highlight or impact shape`);
+    assert.ok(recording.calls.length < 30, `${type} keeps a fixed low draw-call budget`);
+  }
 });
 
 test('game routes world, UI, projectile, status, and particle slots through the PNG store', () => {

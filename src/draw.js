@@ -3153,6 +3153,130 @@ export function drawDustParticle(ctx, x, y, size, options = {}) {
   ctx.restore();
 }
 
+const EFFECT_ACCENT_COLORS = Object.freeze({
+  goo: Object.freeze(['#79F0C0', '#E7FFF3']),
+  needle: Object.freeze(['#8FCBFF', '#F0F4FF']),
+  spark: Object.freeze(['#FFD765', '#FFF7BF']),
+  ring: Object.freeze(['#66E5FF', '#FFF19A']),
+  leaf: Object.freeze(['#79E86F', '#E6FF9A']),
+  seed: Object.freeze(['#9BE66E', '#FFF0A0']),
+  bubble: Object.freeze(['#72DFFF', '#F1FDFF']),
+  dust: Object.freeze(['#D9BE91', '#FFF0C9']),
+  acid: Object.freeze(['#C58AE8', '#F3D7FF']),
+});
+
+function effectAccentColors(type, options) {
+  const defaults = EFFECT_ACCENT_COLORS[type] || EFFECT_ACCENT_COLORS.spark;
+  return [options.accent || defaults[0], options.highlight || defaults[1]];
+}
+
+function drawGeneratedProjectileTrail(ctx, size, type, progress, options) {
+  if (options.trail === false) return;
+  const [accent, highlight] = effectAccentColors(type, options);
+  const shimmer = 0.82 + Math.sin(progress * TAU * 2) * 0.12;
+  const length = size * (0.72 + progress * 0.5);
+  const bend = Math.sin(progress * TAU) * size * 0.13;
+  ctx.save();
+  ctx.globalAlpha *= clamp(options.trailAlpha ?? 0.48) * shimmer;
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = accent;
+  ctx.lineWidth = Math.max(1.4, size * 0.18);
+  ctx.beginPath();
+  ctx.moveTo(-length, bend);
+  ctx.quadraticCurveTo(-length * 0.58, -bend * 0.45, -size * 0.58, 0);
+  ctx.stroke();
+  ctx.strokeStyle = highlight;
+  ctx.lineWidth = Math.max(0.8, size * 0.065);
+  ctx.beginPath();
+  ctx.moveTo(-length * 0.88, bend * 0.72);
+  ctx.quadraticCurveTo(-length * 0.62, -bend * 0.25, -size * 0.62, 0);
+  ctx.stroke();
+  if (type === 'bubble') {
+    ctx.globalAlpha *= 0.72;
+    ctx.lineWidth = Math.max(1, size * 0.07);
+    for (let index = 0; index < 2; index += 1) {
+      const radius = size * (0.1 + index * 0.045);
+      ctx.beginPath();
+      ctx.arc(-length * (0.55 + index * 0.23), bend * (index ? -0.6 : 0.8), radius, 0, TAU);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+function drawGeneratedParticleAccents(ctx, size, type, progress, options) {
+  if (options.accents === false) return;
+  const [accent, highlight] = effectAccentColors(type, options);
+  const expand = 0.55 + progress * 0.65;
+  ctx.save();
+  ctx.globalAlpha *= clamp(options.accentAlpha ?? 0.62) * (1 - progress * 0.42);
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = accent;
+  ctx.fillStyle = highlight;
+  if (type === 'ring') {
+    ctx.lineWidth = Math.max(1, size * (0.09 - progress * 0.035));
+    ctx.beginPath();
+    ctx.ellipse(0, 0, size * expand, size * expand * 0.47, 0, 0, TAU);
+    ctx.stroke();
+    ctx.globalAlpha *= 0.72;
+    ctx.strokeStyle = highlight;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, size * expand * 0.72, size * expand * 0.31, 0, 0, TAU);
+    ctx.stroke();
+  } else if (type === 'spark') {
+    const ray = size * (0.62 + Math.sin(progress * Math.PI) * 0.5);
+    ctx.lineWidth = Math.max(1, size * 0.105);
+    ctx.beginPath();
+    ctx.moveTo(-ray, 0);
+    ctx.lineTo(ray, 0);
+    ctx.moveTo(0, -ray);
+    ctx.lineTo(0, ray);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(0, 0, Math.max(1.4, size * 0.12), 0, TAU);
+    ctx.fill();
+  } else if (type === 'bubble') {
+    ctx.lineWidth = Math.max(1, size * 0.07);
+    for (let index = 0; index < 2; index += 1) {
+      const orbit = size * (0.52 + index * 0.2);
+      const angle = progress * TAU * (index ? -0.7 : 0.9) + index * 2.2;
+      ctx.beginPath();
+      ctx.arc(Math.cos(angle) * orbit, Math.sin(angle) * orbit,
+        size * (0.09 + index * 0.035), 0, TAU);
+      ctx.stroke();
+    }
+  } else if (type === 'leaf') {
+    ctx.lineWidth = Math.max(1, size * 0.08);
+    ctx.beginPath();
+    ctx.moveTo(-size * 0.82, size * 0.32);
+    ctx.quadraticCurveTo(-size * 0.3, -size * 0.22, size * 0.48, size * 0.12);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(size * 0.58, -size * 0.38, Math.max(1.2, size * 0.1), 0, TAU);
+    ctx.fill();
+  } else if (type === 'goo') {
+    ctx.beginPath();
+    ctx.arc(-size * 0.48, size * (0.3 - progress * 0.16),
+      Math.max(1.3, size * 0.115), 0, TAU);
+    ctx.fill();
+    ctx.globalAlpha *= 0.78;
+    ctx.fillStyle = accent;
+    ctx.beginPath();
+    ctx.arc(size * 0.48, size * 0.38, Math.max(1, size * 0.075), 0, TAU);
+    ctx.fill();
+  } else {
+    ctx.globalAlpha *= 0.62;
+    for (let index = 0; index < 2; index += 1) {
+      const direction = index ? 1 : -1;
+      ctx.beginPath();
+      ctx.ellipse(direction * size * (0.42 + progress * 0.18), size * 0.18,
+        size * 0.22, size * 0.1, direction * 0.16, 0, TAU);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
 /**
  * Draw a compact projectile: goo | needle | bubble | seed | acid.
  *
@@ -3227,6 +3351,7 @@ export function drawProjectile(ctx, xOrProjectile, y, size, typeOrOptions = 'goo
     (asset) => {
       const imageSize = projectileSize * imageScale;
       ctx.drawImage(asset, -imageSize / 2, -imageSize / 2, imageSize, imageSize);
+      drawGeneratedProjectileTrail(ctx, projectileSize, knownType, progress, options);
     },
     () => {},
   );
@@ -3352,6 +3477,7 @@ export function drawParticle(ctx, x, y, size, typeOrOptions = 'goo', maybeOption
     const width = size * (type === 'ring' || type === 'dust' ? 2 : 1.35);
     const height = size * (type === 'ring' || type === 'dust' ? 1 : 1.35);
     ctx.drawImage(asset, -width / 2, -height / 2, width, height);
+    drawGeneratedParticleAccents(ctx, size, type, progress, options);
   }, () => {});
   if (renderedAsset) return;
   if (type === 'goo') drawGooParticle(ctx, x, y, size, options);

@@ -162,9 +162,12 @@ function createAssetStore(availableKeys = []) {
           || /^effect-.+-frames-v1$/.test(key);
         const layeredTurret = /^turret-.+-atlas-v1$/.test(key);
         const reinforcementAtlas = key === 'effect-reinforcement-projectiles-atlas-v1';
+        const dynamicEffectAtlas = key === 'effect-dynamic-components-v1';
         const width = reinforcementAtlas ? 1536
+          : dynamicEffectAtlas ? 1254
           : layeredTurret ? 1536 : heroSkillFace ? 836 : formalAtlas ? 1254 : 768;
         const height = reinforcementAtlas ? 1024
+          : dynamicEffectAtlas ? 1254
           : layeredTurret ? 768 : heroSkillFace ? 418 : key.startsWith('turret-') ? 723 : width;
         drawAsset?.({ key, kind: key, width, height, naturalWidth: width, naturalHeight: height });
         return true;
@@ -882,7 +885,7 @@ test('hero skills combine eighteen authored components with continuous Canvas mo
     'effect-skill-berry-burst-v1',
     'effect-skill-dew-wave-crest-v1',
   ];
-  const expandedSkillComponents = [
+  const expandedSkillIcons = [
     'skill-bell-sonic-ring-icon',
     'skill-drill-rupture-dash-icon',
     'skill-ember-scorch-line-icon',
@@ -893,10 +896,12 @@ test('hero skills combine eighteen authored components with continuous Canvas mo
     'skill-spark-chain-arc-icon',
     'skill-star-orbit-barrage-icon',
   ];
+  const dynamicComponentAtlas = 'effect-dynamic-components-v1';
   const assets = createAssetStore([
     ...retiredSkillSheets,
     ...skillComponents,
-    ...expandedSkillComponents,
+    ...expandedSkillIcons,
+    dynamicComponentAtlas,
   ]);
   const game = new TowerDefenseGame(canvas, {
     runtime: createRuntime({ tutorialSeen: true }),
@@ -1107,14 +1112,16 @@ test('hero skills combine eighteen authored components with continuous Canvas mo
 
   const animatedSkillSamples = [
     {
-      heroType: 'bell', assetKey: 'skill-bell-sonic-ring-icon',
+      heroType: 'bell', iconKey: 'skill-bell-sonic-ring-icon',
+      sourceRect: [627, 0, 314, 314],
       draw: (time) => game.drawSkillImpact(canvas.context, {
         uid: 'bell-impact', heroType: 'bell', stepKind: 'bell-sonic-ring',
         x: 360, y: 430, radius: 145, age: time, duration: 1,
       }, time),
     },
     {
-      heroType: 'drill', assetKey: 'skill-drill-rupture-dash-icon',
+      heroType: 'drill', iconKey: 'skill-drill-rupture-dash-icon',
+      sourceRect: [314, 0, 313, 314],
       draw: (time) => game.drawSkillWave(canvas.context, {
         uid: 'drill-wave', type: 'wave', heroType: 'drill', stepKind: 'drill-rupture',
         x: 390, y: 520, previousX: 330, previousY: 540,
@@ -1123,14 +1130,16 @@ test('hero skills combine eighteen authored components with continuous Canvas mo
       }),
     },
     {
-      heroType: 'ember', assetKey: 'skill-ember-scorch-line-icon',
+      heroType: 'ember', iconKey: 'skill-ember-scorch-line-icon',
+      sourceRect: [0, 0, 314, 314],
       draw: (time) => game.drawSkillField(canvas.context, {
         uid: 'ember-field', type: 'field', heroType: 'ember', stepKind: 'ember-scorch-field',
         x: 360, y: 480, radius: 135, age: time, duration: 2.4,
       }),
     },
     {
-      heroType: 'ink', assetKey: 'skill-ink-cone-burst-icon',
+      heroType: 'ink', iconKey: 'skill-ink-cone-burst-icon',
+      sourceRect: [941, 314, 313, 313],
       draw: (time) => game.drawSkillProjectile(canvas.context, {
         uid: 'ink-shot', sourceKind: 'hero-skill', heroType: 'ink', type: 'berry',
         x: 380, y: 480, targetX: 520, targetY: 330, speed: 520,
@@ -1138,14 +1147,16 @@ test('hero skills combine eighteen authored components with continuous Canvas mo
       }, -0.82),
     },
     {
-      heroType: 'cloud', assetKey: 'skill-cloud-vortex-icon',
+      heroType: 'cloud', iconKey: 'skill-cloud-vortex-icon',
+      sourceRect: [0, 314, 314, 313],
       draw: (time) => game.drawSkillField(canvas.context, {
         uid: 'cloud-field', type: 'field', heroType: 'cloud', stepKind: 'cloud-vortex',
         x: 360, y: 480, radius: 145, age: time, duration: 3,
       }),
     },
     {
-      heroType: 'frost', assetKey: 'skill-frost-shard-lane-icon',
+      heroType: 'frost', iconKey: 'skill-frost-shard-lane-icon',
+      sourceRect: [314, 941, 313, 313],
       draw: (time) => game.drawSkillWave(canvas.context, {
         uid: 'frost-wave', type: 'wave', heroType: 'frost', stepKind: 'frost-shard-lane',
         x: 370, y: 500, previousX: 330, previousY: 555,
@@ -1154,7 +1165,8 @@ test('hero skills combine eighteen authored components with continuous Canvas mo
       }),
     },
     {
-      heroType: 'honey', assetKey: 'skill-honey-cluster-icon',
+      heroType: 'honey', iconKey: 'skill-honey-cluster-icon',
+      sourceRect: [0, 627, 314, 314],
       draw: (time) => game.drawSkillProjectile(canvas.context, {
         uid: 'honey-shot', sourceKind: 'hero-skill', heroType: 'honey', type: 'berry',
         x: 380, y: 480, targetX: 500, targetY: 340, speed: 470,
@@ -1162,7 +1174,8 @@ test('hero skills combine eighteen authored components with continuous Canvas mo
       }, -0.86),
     },
     {
-      heroType: 'spark', assetKey: 'skill-spark-chain-arc-icon',
+      heroType: 'spark', iconKey: 'skill-spark-chain-arc-icon',
+      sourceRect: [627, 314, 314, 313],
       draw: (time) => game.drawSkillBeam(canvas.context, {
         uid: 'spark-beam', type: 'beam', heroType: 'spark', stepKind: 'spark-chain-beam',
         originX: 280, originY: 720, endX: 510, endY: 310,
@@ -1171,7 +1184,8 @@ test('hero skills combine eighteen authored components with continuous Canvas mo
       }),
     },
     {
-      heroType: 'star', assetKey: 'skill-star-orbit-barrage-icon',
+      heroType: 'star', iconKey: 'skill-star-orbit-barrage-icon',
+      sourceRect: [627, 941, 314, 313],
       draw: (time) => game.drawSkillProjectile(canvas.context, {
         uid: 'star-shot', sourceKind: 'hero-skill', heroType: 'star', type: 'berry',
         x: 380, y: 480, targetX: 530, targetY: 320, speed: 560,
@@ -1186,12 +1200,18 @@ test('hero skills combine eighteen authored components with continuous Canvas mo
       game.resetSkillRenderBudget();
       sample.draw(time);
       const imageCalls = canvas.context.calls.filter(([kind, asset]) => (
-        kind === 'drawImage' && asset?.kind === sample.assetKey
+        kind === 'drawImage' && asset?.kind === dynamicComponentAtlas
       ));
-      assert.ok(assets.requests.includes(sample.assetKey),
-        `${sample.heroType} requests its formal skill artwork in the world`);
+      assert.ok(assets.requests.includes(dynamicComponentAtlas),
+        `${sample.heroType} requests the formal component atlas in the world`);
+      assert.equal(assets.requests.includes(sample.iconKey), false,
+        `${sample.heroType} keeps its complete button icon out of the battlefield`);
       assert.ok(imageCalls.length >= 3,
         `${sample.heroType} animates a sequence of authored components`);
+      assert.ok(imageCalls.every((call) => (
+        call.slice(2, 6).every(Number.isInteger)
+        && call.slice(2, 6).join() === sample.sourceRect.join()
+      )), `${sample.heroType} crops one integer-aligned atlas component without bleed`);
       return imageCalls.map((call) => call.slice(2));
     };
     const earlyFrame = captureFrame(0.18);
@@ -1200,9 +1220,92 @@ test('hero skills combine eighteen authored components with continuous Canvas mo
       `${sample.heroType} changes authored component placement or scale over time`);
   }
 
-  for (const key of expandedSkillComponents) {
+  for (const key of expandedSkillIcons) {
     assert.ok(assets.available.has(key), `${key} is a production asset, not a fallback`);
   }
+  assert.ok(assets.available.has(dynamicComponentAtlas));
+  game.dispose();
+});
+
+test('berry and dew basic shots keep their own authored projectile art', () => {
+  const canvas = createCanvas();
+  const game = new TowerDefenseGame(canvas, {
+    runtime: createRuntime({ tutorialSeen: true }),
+    pixelRatio: 1,
+  });
+  const expectedAssetByType = {
+    berry: 'effect-skill-berry-bomb-v1',
+    dew: 'effect-skill-dew-wave-crest-v1',
+  };
+  const assets = createAssetStore(Object.values(expectedAssetByType));
+  game.setAssetStore(assets);
+
+  for (const [type, assetKey] of Object.entries(expectedAssetByType)) {
+    assets.requests.length = 0;
+    canvas.context.calls.length = 0;
+    game.drawShot(canvas.context, {
+      uid: `basic-${type}`,
+      sourceKind: 'hero',
+      type,
+      x: 220,
+      y: 520,
+      targetX: 430,
+      targetY: 330,
+      age: 0.22,
+      star: 1,
+    });
+    assert.deepEqual(assets.requests, [assetKey]);
+    assert.ok(canvas.context.calls.filter(([kind, asset]) => (
+      kind === 'drawImage' && asset?.kind === assetKey
+    )).length >= 2, `${type} uses a moving authored head and trail`);
+    assert.equal(assets.requests.includes('effect-projectile-goo'), false,
+      `${type} never silently changes into the green goo projectile`);
+  }
+  game.dispose();
+});
+
+test('generic battle effects layer authored motion with a bounded accent budget', () => {
+  const canvas = createCanvas();
+  const particleAssets = [
+    'effect-particle-expanding-ring',
+    'effect-particle-goo-drop',
+    'effect-particle-impact-spark',
+    'effect-particle-dust-puff',
+  ];
+  const assets = createAssetStore(particleAssets);
+  const game = new TowerDefenseGame(canvas, {
+    runtime: createRuntime({ tutorialSeen: true }),
+    pixelRatio: 1,
+  });
+  game.setAssetStore(assets);
+  game.state.effects = [
+    { uid: 'spawn-fx', type: 'spawn', x: 210, y: 280, phase: 0.32, duration: 1 },
+    { uid: 'hero-hit-fx', type: 'hero-hit', x: 310, y: 480, phase: 0.32, duration: 1 },
+    { uid: 'tower-down-fx', type: 'tower-defeat', x: 410, y: 580, phase: 0.32, duration: 1 },
+    { uid: 'core-hit-fx', type: 'core-hit', x: 360, y: 760, phase: 0.32, duration: 1 },
+  ];
+  game.drawEffects(canvas.context, 'front');
+  for (const assetKey of particleAssets) {
+    assert.ok(assets.requests.includes(assetKey), `${assetKey} participates in the composite`);
+  }
+  assert.ok(canvas.context.calls.filter(([kind]) => kind === 'drawImage').length > 8,
+    'spawn, hit, defeat, and core damage use layered authored components');
+
+  assets.requests.length = 0;
+  canvas.context.calls.length = 0;
+  game.state.effects = Array.from({ length: 80 }, (_, index) => ({
+    uid: `dense-hit-${index}`,
+    type: 'hit',
+    x: 80 + index % 10 * 54,
+    y: 220 + Math.floor(index / 10) * 48,
+    phase: 0.28,
+    duration: 1,
+  }));
+  game.drawEffects(canvas.context, 'front');
+  const denseDrawCount = canvas.context.calls.filter(([kind]) => kind === 'drawImage').length;
+  assert.ok(denseDrawCount >= 80, 'every hit keeps its primary effect');
+  assert.ok(denseDrawCount <= 104,
+    'extra flourishes stop at the fixed 24-draw budget during a dense wave');
   game.dispose();
 });
 
@@ -2174,7 +2277,16 @@ test('battle dock purchases squads and a fixed turret, moves squads in prep, the
     'the squad hit target follows the lowered front soldiers instead of ending above them',
   );
   click(game, canvas, hitCenter(game, `tower-${melee.uid}`));
+  canvas.context.calls.length = 0;
   game.render();
+  assert.equal(game.state.selectedTowerUid, melee.uid,
+    'clicking a squad still selects it for details and long-press movement');
+  assert.equal(canvas.context.calls.some(([kind, , , radius]) => (
+    kind === 'arc' && radius === SQUAD_TYPES.melee.range
+  )), false, 'clicking a squad does not paint its attack-range circle');
+  assert.equal(canvas.context.calls.some(([kind, text]) => (
+    kind === 'fillText' && String(text).includes('范围')
+  )), false, 'the selected squad panel does not expose a numeric attack range');
   assert.equal(game.hits.find(({ id }) => id === 'pad-1').enabled, false,
     'selecting a deployed squad does not enable tap-to-move');
   click(game, canvas, hitCenter(game, 'pad-1'));

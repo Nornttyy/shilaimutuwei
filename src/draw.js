@@ -3300,9 +3300,55 @@ export function drawParticle(ctx, x, y, size, typeOrOptions = 'goo', maybeOption
   }[type];
   const progress = clamp(options.progress ?? 0);
   const renderedAsset = drawAssetOrFallback(ctx, options.assetStore, assetKey, (asset) => {
+    const pulse = Math.sin(progress * Math.PI);
+    const motion = {
+      goo: {
+        x: Math.sin(progress * Math.PI) * size * 0.18,
+        y: progress * size * 0.32,
+        scaleX: 1 - progress * 0.16,
+        scaleY: 1 + progress * 0.55,
+        rotation: progress * 0.28,
+      },
+      spark: {
+        x: progress * size * 0.12,
+        y: -progress * size * 0.18,
+        scaleX: 0.55 + pulse * 0.65,
+        scaleY: 0.55 + pulse * 0.65,
+        rotation: progress * 1.4,
+      },
+      ring: {
+        x: 0,
+        y: -progress * size * 0.08,
+        scaleX: 0.3 + progress * 0.7,
+        scaleY: 0.3 + progress * 0.7,
+        rotation: progress * 0.18,
+      },
+      leaf: {
+        x: Math.sin(progress * Math.PI * 2) * size * 0.32,
+        y: -progress * size * 0.95,
+        scaleX: 0.78 + pulse * 0.3,
+        scaleY: 0.72 + pulse * 0.28,
+        rotation: progress * 2.2,
+      },
+      bubble: {
+        x: Math.sin(progress * Math.PI) * size * 0.18,
+        y: -progress * size * 1.25,
+        scaleX: 0.78 + progress * 0.28,
+        scaleY: 0.78 + progress * 0.36,
+        rotation: progress * 0.45,
+      },
+      dust: {
+        x: progress * size * 0.12,
+        y: progress * size * 0.18,
+        scaleX: 0.4 + progress * 0.75,
+        scaleY: 0.44 + progress * 0.56,
+        rotation: -progress * 0.12,
+      },
+    }[type];
     ctx.globalAlpha *= clamp(options.alpha ?? (1 - progress));
-    ctx.translate(x, y);
-    ctx.rotate(safeNumber(options.rotation, 0));
+    ctx.translate(x + motion.x, y + motion.y);
+    ctx.rotate(safeNumber(options.rotation, 0) + motion.rotation);
+    ctx.scale(motion.scaleX, motion.scaleY);
     const width = size * (type === 'ring' || type === 'dust' ? 2 : 1.35);
     const height = size * (type === 'ring' || type === 'dust' ? 1 : 1.35);
     ctx.drawImage(asset, -width / 2, -height / 2, width, height);

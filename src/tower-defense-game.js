@@ -175,26 +175,30 @@ const SKILL_COMPONENT_ASSETS = Object.freeze({
   berryBomb: 'effect-skill-berry-bomb-v1',
   berryBurst: 'effect-skill-berry-burst-v1',
   dewWaveCrest: 'effect-skill-dew-wave-crest-v1',
-  bellSonicRing: 'skill-bell-sonic-ring-icon',
-  drillRupture: 'skill-drill-rupture-dash-icon',
-  emberScorch: 'skill-ember-scorch-line-icon',
-  inkCone: 'skill-ink-cone-burst-icon',
-  cloudVortex: 'skill-cloud-vortex-icon',
-  frostShard: 'skill-frost-shard-lane-icon',
-  honeyCluster: 'skill-honey-cluster-icon',
-  sparkChain: 'skill-spark-chain-arc-icon',
-  starOrbit: 'skill-star-orbit-barrage-icon',
+});
+const DYNAMIC_SKILL_COMPONENT_ATLAS_KEY = 'effect-dynamic-components-v1';
+const DYNAMIC_SKILL_COMPONENT_GRID = 4;
+const DYNAMIC_SKILL_COMPONENTS = Object.freeze({
+  'impact-core': Object.freeze({ column: 0, row: 0 }),
+  'impact-streak': Object.freeze({ column: 1, row: 0 }),
+  'shock-ring': Object.freeze({ column: 2, row: 0 }),
+  bubble: Object.freeze({ column: 0, row: 1 }),
+  'heal-spark': Object.freeze({ column: 2, row: 1 }),
+  'rift-shard': Object.freeze({ column: 3, row: 1 }),
+  honey: Object.freeze({ column: 0, row: 2 }),
+  confetti: Object.freeze({ column: 1, row: 3 }),
+  sparkle: Object.freeze({ column: 2, row: 3 }),
 });
 const EXPANDED_SKILL_COMPONENT_BY_TYPE = Object.freeze({
-  bell: SKILL_COMPONENT_ASSETS.bellSonicRing,
-  drill: SKILL_COMPONENT_ASSETS.drillRupture,
-  ember: SKILL_COMPONENT_ASSETS.emberScorch,
-  ink: SKILL_COMPONENT_ASSETS.inkCone,
-  cloud: SKILL_COMPONENT_ASSETS.cloudVortex,
-  frost: SKILL_COMPONENT_ASSETS.frostShard,
-  honey: SKILL_COMPONENT_ASSETS.honeyCluster,
-  spark: SKILL_COMPONENT_ASSETS.sparkChain,
-  star: SKILL_COMPONENT_ASSETS.starOrbit,
+  bell: 'shock-ring',
+  drill: 'impact-streak',
+  ember: 'impact-core',
+  ink: 'rift-shard',
+  cloud: 'bubble',
+  frost: 'confetti',
+  honey: 'honey',
+  spark: 'heal-spark',
+  star: 'sparkle',
 });
 const REINFORCEMENT_PROJECTILE_ATLAS_KEY = 'effect-reinforcement-projectiles-atlas-v1';
 const REINFORCEMENT_PROJECTILE_SOURCE_SIZE = Object.freeze({ width: 768, height: 512 });
@@ -313,6 +317,11 @@ function drawLockedMonochrome(ctx, draw) {
 function easeOutCubic(value) {
   const t = clamp(Number(value) || 0, 0, 1);
   return 1 - (1 - t) ** 3;
+}
+
+function delayedEffectProgress(progress, delay = 0) {
+  const start = clamp(Number(delay) || 0, 0, 0.98);
+  return clamp((progress - start) / Math.max(0.02, 1 - start), 0, 1);
 }
 
 function wrappedTextLines(ctx, text, maxWidth, maxLines = 3) {
@@ -4169,19 +4178,16 @@ export class TowerDefenseGame {
     if (this.state.selectedTowerUid) {
       const selected = this.state.towers.find((tower) => tower.uid === this.state.selectedTowerUid);
       const pad = selected && stage.pads[selected.padIndex];
-      if (selected && pad) {
+      if (selected && pad && !isSquadTower(selected)) {
         const selectedX = this.state.waveActive && Number.isFinite(selected.x) ? selected.x : pad.x;
         const selectedY = this.state.waveActive && Number.isFinite(selected.y) ? selected.y : pad.y;
-        const selectedPoint = this.state.waveActive && isSquadTower(selected)
-          ? this.visualPoint(`squad-anchor:${selected.uid}`, selectedX, selectedY, {
-            profile: 'actor',
-          })
-          : { x: selectedX, y: selectedY };
+        const selectedPoint = { x: selectedX, y: selectedY };
         ctx.save();
         ctx.globalAlpha = 0.11;
-        const selectedDefinition = isSquadTower(selected)
-          ? soldierVisualFor(selected.type, selected.squadType)
-          : TOWER_TYPES[slimeVisualType(selected.type, selected.squadType)];
+        const selectedDefinition = TOWER_TYPES[slimeVisualType(
+          selected.type,
+          selected.squadType,
+        )];
         ctx.fillStyle = selectedDefinition.color;
         ctx.beginPath();
         ctx.arc(selectedPoint.x, selectedPoint.y, towerRange(this.state, selected), 0, TAU);
@@ -4731,6 +4737,67 @@ export class TowerDefenseGame {
     }, () => {});
   }
 
+  drawExpandedSkillComponents(ctx, heroType, instances) {
+    const componentName = EXPANDED_SKILL_COMPONENT_BY_TYPE[heroType];
+    const cell = DYNAMIC_SKILL_COMPONENTS[componentName];
+    if (!cell || !this.assetStore || typeof this.assetStore.useOrFallback !== 'function') {
+      return false;
+    }
+    const drawable = [];
+    for (const instance of Array.isArray(instances) ? instances : []) {
+      if (!instance || !this.spendSkillRenderBudget('components')) break;
+      drawable.push(instance);
+    }
+    if (!drawable.length) return false;
+    return this.assetStore.useOrFallback(DYNAMIC_SKILL_COMPONENT_ATLAS_KEY, (asset) => {
+      const sourceWidth = Math.max(1, Math.round(finiteNumber(
+        asset?.naturalWidth,
+        asset?.videoWidth,
+        asset?.width,
+        1254,
+      )));
+      const sourceHeight = Math.max(1, Math.round(finiteNumber(
+        asset?.naturalHeight,
+        asset?.videoHeight,
+        asset?.height,
+        1254,
+      )));
+      const sourceLeft = Math.round(sourceWidth * cell.column / DYNAMIC_SKILL_COMPONENT_GRID);
+      const sourceTop = Math.round(sourceHeight * cell.row / DYNAMIC_SKILL_COMPONENT_GRID);
+      const sourceRight = Math.round(
+        sourceWidth * (cell.column + 1) / DYNAMIC_SKILL_COMPONENT_GRID,
+      );
+      const sourceBottom = Math.round(
+        sourceHeight * (cell.row + 1) / DYNAMIC_SKILL_COMPONENT_GRID,
+      );
+      const sourceCellWidth = Math.max(1, sourceRight - sourceLeft);
+      const sourceCellHeight = Math.max(1, sourceBottom - sourceTop);
+      for (const instance of drawable) {
+        const width = Math.max(1, finiteNumber(instance.width, instance.size, 32));
+        const height = Math.max(1, finiteNumber(instance.height, instance.size, width));
+        const anchorX = clamp(finiteNumber(instance.anchorX, 0.5), 0, 1);
+        const anchorY = clamp(finiteNumber(instance.anchorY, 0.5), 0, 1);
+        ctx.save();
+        ctx.globalAlpha = (Number.isFinite(ctx.globalAlpha) ? ctx.globalAlpha : 1)
+          * clamp(finiteNumber(instance.alpha, 1), 0, 1);
+        ctx.translate(finiteNumber(instance.x), finiteNumber(instance.y));
+        ctx.rotate(finiteNumber(instance.rotation));
+        ctx.drawImage(
+          asset,
+          sourceLeft,
+          sourceTop,
+          sourceCellWidth,
+          sourceCellHeight,
+          -width * anchorX,
+          -height * anchorY,
+          width,
+          height,
+        );
+        ctx.restore();
+      }
+    }, () => {});
+  }
+
   drawSkillMote(ctx, x, y, size, color, alpha = 1, rotation = 0) {
     if (!this.spendSkillRenderBudget('motes')) return false;
     const moteSize = Math.max(1.5, Number(size) || 4);
@@ -4885,7 +4952,7 @@ export class TowerDefenseGame {
           };
         }));
     } else if (heroType === 'ember') {
-      this.drawSkillComponents(ctx, SKILL_COMPONENT_ASSETS.emberScorch,
+      this.drawExpandedSkillComponents(ctx, heroType,
         Array.from({ length: 4 }, (_, index) => {
           const angle = age * (1.68 + index * 0.12) + index * TAU / 4;
           const orbit = radius * (0.16 + index * 0.095) * reveal;
@@ -4900,7 +4967,7 @@ export class TowerDefenseGame {
         }));
     } else if (heroType === 'cloud') {
       const vortexPulse = 1 + Math.sin(age * 6.4) * 0.08;
-      this.drawSkillComponents(ctx, SKILL_COMPONENT_ASSETS.cloudVortex, [
+      this.drawExpandedSkillComponents(ctx, heroType, [
         {
           x,
           y,
@@ -5019,7 +5086,7 @@ export class TowerDefenseGame {
       }]);
     } else if (heroType === 'spark') {
       const rotation = Math.atan2(dy, dx);
-      this.drawSkillComponents(ctx, SKILL_COMPONENT_ASSETS.sparkChain,
+      this.drawExpandedSkillComponents(ctx, heroType,
         Array.from({ length: 5 }, (_, index) => {
           const along = ((age * 2.15 + index / 5) % 1) * reveal;
           const side = Math.sin(age * 18 + index * 1.8) * width * 0.32;
@@ -5129,9 +5196,8 @@ export class TowerDefenseGame {
         alpha: fade,
       }]);
     } else if (heroType === 'drill' || heroType === 'frost') {
-      const assetKey = EXPANDED_SKILL_COMPONENT_BY_TYPE[heroType];
       const travelAngle = Math.atan2(dy, dx);
-      this.drawSkillComponents(ctx, assetKey,
+      this.drawExpandedSkillComponents(ctx, heroType,
         Array.from({ length: 3 }, (_, index) => {
           const lag = tail * index * 0.28;
           const sway = Math.sin(age * 16 + index * 1.6) * width * 0.045 * index;
@@ -5212,8 +5278,7 @@ export class TowerDefenseGame {
       }]);
     }
     const heroType = skillHeroType(effect);
-    const expandedImpactAsset = EXPANDED_SKILL_COMPONENT_BY_TYPE[heroType];
-    if (expandedImpactAsset) {
+    if (EXPANDED_SKILL_COMPONENT_BY_TYPE[heroType]) {
       let instances = [];
       if (heroType === 'bell') {
         instances = Array.from({ length: 3 }, (_, index) => {
@@ -5313,7 +5378,7 @@ export class TowerDefenseGame {
           };
         });
       }
-      this.drawSkillComponents(ctx, expandedImpactAsset, instances);
+      this.drawExpandedSkillComponents(ctx, heroType, instances);
     }
     for (let index = 0; index < 4; index += 1) {
       const angle = index * TAU / 4 + finiteNumber(effect.stage, 1) * 0.3;
@@ -5384,14 +5449,13 @@ export class TowerDefenseGame {
     }
 
     const heroType = skillHeroType(projectile);
-    const expandedProjectileAsset = EXPANDED_SKILL_COMPONENT_BY_TYPE[heroType];
-    if (expandedProjectileAsset) {
+    if (EXPANDED_SKILL_COMPONENT_BY_TYPE[heroType]) {
       const spinRate = heroType === 'star' ? 4.8
         : heroType === 'honey' ? -2.7
           : heroType === 'ink' ? 1.9 : 2.4;
       const baseScale = heroType === 'honey' ? 2.05
         : heroType === 'ink' ? 1.86 : 1.72;
-      this.drawSkillComponents(ctx, expandedProjectileAsset,
+      this.drawExpandedSkillComponents(ctx, heroType,
         Array.from({ length: 3 }, (_, index) => {
           const lag = index * size * 0.42;
           const side = Math.sin(age * 17 + index * 1.7) * index * size * 0.08;
@@ -5426,6 +5490,56 @@ export class TowerDefenseGame {
     }]);
   }
 
+  drawAuthoredStandardProjectile(ctx, projectile, point, angle, star) {
+    const style = {
+      berry: {
+        assetKey: SKILL_COMPONENT_ASSETS.berryBomb,
+        width: 31,
+        height: 31,
+        rotationOffset: -Math.PI / 2,
+        spinRate: 0.72,
+      },
+      dew: {
+        assetKey: SKILL_COMPONENT_ASSETS.dewWaveCrest,
+        width: 36,
+        height: 24,
+        rotationOffset: 0,
+        spinRate: 0.14,
+      },
+    }[projectile.type];
+    if (!style) return false;
+    const age = Math.max(0, finiteNumber(projectile.age));
+    const scale = (1 + (star - 1) * 0.09) * (projectile.secondary ? 0.82 : 1);
+    drawAssetOrFallback(ctx, this.assetStore, style.assetKey, (asset) => {
+      const trailCount = projectile.secondary ? 1 : 2;
+      for (let index = trailCount - 1; index >= 0; index -= 1) {
+        const head = index === 0;
+        const lag = index * (9 + star * 0.7);
+        const trailScale = head ? 1 : 0.72;
+        ctx.save();
+        ctx.globalAlpha *= (projectile.secondary ? 0.82 : 1) * (head ? 1 : 0.34);
+        ctx.translate(
+          point.x - Math.cos(angle) * lag,
+          point.y - Math.sin(angle) * lag,
+        );
+        ctx.rotate(
+          angle + style.rotationOffset + age * style.spinRate - index * 0.12,
+        );
+        ctx.drawImage(
+          asset,
+          -style.width * scale * trailScale / 2,
+          -style.height * scale * trailScale / 2,
+          style.width * scale * trailScale,
+          style.height * scale * trailScale,
+        );
+        ctx.restore();
+      }
+    }, () => {});
+    // These projectile types own authored art. A failed asset must stay empty
+    // rather than silently turning into the generic green goo projectile.
+    return true;
+  }
+
   drawShot(ctx, projectile) {
     const point = this.visualProjectilePoint(projectile);
     const projectileKey = `projectile:${projectile?.uid || 'anonymous'}`;
@@ -5444,6 +5558,7 @@ export class TowerDefenseGame {
       return;
     }
     const star = clamp(Math.floor(projectile.star || 1), 1, TD_MAX_STAR);
+    if (this.drawAuthoredStandardProjectile(ctx, projectile, point, angle, star)) return;
     const baseSize = projectile.type === 'needle' ? 19 : 16;
     const evolvedSize = (baseSize + (star - 1) * 1.8) * (projectile.secondary ? 0.82 : 1);
     drawProjectile(ctx, point.x, point.y, evolvedSize,
@@ -5582,6 +5697,9 @@ export class TowerDefenseGame {
   }
 
   drawEffects(ctx, layer = 'front') {
+    // Keep dense waves responsive: every gameplay event keeps its primary
+    // authored particle, while secondary flourishes share a fixed frame budget.
+    let accentBudget = 24;
     for (const effect of this.state.effects) {
       if (heroSkillEffectLayer(effect) !== layer) continue;
       const progress = clamp(effect.phase ?? effect.age / effect.duration, 0, 1);
@@ -5599,7 +5717,8 @@ export class TowerDefenseGame {
           const orbit = fusionOrbitPoint(effect, index * TAU / 4);
           drawParticle(ctx, orbit.x, orbit.y, 18, index % 2 ? 'spark' : 'goo', {
             progress,
-            alpha: 1 - progress * 0.72,
+            alpha: (1 - progress) ** 0.72,
+            rotation: (index % 2 ? 1 : -1) * progress * 1.4,
             assetStore: this.assetStore,
           });
         }
@@ -5613,30 +5732,120 @@ export class TowerDefenseGame {
       const type = {
         summon: 'goo', place: 'ring', spawn: 'ring', defeat: 'dust',
         reclaim: 'bubble', 'move-out': 'ring',
-        hit: 'spark', 'bubble-hit': 'bubble', 'leaf-hit': 'leaf', 'core-hit': 'spark',
+        hit: 'spark', 'bubble-hit': 'bubble', 'leaf-hit': 'leaf',
+        'hero-hit': 'spark', 'tower-hit': 'spark', 'core-hit': 'spark',
+        'hero-defeat': 'dust', 'tower-defeat': 'dust',
       }[effect.type] || 'spark';
       const effectStar = clamp(Math.floor(effect.star || 1), 1, TD_MAX_STAR);
-      const baseSize = effect.type === 'defeat' ? 44 : effect.type === 'spawn' ? 36 : 27;
+      const defeatEffect = effect.type === 'defeat'
+        || effect.type === 'hero-defeat' || effect.type === 'tower-defeat';
+      const hitEffect = effect.type === 'hit' || effect.type === 'bubble-hit'
+        || effect.type === 'leaf-hit' || effect.type === 'hero-hit'
+        || effect.type === 'tower-hit' || effect.type === 'core-hit';
+      const placementEffect = effect.type === 'place' || effect.type === 'spawn'
+        || effect.type === 'move-out';
+      const baseSize = effect.type === 'hero-defeat' ? 54
+        : effect.type === 'tower-defeat' ? 48
+          : effect.type === 'defeat' ? 44
+            : effect.type === 'spawn' ? 38
+              : effect.type === 'place' || effect.type === 'move-out' ? 40
+                : effect.type === 'core-hit' ? 42
+                  : effect.type === 'hero-hit' || effect.type === 'tower-hit' ? 32 : 27;
       const size = baseSize * (1 + (effectStar - 1) * 0.11);
+      const fade = (1 - progress) ** 0.72;
       drawParticle(ctx, effect.x, effect.y, size, type, {
         progress,
-        alpha: (effect.secondary ? 0.72 : 1) * (1 - progress * 0.78),
+        alpha: (effect.secondary ? 0.72 : 1) * fade,
         rotation: progress * 1.6,
         assetStore: this.assetStore,
       });
-      if (effectStar >= 3 && ['hit', 'bubble-hit', 'leaf-hit'].includes(effect.type)) {
-        const satellites = effectStar - 2;
-        for (let index = 0; index < satellites; index += 1) {
-          const angle = progress * 3.2 + index * TAU / satellites;
+
+      const seed = finiteNumber(
+        effect.seed,
+        effect.star,
+        finiteNumber(effect.x) * 0.031 + finiteNumber(effect.y) * 0.017,
+        1,
+      );
+      if (placementEffect) {
+        for (let index = 0; index < 2 && accentBudget > 0; index += 1) {
+          const local = delayedEffectProgress(progress, 0.04 + index * 0.11);
+          if (local <= 0) continue;
+          const direction = index ? 1 : -1;
           drawParticle(ctx,
-            effect.x + Math.cos(angle) * (12 + progress * 18),
-            effect.y + Math.sin(angle) * (8 + progress * 12),
-            11 + effectStar * 2,
-            type, {
-              progress,
-              alpha: (1 - progress) * 0.58,
+            effect.x + direction * (7 + easeOutCubic(local) * 18),
+            effect.y - 4 - easeOutCubic(local) * (12 + index * 6),
+            13 + index * 2,
+            'goo', {
+              progress: local,
+              alpha: (1 - local) * 0.68,
+              rotation: direction * local * 0.8,
               assetStore: this.assetStore,
             });
+          accentBudget -= 1;
+        }
+      } else if (defeatEffect) {
+        for (let index = 0; index < 3 && accentBudget > 0; index += 1) {
+          const local = delayedEffectProgress(progress, index * 0.055);
+          if (local <= 0) continue;
+          const angle = index * TAU / 3 + skillNoise(seed, index) * 0.48;
+          const travel = 8 + easeOutCubic(local) * (24 + index * 5);
+          drawParticle(ctx,
+            effect.x + Math.cos(angle) * travel,
+            effect.y - 8 + Math.sin(angle) * travel * 0.62,
+            15 + index * 2,
+            index === 1 ? 'spark' : 'goo', {
+              progress: local,
+              alpha: (1 - local) * (index === 1 ? 0.82 : 0.7),
+              rotation: angle + local * 1.2,
+              assetStore: this.assetStore,
+            });
+          accentBudget -= 1;
+        }
+      } else if (hitEffect && !effect.secondary) {
+        const accents = effect.type === 'core-hit' ? 3 : effectStar >= 3 ? effectStar - 1 : 1;
+        for (let index = 0; index < accents && accentBudget > 0; index += 1) {
+          const local = delayedEffectProgress(progress, 0.045 + index * 0.035);
+          if (local <= 0) continue;
+          const angle = index * TAU / Math.max(1, accents)
+            + skillNoise(seed, index) * 0.72 - Math.PI * 0.72;
+          const travel = 5 + easeOutCubic(local) * (16 + effectStar * 3);
+          drawParticle(ctx,
+            effect.x + Math.cos(angle) * travel,
+            effect.y + Math.sin(angle) * travel,
+            Math.max(11, size * (effect.type === 'core-hit' ? 0.44 : 0.48)),
+            index === 0 && (type === 'bubble' || type === 'leaf') ? type : 'spark', {
+              progress: local,
+              alpha: (1 - local) * (effect.type === 'core-hit' ? 0.82 : 0.64),
+              rotation: angle + local * 2.1,
+              assetStore: this.assetStore,
+            });
+          accentBudget -= 1;
+        }
+        if (effect.type === 'core-hit' && accentBudget > 0) {
+          const local = delayedEffectProgress(progress, 0.08);
+          if (local > 0) {
+            drawParticle(ctx, effect.x, effect.y + 3, 48, 'ring', {
+              progress: local,
+              alpha: (1 - local) * 0.76,
+              assetStore: this.assetStore,
+            });
+            accentBudget -= 1;
+          }
+        }
+      } else if ((effect.type === 'summon' || effect.type === 'reclaim') && accentBudget > 0) {
+        const local = delayedEffectProgress(progress, 0.08);
+        if (local > 0) {
+          const direction = skillNoise(seed, 0) > 0.5 ? 1 : -1;
+          drawParticle(ctx,
+            effect.x + direction * (8 + local * 13),
+            effect.y - 5 - local * 18,
+            15,
+            effect.type === 'reclaim' ? 'bubble' : 'goo', {
+              progress: local,
+              alpha: (1 - local) * 0.66,
+              assetStore: this.assetStore,
+            });
+          accentBudget -= 1;
         }
       }
     }
@@ -6009,7 +6218,7 @@ export class TowerDefenseGame {
           COMMAND_DOCK.selection.y + 49, {
             size: 13, align: 'left', color: visual.color, weight: 900,
           });
-        label(ctx, `${squadDefinition.glyph}  ·  范围 ${squadDefinition.range}`,
+        label(ctx, `${squadDefinition.glyph}  ·  自动追击`,
           COMMAND_DOCK.selection.x + COMMAND_DOCK.selection.width - 18,
           COMMAND_DOCK.selection.y + 91, {
             size: 14, align: 'right', color: COLORS.inkSoft, weight: 800,

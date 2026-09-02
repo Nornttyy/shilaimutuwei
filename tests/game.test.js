@@ -2377,6 +2377,40 @@ test('shell impacts use the generated goo-drop particle without recoloring unrel
   assert.ok(store.requests.includes('effect-particle-goo-drop'));
 });
 
+test('generated ring and bubble particles transform through their lifetime', () => {
+  const store = createReadyAssetStore([
+    'effect-particle-expanding-ring',
+    'effect-particle-bubble',
+  ]);
+  const renderParticle = (type, progress) => {
+    const recording = createTransformRecordingContext();
+    drawParticle(recording.ctx, 120, 180, 40, type, {
+      assetStore: store,
+      progress,
+    });
+    assert.equal(recording.calls.length, 1, `${type} uses its generated PNG once`);
+    return recording.calls[0];
+  };
+
+  const earlyRing = renderParticle('ring', 0.1);
+  const lateRing = renderParticle('ring', 0.8);
+  const earlyRingWidth = earlyRing.bounds.maxX - earlyRing.bounds.minX;
+  const lateRingWidth = lateRing.bounds.maxX - lateRing.bounds.minX;
+  assert.ok(lateRingWidth > earlyRingWidth * 1.8,
+    'the generated ring expands instead of only fading');
+  assert.notDeepEqual(lateRing.matrix, earlyRing.matrix,
+    'the generated ring also rotates and moves over time');
+
+  const earlyBubble = renderParticle('bubble', 0.1);
+  const lateBubble = renderParticle('bubble', 0.8);
+  const earlyBubbleCenterY = (earlyBubble.bounds.minY + earlyBubble.bounds.maxY) / 2;
+  const lateBubbleCenterY = (lateBubble.bounds.minY + lateBubble.bounds.maxY) / 2;
+  assert.ok(lateBubbleCenterY < earlyBubbleCenterY - 30,
+    'the generated bubble visibly floats upward');
+  assert.notDeepEqual(lateBubble.matrix, earlyBubble.matrix,
+    'the generated bubble also grows, stretches, and rotates over time');
+});
+
 test('game routes world, UI, projectile, status, and particle slots through the PNG store', () => {
   const keys = [
     'terrain-ground-detail-a', 'terrain-soft-gel-node-a', 'terrain-dew-honey-node-a',

@@ -69,6 +69,40 @@
       { "ownerId": "enemy-rift-beacon-king", "assetId": "enemy-rift-beacon-king-atlas-v1", "role": "enemy" }
     ]
   },
+  "heroSkillFaceSidecarFormat": {
+    "container": "PNG",
+    "colorMode": "RGBA",
+    "transparent": true,
+    "driver": "code-driven",
+    "registrationPolicy": "英雄技能眼嘴使用独立1×2侧车，不扩大或改写正式3×3主图集，也不写入assets/rig-parts.json。",
+    "grid": {
+      "columns": 2,
+      "rows": 1,
+      "cellWidth": 418,
+      "cellHeight": 418,
+      "atlasWidth": 836,
+      "atlasHeight": 418,
+      "transparentCellGutter": 2
+    },
+    "logicalBindRect": { "x": -60, "y": -120, "width": 120, "height": 120 },
+    "slotOrder": ["skillEyes", "skillMouth"],
+    "activation": "hero-skill事件播放skill动作并切换技能眼嘴；普通攻击继续使用主图集attack眼嘴，受伤可打断技能并优先使用hurt眼嘴。",
+    "layerPolicy": "侧车技能眼嘴与主图集面部共享锚点；英雄equipment仍作为最终武器层绘于身体和所有表情前方。",
+    "stylePolicy": "表情比例与线条只参考壳壳正式分层素材；鲜艳高饱和纯卡通色块、最多三档明暗，禁止真实纹理，不使用任何旧风格锚点。",
+    "owners": [
+      { "ownerId": "survivor-berry-burst", "mainAssetId": "hero-berry-burst-atlas-v1", "assetId": "hero-berry-burst-skill-face-v1" },
+      { "ownerId": "survivor-dew-bloom", "mainAssetId": "hero-dew-bloom-atlas-v1", "assetId": "hero-dew-bloom-skill-face-v1" },
+      { "ownerId": "survivor-bell-boom", "mainAssetId": "hero-bell-boom-atlas-v1", "assetId": "hero-bell-boom-skill-face-v1" },
+      { "ownerId": "survivor-drill-gum", "mainAssetId": "hero-drill-gum-atlas-v1", "assetId": "hero-drill-gum-skill-face-v1" },
+      { "ownerId": "survivor-ember-fizz", "mainAssetId": "hero-ember-fizz-atlas-v1", "assetId": "hero-ember-fizz-skill-face-v1" },
+      { "ownerId": "survivor-ink-splash", "mainAssetId": "hero-ink-splash-atlas-v1", "assetId": "hero-ink-splash-skill-face-v1" },
+      { "ownerId": "survivor-cloud-spin", "mainAssetId": "hero-cloud-spin-atlas-v1", "assetId": "hero-cloud-spin-skill-face-v1" },
+      { "ownerId": "survivor-frost-drop", "mainAssetId": "hero-frost-drop-atlas-v1", "assetId": "hero-frost-drop-skill-face-v1" },
+      { "ownerId": "survivor-honey-pop", "mainAssetId": "hero-honey-pop-atlas-v1", "assetId": "hero-honey-pop-skill-face-v1" },
+      { "ownerId": "survivor-spark-bean", "mainAssetId": "hero-spark-bean-atlas-v1", "assetId": "hero-spark-bean-skill-face-v1" },
+      { "ownerId": "survivor-star-core", "mainAssetId": "hero-star-core-atlas-v1", "assetId": "hero-star-core-skill-face-v1" }
+    ]
+  },
   "idlePolicy": "待机呼吸、轻微弹性、选中脉冲、淡入淡出和整体位移由程序变形完成，不制作待机帧。",
   "characterMotionPolicy": {
     "style": "保守软体骨骼动画",

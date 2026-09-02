@@ -20,6 +20,7 @@ import {
   parsePng,
   verifyAssets,
 } from '../scripts/verify-assets.mjs';
+import { decodeRgbaPng } from '../scripts/export-rig-layers.mjs';
 import {
   ALL_RUNTIME_ASSET_KEYS,
   ASSET_CACHE_VERSION,
@@ -49,6 +50,21 @@ const PROJECT_ASSET_SPEC = JSON.parse(await readFile(
   new URL('../assets/asset-spec.json', import.meta.url),
   'utf8',
 ));
+
+const HERO_ATLAS_CELL_SIZE = 418;
+const HERO_ATLAS_SLUGS = Object.freeze([
+  'berry-burst',
+  'dew-bloom',
+  'bell-boom',
+  'drill-gum',
+  'ember-fizz',
+  'ink-splash',
+  'cloud-spin',
+  'frost-drop',
+  'honey-pop',
+  'spark-bean',
+  'star-core',
+]);
 
 const EXPANSION_CHARACTER_ASSETS = Object.freeze([
   ...[
@@ -167,6 +183,98 @@ test('the 28-piece battle expansion uses unique formal RGBA PNGs and strict star
     assert.equal(CRITICAL_STARTUP_ASSET_KEYS.includes(expected.id), true, expected.id);
     assert.equal(WECHAT_CRITICAL_ASSET_KEYS.includes(expected.id), true, expected.id);
     assert.ok(new URL(ASSET_PATHS[expected.id]).pathname.endsWith(`/${expected.path}`), expected.id);
+  }
+});
+
+test('all eleven atlas heroes publish strict shell-style 2x1 skill-face sidecars', () => {
+  const ids = [
+    'hero-berry-burst-skill-face-v1',
+    'hero-dew-bloom-skill-face-v1',
+    'hero-bell-boom-skill-face-v1',
+    'hero-drill-gum-skill-face-v1',
+    'hero-ember-fizz-skill-face-v1',
+    'hero-ink-splash-skill-face-v1',
+    'hero-cloud-spin-skill-face-v1',
+    'hero-frost-drop-skill-face-v1',
+    'hero-honey-pop-skill-face-v1',
+    'hero-spark-bean-skill-face-v1',
+    'hero-star-core-skill-face-v1',
+  ];
+  assert.equal(PROJECT_ASSET_SPEC.styleReference,
+    'assets/generated-v2/rig/survivor-shell-shell/atlas-layered-v3.png');
+  for (const id of ids) {
+    const asset = PROJECT_ASSET_SPEC.assets.find((candidate) => candidate.id === id);
+    assert.ok(asset, id);
+    assert.equal(asset.category, 'hero');
+    assert.deepEqual(asset.recommendedCanvas, { width: 836, height: 418 });
+    assert.equal(asset.width, 836);
+    assert.equal(asset.height, 418);
+    assert.deepEqual(asset.logicalBindRect, { x: -60, y: -120, width: 120, height: 120 });
+    assert.equal(asset.transparentCellGutter, 2);
+    assert.equal(asset.transparent, true);
+    assert.equal(asset.priority, 'P0');
+    assert.equal(asset.path, `assets/generated/hero/${id}.png`);
+    assert.match(asset.brief, /参考壳壳/);
+    assert.match(asset.brief, /无真实纹理/);
+    assert.equal(ALL_RUNTIME_ASSET_KEYS.includes(id), true);
+    assert.equal(TOWER_DEFENSE_ASSET_KEYS.includes(id), true);
+    assert.equal(CRITICAL_STARTUP_ASSET_KEYS.includes(id), true);
+    assert.equal(WECHAT_CRITICAL_ASSET_KEYS.includes(id), true);
+    assert.ok(new URL(ASSET_PATHS[id]).pathname.endsWith(`/${asset.path}`));
+  }
+});
+
+test('hero atlas cells keep transparent gutters and skill faces preserve canonical anchors', async () => {
+  for (const slug of HERO_ATLAS_SLUGS) {
+    const atlas = decodeRgbaPng(
+      await readFile(path.join(
+        PROJECT_ROOT,
+        `assets/generated/hero/hero-${slug}-atlas-v1.png`,
+      )),
+      `${slug} hero atlas`,
+    );
+    const sidecar = decodeRgbaPng(
+      await readFile(path.join(
+        PROJECT_ROOT,
+        `assets/generated/hero/hero-${slug}-skill-face-v1.png`,
+      )),
+      `${slug} skill-face sidecar`,
+    );
+    assert.deepEqual([atlas.width, atlas.height], [1254, 1254], slug);
+    assert.deepEqual([sidecar.width, sidecar.height], [836, 418], slug);
+
+    for (let index = 0; index < 9; index += 1) {
+      const rect = atlasCellRect(index);
+      assertTransparentCellGutter(atlas, rect, 2, `${slug} atlas cell ${index}`);
+      assert.ok(alphaBounds(atlas, rect), `${slug} atlas cell ${index} is non-empty`);
+    }
+
+    const referenceCells = [atlasCellRect(3), atlasCellRect(4)];
+    const sidecarCells = [atlasCellRect(0), atlasCellRect(1)];
+    for (let index = 0; index < sidecarCells.length; index += 1) {
+      const label = `${slug} skill-face cell ${index}`;
+      const sidecarRect = sidecarCells[index];
+      assertTransparentCellGutter(sidecar, sidecarRect, 2, label);
+      const reference = alphaBounds(atlas, referenceCells[index]);
+      const actual = alphaBounds(sidecar, sidecarRect);
+      assert.ok(reference, `${slug} canonical face cell ${index} is non-empty`);
+      assert.ok(actual, `${label} is non-empty`);
+
+      const referenceCenter = boundsCenter(reference);
+      const actualCenter = boundsCenter(actual);
+      assert.ok(
+        Math.abs(actualCenter.x - referenceCenter.x) <= 0.5
+          && Math.abs(actualCenter.y - referenceCenter.y) <= 0.5,
+        `${label} alpha center ${JSON.stringify(actualCenter)} must align with canonical `
+          + `${JSON.stringify(referenceCenter)}`,
+      );
+      assert.ok(
+        actual.width <= Math.floor(reference.width * 1.08)
+          && actual.height <= Math.floor(reference.height * 1.08),
+        `${label} ${actual.width}x${actual.height} exceeds 1.08x canonical `
+          + `${reference.width}x${reference.height}`,
+      );
+    }
   }
 });
 
@@ -543,9 +651,7 @@ test('runtime asset map covers manifest paths, formal extensions, and three alia
 
 test('new tower-defense characters and skill icons use formal generated paths without frame atlases', () => {
   const expected = {
-    'survivor-berry-burst': 'survivor/survivor-berry-burst.png',
     'hero-berry-burst-atlas-v1': 'hero/hero-berry-burst-atlas-v1.png',
-    'survivor-dew-bloom': 'survivor/survivor-dew-bloom.png',
     'hero-dew-bloom-atlas-v1': 'hero/hero-dew-bloom-atlas-v1.png',
     'soldier-bounce-hammer-atlas-v1': 'soldier/soldier-bounce-hammer-atlas-v1.png',
     'soldier-leaf-spinner-atlas-v1': 'soldier/soldier-leaf-spinner-atlas-v1.png',
@@ -573,6 +679,19 @@ test('new tower-defense characters and skill icons use formal generated paths wi
     assert.equal(TOWER_DEFENSE_ASSET_KEYS.includes(id), true, `${id} is battle art`);
     assert.equal(CRITICAL_STARTUP_ASSET_KEYS.includes(id), true, `${id} is critical`);
     assert.equal(WECHAT_CRITICAL_ASSET_KEYS.includes(id), true, `${id} is WeChat critical`);
+    assert.match(new URL(ASSET_PATHS[id]).pathname, new RegExp(`/${relativePath}$`), id);
+  }
+  for (const [id, relativePath] of Object.entries({
+    'survivor-berry-burst': 'survivor/survivor-berry-burst.png',
+    'survivor-dew-bloom': 'survivor/survivor-dew-bloom.png',
+  })) {
+    assert.equal(ALL_RUNTIME_ASSET_KEYS.includes(id), true, `${id} remains canonical art`);
+    assert.equal(TOWER_DEFENSE_ASSET_KEYS.includes(id), false,
+      `${id} standalone is superseded by its layered battle atlas`);
+    assert.equal(CRITICAL_STARTUP_ASSET_KEYS.includes(id), false,
+      `${id} does not consume startup memory twice`);
+    assert.equal(WECHAT_CRITICAL_ASSET_KEYS.includes(id), false,
+      `${id} does not consume WeChat startup memory twice`);
     assert.match(new URL(ASSET_PATHS[id]).pathname, new RegExp(`/${relativePath}$`), id);
   }
   const skillComponentIds = Object.keys(expected).filter((id) => id.startsWith('effect-skill-'));
@@ -1452,6 +1571,63 @@ test('asset store reports unsupported runtimes without rejecting preload', async
   assert.equal(store.get('optional'), null);
   assert.equal(store.status('optional').status, 'unsupported');
 });
+
+function atlasCellRect(index) {
+  return {
+    x: (index % 3) * HERO_ATLAS_CELL_SIZE,
+    y: Math.floor(index / 3) * HERO_ATLAS_CELL_SIZE,
+    width: HERO_ATLAS_CELL_SIZE,
+    height: HERO_ATLAS_CELL_SIZE,
+  };
+}
+
+function alphaBounds(image, rect) {
+  let left = rect.width;
+  let top = rect.height;
+  let right = -1;
+  let bottom = -1;
+  for (let y = 0; y < rect.height; y += 1) {
+    for (let x = 0; x < rect.width; x += 1) {
+      const offset = ((rect.y + y) * image.width + rect.x + x) * 4;
+      if (image.pixels[offset + 3] === 0) continue;
+      left = Math.min(left, x);
+      top = Math.min(top, y);
+      right = Math.max(right, x);
+      bottom = Math.max(bottom, y);
+    }
+  }
+  if (right < left || bottom < top) return null;
+  return {
+    left,
+    top,
+    right: right + 1,
+    bottom: bottom + 1,
+    width: right - left + 1,
+    height: bottom - top + 1,
+  };
+}
+
+function boundsCenter(bounds) {
+  return {
+    x: (bounds.left + bounds.right) / 2,
+    y: (bounds.top + bounds.bottom) / 2,
+  };
+}
+
+function assertTransparentCellGutter(image, rect, gutter, label) {
+  for (let y = 0; y < rect.height; y += 1) {
+    for (let x = 0; x < rect.width; x += 1) {
+      if (
+        x >= gutter
+        && y >= gutter
+        && x < rect.width - gutter
+        && y < rect.height - gutter
+      ) continue;
+      const offset = ((rect.y + y) * image.width + rect.x + x) * 4;
+      assert.equal(image.pixels[offset + 3], 0, `${label} violates its ${gutter}px gutter`);
+    }
+  }
+}
 
 async function withTempProject(callback, { writeAssetsDirectory = true } = {}) {
   const root = await mkdtemp(path.join(tmpdir(), 'slime-asset-qa-'));

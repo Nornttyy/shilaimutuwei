@@ -18,13 +18,14 @@ import {
   BUBBLE_CLIPS,
   BUG_CLIPS,
   CRYSTAL_CLIPS,
+  HERO_ATLAS_CLIPS,
   SHELL_CLIPS,
   SOLDIER_CLIPS,
   SPROUT_CLIPS,
   STONE_CLIPS,
   WINDCAP_CLIPS,
 } from './animation/clips.js';
-import { SOLDIER_RIG } from './animation/rigs.js';
+import { HERO_ATLAS_RIG, SOLDIER_RIG } from './animation/rigs.js';
 import { createTowerDefenseAudio } from './tower-defense-audio.js';
 import {
   HERO_TYPES,
@@ -439,6 +440,20 @@ const HERO_ATLAS_ASSET_BY_TYPE = Object.freeze({
   star: 'hero-star-core-atlas-v1',
 });
 
+const HERO_SKILL_FACE_ASSET_BY_TYPE = Object.freeze({
+  berry: 'hero-berry-burst-skill-face-v1',
+  dew: 'hero-dew-bloom-skill-face-v1',
+  bell: 'hero-bell-boom-skill-face-v1',
+  drill: 'hero-drill-gum-skill-face-v1',
+  ember: 'hero-ember-fizz-skill-face-v1',
+  ink: 'hero-ink-splash-skill-face-v1',
+  cloud: 'hero-cloud-spin-skill-face-v1',
+  frost: 'hero-frost-drop-skill-face-v1',
+  honey: 'hero-honey-pop-skill-face-v1',
+  spark: 'hero-spark-bean-skill-face-v1',
+  star: 'hero-star-core-skill-face-v1',
+});
+
 const HERO_SKILL_DESCRIPTION_BY_TYPE = Object.freeze({
   shell: '震开周围敌人，造成范围伤害并将它们击退。',
   needle: '引爆周围晶针，对范围内敌人造成高额伤害。',
@@ -559,6 +574,11 @@ const ATLAS_CHARACTER_OWNER_IDS = Object.freeze(Object.fromEntries([
     .filter(({ id }) => Object.hasOwn(ENEMY_ATLAS_ASSET_BY_TYPE, id))
     .map(({ ownerId }) => [ownerId, true]),
 ]));
+const HERO_ATLAS_OWNER_IDS = Object.freeze(Object.fromEntries(
+  Object.keys(HERO_ATLAS_ASSET_BY_TYPE)
+    .map((type) => [HERO_TYPES[type]?.ownerId, true])
+    .filter(([ownerId]) => typeof ownerId === 'string'),
+));
 
 const isSquadType = (type) => typeof type === 'string'
   && Object.hasOwn(SOLDIER_VISUALS, type)
@@ -583,17 +603,17 @@ const ANIMATION_CLIPS_BY_OWNER_ID = Object.freeze({
   'soldier-bean-bow': SOLDIER_CLIPS,
   'soldier-bounce-hammer': SOLDIER_CLIPS,
   'soldier-leaf-spinner': SOLDIER_CLIPS,
-  'survivor-berry-burst': SOLDIER_CLIPS,
-  'survivor-dew-bloom': SOLDIER_CLIPS,
-  'survivor-bell-boom': SOLDIER_CLIPS,
-  'survivor-drill-gum': SOLDIER_CLIPS,
-  'survivor-ember-fizz': SOLDIER_CLIPS,
-  'survivor-ink-splash': SOLDIER_CLIPS,
-  'survivor-cloud-spin': SOLDIER_CLIPS,
-  'survivor-frost-drop': SOLDIER_CLIPS,
-  'survivor-honey-pop': SOLDIER_CLIPS,
-  'survivor-spark-bean': SOLDIER_CLIPS,
-  'survivor-star-core': SOLDIER_CLIPS,
+  'survivor-berry-burst': HERO_ATLAS_CLIPS,
+  'survivor-dew-bloom': HERO_ATLAS_CLIPS,
+  'survivor-bell-boom': HERO_ATLAS_CLIPS,
+  'survivor-drill-gum': HERO_ATLAS_CLIPS,
+  'survivor-ember-fizz': HERO_ATLAS_CLIPS,
+  'survivor-ink-splash': HERO_ATLAS_CLIPS,
+  'survivor-cloud-spin': HERO_ATLAS_CLIPS,
+  'survivor-frost-drop': HERO_ATLAS_CLIPS,
+  'survivor-honey-pop': HERO_ATLAS_CLIPS,
+  'survivor-spark-bean': HERO_ATLAS_CLIPS,
+  'survivor-star-core': HERO_ATLAS_CLIPS,
   'soldier-drill-lancer': SOLDIER_CLIPS,
   'soldier-spore-lobber': SOLDIER_CLIPS,
   'soldier-volt-orbiter': SOLDIER_CLIPS,
@@ -639,6 +659,15 @@ const ATTACK_MODE_LABEL = Object.freeze({
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const lerp = (from, to, progress) => from + (to - from) * progress;
+const VISUAL_MOTION_PROFILES = Object.freeze({
+  actor: Object.freeze({ responseSeconds: 0.045, maxLag: 10, snapDistance: 120 }),
+  projectile: Object.freeze({ responseSeconds: 0.018, maxLag: 8, snapDistance: 96 }),
+  wave: Object.freeze({ responseSeconds: 0.025, maxLag: 10, snapDistance: 120 }),
+});
+const VISUAL_AIM_RESPONSE_SECONDS = 0.065;
+const VISUAL_FACING_CONFIRM_SECONDS = 0.055;
+const VISUAL_CACHE_GRACE_FRAMES = 2;
+const shortestAngleDelta = (from, to) => Math.atan2(Math.sin(to - from), Math.cos(to - from));
 const finiteNumber = (...values) => {
   const value = values.find((candidate) => (
     candidate !== null && candidate !== '' && Number.isFinite(Number(candidate))
@@ -1047,6 +1076,12 @@ export class TowerDefenseGame {
     this.defeatedActors = [];
     this.defeatedTowers = [];
     this.skillRenderBudget = null;
+    this.visualMotion = new Map();
+    this.visualAimState = new Map();
+    this.visualFacingState = new Map();
+    this.visualFrameSerial = 0;
+    this.visualFrameDt = 0;
+    this.visualFrameOpen = false;
     this.running = false;
     this.backgrounded = false;
     this.frameId = null;
@@ -1126,7 +1161,11 @@ export class TowerDefenseGame {
       controller,
       expressionMixer: new ExpressionMixer({
         ownerId,
-        spec: ATLAS_CHARACTER_OWNER_IDS[ownerId] ? SOLDIER_RIG.expression : undefined,
+        spec: HERO_ATLAS_OWNER_IDS[ownerId]
+          ? HERO_ATLAS_RIG.expression
+          : ATLAS_CHARACTER_OWNER_IDS[ownerId]
+            ? SOLDIER_RIG.expression
+            : undefined,
       }),
     };
     this.characterAnimations.set(key, entry);
@@ -1163,7 +1202,28 @@ export class TowerDefenseGame {
       if (key != null) this.turretPulses.set(String(key), 1);
       return;
     }
-    if (['hero-shot', 'hero-attack', 'hero-skill'].includes(event.type)) {
+    if (event.type === 'hero-skill') {
+      const hero = this.state.hero;
+      const type = hero?.type || hero?.heroId || this.state.selectedHeroId;
+      const ownerId = (HERO_TYPES[type] || TOWER_TYPES[type])?.ownerId;
+      if (hero && ownerId) {
+        const action = HERO_ATLAS_OWNER_IDS[ownerId] ? 'skill' : 'attack';
+        this.playCharacterAnimation(`hero:${hero.uid || type}`, ownerId, action);
+      }
+      return;
+    }
+    if (event.type === 'hero-skill-step') {
+      if (Number(event.stepIndex) <= 0) return;
+      const hero = this.state.hero;
+      const type = hero?.type || hero?.heroId || event.heroType || this.state.selectedHeroId;
+      const ownerId = (HERO_TYPES[type] || TOWER_TYPES[type])?.ownerId;
+      if (hero && ownerId) {
+        const action = HERO_ATLAS_OWNER_IDS[ownerId] ? 'skill' : 'attack';
+        this.playCharacterAnimation(`hero:${hero.uid || type}`, ownerId, action);
+      }
+      return;
+    }
+    if (['hero-shot', 'hero-attack'].includes(event.type)) {
       const hero = this.state.hero;
       const type = hero?.type || hero?.heroId || this.state.selectedHeroId;
       const ownerId = (HERO_TYPES[type] || TOWER_TYPES[type])?.ownerId;
@@ -1264,7 +1324,7 @@ export class TowerDefenseGame {
       }
       return;
     }
-    if (event.type === 'enemy-attack') {
+    if (event.type === 'enemy-attack' || event.type === 'enemy-ranged-attack') {
       const enemy = this.state.enemies.find(({ uid }) => uid === event.enemyUid);
       const ownerId = enemy && TD_ENEMIES[enemy.type]?.ownerId;
       if (ownerId) {
@@ -1581,7 +1641,7 @@ export class TowerDefenseGame {
     this.processEvents();
     this.updateCharacterAnimations(dt);
     this.shake = Math.max(0, this.shake - dt * 22);
-    this.render();
+    this.render(dt);
     this.scheduleFrame();
   }
 
@@ -1591,6 +1651,9 @@ export class TowerDefenseGame {
     for (const event of events) {
       this.processCharacterAnimationEvent(event);
       if (event.type === 'core-hit') this.shake = Math.min(10, this.shake + 5);
+      if (['run-start', 'wave-start', 'wave-clear', 'run-end'].includes(event.type)) {
+        this.resetVisualState();
+      }
       if (['run-start', 'wave-clear', 'run-end'].includes(event.type)) {
         this.resetHeroInput();
       }
@@ -1606,6 +1669,7 @@ export class TowerDefenseGame {
     this.scheduler.cancel(this.frameId);
     this.frameId = null;
     this.cancelInteraction();
+    this.resetVisualState();
     this.audio.onBackground();
     this.save();
     return this;
@@ -1626,6 +1690,7 @@ export class TowerDefenseGame {
     this.frameId = null;
     this.lastTimestamp = 0;
     this.resetHeroInput();
+    this.resetVisualState();
     return this;
   }
 
@@ -1645,6 +1710,7 @@ export class TowerDefenseGame {
     this.turretPulses.clear();
     this.defeatedActors.length = 0;
     this.defeatedTowers.length = 0;
+    this.resetVisualState();
     this.audio.dispose();
   }
 
@@ -2434,7 +2500,184 @@ export class TowerDefenseGame {
     }
   }
 
-  render() {
+  beginVisualFrame(dt = 0) {
+    if (this.visualFrameOpen) this.endVisualFrame();
+    this.visualFrameSerial += 1;
+    this.visualFrameDt = clamp(Number(dt) || 0, 0, 0.05);
+    this.visualFrameOpen = true;
+    return this.visualFrameSerial;
+  }
+
+  endVisualFrame() {
+    if (!this.visualFrameOpen) return;
+    const oldestLiveFrame = this.visualFrameSerial - VISUAL_CACHE_GRACE_FRAMES;
+    const sweep = (cache) => {
+      for (const [key, entry] of cache) {
+        if ((Number(entry.lastSeenFrame) || 0) < oldestLiveFrame) cache.delete(key);
+      }
+    };
+    sweep(this.visualMotion);
+    sweep(this.visualAimState);
+    sweep(this.visualFacingState);
+    this.visualFrameOpen = false;
+    this.visualFrameDt = 0;
+  }
+
+  resetVisualState() {
+    this.visualMotion?.clear();
+    this.visualAimState?.clear();
+    this.visualFacingState?.clear();
+    this.visualFrameOpen = false;
+    this.visualFrameDt = 0;
+  }
+
+  visualPoint(key, x, y, options = {}) {
+    const targetX = finiteNumber(x);
+    const targetY = finiteNumber(y);
+    if (!this.visualFrameOpen) return { x: targetX, y: targetY };
+
+    const cacheKey = String(key);
+    const profile = VISUAL_MOTION_PROFILES[options.profile]
+      || VISUAL_MOTION_PROFILES.actor;
+    const responseSeconds = Math.max(0.001,
+      finiteNumber(options.responseSeconds, profile.responseSeconds));
+    const maxLag = Math.max(0, finiteNumber(options.maxLag, profile.maxLag));
+    const snapDistance = Math.max(maxLag,
+      finiteNumber(options.snapDistance, profile.snapDistance));
+    let entry = this.visualMotion.get(cacheKey);
+    if (!entry) {
+      entry = {
+        x: Number.isFinite(Number(options.initialX)) ? Number(options.initialX) : targetX,
+        y: Number.isFinite(Number(options.initialY)) ? Number(options.initialY) : targetY,
+        updatedFrame: -1,
+        lastSeenFrame: this.visualFrameSerial,
+      };
+      this.visualMotion.set(cacheKey, entry);
+    }
+
+    if (entry.updatedFrame !== this.visualFrameSerial) {
+      const distance = Math.hypot(targetX - entry.x, targetY - entry.y);
+      if (this.visualFrameDt <= 0 || distance > snapDistance) {
+        entry.x = targetX;
+        entry.y = targetY;
+      } else if (distance > 0) {
+        const blend = 1 - Math.exp(-this.visualFrameDt / responseSeconds);
+        entry.x = lerp(entry.x, targetX, blend);
+        entry.y = lerp(entry.y, targetY, blend);
+        const lagX = entry.x - targetX;
+        const lagY = entry.y - targetY;
+        const lag = Math.hypot(lagX, lagY);
+        if (maxLag > 0 && lag > maxLag) {
+          const scale = maxLag / lag;
+          entry.x = targetX + lagX * scale;
+          entry.y = targetY + lagY * scale;
+        }
+      }
+      entry.updatedFrame = this.visualFrameSerial;
+    }
+    entry.lastSeenFrame = this.visualFrameSerial;
+    return { x: entry.x, y: entry.y };
+  }
+
+  visualAim(key, angle, options = {}) {
+    const targetAngle = finiteNumber(angle);
+    if (!this.visualFrameOpen) return targetAngle;
+    const cacheKey = String(key);
+    const responseSeconds = Math.max(0.001,
+      finiteNumber(options.responseSeconds, VISUAL_AIM_RESPONSE_SECONDS));
+    let entry = this.visualAimState.get(cacheKey);
+    if (!entry) {
+      entry = {
+        angle: targetAngle,
+        updatedFrame: -1,
+        lastSeenFrame: this.visualFrameSerial,
+      };
+      this.visualAimState.set(cacheKey, entry);
+    }
+    if (entry.updatedFrame !== this.visualFrameSerial) {
+      if (this.visualFrameDt <= 0) {
+        entry.angle = targetAngle;
+      } else {
+        const blend = 1 - Math.exp(-this.visualFrameDt / responseSeconds);
+        entry.angle += shortestAngleDelta(entry.angle, targetAngle) * blend;
+      }
+      entry.updatedFrame = this.visualFrameSerial;
+    }
+    entry.lastSeenFrame = this.visualFrameSerial;
+    return entry.angle;
+  }
+
+  visualFacing(key, facing, options = {}) {
+    const targetFacing = facing === -1 ? -1 : 1;
+    if (!this.visualFrameOpen) return targetFacing;
+    const cacheKey = String(key);
+    let entry = this.visualFacingState.get(cacheKey);
+    if (!entry) {
+      entry = {
+        facing: targetFacing,
+        candidate: null,
+        candidateSeconds: 0,
+        updatedFrame: -1,
+        lastSeenFrame: this.visualFrameSerial,
+      };
+      this.visualFacingState.set(cacheKey, entry);
+    }
+    if (entry.updatedFrame !== this.visualFrameSerial) {
+      if (this.visualFrameDt <= 0) {
+        entry.facing = targetFacing;
+        entry.candidate = null;
+        entry.candidateSeconds = 0;
+      } else if (targetFacing === entry.facing || options.active === false) {
+        entry.candidate = null;
+        entry.candidateSeconds = 0;
+      } else {
+        if (entry.candidate !== targetFacing) {
+          entry.candidate = targetFacing;
+          entry.candidateSeconds = 0;
+        }
+        entry.candidateSeconds += this.visualFrameDt;
+        const confirmSeconds = Math.max(0,
+          finiteNumber(options.confirmSeconds, VISUAL_FACING_CONFIRM_SECONDS));
+        if (entry.candidateSeconds >= confirmSeconds) {
+          entry.facing = targetFacing;
+          entry.candidate = null;
+          entry.candidateSeconds = 0;
+        }
+      }
+      entry.updatedFrame = this.visualFrameSerial;
+    }
+    entry.lastSeenFrame = this.visualFrameSerial;
+    return entry.facing;
+  }
+
+  visualProjectilePoint(projectile) {
+    const key = `projectile:${projectile?.uid || 'anonymous'}`;
+    let initialX;
+    let initialY;
+    if (this.visualFrameOpen
+      && !this.visualMotion.has(key)
+      && this.visualFrameDt > 0
+      && finiteNumber(projectile?.age) <= this.visualFrameDt + 1e-6) {
+      const x = finiteNumber(projectile?.x);
+      const y = finiteNumber(projectile?.y);
+      const dx = finiteNumber(projectile?.targetX) - x;
+      const dy = finiteNumber(projectile?.targetY) - y;
+      const remaining = Math.hypot(dx, dy);
+      if (remaining > 0.001) {
+        const travelled = Math.max(0, finiteNumber(projectile?.speed) * finiteNumber(projectile?.age));
+        initialX = x - dx / remaining * travelled;
+        initialY = y - dy / remaining * travelled;
+      }
+    }
+    return this.visualPoint(key, projectile?.x, projectile?.y, {
+      profile: 'projectile',
+      initialX,
+      initialY,
+    });
+  }
+
+  render(visualDt = 0) {
+    this.beginVisualFrame(visualDt);
     const ctx = this.ctx;
     this.audio.syncScreen(this.state.screen);
     this.updateLongPressState();
@@ -2456,6 +2699,7 @@ export class TowerDefenseGame {
     this.drawAudioToggle(ctx);
     if (this.state.tutorial.active) this.drawTutorial(ctx);
     ctx.restore();
+    this.endVisualFrame();
     return this;
   }
 
@@ -2516,6 +2760,7 @@ export class TowerDefenseGame {
       return drawAtlasCharacter(ctx, x, y, size, {
         ...options,
         assetKey: atlasAssetKey,
+        skillFaceAssetKey: HERO_SKILL_FACE_ASSET_BY_TYPE[type],
         assetStore: this.assetStore,
       });
     }
@@ -2536,70 +2781,8 @@ export class TowerDefenseGame {
     return uncleared.at(-1) || unlocked.at(-1) || TD_STAGES[0];
   }
 
-  drawMenuTacticalDiorama(ctx) {
-    const columns = 5;
-    const rows = 5;
-    const cellWidth = 96;
-    const cellHeight = 66;
-    const gapX = 2;
-    const gapY = 10;
-    const startX = (TD_VIEW.width - (columns * cellWidth + (columns - 1) * gapX)) / 2;
-    const startY = 272;
-
-    ctx.save();
-    ctx.globalAlpha = 0.22;
-    ctx.fillStyle = '#214F4D';
-    ctx.beginPath();
-    ctx.ellipse(TD_VIEW.width / 2, 620, 284, 176, 0, 0, TAU);
-    ctx.fill();
-    ctx.restore();
-
-    const tilePositions = {
-      'tile-build-light': [],
-      'tile-build-dark': [],
-    };
-    for (let row = 0; row < rows; row += 1) {
-      for (let column = 0; column < columns; column += 1) {
-        const key = (row + column) % 2 ? 'tile-build-dark' : 'tile-build-light';
-        tilePositions[key].push({
-          x: startX + column * (cellWidth + gapX),
-          y: startY + row * (cellHeight + gapY),
-        });
-      }
-    }
-    for (const [key, positions] of Object.entries(tilePositions)) {
-      drawAssetOrFallback(ctx, this.assetStore, key, (asset) => {
-        ctx.globalAlpha *= 0.72;
-        for (const { x, y } of positions) {
-          ctx.drawImage(asset, x, y, cellWidth, cellHeight);
-        }
-      }, () => {});
-    }
-
-    drawAssetOrFallback(ctx, this.assetStore, 'tile-route-open', (asset) => {
-      ctx.save();
-      ctx.globalAlpha *= 0.92;
-      ctx.translate(TD_VIEW.width / 2, 512);
-      ctx.rotate(Math.PI / 2);
-      ctx.drawImage(asset, -190, -14, 380, 28);
-      ctx.restore();
-      ctx.globalAlpha *= 0.7;
-      ctx.drawImage(asset, 174, 515, 372, 26);
-    }, () => {});
-
-    drawAssetOrFallback(ctx, this.assetStore, 'turret-gel-mount', (asset) => {
-      ctx.globalAlpha *= 0.92;
-      for (const x of [174, 546]) {
-        ctx.drawImage(asset, x - 51, 559, 102, 53);
-      }
-    }, () => {});
-
-    drawPortal(ctx, TD_VIEW.width / 2, 424, 158, {
-      time: this.state.time,
-      open: 0.86 + Math.sin(this.state.time * 1.7) * 0.08,
-      assetStore: this.assetStore,
-    });
-    drawCore(ctx, TD_VIEW.width / 2, 824, 242, {
+  drawMenuCore(ctx) {
+    drawCore(ctx, TD_VIEW.width / 2, 802, 300, {
       assetKey: 'fortress-slime-core',
       ...FORTRESS_CORE_ASSET_LAYOUT,
       time: this.state.time,
@@ -2657,7 +2840,7 @@ export class TowerDefenseGame {
       ctx.restore();
     });
 
-    this.drawMenuTacticalDiorama(ctx);
+    this.drawMenuCore(ctx);
 
     const storyStage = this.menuStoryStage();
     const storyRect = MENU_ACTIONS.story;
@@ -2831,7 +3014,7 @@ export class TowerDefenseGame {
     const drawPortrait = () => {
       if (HERO_ATLAS_ASSET_BY_TYPE[visualType] || TOWER_TYPES[visualType]) {
         const animation = ownerId
-          ? this.characterAnimationSample(`preview:roster:${type}`, ownerId)
+          ? this.characterAnimationSample(`preview:menu:${type}`, ownerId)
           : {};
         this.drawFriendlyCharacter(ctx, x, y, size, visualType, {
           time: this.state.time + phase,
@@ -3799,33 +3982,41 @@ export class TowerDefenseGame {
     const heroBase = Math.hypot(Number(hero.moveX) || 0, Number(hero.moveY) || 0) > 0.01
       ? 'move' : 'idle';
     const animation = this.characterAnimationSample(key, definition.ownerId, heroBase);
+    const point = this.visualPoint(key, hero.x, hero.y, { profile: 'actor' });
+    const facing = this.visualFacing(key, hero.facing, {
+      active: heroBase === 'move'
+        || Number(hero.attackPulse) > 0.01
+        || Number(hero.skillPulse) > 0.01,
+    });
+    const heroX = point.x;
+    const heroY = point.y;
     const pulse = 1 + Math.sin(this.state.time * 3.4) * 0.05;
     ctx.save();
     ctx.globalAlpha = 0.82;
     drawAssetOrFallback(ctx, this.assetStore, 'ui-hero-control-ring', (asset) => {
       const width = 106 * pulse;
       const height = 47 * pulse;
-      ctx.drawImage(asset, hero.x - width / 2, hero.y - height / 2 + 6, width, height);
+      ctx.drawImage(asset, heroX - width / 2, heroY - height / 2 + 6, width, height);
     }, () => {});
     ctx.restore();
-    this.drawFriendlyCharacter(ctx, hero.x, hero.y + 7, 68, type, {
+    this.drawFriendlyCharacter(ctx, heroX, heroY + 7, 68, type, {
       time: this.state.time,
-      facing: hero.facing === -1 ? -1 : 1,
+      facing,
       hit: clamp(Number(hero.hitPulse) || 0, 0, 1),
       expression: Number(hero.hitPulse) > 0.35 ? 'hurt' : 'normal',
       ...animation,
       ...this.characterRigOptions(definition.ownerId),
       allowGeneratedStandalone: this.generatedCharacterArtEnabled,
     });
-    panel(ctx, { x: hero.x - 27, y: hero.y - 70, width: 54, height: 22 }, {
+    panel(ctx, { x: heroX - 27, y: heroY - 70, width: 54, height: 22 }, {
       fill: definition.color, stroke: '#FFFFFF', lineWidth: 2, radius: 12,
     });
-    label(ctx, heroDefinition.name, hero.x, hero.y - 59, {
+    label(ctx, heroDefinition.name, heroX, heroY - 59, {
       size: 11, color: COLORS.white, weight: 950,
     });
     if (Number.isFinite(hero.hp) && Number.isFinite(hero.maxHp) && hero.maxHp > 0) {
       const ratio = clamp(hero.hp / hero.maxHp, 0, 1);
-      const bar = { x: hero.x - 34, y: hero.y - 43, width: 68, height: 7 };
+      const bar = { x: heroX - 34, y: heroY - 43, width: 68, height: 7 };
       ctx.fillStyle = 'rgba(28,44,50,0.68)';
       roundedPath(ctx, bar.x, bar.y, bar.width, bar.height, 4);
       ctx.fill();
@@ -3895,11 +4086,15 @@ export class TowerDefenseGame {
           ? 1 - clamp(turret.hp / turret.maxHp, 0, 1)
           : 0;
         if (turretVisual?.layered) {
+          const aimAngle = this.visualAim(
+            `turret:${turret.uid ?? slot.id ?? slotIndex}`,
+            Number.isFinite(Number(turret.aimAngle))
+              ? Number(turret.aimAngle) : -Math.PI / 2,
+          );
           drawLayeredTurret(ctx, x, buildingGroundY, 92, {
             assetKey: turretVisual.assetKey,
             assetStore: this.assetStore,
-            aimAngle: Number.isFinite(Number(turret.aimAngle))
-              ? Number(turret.aimAngle) : -Math.PI / 2,
+            aimAngle,
             attackPulse: Math.max(pulse, Number(turret.attackPulse) || 0),
             damage,
           });
@@ -3977,6 +4172,11 @@ export class TowerDefenseGame {
       if (selected && pad) {
         const selectedX = this.state.waveActive && Number.isFinite(selected.x) ? selected.x : pad.x;
         const selectedY = this.state.waveActive && Number.isFinite(selected.y) ? selected.y : pad.y;
+        const selectedPoint = this.state.waveActive && isSquadTower(selected)
+          ? this.visualPoint(`squad-anchor:${selected.uid}`, selectedX, selectedY, {
+            profile: 'actor',
+          })
+          : { x: selectedX, y: selectedY };
         ctx.save();
         ctx.globalAlpha = 0.11;
         const selectedDefinition = isSquadTower(selected)
@@ -3984,7 +4184,7 @@ export class TowerDefenseGame {
           : TOWER_TYPES[slimeVisualType(selected.type, selected.squadType)];
         ctx.fillStyle = selectedDefinition.color;
         ctx.beginPath();
-        ctx.arc(selectedX, selectedY, towerRange(this.state, selected), 0, TAU);
+        ctx.arc(selectedPoint.x, selectedPoint.y, towerRange(this.state, selected), 0, TAU);
         ctx.fill();
         ctx.globalAlpha = 0.34;
         ctx.strokeStyle = selectedDefinition.color;
@@ -3999,7 +4199,11 @@ export class TowerDefenseGame {
       .sort((left, right) => left.pad.y - right.pad.y || left.pad.x - right.pad.x)
       .forEach(({ pad, padIndex }) => this.drawPad(ctx, pad, padIndex));
     [...this.state.enemies]
-      .sort((left, right) => left.y - right.y || left.travelled - right.travelled)
+      .sort((left, right) => (
+        this.visualPoint(`enemy:${left.uid}`, left.x, left.y, { profile: 'actor' }).y
+          - this.visualPoint(`enemy:${right.uid}`, right.x, right.y, { profile: 'actor' }).y
+        || left.travelled - right.travelled
+      ))
       .forEach((enemy) => this.drawEnemy(ctx, enemy));
     this.drawBattleHero(ctx);
     this.drawDefeatedTowers(ctx);
@@ -4148,16 +4352,25 @@ export class TowerDefenseGame {
       const animationPhaseIndex = Number.isInteger(member.memberIndex)
         ? member.memberIndex : memberIndex;
       const moving = member.moving == null ? Boolean(squad.moving) : Boolean(member.moving);
+      const memberKey = squadMemberAnimationKey(squad, member, memberIndex);
       const animation = this.characterAnimationSample(
-        squadMemberAnimationKey(squad, member, memberIndex),
+        memberKey,
         visual.ownerId,
         moving ? 'move' : 'idle',
       );
-      drawSoldier(ctx, memberX, memberY, SQUAD_MEMBER_RENDER_SIZE * memberScale, {
+      const point = anchorIndependentMembers
+        ? { x: memberX, y: memberY }
+        : this.visualPoint(`unit:${memberKey}`, memberX, memberY, { profile: 'actor' });
+      const facing = anchorIndependentMembers
+        ? ((member.facing ?? squad.facing) === -1 ? -1 : 1)
+        : this.visualFacing(`unit:${memberKey}`, member.facing ?? squad.facing, {
+          active: moving || Number(member.attackPulse ?? squad.attackPulse) > 0.01,
+        });
+      drawSoldier(ctx, point.x, point.y, SQUAD_MEMBER_RENDER_SIZE * memberScale, {
         assetKey: visual.assetKey,
         squadType,
         time: this.state.time + animationPhaseIndex * 0.12,
-        facing: (member.facing ?? squad.facing) === -1 ? -1 : 1,
+        facing,
         hit: clamp(Number(member.hitPulse ?? squad.hitPulse) || 0, 0, 1),
         attackPulse: clamp(Number(member.attackPulse ?? squad.attackPulse) || 0, 0, 1),
         moving,
@@ -4346,15 +4559,18 @@ export class TowerDefenseGame {
     const definition = TD_ENEMIES[enemy.type] || TD_ENEMIES.bug;
     const type = MONSTER_DRAW_TYPE[enemy.type] || 'bug';
     const atlasAssetKey = ENEMY_ATLAS_ASSET_BY_TYPE[enemy.type];
+    const key = `enemy:${enemy.uid}`;
+    const point = this.visualPoint(key, enemy.x, enemy.y, { profile: 'actor' });
     const animation = this.characterAnimationSample(
-      `enemy:${enemy.uid}`,
+      key,
       definition.ownerId,
       'move',
     );
+    const facing = this.visualFacing(key, enemy.facing);
     const drawOptions = {
       time: this.state.time,
       phase: Number(enemy.uid.split('-').at(-1)) * 0.31 || 0,
-      facing: enemy.facing === -1 ? -1 : 1,
+      facing,
       hit: enemy.hitPulse,
       expression: enemy.hitPulse > 0.35 ? 'hurt' : 'normal',
       assetStore: this.assetStore,
@@ -4362,12 +4578,12 @@ export class TowerDefenseGame {
     };
     if (atlasAssetKey) {
       drawAtlasCharacter(ctx,
-        enemy.x,
-        enemy.y + definition.size * 0.33,
+        point.x,
+        point.y + definition.size * 0.33,
         definition.size,
         { ...drawOptions, assetKey: atlasAssetKey });
     } else {
-      drawMonster(ctx, enemy.x, enemy.y + definition.size * 0.33, definition.size, type, {
+      drawMonster(ctx, point.x, point.y + definition.size * 0.33, definition.size, type, {
         ...drawOptions,
         ...this.characterRigOptions(definition.ownerId),
         allowGeneratedStandalone: this.generatedCharacterArtEnabled,
@@ -4377,11 +4593,11 @@ export class TowerDefenseGame {
     const ratio = clamp(enemy.hp / Math.max(1, enemy.maxHp), 0, 1);
     ctx.save();
     ctx.fillStyle = 'rgba(38,51,60,0.56)';
-    roundedPath(ctx, enemy.x - width / 2, enemy.y - definition.size * 0.72, width, 7, 4);
+    roundedPath(ctx, point.x - width / 2, point.y - definition.size * 0.72, width, 7, 4);
     ctx.fill();
     if (ratio > 0) {
       ctx.fillStyle = ratio < 0.3 ? COLORS.coral : '#74CF7A';
-      roundedPath(ctx, enemy.x - width / 2 + 1, enemy.y - definition.size * 0.72 + 1,
+      roundedPath(ctx, point.x - width / 2 + 1, point.y - definition.size * 0.72 + 1,
         Math.max(2, (width - 2) * ratio), 5, 3);
       ctx.fill();
     }
@@ -4722,15 +4938,29 @@ export class TowerDefenseGame {
   drawSkillBeam(ctx, actor) {
     const style = skillStyle(actor);
     const hero = this.state.hero?.uid === actor.heroUid ? this.state.hero : null;
-    const startX = actor.followHero && hero
-      ? finiteNumber(hero.x, actor.originX) : finiteNumber(actor.originX, actor.x);
-    const startY = actor.followHero && hero
-      ? finiteNumber(hero.y, actor.originY) - 24 : finiteNumber(actor.originY, actor.y);
-    const directionX = finiteNumber(actor.directionX, 0);
-    const directionY = finiteNumber(actor.directionY, -1);
+    const heroPoint = actor.followHero && hero
+      ? this.visualPoint(`hero:${hero.uid || hero.type || 'hero'}`, hero.x, hero.y, {
+        profile: 'actor',
+      })
+      : null;
+    const startX = heroPoint
+      ? heroPoint.x : finiteNumber(actor.originX, actor.x);
+    const startY = heroPoint
+      ? heroPoint.y - 24 : finiteNumber(actor.originY, actor.y);
+    const actorKey = `skill-actor:${actor.uid || actor.stepKind || actor.type || 'beam'}`;
+    const directionAngle = this.visualAim(`${actorKey}:aim`, Math.atan2(
+      finiteNumber(actor.directionY, -1),
+      finiteNumber(actor.directionX, 0),
+    ), { responseSeconds: 0.03 });
+    const directionX = Math.cos(directionAngle);
+    const directionY = Math.sin(directionAngle);
     const length = Math.max(1, finiteNumber(actor.length, 320));
-    const targetX = finiteNumber(actor.endX, actor.targetX, startX + directionX * length);
-    const targetY = finiteNumber(actor.endY, actor.targetY, startY + directionY * length);
+    const targetX = actor.followHero && hero && this.visualFrameOpen
+      ? startX + directionX * length
+      : finiteNumber(actor.endX, actor.targetX, startX + directionX * length);
+    const targetY = actor.followHero && hero && this.visualFrameOpen
+      ? startY + directionY * length
+      : finiteNumber(actor.endY, actor.targetY, startY + directionY * length);
     const age = Math.max(0, finiteNumber(actor.age, actor.elapsed));
     const duration = Math.max(0.001, finiteNumber(actor.duration, 1));
     const reveal = easeOutCubic(clamp(age / 0.1, 0, 1));
@@ -4818,13 +5048,28 @@ export class TowerDefenseGame {
 
   drawSkillWave(ctx, actor) {
     const style = skillStyle(actor);
-    const x = finiteNumber(actor.x, actor.originX);
-    const y = finiteNumber(actor.y, actor.originY);
-    let dx = finiteNumber(actor.directionX, x - finiteNumber(actor.previousX, x));
-    let dy = finiteNumber(actor.directionY, y - finiteNumber(actor.previousY, y - 1));
+    const rawX = finiteNumber(actor.x, actor.originX);
+    const rawY = finiteNumber(actor.y, actor.originY);
+    const previousX = finiteNumber(actor.previousX, rawX);
+    const previousY = finiteNumber(actor.previousY, rawY - 1);
+    const actorKey = `skill-actor:${actor.uid || actor.stepKind || actor.type || 'wave'}`;
+    const point = this.visualPoint(actorKey, rawX, rawY, {
+      profile: 'wave',
+      initialX: previousX,
+      initialY: previousY,
+    });
+    const x = point.x;
+    const y = point.y;
+    let dx = finiteNumber(actor.directionX, rawX - previousX);
+    let dy = finiteNumber(actor.directionY, rawY - previousY);
     const directionLength = Math.max(0.001, Math.hypot(dx, dy));
     dx /= directionLength;
     dy /= directionLength;
+    const directionAngle = this.visualAim(`${actorKey}:aim`, Math.atan2(dy, dx), {
+      responseSeconds: 0.03,
+    });
+    dx = Math.cos(directionAngle);
+    dy = Math.sin(directionAngle);
     const px = -dy;
     const py = dx;
     const age = Math.max(0, finiteNumber(actor.age, actor.elapsed));
@@ -4832,8 +5077,8 @@ export class TowerDefenseGame {
     const fade = Math.min(clamp(age / 0.1, 0, 1), clamp((duration - age) / 0.18, 0, 1));
     const width = Math.max(28, finiteNumber(actor.width, actor.radius, 110));
     const tail = Math.min(width * 0.85, 46 + finiteNumber(actor.speed, 280) * 0.08);
-    const tailX = finiteNumber(actor.previousX, x - dx * tail);
-    const tailY = finiteNumber(actor.previousY, y - dy * tail);
+    const tailX = x - dx * tail;
+    const tailY = y - dy * tail;
     ctx.save();
     ctx.lineCap = 'round';
     ctx.globalAlpha = fade * 0.24;
@@ -5182,20 +5427,26 @@ export class TowerDefenseGame {
   }
 
   drawShot(ctx, projectile) {
-    const angle = Math.atan2(projectile.targetY - projectile.y, projectile.targetX - projectile.x);
+    const point = this.visualProjectilePoint(projectile);
+    const projectileKey = `projectile:${projectile?.uid || 'anonymous'}`;
+    const angle = this.visualAim(`${projectileKey}:aim`, Math.atan2(
+      finiteNumber(projectile.targetY) - finiteNumber(projectile.y),
+      finiteNumber(projectile.targetX) - finiteNumber(projectile.x),
+    ), { responseSeconds: 0.03 });
+    const visualProjectile = { ...projectile, x: point.x, y: point.y };
     if (isHeroSkillProjectile(projectile)) {
-      this.drawSkillProjectile(ctx, projectile, angle);
+      this.drawSkillProjectile(ctx, visualProjectile, angle);
       return;
     }
     const reinforcementStyle = reinforcementProjectileStyleFor(projectile);
     if (reinforcementStyle) {
-      this.drawReinforcementProjectile(ctx, projectile, angle, reinforcementStyle);
+      this.drawReinforcementProjectile(ctx, visualProjectile, angle, reinforcementStyle);
       return;
     }
     const star = clamp(Math.floor(projectile.star || 1), 1, TD_MAX_STAR);
     const baseSize = projectile.type === 'needle' ? 19 : 16;
     const evolvedSize = (baseSize + (star - 1) * 1.8) * (projectile.secondary ? 0.82 : 1);
-    drawProjectile(ctx, projectile.x, projectile.y, evolvedSize,
+    drawProjectile(ctx, point.x, point.y, evolvedSize,
       projectile.type, {
         angle,
         star,

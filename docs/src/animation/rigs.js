@@ -590,3 +590,30 @@ export const SOLDIER_RIG = deepFreeze({
     },
   },
 });
+
+/**
+ * Hero-only variant of the compact 3x3 atlas rig.
+ *
+ * The production hero body atlas intentionally stays 3x3.  Its fourth facial
+ * state lives in a separate 2x1 sidecar, so soldiers and enemies never become
+ * coupled to hero skill art or start requesting it at runtime.
+ */
+export const HERO_ATLAS_RIG = deepFreeze({
+  ...SOLDIER_RIG,
+  id: 'hero-atlas',
+  expression: {
+    defaultState: 'normal',
+    faceBone: 'face',
+    slots: {
+      eyes: { bone: 'eyes', variants: ['normal', 'attack', 'skill', 'hurt'] },
+      mouth: { bone: 'mouth', variants: ['normal', 'attack', 'skill', 'hurt'] },
+    },
+    states: {
+      normal: { eyes: 'normal', mouth: 'normal' },
+      attack: { eyes: 'attack', mouth: 'attack' },
+      skill: { eyes: 'skill', mouth: 'skill' },
+      hurt: { eyes: 'hurt', mouth: 'hurt' },
+    },
+    clipStates: { attack: 'attack', skill: 'skill', hurt: 'hurt' },
+  },
+});

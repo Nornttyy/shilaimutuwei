@@ -5,11 +5,12 @@ import { readFile } from 'node:fs/promises';
 import {
   BUBBLE_RIG,
   CRYSTAL_RIG,
+  HERO_ATLAS_RIG,
   SHELL_RIG,
   SOLDIER_RIG,
   SPROUT_RIG,
 } from '../src/animation/rigs.js';
-import { SOLDIER_CLIPS } from '../src/animation/clips.js';
+import { HERO_ATLAS_CLIPS, SOLDIER_CLIPS } from '../src/animation/clips.js';
 import { decodeRgbaPng } from '../scripts/export-rig-layers.mjs';
 
 function contextFor(canvas = null) {
@@ -43,6 +44,26 @@ function readyStore(asset, requested) {
   return {
     useOrFallback(key, render, fallback) {
       requested.push(key);
+      try {
+        render(asset);
+        return true;
+      } catch (error) {
+        fallback('failed', error);
+        return false;
+      }
+    },
+  };
+}
+
+function readyAssetMapStore(assets, requested) {
+  return {
+    useOrFallback(key, render, fallback) {
+      requested.push(key);
+      const asset = assets[key];
+      if (!asset) {
+        fallback('missing');
+        return false;
+      }
       try {
         render(asset);
         return true;
@@ -266,6 +287,20 @@ test('soldier rig keeps deform, headgear inertia, and equipment recoil independe
   assert.deepEqual(SOLDIER_CLIPS.downed.events, [{ time: 0.52, name: 'downed' }]);
 });
 
+test('hero atlas rig adds only the skill expression and keeps weapon layering independent', () => {
+  assert.notEqual(HERO_ATLAS_RIG, SOLDIER_RIG);
+  assert.notEqual(HERO_ATLAS_CLIPS, SOLDIER_CLIPS);
+  assert.deepEqual(HERO_ATLAS_RIG.expression.slots.eyes.variants,
+    ['normal', 'attack', 'skill', 'hurt']);
+  assert.deepEqual(HERO_ATLAS_RIG.expression.slots.mouth.variants,
+    ['normal', 'attack', 'skill', 'hurt']);
+  assert.equal(HERO_ATLAS_CLIPS.skill.expression, 'skill');
+  assert.ok(HERO_ATLAS_CLIPS.attack.priority < HERO_ATLAS_CLIPS.skill.priority);
+  assert.ok(HERO_ATLAS_CLIPS.skill.priority < HERO_ATLAS_CLIPS.hurt.priority);
+  assert.equal(SOLDIER_RIG.expression.states.skill, undefined);
+  assert.equal(SOLDIER_CLIPS.skill, undefined);
+});
+
 test('drawSoldier uses one shared atlas-space bind pose and flips facing once', async () => {
   const previous = globalThis.OffscreenCanvas;
   const surfaces = [];
@@ -448,6 +483,110 @@ test('formal hero and new squad atlases share the generic rig without falling ba
     assert.deepEqual(drillLayers.map(([, , sx, sy]) => [sx, sy]), [
       [418, 0], [0, 0], [836, 418], [0, 836], [836, 0],
     ], 'rear headgear stays behind while the weapon is the final foreground layer');
+  } finally {
+    if (previous === undefined) delete globalThis.OffscreenCanvas;
+    else globalThis.OffscreenCanvas = previous;
+  }
+});
+
+test('all eleven atlas heroes atomically draw skill faces from their sidecars before equipment', async () => {
+  const previous = globalThis.OffscreenCanvas;
+  const surfaces = [];
+  globalThis.OffscreenCanvas = class {
+    constructor(width, height) {
+      this.width = width;
+      this.height = height;
+      this.context = contextFor(this);
+      surfaces.push(this.context);
+    }
+    getContext() { return this.context; }
+  };
+  try {
+    const { drawAtlasCharacter } = await import(`../src/draw.js?skillFace=${Date.now()}`);
+    const heroSlugs = [
+      'berry-burst', 'dew-bloom', 'bell-boom', 'drill-gum', 'ember-fizz',
+      'ink-splash', 'cloud-spin', 'frost-drop', 'honey-pop', 'spark-bean',
+      'star-core',
+    ];
+    for (const slug of heroSlugs) {
+      surfaces.forEach(({ calls }) => { calls.length = 0; });
+      const mainAssetKey = `hero-${slug}-atlas-v1`;
+      const skillFaceAssetKey = `hero-${slug}-skill-face-v1`;
+      const mainAtlas = { id: `${slug}-main`, width: 1254, height: 1254 };
+      const skillFace = { id: `${slug}-skill-face`, width: 836, height: 418 };
+      const requested = [];
+      const store = readyAssetMapStore({
+        [mainAssetKey]: mainAtlas,
+        [skillFaceAssetKey]: skillFace,
+      }, requested);
+      const main = contextFor();
+      assert.equal(drawAtlasCharacter(main, 32, 96, 74, {
+        assetStore: store,
+        assetKey: mainAssetKey,
+        skillFaceAssetKey,
+        state: 'skill',
+      }), true, slug);
+      assert.deepEqual(requested, [mainAssetKey, skillFaceAssetKey], slug);
+
+      const layerCalls = surfaces.flatMap(({ calls }) => calls)
+        .filter(([method]) => method === 'drawImage');
+      const skillLayers = layerCalls.filter(([, image]) => image === skillFace);
+      assert.deepEqual(skillLayers.map(([, , sx, sy, sw, sh]) => [sx, sy, sw, sh]), [
+        [0, 0, 418, 418],
+        [418, 0, 418, 418],
+      ], `${slug} skill eyes and mouth come from its two sidecar cells`);
+      const authoredLayers = layerCalls.filter(([, image]) => (
+        image === mainAtlas || image === skillFace
+      ));
+      assert.equal(authoredLayers.at(-1)[1], mainAtlas, `${slug} equipment image`);
+      assert.deepEqual(authoredLayers.at(-1).slice(2, 6), [836, 0, 418, 418],
+        `${slug} main-atlas equipment remains the final foreground layer`);
+      assert.equal(main.calls.filter(([method]) => method === 'drawImage').length, 1,
+        `${slug} reaches the main canvas only as one complete atomic composite`);
+    }
+  } finally {
+    if (previous === undefined) delete globalThis.OffscreenCanvas;
+    else globalThis.OffscreenCanvas = previous;
+  }
+});
+
+test('atlas heroes never disguise a missing or malformed skill sidecar as an attack face', async () => {
+  const previous = globalThis.OffscreenCanvas;
+  const surfaces = [];
+  globalThis.OffscreenCanvas = class {
+    constructor(width, height) {
+      this.width = width;
+      this.height = height;
+      this.context = contextFor(this);
+      surfaces.push(this.context);
+    }
+    getContext() { return this.context; }
+  };
+  try {
+    const { drawAtlasCharacter } = await import(`../src/draw.js?strictSkillFace=${Date.now()}`);
+    const mainAssetKey = 'hero-berry-burst-atlas-v1';
+    const skillFaceAssetKey = 'hero-berry-burst-skill-face-v1';
+    const mainAtlas = { id: 'berry-main', width: 1254, height: 1254 };
+    for (const [label, skillFace] of [
+      ['missing', null],
+      ['wrong-size', { id: 'bad-skill-face', width: 835, height: 418 }],
+    ]) {
+      const requested = [];
+      const assets = { [mainAssetKey]: mainAtlas };
+      if (skillFace) assets[skillFaceAssetKey] = skillFace;
+      const main = contextFor();
+      assert.equal(drawAtlasCharacter(main, 32, 96, 74, {
+        assetStore: readyAssetMapStore(assets, requested),
+        assetKey: mainAssetKey,
+        skillFaceAssetKey,
+        state: 'skill',
+      }), false, label);
+      assert.deepEqual(requested, [mainAssetKey, skillFaceAssetKey], label);
+      assert.equal(main.calls.some(([method]) => method === 'drawImage'), false,
+        `${label} skill art must not reach the main canvas`);
+    }
+    assert.equal(surfaces.length, 0,
+      'invalid hero skill input never creates a partial offscreen composite');
   } finally {
     if (previous === undefined) delete globalThis.OffscreenCanvas;
     else globalThis.OffscreenCanvas = previous;

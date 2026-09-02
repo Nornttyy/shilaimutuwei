@@ -9,6 +9,7 @@ import {
   BUBBLE_CLIPS,
   BUG_CLIPS,
   CRYSTAL_CLIPS,
+  HERO_ATLAS_CLIPS,
   SHELL_CLIPS,
   SPROUT_CLIPS,
   STONE_CLIPS,
@@ -20,6 +21,7 @@ import {
   BUG_RIG,
   CRYSTAL_RIG,
   EXPRESSION_SPEC,
+  HERO_ATLAS_RIG,
   SHELL_RIG,
   SPROUT_RIG,
   STONE_RIG,
@@ -589,6 +591,53 @@ test('code-driven 3x3 atlas rigs are documented without duplicating rig-parts ow
     assert.equal(RIG_PARTS_SPEC.rigs[ownerId], undefined,
       `${ownerId} remains a code-driven atlas instead of a rig-parts duplicate`);
   }
+});
+
+test('atlas heroes keep the 3x3 body atlas and add one isolated 2x1 skill-face sidecar', () => {
+  const format = ANIMATION_SPEC.heroSkillFaceSidecarFormat;
+  assert.deepEqual(format.grid, {
+    columns: 2,
+    rows: 1,
+    cellWidth: 418,
+    cellHeight: 418,
+    atlasWidth: 836,
+    atlasHeight: 418,
+    transparentCellGutter: 2,
+  });
+  assert.deepEqual(format.logicalBindRect, { x: -60, y: -120, width: 120, height: 120 });
+  assert.deepEqual(format.slotOrder, ['skillEyes', 'skillMouth']);
+  assert.match(format.registrationPolicy, /不扩大或改写正式3×3主图集/);
+  assert.match(format.layerPolicy, /equipment.*最终武器层.*表情前方/);
+  assert.match(format.stylePolicy, /参考壳壳/);
+  assert.match(format.stylePolicy, /禁止真实纹理/);
+
+  assert.equal(format.owners.length, 11);
+  assert.equal(new Set(format.owners.map(({ ownerId }) => ownerId)).size, 11);
+  assert.equal(new Set(format.owners.map(({ assetId }) => assetId)).size, 11);
+  for (const owner of format.owners) {
+    assert.match(owner.ownerId, /^survivor-/);
+    assert.match(owner.mainAssetId, /^hero-.+-atlas-v1$/);
+    assert.equal(owner.assetId, owner.mainAssetId.replace(/-atlas-v1$/, '-skill-face-v1'));
+    assert.equal(RIG_PARTS_SPEC.rigs[owner.ownerId], undefined,
+      `${owner.ownerId} remains a code-driven atlas hero`);
+  }
+
+  assert.deepEqual(HERO_ATLAS_RIG.expression.states.skill, {
+    eyes: 'skill', mouth: 'skill',
+  });
+  assert.equal(HERO_ATLAS_RIG.expression.clipStates.skill, 'skill');
+  assert.equal(HERO_ATLAS_CLIPS.skill.expression, 'skill');
+  assert.equal(HERO_ATLAS_CLIPS.attack.priority, 20);
+  assert.equal(HERO_ATLAS_CLIPS.skill.priority, 30);
+  assert.equal(HERO_ATLAS_CLIPS.hurt.priority, 40);
+  assert.equal(HERO_ATLAS_CLIPS.downed.priority, 90);
+
+  const controller = new AnimationController(HERO_ATLAS_CLIPS, {
+    base: 'idle', transitionDuration: 0,
+  });
+  assert.equal(controller.play('skill'), true);
+  assert.equal(controller.play('attack'), false, 'basic attack cannot cancel an active skill');
+  assert.equal(controller.play('hurt'), true, 'hurt feedback can interrupt a skill');
 });
 
 test('face parent can animate while independent expression layers stay undeformed', () => {

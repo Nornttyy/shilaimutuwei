@@ -4,13 +4,14 @@ import {
   BUBBLE_RIG,
   BUG_RIG,
   CRYSTAL_RIG,
+  HERO_ATLAS_RIG,
   SHELL_RIG,
   SOLDIER_RIG,
   SPROUT_RIG,
   STONE_RIG,
   WINDCAP_RIG,
 } from './animation/rigs.js';
-import { SOLDIER_CLIPS } from './animation/clips.js';
+import { HERO_ATLAS_CLIPS, SOLDIER_CLIPS } from './animation/clips.js';
 import { AnimationController } from './animation/controller.js';
 import {
   characterExportedFacing,
@@ -1210,6 +1211,9 @@ export const drawSproutSlime = (ctx, x, y, size, options = {}) => drawSlime(ctx,
 const SOLDIER_ATLAS_SIZE = 1254;
 const SOLDIER_ATLAS_CELL = 418;
 const SOLDIER_ATLAS_CACHE = new WeakMap();
+const HERO_ATLAS_CACHE = new WeakMap();
+const HERO_SKILL_FACE_ATLAS_WIDTH = 836;
+const HERO_SKILL_FACE_ATLAS_HEIGHT = 418;
 const SOLDIER_LAYER_INDEX = Object.freeze({
   body: 0,
   headgear: 1,
@@ -1302,7 +1306,70 @@ function soldierRigAssetFor(atlas, assetKey = '') {
   return rigAsset;
 }
 
-function soldierAnimationSample(options) {
+function heroAtlasRigAssetFor(atlas, skillFaceAtlas, assetKey = '') {
+  const cached = HERO_ATLAS_CACHE.get(atlas);
+  if (cached?.skillFaceAtlas === skillFaceAtlas && cached?.assetKey === assetKey) {
+    return cached.rigAsset;
+  }
+  const layerZ = ATLAS_REAR_LAYER_Z[assetKey] || {};
+  const mainFaceVariant = (index) => Object.freeze({
+    image: atlas,
+    sourceRect: soldierSourceRect(index),
+    bindRect: SOLDIER_BIND_RECT,
+  });
+  const skillFaceVariant = (index) => Object.freeze({
+    image: skillFaceAtlas,
+    sourceRect: Object.freeze({
+      x: index * SOLDIER_ATLAS_CELL,
+      y: 0,
+      width: SOLDIER_ATLAS_CELL,
+      height: SOLDIER_ATLAS_CELL,
+    }),
+    bindRect: SOLDIER_BIND_RECT,
+  });
+  const rigAsset = Object.freeze({
+    rigId: HERO_ATLAS_RIG.id,
+    canonicalFacing: 1,
+    parts: Object.freeze([
+      {
+        ...soldierAtlasPart('body', 'body', SOLDIER_LAYER_INDEX.body, 0, SOLDIER_BIND_RECT),
+        image: atlas,
+      },
+      {
+        ...soldierAtlasPart('headgear', 'headgear', SOLDIER_LAYER_INDEX.headgear,
+          layerZ.headgear ?? 10, SOLDIER_BIND_RECT),
+        image: atlas,
+      },
+      {
+        ...soldierAtlasPart('equipment', 'equipment', SOLDIER_LAYER_INDEX.equipment,
+          layerZ.equipment ?? 40, SOLDIER_BIND_RECT),
+        image: atlas,
+      },
+      Object.freeze({
+        id: 'eyes', bone: 'eyes', z: 30, required: true, image: atlas,
+        variants: Object.freeze({
+          normal: mainFaceVariant(SOLDIER_LAYER_INDEX.normalEyes),
+          attack: mainFaceVariant(SOLDIER_LAYER_INDEX.attackEyes),
+          skill: skillFaceVariant(0),
+          hurt: mainFaceVariant(SOLDIER_LAYER_INDEX.hurtEyes),
+        }),
+      }),
+      Object.freeze({
+        id: 'mouth', bone: 'mouth', z: 31, required: true, image: atlas,
+        variants: Object.freeze({
+          normal: mainFaceVariant(SOLDIER_LAYER_INDEX.normalMouth),
+          attack: mainFaceVariant(SOLDIER_LAYER_INDEX.attackMouth),
+          skill: skillFaceVariant(1),
+          hurt: mainFaceVariant(SOLDIER_LAYER_INDEX.hurtMouth),
+        }),
+      }),
+    ]),
+  });
+  HERO_ATLAS_CACHE.set(atlas, { skillFaceAtlas, assetKey, rigAsset });
+  return rigAsset;
+}
+
+function soldierAnimationSample(options, clips = SOLDIER_CLIPS) {
   if (options.pose && typeof options.pose === 'object') {
     const expression = options.expressionSample
       ?? options.expression
@@ -1318,8 +1385,8 @@ function soldierAnimationSample(options) {
         : options.moving
           ? 'move'
           : 'idle';
-  const state = Object.hasOwn(SOLDIER_CLIPS, requested) ? requested : 'idle';
-  const clip = SOLDIER_CLIPS[state];
+  const state = Object.hasOwn(clips, requested) ? requested : 'idle';
+  const clip = clips[state];
   const pulse = state === 'hurt'
     ? clamp(safeNumber(options.hit, 1))
     : state === 'attack'
@@ -1330,7 +1397,7 @@ function soldierAnimationSample(options) {
       ? ((safeNumber(options.time, 0) % clip.duration) + clip.duration) % clip.duration
       : clamp(safeNumber(options.time, 0), 0, clip.duration)
     : (1 - pulse) * clip.duration;
-  const controller = new AnimationController(SOLDIER_CLIPS, {
+  const controller = new AnimationController(clips, {
     base: state,
     transitionDuration: 0,
   });
@@ -1343,13 +1410,16 @@ function soldierAnimationSample(options) {
 
 /**
  * Draw any formal 3x3 skeletal slime atlas. The body, equipment and all face
- * states are independent cells, so heroes and soldiers share the same smooth
- * animation clips without borrowing art from another character. A formal
- * atlas is atomic: while it is unavailable the loading layer owns the frame,
- * so this renderer intentionally draws nothing instead of inventing a stand-in.
+ * states are independent cells. Heroes additionally bind a 2x1 skill-face
+ * sidecar and use their own skill clip without changing the main 3x3 layout;
+ * soldiers remain isolated from that contract. A formal atlas is atomic:
+ * while it is unavailable the loading layer owns the frame, so this renderer
+ * intentionally draws nothing instead of inventing a stand-in.
  */
 export function drawAtlasCharacter(ctx, x, y, size, options = {}) {
   const assetKey = options.assetKey;
+  const skillFaceAssetKey = options.skillFaceAssetKey;
+  const heroAtlas = typeof skillFaceAssetKey === 'string' && skillFaceAssetKey.length > 0;
   const facing = safeNumber(options.facing, 1) < 0 ? -1 : 1;
   if (!assetKey || !options.assetStore || typeof options.assetStore.useOrFallback !== 'function') {
     return false;
@@ -1360,26 +1430,53 @@ export function drawAtlasCharacter(ctx, x, y, size, options = {}) {
     const height = Number(atlas?.naturalHeight || atlas?.height);
     if (width !== SOLDIER_ATLAS_SIZE || height !== SOLDIER_ATLAS_SIZE) {
       throw new TypeError(
-        `Soldier atlas ${assetKey} must be exactly ${SOLDIER_ATLAS_SIZE}x${SOLDIER_ATLAS_SIZE}.`,
+        `Character atlas ${assetKey} must be exactly ${SOLDIER_ATLAS_SIZE}x${SOLDIER_ATLAS_SIZE}.`,
       );
     }
-    const sample = soldierAnimationSample(options);
-    ctx.save();
-    try {
-      ctx.globalAlpha *= options.disabled ? 0.48 : clamp(options.alpha ?? 1);
-      ctx.translate(x, y);
-      ctx.scale((size / 100) * facing, size / 100);
-      rendered = renderCompatibleRigAsset(
-        ctx,
-        SOLDIER_RIG,
-        sample.pose,
-        soldierRigAssetFor(atlas, assetKey),
-        sample.expression,
+    const renderAtlas = (skillFaceAtlas = null) => {
+      if (skillFaceAtlas) {
+        const skillWidth = Number(skillFaceAtlas?.naturalWidth || skillFaceAtlas?.width);
+        const skillHeight = Number(skillFaceAtlas?.naturalHeight || skillFaceAtlas?.height);
+        if (
+          skillWidth !== HERO_SKILL_FACE_ATLAS_WIDTH
+          || skillHeight !== HERO_SKILL_FACE_ATLAS_HEIGHT
+        ) {
+          throw new TypeError(
+            `Hero skill face atlas ${skillFaceAssetKey} must be exactly `
+            + `${HERO_SKILL_FACE_ATLAS_WIDTH}x${HERO_SKILL_FACE_ATLAS_HEIGHT}.`,
+          );
+        }
+      }
+      const rig = heroAtlas ? HERO_ATLAS_RIG : SOLDIER_RIG;
+      const sample = soldierAnimationSample(options, heroAtlas ? HERO_ATLAS_CLIPS : SOLDIER_CLIPS);
+      ctx.save();
+      try {
+        ctx.globalAlpha *= options.disabled ? 0.48 : clamp(options.alpha ?? 1);
+        ctx.translate(x, y);
+        ctx.scale((size / 100) * facing, size / 100);
+        rendered = renderCompatibleRigAsset(
+          ctx,
+          rig,
+          sample.pose,
+          heroAtlas
+            ? heroAtlasRigAssetFor(atlas, skillFaceAtlas, assetKey)
+            : soldierRigAssetFor(atlas, assetKey),
+          sample.expression,
+        );
+      } finally {
+        ctx.restore();
+      }
+      if (!rendered) throw new Error(`Character atlas ${assetKey} could not render atomically.`);
+    };
+    if (heroAtlas) {
+      options.assetStore.useOrFallback(
+        skillFaceAssetKey,
+        (skillFaceAtlas) => renderAtlas(skillFaceAtlas),
+        () => {},
       );
-    } finally {
-      ctx.restore();
+    } else {
+      renderAtlas();
     }
-    if (!rendered) throw new Error(`Soldier atlas ${assetKey} could not render atomically.`);
   }, () => {});
   return rendered && result !== false;
 }

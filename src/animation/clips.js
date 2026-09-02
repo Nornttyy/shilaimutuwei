@@ -1069,3 +1069,45 @@ export const SOLDIER_CLIPS = deepFreeze(completeClipTracks(SOLDIER_BONES, {
     events: [{ time: 0.52, name: 'downed' }],
   },
 }));
+
+/**
+ * Atlas heroes share the soldier-sized locomotion clips, but own a separate
+ * skill action and expression state.  Skill priority sits above a basic
+ * attack and below hurt/downed so an attack cannot cancel a cast while damage
+ * feedback remains immediate.
+ */
+export const HERO_ATLAS_CLIPS = deepFreeze({
+  ...SOLDIER_CLIPS,
+  ...completeClipTracks(SOLDIER_BONES, {
+    skill: {
+      duration: 0.58, mode: 'once', priority: 30, expression: 'skill',
+      tracks: {
+        root: {
+          x: [[0, 0], [0.18, -1.4], [0.34, 3.2], [0.58, 0]],
+          y: [[0, 0], [0.18, 1.2], [0.34, -2.2], [0.58, 0]],
+        },
+        motion: {
+          rotation: [[0, 0], [0.18, -0.045], [0.34, 0.055], [0.58, 0]],
+        },
+        deform: {
+          scaleX: [[0, 1], [0.18, 0.95], [0.34, 1.075], [0.58, 1]],
+          scaleY: [[0, 1], [0.18, 1.055], [0.34, 0.94], [0.58, 1]],
+        },
+        face: {
+          x: [[0, 0], [0.18, -0.35], [0.34, 0.55], [0.58, 0]],
+          y: [[0, 0], [0.18, 0.35], [0.34, -0.4], [0.58, 0]],
+        },
+        headgear: {
+          y: [[0, 0], [0.18, 0.7], [0.34, -1.2], [0.58, 0]],
+          rotation: [[0, 0], [0.18, -0.065], [0.34, 0.08], [0.58, 0]],
+        },
+        equipment: {
+          x: [[0, 0], [0.18, -5], [0.34, 5.5], [0.58, 0]],
+          y: [[0, 0], [0.18, 1], [0.34, -1.2], [0.58, 0]],
+          rotation: [[0, 0], [0.18, -0.11], [0.34, 0.095], [0.58, 0]],
+        },
+      },
+      events: [{ time: 0.34, name: 'skill-release' }],
+    },
+  }),
+});

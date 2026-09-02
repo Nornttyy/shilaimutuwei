@@ -17,8 +17,20 @@ import { createWebRuntime } from '../src/platform/runtime.js';
 function createContext() {
   const gradient = () => ({ addColorStop() {} });
   const calls = [];
+  const stateStack = [];
   const base = {
     calls,
+    filter: 'none',
+    globalAlpha: 1,
+    save() {
+      stateStack.push({ filter: this.filter, globalAlpha: this.globalAlpha });
+    },
+    restore() {
+      const state = stateStack.pop();
+      if (!state) return;
+      this.filter = state.filter;
+      this.globalAlpha = state.globalAlpha;
+    },
     createLinearGradient: gradient,
     createRadialGradient: gradient,
     measureText: (text) => ({ width: String(text).length * 12 }),
@@ -145,13 +157,15 @@ function createAssetStore(availableKeys = []) {
     useOrFallback(key, drawAsset, drawFallback) {
       requests.push(key);
       if (available.has(key)) {
+        const heroSkillFace = /^hero-.+-skill-face-v1$/.test(key);
         const formalAtlas = /^(?:hero|soldier|enemy)-.+-atlas-v1$/.test(key)
           || /^effect-.+-frames-v1$/.test(key);
         const layeredTurret = /^turret-.+-atlas-v1$/.test(key);
         const reinforcementAtlas = key === 'effect-reinforcement-projectiles-atlas-v1';
-        const width = reinforcementAtlas ? 1536 : layeredTurret ? 1536 : formalAtlas ? 1254 : 768;
+        const width = reinforcementAtlas ? 1536
+          : layeredTurret ? 1536 : heroSkillFace ? 836 : formalAtlas ? 1254 : 768;
         const height = reinforcementAtlas ? 1024
-          : layeredTurret ? 768 : key.startsWith('turret-') ? 723 : width;
+          : layeredTurret ? 768 : heroSkillFace ? 418 : key.startsWith('turret-') ? 723 : width;
         drawAsset?.({ key, kind: key, width, height, naturalWidth: width, naturalHeight: height });
         return true;
       }
@@ -254,11 +268,6 @@ test('formal asset and rig stores can be replaced and are used during rendering'
   const menuAssets = [
     'background-menu-portrait-v1',
     'fortress-slime-core',
-    'rift-entry-portal',
-    'tile-build-light',
-    'tile-build-dark',
-    'tile-route-open',
-    'turret-gel-mount',
     'effect-damage-cracks-overlay',
   ];
   const assets = createAssetStore(menuAssets);
@@ -274,20 +283,22 @@ test('formal asset and rig stores can be replaced and are used during rendering'
   assert.equal(assets.requests.includes('background-garden-base'), false,
     'the ready formal menu backdrop needs no fallback scene');
   assert.ok(assets.requests.includes('fortress-slime-core'));
-  assert.ok(assets.requests.includes('rift-entry-portal'));
-  assert.ok(assets.requests.includes('tile-build-light'));
-  assert.ok(assets.requests.includes('tile-build-dark'));
-  assert.ok(assets.requests.includes('tile-route-open'));
-  assert.ok(assets.requests.includes('turret-gel-mount'));
+  for (const key of [
+    'rift-entry-portal', 'tile-build-light', 'tile-build-dark',
+    'tile-route-open', 'turret-gel-mount',
+  ]) {
+    assert.equal(assets.requests.includes(key), false,
+      `${key} is intentionally absent from the core-only main menu`);
+  }
   assert.equal(assets.requests.includes('background-cloud-overlay'), false);
   assert.equal(assets.requests.includes('town-soft-core'), false);
-  for (const key of menuAssets.slice(0, 7)) {
+  for (const key of menuAssets.slice(0, 2)) {
     assert.ok(canvas.context.calls.some(([kind, asset]) => (
       kind === 'drawImage' && asset?.kind === key
     )), `${key} is part of the formal menu composition`);
   }
   assert.deepEqual(rigs.requests, [],
-    'the main menu is a fortress tactical diorama and does not render heroes');
+    'the main menu only renders the fortress core and never requests a hero rig');
   assert.equal(game.setGeneratedCharacterArtEnabled(true), game);
   assert.equal(game.generatedCharacterArtEnabled, true);
   assert.equal(game.setAssetStore({}), game);
@@ -334,6 +345,60 @@ test('all four towers drive independent attack bones and replace facial layers',
       `${type}.${controlBone} moves independently`);
     assert.equal(entry.expressionMixer.sample().to, 'attack', `${type} swaps to attack face layers`);
   });
+  game.dispose();
+});
+
+test('all eleven atlas heroes play a distinct skill face while legacy heroes stay unchanged', () => {
+  const canvas = createCanvas();
+  const game = new TowerDefenseGame(canvas, {
+    runtime: createRuntime({ tutorialSeen: true }),
+    pixelRatio: 1,
+  });
+  game.state.screen = 'battle';
+  game.state.phase = 'combat';
+  game.state.waveActive = true;
+  game.state.towers = [];
+
+  const atlasHeroTypes = [
+    'berry', 'dew', 'bell', 'drill', 'ember', 'ink',
+    'cloud', 'frost', 'honey', 'spark', 'star',
+  ];
+  for (const type of atlasHeroTypes) {
+    const ownerId = HERO_TYPES[type].ownerId;
+    game.state.hero = {
+      uid: `skill-${type}`, type, hp: 100, maxHp: 100,
+      x: 360, y: 720, moveX: 0, moveY: 0, facing: 1,
+    };
+    game.processCharacterAnimationEvent({ type: 'hero-skill', heroType: type });
+    game.updateCharacterAnimations(0.05);
+    const entry = game.characterAnimations.get(`hero:skill-${type}`);
+    assert.equal(entry.controller.actionName, 'skill', `${type} owns a skill clip`);
+    assert.equal(entry.expressionMixer.sample().to, 'skill', `${type} owns a skill face`);
+  }
+
+  game.state.hero = {
+    uid: 'priority-berry', type: 'berry', hp: 100, maxHp: 100,
+    x: 360, y: 720, moveX: 0, moveY: 0, facing: 1,
+  };
+  game.processCharacterAnimationEvent({ type: 'hero-skill', heroType: 'berry' });
+  game.processCharacterAnimationEvent({ type: 'hero-attack', heroType: 'berry' });
+  let entry = game.characterAnimations.get('hero:priority-berry');
+  assert.equal(entry.controller.actionName, 'skill', 'a basic attack cannot replace a skill cast');
+  game.processCharacterAnimationEvent({ type: 'hero-hit', heroType: 'berry' });
+  game.updateCharacterAnimations(0.05);
+  entry = game.characterAnimations.get('hero:priority-berry');
+  assert.equal(entry.controller.actionName, 'hurt', 'hurt remains more important than skill');
+
+  game.state.hero = {
+    uid: 'legacy-shell', type: 'shell', hp: 100, maxHp: 100,
+    x: 360, y: 720, moveX: 0, moveY: 0, facing: 1,
+  };
+  game.processCharacterAnimationEvent({ type: 'hero-skill', heroType: 'shell' });
+  entry = game.characterAnimations.get('hero:legacy-shell');
+  assert.equal(entry.controller.actionName, 'attack',
+    'the original four layered heroes retain their established attack action');
+  assert.equal(Object.hasOwn(entry.expressionMixer.spec.states, 'skill'), false,
+    'the original layered expression contract is not widened');
   game.dispose();
 });
 
@@ -620,7 +685,9 @@ test('Berry and Dew use their own 1254 atlases in battle, roster, and summon pre
   const canvas = createCanvas();
   const assets = createAssetStore([
     'hero-berry-burst-atlas-v1',
+    'hero-berry-burst-skill-face-v1',
     'hero-dew-bloom-atlas-v1',
+    'hero-dew-bloom-skill-face-v1',
   ]);
   const game = new TowerDefenseGame(canvas, {
     runtime: createRuntime({ tutorialSeen: true }),
@@ -637,12 +704,14 @@ test('Berry and Dew use their own 1254 atlases in battle, roster, and summon pre
   assets.requests.length = 0;
   game.drawBattleHero(canvas.context);
   assert.ok(assets.requests.includes('hero-berry-burst-atlas-v1'));
+  assert.ok(assets.requests.includes('hero-berry-burst-skill-face-v1'));
   assert.equal(assets.requests.includes('survivor-shell-shell'), false,
     'Berry never asks the shell standalone for a fallback');
 
   assets.requests.length = 0;
   game.drawRosterHeroPortrait(canvas.context, 'dew', 240, 420, 132);
   assert.ok(assets.requests.includes('hero-dew-bloom-atlas-v1'));
+  assert.ok(assets.requests.includes('hero-dew-bloom-skill-face-v1'));
   assert.equal(assets.requests.includes('survivor-shell-shell'), false,
     'Dew never asks the shell standalone for a fallback');
 
@@ -651,6 +720,7 @@ test('Berry and Dew use their own 1254 atlases in battle, roster, and summon pre
     results: [{ type: 'berry', rarity: 'SR', unlocked: true }],
   });
   assert.ok(assets.requests.includes('hero-berry-burst-atlas-v1'));
+  assert.ok(assets.requests.includes('hero-berry-burst-skill-face-v1'));
   assert.equal(assets.requests.includes('survivor-shell-shell'), false);
   game.dispose();
 });
@@ -682,6 +752,13 @@ test('expanded heroes, squads, turrets, and enemies request only their own produ
     spark: 'hero-spark-bean-atlas-v1',
     star: 'hero-star-core-atlas-v1',
   };
+  const heroSkillFaces = Object.fromEntries(Object.entries({
+    berry: 'hero-berry-burst-atlas-v1',
+    dew: 'hero-dew-bloom-atlas-v1',
+    ...heroAtlases,
+  }).map(([type, assetKey]) => [
+    type, assetKey.replace(/-atlas-v1$/, '-skill-face-v1'),
+  ]));
   const squadAtlases = {
     'drill-lancer': 'soldier-drill-lancer-atlas-v1',
     'spore-lobber': 'soldier-spore-lobber-atlas-v1',
@@ -700,6 +777,7 @@ test('expanded heroes, squads, turrets, and enemies request only their own produ
   };
   const productionKeys = [
     ...Object.values(heroAtlases),
+    ...Object.values(heroSkillFaces),
     ...Object.values(squadAtlases),
     ...Object.values(turretAtlases),
     ...Object.values(enemyAtlases),
@@ -723,6 +801,8 @@ test('expanded heroes, squads, turrets, and enemies request only their own produ
     };
     game.drawBattleHero(canvas.context);
     assert.ok(assets.requests.includes(assetKey), `${type} draws its own battle atlas`);
+    assert.ok(assets.requests.includes(heroSkillFaces[type]),
+      `${type} also binds its own skill-face sidecar`);
     assert.equal(assets.requests.includes('hero-berry-burst-atlas-v1'), false);
     assert.equal(assets.requests.includes('survivor-shell-shell'), false);
   }
@@ -1300,6 +1380,42 @@ test('moving enemies play hurt bones and leave a temporary skeletal death actor'
   game.dispose();
 });
 
+test('ranged enemies attack with their authored clip and roster portraits sample the advanced preview', () => {
+  const canvas = createCanvas();
+  const game = new TowerDefenseGame(canvas, {
+    runtime: createRuntime({ tutorialSeen: true }),
+    pixelRatio: 1,
+  });
+  game.state.screen = 'battle';
+  game.state.enemies = [{
+    uid: 'ranged-enemy', type: 'lantern', x: 320, y: 260,
+    facing: 1, hp: 100, maxHp: 100, hitPulse: 0,
+  }];
+  game.processCharacterAnimationEvent({
+    type: 'enemy-ranged-attack', enemyUid: 'ranged-enemy', enemyType: 'lantern',
+  });
+  assert.equal(game.characterAnimations.get('enemy:ranged-enemy').controller.actionName, 'attack');
+
+  game.state.hero = { uid: 'skill-hero', type: 'berry', hp: 100, maxHp: 100 };
+  game.processCharacterAnimationEvent({
+    type: 'hero-skill-step', heroUid: 'skill-hero', heroType: 'berry', stepIndex: 1,
+  });
+  assert.equal(game.characterAnimations.get('hero:skill-hero').controller.actionName, 'skill',
+    'later authored skill beats replay the dedicated expression instead of returning to idle');
+
+  game.state.screen = 'menu';
+  game.menuPage = 'roster';
+  game.updateCharacterAnimations(0.12);
+  const preview = game.characterAnimations.get('preview:menu:shell');
+  assert.ok(preview, 'the roster update advances its shared hero preview controller');
+  game.drawRosterHeroPortrait(canvas.context, 'shell', 180, 320, 100);
+  assert.equal(game.characterAnimations.get('preview:menu:shell'), preview,
+    'the portrait samples the same controller that the frame updater advanced');
+  assert.equal(game.characterAnimations.has('preview:roster:shell'), false,
+    'no frozen parallel roster controller is created');
+  game.dispose();
+});
+
 test('moving heroes and squads use their move clips instead of sliding in idle', () => {
   const canvas = createCanvas();
   const game = new TowerDefenseGame(canvas, {
@@ -1345,6 +1461,219 @@ test('moving heroes and squads use their move clips instead of sliding in idle',
     game.characterAnimations.get('squad:moving-squad:0').controller.baseName,
     'idle',
   );
+  game.dispose();
+});
+
+test('presentation smoothing covers actors, shots, waves, turret aim, and facing without changing combat state', () => {
+  const canvas = createCanvas();
+  const game = new TowerDefenseGame(canvas, {
+    runtime: createRuntime({ tutorialSeen: true }),
+    pixelRatio: 1,
+  });
+  game.state.screen = 'battle';
+  game.state.phase = 'combat';
+  game.state.waveActive = true;
+  game.state.tutorial.active = false;
+  game.state.hand = [];
+  game.state.hero = {
+    uid: 'smooth-hero', type: 'shell', hp: 100, maxHp: 100,
+    x: 300, y: 720, moveX: 1, moveY: 0, facing: 1, attackPulse: 1, hitPulse: 0,
+  };
+  const squad = {
+    uid: 'smooth-squad', kind: 'soldier', type: 'melee', squadType: 'melee',
+    deployX: 240, deployY: 620, x: 240, y: 620, facing: 1, moving: true,
+    members: [{
+      uid: 'smooth-member', memberIndex: 0, x: 240, y: 620,
+      hp: 20, facing: 1, moving: true, attackPulse: 1, hitPulse: 0,
+    }],
+  };
+  const enemy = {
+    uid: 'smooth-enemy', type: 'bug', x: 340, y: 310,
+    hp: 40, maxHp: 40, facing: 1, hitPulse: 0, travelled: 0,
+  };
+  const normalShot = {
+    uid: 'smooth-normal-shot', sourceKind: 'hero', type: 'needle',
+    x: 310, y: 670, targetX: 440, targetY: 330, speed: 400, age: 0.2, star: 1,
+  };
+  const skillShot = {
+    uid: 'smooth-skill-shot', sourceKind: 'hero-skill', heroType: 'berry',
+    type: 'berry', x: 320, y: 660, targetX: 450, targetY: 320,
+    speed: 420, age: 0.2, maxAge: 2,
+  };
+  const wave = {
+    uid: 'smooth-wave', type: 'wave', heroType: 'dew',
+    x: 280, y: 590, previousX: 280, previousY: 596,
+    directionX: 0, directionY: -1, speed: 320, width: 90,
+    age: 0.2, duration: 1,
+  };
+  const turret = {
+    uid: 'smooth-turret', type: 'gale-fan', slotIndex: 0,
+    aimAngle: Math.PI - 0.04, hp: 100, maxHp: 100, attackPulse: 0,
+  };
+  game.state.turretSlots = [{ id: 'smooth-slot', x: 180, y: 914, type: 'gale-fan' }];
+  game.state.turrets = [turret];
+
+  const drawTrackedObjects = () => {
+    game.drawBattleHero(canvas.context);
+    game.drawSquadMembers(canvas.context, squad, squad.x, squad.y);
+    game.drawEnemy(canvas.context, enemy);
+    game.drawShot(canvas.context, normalShot);
+    game.drawShot(canvas.context, skillShot);
+    game.drawSkillWave(canvas.context, wave);
+    game.drawTurretSlots(canvas.context, TD_STAGES[0]);
+  };
+
+  game.beginVisualFrame(0);
+  drawTrackedObjects();
+  game.endVisualFrame();
+
+  const starts = new Map([
+    ['hero:smooth-hero', game.visualMotion.get('hero:smooth-hero').x],
+    ['unit:squad:smooth-squad:smooth-member',
+      game.visualMotion.get('unit:squad:smooth-squad:smooth-member').x],
+    ['enemy:smooth-enemy', game.visualMotion.get('enemy:smooth-enemy').x],
+    ['projectile:smooth-normal-shot', game.visualMotion.get('projectile:smooth-normal-shot').x],
+    ['projectile:smooth-skill-shot', game.visualMotion.get('projectile:smooth-skill-shot').x],
+    ['skill-actor:smooth-wave', game.visualMotion.get('skill-actor:smooth-wave').x],
+  ]);
+  game.state.hero.x += 6;
+  game.state.hero.facing = -1;
+  game.state.hero.moveX = -1;
+  squad.members[0].x += 6;
+  squad.members[0].facing = -1;
+  enemy.x += 6;
+  enemy.facing = -1;
+  normalShot.x += 6;
+  normalShot.age += 1 / 60;
+  skillShot.x += 6;
+  skillShot.age += 1 / 60;
+  wave.previousX = wave.x;
+  wave.previousY = wave.y;
+  wave.x += 6;
+  wave.age += 1 / 60;
+  turret.aimAngle = -Math.PI + 0.04;
+  const simulationSnapshot = JSON.stringify({
+    hero: game.state.hero,
+    member: squad.members[0],
+    enemy,
+    normalShot,
+    skillShot,
+    wave,
+    turret,
+  });
+
+  game.beginVisualFrame(1 / 60);
+  drawTrackedObjects();
+  const heroPointAfterFirstDraw = game.visualMotion.get('hero:smooth-hero').x;
+  game.drawBattleHero(canvas.context);
+  assert.equal(game.visualMotion.get('hero:smooth-hero').x, heroPointAfterFirstDraw,
+    'drawing the same object twice in one frame never advances its smoothing twice');
+  game.endVisualFrame();
+
+  const targets = new Map([
+    ['hero:smooth-hero', game.state.hero.x],
+    ['unit:squad:smooth-squad:smooth-member', squad.members[0].x],
+    ['enemy:smooth-enemy', enemy.x],
+    ['projectile:smooth-normal-shot', normalShot.x],
+    ['projectile:smooth-skill-shot', skillShot.x],
+    ['skill-actor:smooth-wave', wave.x],
+  ]);
+  for (const [key, startX] of starts) {
+    const renderedX = game.visualMotion.get(key).x;
+    assert.ok(renderedX > startX && renderedX < targets.get(key),
+      `${key} advances between its previous and deterministic simulation positions`);
+  }
+  assert.equal(game.visualFacingState.get('hero:smooth-hero').facing, 1);
+  assert.equal(game.visualFacingState.get('unit:squad:smooth-squad:smooth-member').facing, 1);
+  assert.equal(game.visualFacingState.get('enemy:smooth-enemy').facing, 1,
+    'one opposing frame cannot flicker any character atlas');
+  const smoothedTurretAim = game.visualAimState.get('turret:smooth-turret').angle;
+  const turretAimStep = Math.atan2(
+    Math.sin(smoothedTurretAim - (Math.PI - 0.04)),
+    Math.cos(smoothedTurretAim - (Math.PI - 0.04)),
+  );
+  assert.ok(turretAimStep > 0 && turretAimStep < 0.08,
+    'turret aim takes the short path across the -PI/PI seam');
+  assert.equal(JSON.stringify({
+    hero: game.state.hero,
+    member: squad.members[0],
+    enemy,
+    normalShot,
+    skillShot,
+    wave,
+    turret,
+  }), simulationSnapshot, 'presentation sampling never writes back into combat entities');
+
+  for (let index = 0; index < 3; index += 1) {
+    game.beginVisualFrame(1 / 60);
+    game.drawBattleHero(canvas.context);
+    game.drawSquadMembers(canvas.context, squad, squad.x, squad.y);
+    game.drawEnemy(canvas.context, enemy);
+    game.endVisualFrame();
+  }
+  assert.equal(game.visualFacingState.get('hero:smooth-hero').facing, -1);
+  assert.equal(game.visualFacingState.get('unit:squad:smooth-squad:smooth-member').facing, -1);
+  assert.equal(game.visualFacingState.get('enemy:smooth-enemy').facing, -1,
+    'a sustained turn is accepted after the short confirmation window');
+
+  for (let index = 0; index < 3; index += 1) {
+    game.beginVisualFrame(1 / 60);
+    game.endVisualFrame();
+  }
+  assert.equal(game.visualMotion.size, 0);
+  assert.equal(game.visualAimState.size, 0);
+  assert.equal(game.visualFacingState.size, 0,
+    'objects absent for three presentation frames leave no stale cache entries');
+
+  const newShot = {
+    uid: 'new-shot', x: 106, y: 500, targetX: 300, targetY: 500,
+    speed: 360, age: 1 / 60,
+  };
+  game.beginVisualFrame(1 / 60);
+  const newShotPoint = game.visualProjectilePoint(newShot);
+  game.endVisualFrame();
+  assert.ok(newShotPoint.x > 100 && newShotPoint.x < newShot.x,
+    'a projectile born and advanced in one simulation tick still presents from its launch path');
+
+  game.state.events.push({ type: 'wave-start' });
+  game.processEvents();
+  assert.equal(game.visualMotion.size, 0,
+    'wave transitions clear presentation history before entities reset to authored spawns');
+  game.dispose();
+});
+
+test('a stationary hero accepts a sustained reverse facing while casting a skill', () => {
+  const canvas = createCanvas();
+  const game = new TowerDefenseGame(canvas, {
+    runtime: createRuntime({ tutorialSeen: true }),
+    pixelRatio: 1,
+  });
+  game.state.screen = 'battle';
+  game.state.hero = {
+    uid: 'stationary-skill-facing', type: 'berry', hp: 100, maxHp: 100,
+    x: 360, y: 720, moveX: 0, moveY: 0, facing: 1,
+    attackPulse: 0, skillPulse: 0, hitPulse: 0,
+  };
+
+  game.beginVisualFrame(0);
+  game.drawBattleHero(canvas.context);
+  game.endVisualFrame();
+  game.state.hero.facing = -1;
+  game.state.hero.skillPulse = 1;
+
+  game.beginVisualFrame(1 / 60);
+  game.drawBattleHero(canvas.context);
+  game.endVisualFrame();
+  assert.equal(game.visualFacingState.get('hero:stationary-skill-facing').facing, 1,
+    'one casting frame still cannot flicker the hero atlas');
+
+  for (let index = 0; index < 3; index += 1) {
+    game.beginVisualFrame(1 / 60);
+    game.drawBattleHero(canvas.context);
+    game.endVisualFrame();
+  }
+  assert.equal(game.visualFacingState.get('hero:stationary-skill-facing').facing, -1,
+    'skillPulse keeps the confirmation window active even without movement or a basic attack');
   game.dispose();
 });
 

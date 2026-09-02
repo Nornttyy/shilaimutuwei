@@ -9,7 +9,9 @@ import {
   TD_ENEMIES,
   TD_STAGES,
   TD_STORAGE_KEY,
+  TD_TUTORIAL_VERSION,
   heroStatsForRank,
+  updateTowerDefense,
 } from '../src/tower-defense-core.js';
 import { SOLDIER_RIG } from '../src/animation/rigs.js';
 import { createWebRuntime } from '../src/platform/runtime.js';
@@ -129,7 +131,13 @@ function createCanvas({
 
 function createRuntime(initialProgress = null) {
   const values = new Map();
-  if (initialProgress) values.set(TD_STORAGE_KEY, initialProgress);
+  if (initialProgress) {
+    const progress = initialProgress.tutorialSeen
+      && !Object.hasOwn(initialProgress, 'tutorialVersion')
+      ? { ...initialProgress, tutorialVersion: TD_TUTORIAL_VERSION }
+      : initialProgress;
+    values.set(TD_STORAGE_KEY, progress);
+  }
   const writes = [];
   return {
     values,
@@ -2147,7 +2155,7 @@ test('completed story keeps all three main menu actions and unlocks endless', ()
   game.dispose();
 });
 
-test('spotlight tutorial purchases one four-member melee squad and starts the wave', () => {
+test('spotlight tutorial gates every input through movement and a live-enemy skill cast', () => {
   const canvas = createCanvas();
   const runtime = createRuntime();
   const game = new TowerDefenseGame(canvas, {
@@ -2156,6 +2164,9 @@ test('spotlight tutorial purchases one four-member melee squad and starts the wa
     seed: 0xCAFE,
   });
   game.render();
+  assert.ok(game.hits.some(({ id }) => id === 'tutorial-skip'));
+  assert.ok(canvas.context.calls.some(([kind, text]) => kind === 'fillText' && text === '1/5'));
+  assert.ok(canvas.context.calls.some(([kind, text]) => kind === 'fillText' && text === '选第1关'));
 
   click(game, canvas, hitCenter(game, 'start-story'));
   game.render();
@@ -2191,9 +2202,97 @@ test('spotlight tutorial purchases one four-member melee squad and starts the wa
   assert.equal(game.state.wave, 1);
   assert.equal(game.state.waveActive, true);
   assert.equal(game.state.phase, 'combat');
+  assert.equal(game.state.tutorial.active, true);
+  assert.equal(game.state.tutorial.step, 'move');
+
+  game.render();
+  assert.ok(canvas.context.calls.some(([kind, text]) => kind === 'fillText' && text === '4/5'));
+  assert.ok(canvas.context.calls.some(([kind, text]) => kind === 'fillText' && text === '拖动摇杆'));
+  assert.ok(canvas.context.calls.some(([kind, x, y, radius]) => (
+    kind === 'arc' && x === 102 && y === 1190 && radius >= 75
+  )), 'the joystick receives a large pulsing spotlight');
+  const skillHit = game.hits.find(({ id }) => id === 'hero-skill');
+  assert.equal(skillHit.enabled, false, 'skill stays visibly disabled during the joystick step');
+  click(game, canvas, hitCenter(game, 'hero-skill'));
+  assert.equal(game.state.tutorial.step, 'move', 'an early skill tap is ignored');
+
+  canvas.dispatch('keydown', { code: 'KeyD', preventDefault() {} });
+  assert.equal(game.state.hero.moveX, 0,
+    'keyboard movement cannot bypass the tutorial joystick target');
+  const joystick = hitCenter(game, 'hero-joystick');
+  drag(game, canvas, joystick, { x: joystick.x + 42, y: joystick.y - 12 });
+  assert.equal(game.state.tutorial.step, 'skill');
+  assert.equal(game.state.enemies.length, 0);
+
+  game.render();
+  assert.ok(canvas.context.calls.some(([kind, text]) => (
+    kind === 'fillText' && text === '等敌人出现'
+  )));
+  assert.equal(game.hits.find(({ id }) => id === 'hero-skill').enabled, false);
+  assert.equal(game.tutorialAllows({ action: 'hero-joystick' }), true,
+    'the joystick remains available throughout the skill lesson');
+
+  updateTowerDefense(game.state, 0.05);
+  game.processEvents();
+  game.render();
+  assert.ok(game.state.enemies.some(({ uid }) => uid === game.state.tutorial.trainingEnemyUid));
+  assert.equal(game.hits.find(({ id }) => id === 'hero-skill').enabled, true);
+  assert.ok(canvas.context.calls.some(([kind, text]) => (
+    kind === 'fillText' && text === '释放英雄技能'
+  )));
+  assert.ok(canvas.context.calls.some(([kind, x, y, radius]) => (
+    kind === 'arc' && x === 636 && y === 1190 && radius >= 70
+  )), 'the live skill button receives its own pulsing spotlight');
+  drag(game, canvas, hitCenter(game, 'hero-joystick'), {
+    x: hitCenter(game, 'hero-joystick').x - 36,
+    y: hitCenter(game, 'hero-joystick').y,
+  });
+  assert.equal(game.state.tutorial.active, true,
+    'moving during the skill lesson does not skip its required action');
+
+  game.render();
+  click(game, canvas, hitCenter(game, 'hero-skill'));
   assert.equal(game.state.tutorial.active, false);
   assert.equal(game.state.progress.tutorialSeen, true);
+  assert.equal(game.state.progress.tutorialVersion, TD_TUTORIAL_VERSION);
   assert.equal(runtime.values.get(TD_STORAGE_KEY).tutorialSeen, true);
+  assert.equal(runtime.values.get(TD_STORAGE_KEY).tutorialVersion, TD_TUTORIAL_VERSION);
+  game.dispose();
+});
+
+test('legacy saves see the new tutorial once and its skip button persists without progress loss', () => {
+  const canvas = createCanvas();
+  const runtime = createRuntime({
+    tutorialSeen: true,
+    tutorialVersion: TD_TUTORIAL_VERSION - 1,
+    unlockedStage: 6,
+    clearedStages: ['stage-1', 'stage-2'],
+    summonCurrency: 2468,
+    contractRanks: { shell: 2, needle: 1 },
+    selectedHero: 'needle',
+  });
+  const game = new TowerDefenseGame(canvas, { runtime, pixelRatio: 1 });
+  game.render();
+
+  assert.equal(game.state.tutorial.active, true);
+  assert.ok(game.hits.some(({ id }) => id === 'tutorial-skip'));
+  click(game, canvas, hitCenter(game, 'tutorial-skip'));
+
+  assert.equal(game.state.tutorial.active, false);
+  const saved = runtime.values.get(TD_STORAGE_KEY);
+  assert.equal(saved.tutorialVersion, TD_TUTORIAL_VERSION);
+  assert.equal(saved.tutorialSeen, true);
+  assert.equal(saved.unlockedStage, 6);
+  assert.deepEqual(saved.clearedStages, ['stage-1', 'stage-2']);
+  assert.equal(saved.summonCurrency, 2468);
+  assert.equal(saved.contractRanks.shell, 2);
+  assert.equal(saved.contractRanks.needle, 1);
+  assert.equal(saved.selectedHero, 'needle');
+
+  const restored = new TowerDefenseGame(createCanvas(), { runtime, pixelRatio: 1 });
+  assert.equal(restored.state.tutorial.active, false,
+    'the same tutorial version does not replay after skip');
+  restored.dispose();
   game.dispose();
 });
 

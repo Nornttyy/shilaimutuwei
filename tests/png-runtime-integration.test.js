@@ -91,6 +91,7 @@ const {
 } = await import('../src/draw.js');
 const { SlimeGame } = await import('../src/game.js');
 const { TowerDefenseGame } = await import('../src/tower-defense-game.js');
+const { TD_TUTORIAL_VERSION } = await import('../src/tower-defense-core.js');
 const {
   CHARACTER_RENDER_PROFILES,
   characterWorldScale,
@@ -1044,7 +1045,7 @@ test('tower-defense attack controllers reach the real layered rig pipeline for a
     },
     runtime: {
       storage: {
-        get: () => ({ tutorialSeen: true }),
+        get: () => ({ tutorialSeen: true, tutorialVersion: TD_TUTORIAL_VERSION }),
         set: () => true,
       },
     },

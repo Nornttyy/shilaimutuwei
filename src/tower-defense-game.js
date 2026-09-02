@@ -56,6 +56,7 @@ import {
   returnToTowerDefenseMenu,
   serializeTowerDefenseProgress,
   skipTowerDefenseBreak,
+  skipTowerDefenseTutorial,
   stageForState,
   startNextTowerDefenseWave,
   setTowerDefenseHeroMovement,
@@ -130,6 +131,9 @@ const MENU_ACTIONS = Object.freeze({
   summon: Object.freeze({ x: 480, y: 1026, width: 192, height: 98 }),
 });
 const AUDIO_TOGGLE_RECT = Object.freeze({ x: 658, y: 100, width: 46, height: 46 });
+const TUTORIAL_PANEL_RECT = Object.freeze({ x: 86, y: 86, width: 548, height: 82 });
+const TUTORIAL_SKIP_RECT = Object.freeze({ x: 536, y: 101, width: 82, height: 52 });
+const TUTORIAL_STEP_COUNT = 5;
 
 const SUMMON_BACK_RECT = Object.freeze({ x: 22, y: 28, width: 104, height: 58 });
 const SUMMON_CURRENCY_RECT = Object.freeze({ x: 490, y: 28, width: 208, height: 62 });
@@ -1793,12 +1797,16 @@ export class TowerDefenseGame {
     if (!this.isHeroControlActive()) return;
     if (this.isHeroMovementKey(code)) {
       event?.preventDefault?.();
+      // The tutorial explicitly teaches the shared on-screen joystick. Keep
+      // keyboard movement available immediately after it is completed/skipped.
+      if (this.state.tutorial.active) return;
       this.keysDown.add(code);
       this.syncHeroMovement();
       return;
     }
     if ((code === 'Space' || code === ' ') && !event?.repeat) {
       event?.preventDefault?.();
+      if (!this.tutorialAllows({ action: 'hero-skill', data: {} })) return;
       activateTowerDefenseHeroSkill(this.state);
       this.processEvents();
     }
@@ -1945,6 +1953,7 @@ export class TowerDefenseGame {
 
   tutorialAllows(hit) {
     if (hit?.action === 'toggle-audio') return true;
+    if (hit?.action === 'skip-tutorial') return true;
     if (this.state.screen === 'menu' && this.menuPage === 'summon' && this.summonAnimation) {
       return hit?.action === 'summon-animation-skip';
     }
@@ -1976,7 +1985,13 @@ export class TowerDefenseGame {
     }
     if (target.type === 'fusion') return hit.action === 'card' || hit.action === 'tower';
     if (target.type === 'start') return hit.action === 'start-wave';
-    return true;
+    if (target.type === 'move' || target.type === 'skill-wait') {
+      return hit.action === 'hero-joystick';
+    }
+    if (target.type === 'skill') {
+      return hit.action === 'hero-skill' || hit.action === 'hero-joystick';
+    }
+    return false;
   }
 
   updateLongPressState(now = this.interactionNow()) {
@@ -2365,6 +2380,15 @@ export class TowerDefenseGame {
         this.summonResults = [];
         this.summonAnimation = null;
         this.state.summonResults = [];
+        break;
+      case 'skip-tutorial':
+        if (skipTowerDefenseTutorial(this.state)) {
+          this.selectedPurchase = null;
+          this.selectedCardUid = null;
+          this.state.selectedTowerUid = null;
+          this.resetHeroInput();
+          this.processEvents();
+        }
         break;
       case 'select-hero':
         if (this.menuPage === 'roster'
@@ -3918,7 +3942,10 @@ export class TowerDefenseGame {
     const cooldown = Math.max(0, Number(
       hero.skillCooldownRemaining ?? hero.skillCooldown ?? this.state.heroSkillCooldown,
     ) || 0);
-    const canSkill = active && cooldown <= 0 && Number(hero.hp ?? 1) > 0;
+    const tutorialTarget = tutorialTargetForState(this.state);
+    const tutorialAllowsSkill = !this.state.tutorial.active || tutorialTarget?.type === 'skill';
+    const canSkill = active && tutorialAllowsSkill
+      && cooldown <= 0 && Number(hero.hp ?? 1) > 0;
     panel(ctx, HERO_SKILL_RECT, {
       fill: canSkill ? 'rgba(246,255,236,0.92)' : 'rgba(78,94,94,0.72)',
       stroke: canSkill ? definition.color : '#8B9994',
@@ -6619,6 +6646,23 @@ export class TowerDefenseGame {
       y: COMMAND_DOCK.start.y + COMMAND_DOCK.start.height / 2,
       radius: 92,
     }];
+    if (target.type === 'move') return [{
+      x: HERO_JOYSTICK.x,
+      y: HERO_JOYSTICK.y,
+      radius: HERO_JOYSTICK.radius + 14,
+    }];
+    if (target.type === 'skill-wait') return [
+      { x: TD_VIEW.width / 2, y: 222, radius: 84 },
+      { x: HERO_JOYSTICK.x, y: HERO_JOYSTICK.y, radius: HERO_JOYSTICK.radius + 10 },
+    ];
+    if (target.type === 'skill') return [
+      {
+        x: HERO_SKILL_RECT.x + HERO_SKILL_RECT.width / 2,
+        y: HERO_SKILL_RECT.y + HERO_SKILL_RECT.height / 2,
+        radius: HERO_SKILL_RECT.width / 2 + 14,
+      },
+      { x: HERO_JOYSTICK.x, y: HERO_JOYSTICK.y, radius: HERO_JOYSTICK.radius + 10 },
+    ];
     return [];
   }
 
@@ -6647,8 +6691,16 @@ export class TowerDefenseGame {
       ctx.strokeStyle = '#FFE577';
       ctx.lineWidth = 6;
       ctx.globalAlpha = 0.92;
+      ctx.shadowColor = 'rgba(255, 229, 119, 0.88)';
+      ctx.shadowBlur = 18;
       ctx.beginPath();
       ctx.arc(hole.x, hole.y, hole.radius * pulse, 0, TAU);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      ctx.globalAlpha = 0.42;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(hole.x, hole.y, hole.radius * pulse + 11, 0, TAU);
       ctx.stroke();
       ctx.restore();
     }
@@ -6676,7 +6728,7 @@ export class TowerDefenseGame {
       ctx.restore();
     }
 
-    if (holes.length) {
+    if (holes.length && target.type !== 'skill-wait') {
       let handX = holes[0].x;
       let handY = holes[0].y;
       let handAngle = -0.08;
@@ -6710,6 +6762,7 @@ export class TowerDefenseGame {
     const focus = holes[0] || { x: TD_VIEW.width / 2, y: TD_VIEW.height / 2, radius: 70 };
     const text = {
       stage: '1', squad: '近', shop: '买', draw: '抽', pad: '放', fusion: '融', start: '战',
+      move: '移', skill: '技', 'skill-wait': '等',
     }[target.type] || target.label;
     const bubbleY = focus.y > 520 ? focus.y - focus.radius - 48 : focus.y + focus.radius + 48;
     panel(ctx, { x: focus.x - 34, y: bubbleY - 27, width: 68, height: 54 }, {
@@ -6718,6 +6771,34 @@ export class TowerDefenseGame {
     label(ctx, text, focus.x, bubbleY + 1, {
       size: 25, color: COLORS.ink, weight: 950,
     });
+
+    const tutorialCopy = {
+      stage: { step: 1, text: '选第1关' },
+      squad: {
+        step: 2,
+        text: this.selectedPurchase === target.squadType ? '放近战小队' : '选近战小队',
+      },
+      start: { step: 3, text: '开始战斗' },
+      move: { step: 4, text: '拖动摇杆' },
+      'skill-wait': { step: 5, text: '等敌人出现' },
+      skill: { step: 5, text: '释放英雄技能' },
+    }[target.type] || { step: 1, text: '按高亮操作' };
+    panel(ctx, TUTORIAL_PANEL_RECT, {
+      fill: 'rgba(255, 251, 224, 0.97)',
+      stroke: '#8D6A20', lineWidth: 3, radius: 24, shadow: true,
+    });
+    label(ctx, `${tutorialCopy.step}/${TUTORIAL_STEP_COUNT}`, 128,
+      TUTORIAL_PANEL_RECT.y + TUTORIAL_PANEL_RECT.height / 2 + 1, {
+        size: 19, color: '#8D6A20', weight: 950,
+      });
+    label(ctx, tutorialCopy.text, 328,
+      TUTORIAL_PANEL_RECT.y + TUTORIAL_PANEL_RECT.height / 2 + 1, {
+        size: 25, color: COLORS.ink, weight: 950,
+      });
+    button(ctx, TUTORIAL_SKIP_RECT, '跳过', {
+      fill: '#FFF8DF', color: COLORS.inkSoft, accent: '#B79C59', size: 18,
+    });
+    this.addHit('tutorial-skip', TUTORIAL_SKIP_RECT, 'skip-tutorial');
   }
 }
 

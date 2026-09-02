@@ -28,6 +28,7 @@ export const TD_ROW_COUNT = 7;
 // Kept as an alias because older renderers call a deployment row a column.
 export const TD_COLUMN_COUNT = TD_ROW_COUNT;
 export const TD_STORAGE_KEY = 'slime-fusion-defense-v1';
+export const TD_TUTORIAL_VERSION = 2;
 export const TD_STAGE_SCALE_CAPS = Object.freeze({ hp: 3.4, speed: 1.4, reward: 2.2 });
 export const TD_ENDLESS_SCALE_CAPS = Object.freeze({
   count: 8,
@@ -1420,12 +1421,17 @@ const copyProgress = (source = {}) => {
     ? requestedHero
     : TD_CONTRACT_TYPES.find((type) => contractRanks[type] > 0) || 'shell';
   if (contractRanks[selectedHero] <= 0) contractRanks.shell = 1;
+  const requestedTutorialVersion = Math.floor(Number(source.tutorialVersion));
+  const tutorialVersion = Number.isFinite(requestedTutorialVersion)
+    ? Math.max(0, requestedTutorialVersion)
+    : 0;
   return {
     unlockedStage: clamp(Math.floor(Number(source.unlockedStage) || 1), 1, TD_STAGES.length),
     clearedStages: [...new Set(Array.isArray(source.clearedStages) ? source.clearedStages : [])]
       .filter((id) => TD_STAGE_BY_ID[id]),
     bestEndlessWave: Math.max(0, Math.floor(Number(source.bestEndlessWave) || 0)),
-    tutorialSeen: Boolean(source.tutorialSeen),
+    tutorialSeen: tutorialVersion >= TD_TUTORIAL_VERSION || Boolean(source.tutorialSeen),
+    tutorialVersion,
     summonCurrency,
     summonPity: clamp(Math.floor(Number(source.summonPity) || 0), 0, 9),
     summonRngState: (Number(source.summonRngState) >>> 0) || 0xC0A7A5,
@@ -1543,9 +1549,11 @@ function emptyRunState(progress, seed) {
     progress: copiedProgress,
     phase: 'prep',
     tutorial: {
-      active: !progress.tutorialSeen,
-      step: progress.tutorialSeen ? 'done' : 'stage',
+      active: progress.tutorialVersion < TD_TUTORIAL_VERSION,
+      step: progress.tutorialVersion >= TD_TUTORIAL_VERSION ? 'done' : 'stage',
       forcedDraws: 0,
+      enemySeen: false,
+      trainingEnemyUid: null,
     },
     rngState: (Number(seed) >>> 0) || 0x51A7E,
     uidCounter: 0,
@@ -1720,8 +1728,14 @@ function resetRun(state, { mode, stageId }) {
     mode,
     stageId,
     tutorial: preservedTutorial.active
-      ? { active: true, step: 'squad', forcedDraws: 0 }
-      : { active: false, step: 'done', forcedDraws: preservedTutorial.forcedDraws || 0 },
+      ? {
+        active: true, step: 'squad', forcedDraws: 0, enemySeen: false,
+        trainingEnemyUid: null,
+      }
+      : {
+        active: false, step: 'done', forcedDraws: preservedTutorial.forcedDraws || 0,
+        enemySeen: false, trainingEnemyUid: null,
+      },
   });
   state.turretSlots = TD_TURRET_SLOTS[stageId] || TD_TURRET_SLOTS['stage-1'];
   state.hero = createHeroForState(state);
@@ -1972,6 +1986,10 @@ export function setTowerDefenseHeroMovement(state, dx, dy) {
     state?.screen !== 'battle' || state.result || state.phase !== 'combat'
     || !state.waveActive || !state.hero || state.hero.hp <= 0
   ) return false;
+  if (
+    state.tutorial?.active
+    && !['move', 'skill'].includes(state.tutorial.step)
+  ) return false;
   let moveX = clamp(Number(dx) || 0, -1, 1);
   let moveY = clamp(Number(dy) || 0, -1, 1);
   const magnitude = Math.hypot(moveX, moveY);
@@ -1982,6 +2000,14 @@ export function setTowerDefenseHeroMovement(state, dx, dy) {
   state.hero.moveX = moveX;
   state.hero.moveY = moveY;
   if (Math.abs(moveX) > 0.01) state.hero.facing = moveX < 0 ? -1 : 1;
+  if (
+    state.tutorial?.active
+    && state.tutorial.step === 'move'
+    && Math.hypot(moveX, moveY) >= 0.12
+  ) {
+    state.tutorial.step = 'skill';
+    state.events.push({ type: 'tutorial-step', step: 'skill' });
+  }
   return state.hero;
 }
 
@@ -2295,11 +2321,21 @@ export function activateTowerDefenseHeroSkill(state) {
     || !state.waveActive || !state.hero || state.hero.hp <= 0
     || state.hero.skillCooldown > 0
   ) return false;
+  const tutorialTrainingEnemy = state.tutorial?.active
+    ? state.enemies.find((enemy) => (
+      enemy.uid === state.tutorial.trainingEnemyUid && enemy.hp > 0 && !enemy.leaked
+    ))
+    : null;
+  if (
+    state.tutorial?.active
+    && (state.tutorial.step !== 'skill' || !tutorialTrainingEnemy)
+  ) return false;
   const hero = state.hero;
   const definition = HERO_TYPES[hero.type] || HERO_TYPES.shell;
   const skill = definition.skill;
   if (!skill?.steps?.length) return false;
-  const aimTarget = heroSkillAimTarget(state, hero, skill);
+  const aimTarget = heroSkillAimTarget(state, hero, skill)
+    || (skill.targeting !== 'self' ? tutorialTrainingEnemy : null);
   if (skill.targeting !== 'self' && !aimTarget) return false;
   const aimX = aimTarget?.x ?? hero.x;
   const aimY = aimTarget?.y ?? hero.y - 1;
@@ -2338,12 +2374,22 @@ export function activateTowerDefenseHeroSkill(state) {
     stageCount: skill.steps.length, targetUids: [], damage: 0,
   };
   state.events.push(activationEvent);
+  const completesTutorial = state.tutorial?.active && state.tutorial.step === 'skill';
+  // Release the protected training target before the authored skill resolves,
+  // so the taught action can defeat it normally.
+  if (completesTutorial) state.tutorial.active = false;
   const [firstTargets = []] = updateHeroSkillQueue(state, 0);
   activationEvent.targetUids = firstTargets;
   activationEvent.damage = Math.max(
     0,
     estimatedSkillStepDamage(heroStatsForRank(hero.type, hero.rank).skillSteps[0]),
   );
+  if (completesTutorial) {
+    state.tutorial.step = 'done';
+    state.progress.tutorialSeen = true;
+    state.progress.tutorialVersion = TD_TUTORIAL_VERSION;
+    state.events.push({ type: 'tutorial-complete', skipped: false });
+  }
   return true;
 }
 
@@ -2512,10 +2558,8 @@ export function startNextTowerDefenseWave(state) {
   }
   state.events.push({ type: 'wave-start', wave: state.wave });
   if (state.tutorial.active && state.tutorial.step === 'start') {
-    state.tutorial.active = false;
-    state.tutorial.step = 'done';
-    state.progress.tutorialSeen = true;
-    state.events.push({ type: 'tutorial-complete' });
+    state.tutorial.step = 'move';
+    state.events.push({ type: 'tutorial-step', step: 'move' });
   }
   return true;
 }
@@ -2583,6 +2627,10 @@ function spawnEnemy(state, type, laneIndex = 0) {
     chargePulse: 0,
   };
   state.enemies.push(enemy);
+  if (state.tutorial?.active && state.tutorial.step === 'skill') {
+    state.tutorial.enemySeen = true;
+    if (!state.tutorial.trainingEnemyUid) state.tutorial.trainingEnemyUid = enemy.uid;
+  }
   state.effects.push({
     uid: nextUid(state, 'fx'), type: 'spawn', age: 0, duration: 0.46,
     x: enemy.x, y: enemy.y,
@@ -2640,6 +2688,15 @@ function damageEnemy(state, enemy, amount, { emitHit = true } = {}) {
       incomingDamage,
       armorReduction,
     });
+  }
+  if (
+    state.tutorial?.active
+    && state.tutorial.step === 'skill'
+    && state.tutorial.trainingEnemyUid === enemy.uid
+    && enemy.hp <= 0
+  ) {
+    enemy.hp = 1;
+    return false;
   }
   if (enemy.hp > 0) return false;
   enemy.hp = 0;
@@ -3709,10 +3766,21 @@ function updateEnemies(state, dt) {
     else enemy.slowMultiplier = 1;
 
     const movementMultiplier = enemyMovementMultiplier(state, enemy, definition, dt);
+    const tutorialTrainingTarget = state.tutorial?.active
+      && state.tutorial.step === 'skill'
+      && state.tutorial.trainingEnemyUid === enemy.uid;
+    const travelLimit = tutorialTrainingTarget
+      ? Math.max(0, pathLength - 250)
+      : pathLength;
     const nextTravelled = Math.min(
-      pathLength,
+      travelLimit,
       enemy.travelled + enemy.speed * enemy.slowMultiplier * movementMultiplier * dt,
     );
+    if (tutorialTrainingTarget) {
+      enemy.blockedByTowerUid = null;
+      setEnemyTravelled(state, enemy, nextTravelled);
+      continue;
+    }
     const blocker = nextBlockingTower(state, enemy);
     if (!blocker || nextTravelled < blocker.travelled) {
       updateEnemyRangedAttack(state, enemy, definition, dt);
@@ -3865,6 +3933,10 @@ export function updateTowerDefense(state, dt) {
   if (!state.waveActive) {
     return state;
   }
+  // The first combat wave waits for an explicit joystick gesture. This keeps
+  // the requested control in focus and prevents auto-combat from finishing the
+  // lesson while the player is still reading its one-line prompt.
+  if (state.tutorial?.active && state.tutorial.step === 'move') return state;
   state.waveElapsed += delta;
   while (state.spawnQueue.length && state.spawnQueue[0].at <= state.waveElapsed) {
     const spawn = state.spawnQueue.shift();
@@ -3881,7 +3953,12 @@ export function updateTowerDefense(state, dt) {
   if (state.coreHp <= 0) {
     finishRun(state, 'defeat');
   } else if (!state.spawnQueue.length && !state.enemies.length) {
-    completeWave(state);
+    if (state.tutorial?.active && state.tutorial.step === 'skill') {
+      state.waveEnemyTotal += 1;
+      spawnEnemy(state, 'bug', stageForState(state).tutorialPadIndex);
+    } else {
+      completeWave(state);
+    }
   }
   return state;
 }
@@ -3906,6 +3983,8 @@ export function returnToTowerDefenseMenu(state) {
   state.selectedHeroId = state.progress.selectedHero;
   state.heroes = heroRosterForProgress(state.progress);
   state.tutorial.step = state.tutorial.active ? 'stage' : 'done';
+  state.tutorial.enemySeen = false;
+  state.tutorial.trainingEnemyUid = null;
   return state;
 }
 
@@ -3915,6 +3994,16 @@ export function replayTowerDefenseRun(state) {
 
 export function towerByPad(state, padIndex) {
   return state.towers.find((tower) => tower.padIndex === padIndex) || null;
+}
+
+export function skipTowerDefenseTutorial(state) {
+  if (!state?.tutorial?.active) return false;
+  state.tutorial.active = false;
+  state.tutorial.step = 'done';
+  state.progress.tutorialSeen = true;
+  state.progress.tutorialVersion = TD_TUTORIAL_VERSION;
+  state.events.push({ type: 'tutorial-complete', skipped: true });
+  return true;
 }
 
 export function tutorialTargetForState(state) {
@@ -3933,6 +4022,12 @@ export function tutorialTargetForState(state) {
     }
     case 'fuse': return Object.freeze({ type: 'fusion', label: '融' });
     case 'start': return Object.freeze({ type: 'start', label: '战' });
+    case 'move': return Object.freeze({ type: 'move', label: '移' });
+    case 'skill': return state.enemies.some((enemy) => (
+      enemy.uid === state.tutorial.trainingEnemyUid && enemy.hp > 0 && !enemy.leaked
+    ))
+      ? Object.freeze({ type: 'skill', label: '技' })
+      : Object.freeze({ type: 'skill-wait', label: '等' });
     default: return null;
   }
 }

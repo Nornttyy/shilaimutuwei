@@ -19,6 +19,7 @@ import {
   TD_STAGES,
   TD_TURRET_SLOTS,
   TD_TURRET_TYPES,
+  TD_TUTORIAL_VERSION,
   TD_VIEW,
   TOWER_ATTACK_EVOLUTIONS,
   TOWER_TYPES,
@@ -39,6 +40,7 @@ import {
   selectTowerDefenseHero,
   serializeTowerDefenseProgress,
   setTowerDefenseHeroMovement,
+  skipTowerDefenseTutorial,
   skipTowerDefenseBreak,
   stageScaleForWave,
   startNextTowerDefenseWave,
@@ -59,7 +61,12 @@ function createBattleState({
 } = {}) {
   const unlockedStage = TD_STAGES.find(({ id }) => id === stageId)?.index || 1;
   const state = createTowerDefenseState({
-    progress: { tutorialSeen, unlockedStage, ...progress },
+    progress: {
+      tutorialSeen,
+      tutorialVersion: tutorialSeen ? TD_TUTORIAL_VERSION : 0,
+      unlockedStage,
+      ...progress,
+    },
     seed,
   });
   assert.equal(beginTowerDefenseRun(state, { mode, stageId }), true);
@@ -1777,7 +1784,7 @@ test('stage and endless outcomes grant persistent summon currency', () => {
   assert.equal(endless.progress.summonCurrency, 35 + 9 * 8);
 });
 
-test('first-run tutorial buys one melee squad and then starts combat', () => {
+test('versioned tutorial teaches stage, squad, combat, joystick, and skill without soft-locking', () => {
   const state = createTowerDefenseState({ seed: 0xCAFEBABE });
   assert.deepEqual(tutorialTargetForState(state), {
     type: 'stage', stageIndex: 0, label: '1',
@@ -1789,10 +1796,93 @@ test('first-run tutorial buys one melee squad and then starts combat', () => {
   assert.ok(buyTowerDefenseSquad(state, 'melee', 0));
   assert.deepEqual(tutorialTargetForState(state), { type: 'start', label: '战' });
   assert.equal(startNextTowerDefenseWave(state), true);
+  assert.equal(state.tutorial.active, true);
+  assert.equal(state.tutorial.step, 'move');
+  assert.equal(state.progress.tutorialSeen, false);
+  assert.deepEqual(tutorialTargetForState(state), { type: 'move', label: '移' });
+
+  updateTowerDefense(state, 0.05);
+  assert.equal(state.enemies.length, 0, 'the first wave waits for the joystick lesson');
+  assert.equal(state.waveElapsed, 0);
+  assert.equal(activateTowerDefenseHeroSkill(state), false,
+    'skill input is blocked before the joystick lesson');
+
+  assert.ok(setTowerDefenseHeroMovement(state, 1, 0));
+  assert.equal(state.tutorial.step, 'skill');
+  assert.deepEqual(tutorialTargetForState(state), { type: 'skill-wait', label: '等' });
+  assert.equal(activateTowerDefenseHeroSkill(state), false,
+    'the skill cannot complete the lesson before an enemy appears');
+
+  updateTowerDefense(state, 0.05);
+  assert.deepEqual(tutorialTargetForState(state), { type: 'skill', label: '技' });
+  const trainingEnemy = state.enemies.find(({ uid }) => uid === state.tutorial.trainingEnemyUid);
+  assert.ok(trainingEnemy, 'the first spawned enemy becomes the protected training target');
+  trainingEnemy.hp = 1;
+  trainingEnemy.poisonDps = 100_000;
+  trainingEnemy.poisonTime = 1;
+  updateTowerDefense(state, 0.05);
+  assert.equal(trainingEnemy.hp, 1,
+    'ordinary damage cannot remove the final training target before the taught skill');
+  for (let tick = 0; tick < 180; tick += 1) updateTowerDefense(state, 0.05);
+  assert.ok(state.enemies.includes(trainingEnemy));
+  assert.equal(trainingEnemy.leaked, undefined,
+    'the protected training target cannot leak or soft-lock the required skill');
+  assert.ok(trainingEnemy.travelled < pathMetrics(TD_STAGES[0].lanes[0].path).total);
+
+  assert.equal(activateTowerDefenseHeroSkill(state), true);
   assert.equal(state.tutorial.active, false);
+  assert.equal(state.tutorial.step, 'done');
   assert.equal(state.progress.tutorialSeen, true);
+  assert.equal(state.progress.tutorialVersion, TD_TUTORIAL_VERSION);
   assert.equal(tutorialTargetForState(state), null);
-  assert.ok(state.events.some(({ type }) => type === 'tutorial-complete'));
+  assert.ok(state.events.some(({ type, skipped }) => (
+    type === 'tutorial-complete' && skipped === false
+  )));
+  assert.equal(serializeTowerDefenseProgress(state).tutorialVersion, TD_TUTORIAL_VERSION);
+});
+
+test('tutorial version migration replays once and skip preserves all collection progress', () => {
+  const state = createTowerDefenseState({
+    progress: {
+      tutorialSeen: true,
+      unlockedStage: 8,
+      clearedStages: ['stage-1', 'stage-2'],
+      summonCurrency: 4321,
+      contractRanks: { shell: 3, needle: 2 },
+      squadRanks: { melee: 4, ranged: 2 },
+      turretRanks: { 'gel-mortar': 2 },
+      selectedHero: 'needle',
+    },
+  });
+  assert.equal(state.tutorial.active, true,
+    'a legacy tutorialSeen flag does not suppress a newer tutorial version');
+  assert.equal(state.progress.tutorialVersion, 0);
+  const before = clone({
+    unlockedStage: state.progress.unlockedStage,
+    clearedStages: state.progress.clearedStages,
+    summonCurrency: state.progress.summonCurrency,
+    contractRanks: state.progress.contractRanks,
+    squadRanks: state.progress.squadRanks,
+    turretRanks: state.progress.turretRanks,
+    selectedHero: state.progress.selectedHero,
+  });
+
+  assert.equal(skipTowerDefenseTutorial(state), true);
+  assert.equal(skipTowerDefenseTutorial(state), false, 'skip is idempotent after completion');
+  assert.equal(state.progress.tutorialSeen, true);
+  assert.equal(state.progress.tutorialVersion, TD_TUTORIAL_VERSION);
+  assert.deepEqual(clone({
+    unlockedStage: state.progress.unlockedStage,
+    clearedStages: state.progress.clearedStages,
+    summonCurrency: state.progress.summonCurrency,
+    contractRanks: state.progress.contractRanks,
+    squadRanks: state.progress.squadRanks,
+    turretRanks: state.progress.turretRanks,
+    selectedHero: state.progress.selectedHero,
+  }), before);
+  assert.ok(state.events.some(({ type, skipped }) => (
+    type === 'tutorial-complete' && skipped === true
+  )));
 });
 
 test('progress normalization preserves hero meta and strips transient battle state', () => {
@@ -1819,6 +1909,7 @@ test('progress normalization preserves hero meta and strips transient battle sta
     clearedStages: ['stage-2', 'stage-1'],
     bestEndlessWave: 12,
     tutorialSeen: true,
+    tutorialVersion: 0,
     summonCurrency: 777,
     summonPity: 9,
     summonRngState: 12345,

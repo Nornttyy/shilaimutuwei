@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "assetId": "soldier-drill-lancer-atlas-v1",
+  "sourcePath": "assets/generated/soldier/soldier-drill-lancer-atlas-v1.png",
+  "gutter": 2,
+  "alphaThreshold": 16,
+  "allowUpscale": true,
+  "physicalMinimumComponentArea": 16,
+  "physical": {
+    "body": { "sourceCenter": [227.2, 267.8], "sourceRadius": 250, "center": [209, 270], "maxSize": [278, 240], "z": 0, "group": "nearest" },
+    "headgear": { "sourceCenter": [625.6, 246.8], "sourceRadius": 240, "center": [155, 130], "maxSize": [140, 156], "z": 10, "group": "nearest" },
+    "equipment": { "sourceCenter": [990.6, 291.8], "sourceRadius": 250, "center": [340, 335], "maxSize": [150, 84], "z": 40, "group": "nearest" }
+  },
+  "expressions": {
+    "eyesCenter": [209, 245],
+    "mouthCenter": [209, 305],
+    "allowUpscale": false,
+    "boundaryMargin": 2,
+    "minimumComponentArea": 4,
+    "z": { "eyes": 30, "mouth": 31 },
+    "maxSize": {
+      "normalEyes": { "maxSize": [195, 81], "center": [209, 245], "allowUpscale": false },
+      "normalMouth": { "maxSize": [50, 20], "center": [209, 305], "allowUpscale": false },
+      "attackEyes": { "maxSize": [190, 81], "center": [209, 238], "allowUpscale": false },
+      "attackMouth": { "maxSize": [55, 44], "center": [209, 310], "allowUpscale": false },
+      "hurtEyes": { "maxSize": [190, 73], "center": [209, 255], "allowUpscale": false },
+      "hurtMouth": { "maxSize": [55, 20], "center": [209, 305], "allowUpscale": false }
+    }
+  }
+}

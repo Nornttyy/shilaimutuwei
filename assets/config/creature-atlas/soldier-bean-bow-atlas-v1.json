@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "assetId": "soldier-bean-bow-atlas-v1",
+  "sourcePath": "assets/generated/soldier/soldier-bean-bow-atlas-v1.png",
+  "gutter": 2,
+  "alphaThreshold": 16,
+  "allowUpscale": true,
+  "physicalMinimumComponentArea": 16,
+  "physical": {
+    "body": { "sourceCenter": [225.5, 278.1], "sourceRadius": 250, "center": [209, 270], "maxSize": [285, 240], "z": 0, "group": "nearest" },
+    "headgear": { "sourceCenter": [639.3, 185.4], "sourceRadius": 230, "center": [198, 155], "maxSize": [120, 97], "z": 10, "group": "nearest" },
+    "equipment": { "sourceCenter": [1068, 339.4], "sourceRadius": 250, "center": [335, 330], "maxSize": [160, 81], "z": 40, "group": "nearest" }
+  },
+  "expressions": {
+    "eyesCenter": [209, 245],
+    "mouthCenter": [209, 308],
+    "allowUpscale": false,
+    "boundaryMargin": 2,
+    "minimumComponentArea": 4,
+    "z": { "eyes": 30, "mouth": 31 },
+    "maxSize": {
+      "normalEyes": { "maxSize": [190, 84], "center": [209, 245], "allowUpscale": false },
+      "normalMouth": { "maxSize": [59, 27], "center": [209, 308], "allowUpscale": false },
+      "attackEyes": { "maxSize": [190, 80], "center": [209, 238], "allowUpscale": false },
+      "attackMouth": { "maxSize": [62, 49], "center": [209, 310], "allowUpscale": false },
+      "hurtEyes": { "maxSize": [185, 78], "center": [209, 255], "allowUpscale": false },
+      "hurtMouth": { "maxSize": [62, 23], "center": [209, 310], "allowUpscale": false }
+    }
+  }
+}

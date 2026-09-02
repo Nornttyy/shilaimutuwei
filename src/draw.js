@@ -1226,28 +1226,84 @@ const SOLDIER_LAYER_INDEX = Object.freeze({
   hurtMouth: 8,
 });
 const SOLDIER_BIND_RECT = Object.freeze({ x: -60, y: -120, width: 120, height: 120 });
-const ATLAS_REAR_LAYER_Z = Object.freeze({
-  'soldier-leaf-spinner-atlas-v1': Object.freeze({ equipment: -5 }),
-  // Hero weapons are authored as independent foreground cells.  Keeping them
-  // above the swappable face prevents the body from swallowing a weapon while
-  // turning, attacking, or changing expression.
-  'hero-berry-burst-atlas-v1': Object.freeze({ equipment: 40 }),
-  'hero-dew-bloom-atlas-v1': Object.freeze({ equipment: 40 }),
-  'hero-bell-boom-atlas-v1': Object.freeze({ equipment: 40 }),
-  'hero-drill-gum-atlas-v1': Object.freeze({ headgear: -5, equipment: 40 }),
-  'hero-ember-fizz-atlas-v1': Object.freeze({ headgear: -5, equipment: 40 }),
-  'hero-ink-splash-atlas-v1': Object.freeze({ headgear: -5, equipment: 40 }),
-  'hero-cloud-spin-atlas-v1': Object.freeze({ headgear: -5, equipment: 40 }),
-  'hero-frost-drop-atlas-v1': Object.freeze({ equipment: 40 }),
-  'hero-honey-pop-atlas-v1': Object.freeze({ headgear: -5, equipment: 40 }),
-  'hero-spark-bean-atlas-v1': Object.freeze({ headgear: -5, equipment: 40 }),
-  'hero-star-core-atlas-v1': Object.freeze({ headgear: -5, equipment: 40 }),
-  'soldier-drill-lancer-atlas-v1': Object.freeze({ headgear: -5 }),
-  'soldier-volt-orbiter-atlas-v1': Object.freeze({ headgear: -5 }),
-  'enemy-thorn-roller-atlas-v1': Object.freeze({ headgear: -5 }),
-  'enemy-mud-bulwark-atlas-v1': Object.freeze({ headgear: -5 }),
-  'enemy-rift-beacon-king-atlas-v1': Object.freeze({ headgear: -5 }),
+const DEFAULT_ATLAS_PART_Z = Object.freeze({
+  body: 0,
+  headgear: 10,
+  eyes: 30,
+  mouth: 31,
+  equipment: 40,
 });
+
+function createAtlasCharacterProfile({ parts = {}, worldScale = 1, worldYOffset = 0 } = {}) {
+  return Object.freeze({
+    parts: Object.freeze({ ...DEFAULT_ATLAS_PART_Z, ...parts }),
+    worldScale,
+    // Offset is expressed in the same canonical 100-unit space as `size`, so
+    // battle actors and every preview keep the same authored baseline.
+    worldYOffset,
+  });
+}
+
+const DEFAULT_ATLAS_CHARACTER_PROFILE = createAtlasCharacterProfile();
+
+/**
+ * The single source of truth for formal 3x3 character composition. Equipment
+ * is foreground by default; only art explicitly authored behind the body gets
+ * a negative z. Scale and baseline corrections are shared by battle, cards,
+ * recruitment, drag previews, and defeated-actor rendering.
+ */
+export const ATLAS_CHARACTER_PROFILES = Object.freeze({
+  'hero-berry-burst-atlas-v1': createAtlasCharacterProfile({
+    worldScale: 1.06,
+    worldYOffset: 6,
+  }),
+  'hero-dew-bloom-atlas-v1': createAtlasCharacterProfile({
+    parts: { headgear: -5 },
+    worldScale: 1.1,
+    worldYOffset: 6,
+  }),
+  'hero-bell-boom-atlas-v1': createAtlasCharacterProfile(),
+  'hero-drill-gum-atlas-v1': createAtlasCharacterProfile(),
+  'hero-ember-fizz-atlas-v1': createAtlasCharacterProfile(),
+  'hero-ink-splash-atlas-v1': createAtlasCharacterProfile({ worldScale: 0.97 }),
+  'hero-cloud-spin-atlas-v1': createAtlasCharacterProfile(),
+  'hero-frost-drop-atlas-v1': createAtlasCharacterProfile({ worldScale: 0.94 }),
+  'hero-honey-pop-atlas-v1': createAtlasCharacterProfile(),
+  'hero-spark-bean-atlas-v1': createAtlasCharacterProfile(),
+  'hero-star-core-atlas-v1': createAtlasCharacterProfile({
+    parts: { headgear: -5 },
+    worldScale: 0.94,
+  }),
+
+  'soldier-shield-dun-atlas-v1': createAtlasCharacterProfile(),
+  'soldier-bean-bow-atlas-v1': createAtlasCharacterProfile(),
+  'soldier-bounce-hammer-atlas-v1': createAtlasCharacterProfile(),
+  'soldier-leaf-spinner-atlas-v1': createAtlasCharacterProfile({
+    parts: { equipment: -5 },
+  }),
+  'soldier-drill-lancer-atlas-v1': createAtlasCharacterProfile(),
+  'soldier-spore-lobber-atlas-v1': createAtlasCharacterProfile({
+    parts: { equipment: -5 },
+    worldScale: 1.04,
+  }),
+  'soldier-volt-orbiter-atlas-v1': createAtlasCharacterProfile({
+    parts: { headgear: -5 },
+  }),
+
+  'enemy-thorn-roller-atlas-v1': createAtlasCharacterProfile({
+    parts: { headgear: -5 },
+  }),
+  'enemy-lantern-spore-atlas-v1': createAtlasCharacterProfile(),
+  'enemy-mud-bulwark-atlas-v1': createAtlasCharacterProfile(),
+  'enemy-rift-beacon-king-atlas-v1': createAtlasCharacterProfile({
+    worldScale: 0.94,
+    worldYOffset: -3,
+  }),
+});
+
+function atlasCharacterProfileFor(assetKey) {
+  return ATLAS_CHARACTER_PROFILES[assetKey] || DEFAULT_ATLAS_CHARACTER_PROFILE;
+}
 
 function soldierSourceRect(index) {
   return Object.freeze({
@@ -1267,25 +1323,26 @@ function soldierAtlasPart(id, bone, index, z, bindRect) {
 }
 
 function soldierRigAssetFor(atlas, assetKey = '') {
-  let rigAsset = SOLDIER_ATLAS_CACHE.get(atlas);
-  if (rigAsset) return rigAsset;
-  const layerZ = ATLAS_REAR_LAYER_Z[assetKey] || {};
+  const cached = SOLDIER_ATLAS_CACHE.get(atlas);
+  if (cached?.assetKey === assetKey) return cached.rigAsset;
+  const profile = atlasCharacterProfileFor(assetKey);
   const faceVariant = (index) => Object.freeze({
     image: atlas,
     sourceRect: soldierSourceRect(index),
     bindRect: SOLDIER_BIND_RECT,
   });
-  rigAsset = Object.freeze({
+  const rigAsset = Object.freeze({
     rigId: SOLDIER_RIG.id,
     canonicalFacing: 1,
     parts: Object.freeze([
-      { ...soldierAtlasPart('body', 'body', SOLDIER_LAYER_INDEX.body, 0, SOLDIER_BIND_RECT), image: atlas },
+      { ...soldierAtlasPart('body', 'body', SOLDIER_LAYER_INDEX.body,
+        profile.parts.body, SOLDIER_BIND_RECT), image: atlas },
       { ...soldierAtlasPart('headgear', 'headgear', SOLDIER_LAYER_INDEX.headgear,
-        layerZ.headgear ?? 10, SOLDIER_BIND_RECT), image: atlas },
+        profile.parts.headgear, SOLDIER_BIND_RECT), image: atlas },
       { ...soldierAtlasPart('equipment', 'equipment', SOLDIER_LAYER_INDEX.equipment,
-        layerZ.equipment ?? 20, SOLDIER_BIND_RECT), image: atlas },
+        profile.parts.equipment, SOLDIER_BIND_RECT), image: atlas },
       Object.freeze({
-        id: 'eyes', bone: 'eyes', z: 30, required: true, image: atlas,
+        id: 'eyes', bone: 'eyes', z: profile.parts.eyes, required: true, image: atlas,
         variants: Object.freeze({
           normal: faceVariant(SOLDIER_LAYER_INDEX.normalEyes),
           attack: faceVariant(SOLDIER_LAYER_INDEX.attackEyes),
@@ -1293,7 +1350,7 @@ function soldierRigAssetFor(atlas, assetKey = '') {
         }),
       }),
       Object.freeze({
-        id: 'mouth', bone: 'mouth', z: 31, required: true, image: atlas,
+        id: 'mouth', bone: 'mouth', z: profile.parts.mouth, required: true, image: atlas,
         variants: Object.freeze({
           normal: faceVariant(SOLDIER_LAYER_INDEX.normalMouth),
           attack: faceVariant(SOLDIER_LAYER_INDEX.attackMouth),
@@ -1302,7 +1359,7 @@ function soldierRigAssetFor(atlas, assetKey = '') {
       }),
     ]),
   });
-  SOLDIER_ATLAS_CACHE.set(atlas, rigAsset);
+  SOLDIER_ATLAS_CACHE.set(atlas, { assetKey, rigAsset });
   return rigAsset;
 }
 
@@ -1311,7 +1368,7 @@ function heroAtlasRigAssetFor(atlas, skillFaceAtlas, assetKey = '') {
   if (cached?.skillFaceAtlas === skillFaceAtlas && cached?.assetKey === assetKey) {
     return cached.rigAsset;
   }
-  const layerZ = ATLAS_REAR_LAYER_Z[assetKey] || {};
+  const profile = atlasCharacterProfileFor(assetKey);
   const mainFaceVariant = (index) => Object.freeze({
     image: atlas,
     sourceRect: soldierSourceRect(index),
@@ -1332,21 +1389,22 @@ function heroAtlasRigAssetFor(atlas, skillFaceAtlas, assetKey = '') {
     canonicalFacing: 1,
     parts: Object.freeze([
       {
-        ...soldierAtlasPart('body', 'body', SOLDIER_LAYER_INDEX.body, 0, SOLDIER_BIND_RECT),
+        ...soldierAtlasPart('body', 'body', SOLDIER_LAYER_INDEX.body,
+          profile.parts.body, SOLDIER_BIND_RECT),
         image: atlas,
       },
       {
         ...soldierAtlasPart('headgear', 'headgear', SOLDIER_LAYER_INDEX.headgear,
-          layerZ.headgear ?? 10, SOLDIER_BIND_RECT),
+          profile.parts.headgear, SOLDIER_BIND_RECT),
         image: atlas,
       },
       {
         ...soldierAtlasPart('equipment', 'equipment', SOLDIER_LAYER_INDEX.equipment,
-          layerZ.equipment ?? 40, SOLDIER_BIND_RECT),
+          profile.parts.equipment, SOLDIER_BIND_RECT),
         image: atlas,
       },
       Object.freeze({
-        id: 'eyes', bone: 'eyes', z: 30, required: true, image: atlas,
+        id: 'eyes', bone: 'eyes', z: profile.parts.eyes, required: true, image: atlas,
         variants: Object.freeze({
           normal: mainFaceVariant(SOLDIER_LAYER_INDEX.normalEyes),
           attack: mainFaceVariant(SOLDIER_LAYER_INDEX.attackEyes),
@@ -1355,7 +1413,7 @@ function heroAtlasRigAssetFor(atlas, skillFaceAtlas, assetKey = '') {
         }),
       }),
       Object.freeze({
-        id: 'mouth', bone: 'mouth', z: 31, required: true, image: atlas,
+        id: 'mouth', bone: 'mouth', z: profile.parts.mouth, required: true, image: atlas,
         variants: Object.freeze({
           normal: mainFaceVariant(SOLDIER_LAYER_INDEX.normalMouth),
           attack: mainFaceVariant(SOLDIER_LAYER_INDEX.attackMouth),
@@ -1424,6 +1482,8 @@ export function drawAtlasCharacter(ctx, x, y, size, options = {}) {
   if (!assetKey || !options.assetStore || typeof options.assetStore.useOrFallback !== 'function') {
     return false;
   }
+  const profile = atlasCharacterProfileFor(assetKey);
+  const unit = size / 100;
   let rendered = false;
   const result = options.assetStore.useOrFallback(assetKey, (atlas) => {
     const width = Number(atlas?.naturalWidth || atlas?.width);
@@ -1452,8 +1512,8 @@ export function drawAtlasCharacter(ctx, x, y, size, options = {}) {
       ctx.save();
       try {
         ctx.globalAlpha *= options.disabled ? 0.48 : clamp(options.alpha ?? 1);
-        ctx.translate(x, y);
-        ctx.scale((size / 100) * facing, size / 100);
+        ctx.translate(x, y + unit * profile.worldYOffset);
+        ctx.scale(unit * profile.worldScale * facing, unit * profile.worldScale);
         rendered = renderCompatibleRigAsset(
           ctx,
           rig,

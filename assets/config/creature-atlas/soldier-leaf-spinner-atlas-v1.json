@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "assetId": "soldier-leaf-spinner-atlas-v1",
+  "sourcePath": "assets/generated/soldier/soldier-leaf-spinner-atlas-v1.png",
+  "gutter": 2,
+  "alphaThreshold": 16,
+  "allowUpscale": true,
+  "physicalMinimumComponentArea": 16,
+  "physical": {
+    "body": { "sourceCenter": [206.4, 263.2], "sourceRadius": 250, "center": [209, 280], "maxSize": [300, 240], "z": 0, "group": "nearest" },
+    "headgear": { "sourceCenter": [626.7, 119.7], "sourceRadius": 220, "center": [209, 160], "maxSize": [90, 41], "z": 10, "group": "nearest" },
+    "equipment": { "sourceCenter": [1192.9, 220.5], "sourceRadius": 220, "center": [356, 255], "maxSize": [115, 114], "z": -5, "group": "nearest" }
+  },
+  "expressions": {
+    "eyesCenter": [209, 235],
+    "mouthCenter": [209, 302],
+    "allowUpscale": false,
+    "boundaryMargin": 2,
+    "minimumComponentArea": 4,
+    "z": { "eyes": 30, "mouth": 31 },
+    "maxSize": {
+      "normalEyes": { "maxSize": [164, 76], "center": [209, 235], "allowUpscale": false },
+      "normalMouth": { "maxSize": [56, 24], "center": [209, 302], "allowUpscale": false },
+      "attackEyes": { "maxSize": [164, 90], "center": [209, 228], "allowUpscale": false },
+      "attackMouth": { "maxSize": [70, 46], "center": [209, 312], "allowUpscale": false },
+      "hurtEyes": { "maxSize": [164, 23], "center": [209, 250], "allowUpscale": false },
+      "hurtMouth": { "maxSize": [66, 24], "center": [209, 302], "allowUpscale": false }
+    }
+  }
+}

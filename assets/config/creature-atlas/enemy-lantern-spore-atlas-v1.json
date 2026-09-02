@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "assetId": "enemy-lantern-spore-atlas-v1",
+  "sourcePath": "assets/generated/enemy/enemy-lantern-spore-atlas-v1.png",
+  "gutter": 2,
+  "alphaThreshold": 16,
+  "allowUpscale": true,
+  "physicalMinimumComponentArea": 16,
+  "physical": {
+    "body": { "sourceCenter": [201, 219.4], "sourceRadius": 270, "center": [209, 240], "maxSize": [316, 300], "z": 0, "group": "nearest" },
+    "headgear": { "sourceCenter": [620.4, 172.2], "sourceRadius": 280, "center": [209, 125], "maxSize": [330, 184], "z": 10, "group": "nearest" },
+    "equipment": { "sourceCenter": [1038.3, 238.2], "sourceRadius": 270, "center": [340, 315], "maxSize": [152, 140], "z": 40, "group": "nearest" }
+  },
+  "expressions": {
+    "eyesCenter": [209, 230],
+    "mouthCenter": [209, 285],
+    "allowUpscale": false,
+    "boundaryMargin": 2,
+    "minimumComponentArea": 4,
+    "z": { "eyes": 30, "mouth": 31 },
+    "maxSize": {
+      "normalEyes": { "maxSize": [180, 64], "center": [209, 230], "allowUpscale": false },
+      "normalMouth": { "maxSize": [53, 20], "center": [209, 285], "allowUpscale": false },
+      "attackEyes": { "maxSize": [180, 80], "center": [209, 220], "allowUpscale": false },
+      "attackMouth": { "maxSize": [65, 37], "center": [209, 290], "allowUpscale": false },
+      "hurtEyes": { "maxSize": [160, 33], "center": [209, 240], "allowUpscale": false },
+      "hurtMouth": { "maxSize": [65, 14], "center": [209, 285], "allowUpscale": false }
+    }
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "assetId": "soldier-spore-lobber-atlas-v1",
+  "sourcePath": "assets/generated/soldier/soldier-spore-lobber-atlas-v1.png",
+  "gutter": 2,
+  "alphaThreshold": 16,
+  "allowUpscale": true,
+  "physicalMinimumComponentArea": 16,
+  "physical": {
+    "body": { "sourceCenter": [227.4, 333.5], "sourceRadius": 260, "center": [209, 270], "maxSize": [283, 240], "z": 0, "group": "nearest" },
+    "headgear": { "sourceCenter": [625.8, 248.8], "sourceRadius": 240, "center": [188, 189], "maxSize": [250, 166], "z": 10, "group": "nearest" },
+    "equipment": { "sourceCenter": [1019.5, 359.1], "sourceRadius": 260, "center": [333, 318], "maxSize": [165, 100], "z": -5, "group": "nearest" }
+  },
+  "expressions": {
+    "eyesCenter": [209, 260],
+    "mouthCenter": [209, 315],
+    "allowUpscale": false,
+    "boundaryMargin": 2,
+    "minimumComponentArea": 4,
+    "z": { "eyes": 30, "mouth": 31 },
+    "maxSize": {
+      "normalEyes": { "maxSize": [185, 78], "center": [209, 260], "allowUpscale": false },
+      "normalMouth": { "maxSize": [51, 19], "center": [209, 315], "allowUpscale": false },
+      "attackEyes": { "maxSize": [182, 76], "center": [209, 255], "allowUpscale": false },
+      "attackMouth": { "maxSize": [52, 53], "center": [209, 325], "allowUpscale": false },
+      "hurtEyes": { "maxSize": [165, 48], "center": [209, 270], "allowUpscale": false },
+      "hurtMouth": { "maxSize": [56, 17], "center": [209, 315], "allowUpscale": false }
+    }
+  }
+}

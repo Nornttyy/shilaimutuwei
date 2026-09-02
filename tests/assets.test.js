@@ -50,6 +50,10 @@ const PROJECT_ASSET_SPEC = JSON.parse(await readFile(
   new URL('../assets/asset-spec.json', import.meta.url),
   'utf8',
 ));
+const PROJECT_HERO_ATLAS_LAYOUTS = JSON.parse(await readFile(
+  new URL('../assets/config/hero-atlas-layouts.json', import.meta.url),
+  'utf8',
+));
 
 const HERO_ATLAS_CELL_SIZE = 418;
 const HERO_ATLAS_SLUGS = Object.freeze([
@@ -249,6 +253,38 @@ test('hero atlas cells keep transparent gutters and skill faces preserve canonic
       assert.ok(alphaBounds(atlas, rect), `${slug} atlas cell ${index} is non-empty`);
     }
 
+    const heroLayout = PROJECT_HERO_ATLAS_LAYOUTS.layouts[
+      `hero-${slug}-atlas-v1`
+    ];
+    assert.ok(heroLayout, `${slug} has a deterministic layout`);
+    const registeredTargets = [
+      heroLayout.physical.body,
+      heroLayout.physical.headgear,
+      heroLayout.physical.equipment,
+      ...[
+        'normalEyes',
+        'normalMouth',
+        'attackEyes',
+        'attackMouth',
+        'hurtEyes',
+        'hurtMouth',
+      ].map((name) => heroLayout.expressions.maxSize[name]),
+    ];
+    for (const [index, target] of registeredTargets.entries()) {
+      const actual = alphaBounds(atlas, atlasCellRect(index));
+      const center = boundsCenter(actual);
+      assert.ok(
+        Math.abs(center.x - target.center[0]) <= 0.5
+          && Math.abs(center.y - target.center[1]) <= 0.5,
+        `${slug} atlas cell ${index} center ${JSON.stringify(center)} must match `
+          + `${JSON.stringify(target.center)}`,
+      );
+      assert.ok(
+        actual.width <= target.maxSize[0] && actual.height <= target.maxSize[1],
+        `${slug} atlas cell ${index} exceeds its calibrated maximum size`,
+      );
+    }
+
     const referenceCells = [atlasCellRect(3), atlasCellRect(4)];
     const sidecarCells = [atlasCellRect(0), atlasCellRect(1)];
     for (let index = 0; index < sidecarCells.length; index += 1) {
@@ -268,10 +304,14 @@ test('hero atlas cells keep transparent gutters and skill faces preserve canonic
         `${label} alpha center ${JSON.stringify(actualCenter)} must align with canonical `
           + `${JSON.stringify(referenceCenter)}`,
       );
+      const readabilityScale = index === 0
+        ? heroLayout.skillFace.eyesScale
+        : heroLayout.skillFace.mouthScale;
       assert.ok(
-        actual.width <= Math.floor(reference.width * 1.08)
-          && actual.height <= Math.floor(reference.height * 1.08),
-        `${label} ${actual.width}x${actual.height} exceeds 1.08x canonical `
+        actual.width <= Math.floor(reference.width * 1.08 * readabilityScale)
+          && actual.height <= Math.floor(reference.height * 1.08 * readabilityScale),
+        `${label} ${actual.width}x${actual.height} exceeds its calibrated `
+          + `${readabilityScale}x readability scale from canonical `
           + `${reference.width}x${reference.height}`,
       );
     }

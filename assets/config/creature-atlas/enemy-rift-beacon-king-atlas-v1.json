@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "assetId": "enemy-rift-beacon-king-atlas-v1",
+  "sourcePath": "assets/generated/enemy/enemy-rift-beacon-king-atlas-v1.png",
+  "gutter": 2,
+  "alphaThreshold": 16,
+  "allowUpscale": true,
+  "physicalMinimumComponentArea": 16,
+  "physical": {
+    "body": { "sourceCenter": [233, 293.2], "sourceRadius": 260, "center": [209, 215], "maxSize": [390, 350], "z": 0, "group": "nearest" },
+    "headgear": {
+      "sourceCenter": [650, 280],
+      "sourceRadius": 280,
+      "center": [209, 205],
+      "maxSize": [380, 380],
+      "z": 10,
+      "group": {
+        "mode": "seeds",
+        "seeds": [[559.2, 333.1], [624.9, 150.7], [763.9, 361.8], [769.4, 222.2], [692.4, 424.2]],
+        "seedRadius": 28,
+        "minimumComponentArea": 16
+      }
+    },
+    "equipment": { "sourceCenter": [1050.9, 313.7], "sourceRadius": 270, "center": [330, 300], "maxSize": [165, 174], "z": 40, "group": "nearest" }
+  },
+  "expressions": {
+    "eyesCenter": [209, 220],
+    "mouthCenter": [209, 295],
+    "allowUpscale": false,
+    "boundaryMargin": 2,
+    "minimumComponentArea": 4,
+    "z": { "eyes": 30, "mouth": 31 },
+    "maxSize": {
+      "normalEyes": { "maxSize": [220, 93], "center": [209, 220], "allowUpscale": false },
+      "normalMouth": { "maxSize": [71, 26], "center": [209, 295], "allowUpscale": false },
+      "attackEyes": { "maxSize": [225, 96], "center": [209, 210], "allowUpscale": false },
+      "attackMouth": { "maxSize": [92, 70], "center": [209, 310], "allowUpscale": false },
+      "hurtEyes": { "maxSize": [210, 33], "center": [209, 245], "allowUpscale": false },
+      "hurtMouth": { "maxSize": [100, 29], "center": [209, 295], "allowUpscale": false }
+    }
+  }
+}

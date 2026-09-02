@@ -6,7 +6,7 @@
  * useful to platform builds and isolated tests.
  */
 
-export const ASSET_CACHE_VERSION = 'shell-vivid-20260902-v20';
+export const ASSET_CACHE_VERSION = 'shell-vivid-20260902-v21';
 
 const generatedAssetUrl = (relativePath) => {
   const url = new URL(`../assets/generated/${relativePath}`, import.meta.url);

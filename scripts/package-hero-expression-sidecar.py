@@ -4,15 +4,19 @@
 The source is any strictly 2:1 RGBA image: eyes in the left square and mouth
 in the right square.  The output is a fixed 836x418 RGBA atlas whose cells are
 scaled and aligned to canonical normal-eye cell 3 and normal-mouth cell 4.
+Optional per-hero readability scales come from ``skillFace`` in the same
+layout document consumed by ``repack-creature-atlas.py``.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import math
 import os
 import tempfile
 from pathlib import Path
+from typing import Any
 
 from PIL import Image
 
@@ -23,6 +27,7 @@ CELL_SIZE = CANONICAL_SIZE // CANONICAL_GRID
 OUTPUT_SIZE = (CELL_SIZE * 2, CELL_SIZE)
 GUTTER = 2
 REFERENCE_SCALE = 1.08
+MAX_READABILITY_SCALE = 2.0
 EYES_REFERENCE_CELL = 3
 MOUTH_REFERENCE_CELL = 4
 
@@ -41,7 +46,76 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("input", type=Path, help="strict 2:1 RGBA eyes/mouth source")
     parser.add_argument("canonical", type=Path, help="1254x1254 canonical RGBA atlas")
     parser.add_argument("output", type=Path, help="output PNG path")
+    parser.add_argument(
+        "--layout",
+        type=Path,
+        help="optional hero layout document or layout bundle with skillFace scales",
+    )
+    parser.add_argument(
+        "--layout-id",
+        help="layout key when --layout contains a top-level layouts object",
+    )
     return parser.parse_args()
+
+
+def _require_object(value: Any, label: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise SidecarValidationError(f"{label} must be a JSON object")
+    return value
+
+
+def _readability_scale(value: Any, label: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise SidecarValidationError(f"{label} must be a finite number")
+    scale = float(value)
+    if not math.isfinite(scale) or not 0 < scale <= MAX_READABILITY_SCALE:
+        raise SidecarValidationError(
+            f"{label} must be greater than 0 and at most {MAX_READABILITY_SCALE}"
+        )
+    return scale
+
+
+def _layout_scales(path: Path | None, layout_id: str | None) -> tuple[float, float]:
+    if path is None:
+        if layout_id is not None:
+            raise SidecarValidationError("--layout-id requires --layout")
+        return 1.0, 1.0
+    if not path.is_file():
+        raise SidecarValidationError(f"layout does not exist: {path}")
+    try:
+        document = _require_object(
+            json.loads(path.read_text(encoding="utf-8")),
+            "layout",
+        )
+    except SidecarValidationError:
+        raise
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise SidecarValidationError(f"could not read layout {path}: {error}") from error
+
+    if "layouts" in document:
+        layouts = _require_object(document["layouts"], "layouts")
+        if not layout_id:
+            raise SidecarValidationError(
+                "layout bundle requires --layout-id to select one layout"
+            )
+        if layout_id not in layouts:
+            raise SidecarValidationError(f"layout bundle has no entry named {layout_id}")
+        document = _require_object(layouts[layout_id], f"layouts.{layout_id}")
+    elif layout_id is not None:
+        raise SidecarValidationError(
+            "--layout-id is only valid for a JSON bundle with a layouts object"
+        )
+
+    skill_face = _require_object(document.get("skillFace"), "skillFace")
+    unexpected = set(skill_face) - {"eyesScale", "mouthScale"}
+    if unexpected:
+        raise SidecarValidationError(
+            "skillFace has unsupported keys: " + ", ".join(sorted(unexpected))
+        )
+    return (
+        _readability_scale(skill_face.get("eyesScale"), "skillFace.eyesScale"),
+        _readability_scale(skill_face.get("mouthScale"), "skillFace.mouthScale"),
+    )
 
 
 def _edge_has_alpha(alpha: Image.Image) -> bool:
@@ -138,6 +212,7 @@ def _aligned_cell(
     source: Image.Image,
     reference_bounds: tuple[int, int, int, int],
     label: str,
+    readability_scale: float,
 ) -> Image.Image:
     source_bounds = source.getchannel("A").getbbox()
     if source_bounds is None:
@@ -149,15 +224,26 @@ def _aligned_cell(
     ref_height = ref_bottom - ref_top
     maximum_width = min(
         CELL_SIZE - GUTTER * 2,
-        max(1, math.floor(ref_width * REFERENCE_SCALE)),
+        max(1, math.floor(ref_width * REFERENCE_SCALE * readability_scale)),
     )
     maximum_height = min(
         CELL_SIZE - GUTTER * 2,
-        max(1, math.floor(ref_height * REFERENCE_SCALE)),
+        max(1, math.floor(ref_height * REFERENCE_SCALE * readability_scale)),
     )
     scale = min(maximum_width / content.width, maximum_height / content.height)
     resized_width = max(1, min(maximum_width, round(content.width * scale)))
     resized_height = max(1, min(maximum_height, round(content.height * scale)))
+
+    # A raster bbox centered on an integer coordinate must have even extent;
+    # one centered on a half pixel must have odd extent.  Matching the
+    # canonical bbox parity removes the otherwise unavoidable +/-0.5px anchor
+    # drift caused by independently rounded generated art dimensions.
+    if resized_width % 2 != ref_width % 2:
+        resized_width += 1 if resized_width < maximum_width else -1
+    if resized_height % 2 != ref_height % 2:
+        resized_height += 1 if resized_height < maximum_height else -1
+    if resized_width < 1 or resized_height < 1:
+        raise SidecarValidationError(f"{label} is too small to preserve anchor parity")
     resized = content.resize(
         (resized_width, resized_height),
         Image.Resampling.LANCZOS,
@@ -184,7 +270,13 @@ def _aligned_cell(
     return cell
 
 
-def package_sidecar(input_path: Path, canonical_path: Path, output_path: Path) -> None:
+def package_sidecar(
+    input_path: Path,
+    canonical_path: Path,
+    output_path: Path,
+    eyes_scale: float = 1.0,
+    mouth_scale: float = 1.0,
+) -> None:
     input_resolved = input_path.expanduser().resolve()
     canonical_resolved = canonical_path.expanduser().resolve()
     output_resolved = output_path.expanduser().resolve()
@@ -194,8 +286,14 @@ def package_sidecar(input_path: Path, canonical_path: Path, output_path: Path) -
     eyes, mouth = _load_source(input_resolved)
     eyes_reference, mouth_reference = _load_canonical_references(canonical_resolved)
     output = Image.new("RGBA", OUTPUT_SIZE, (0, 0, 0, 0))
-    output.paste(_aligned_cell(eyes, eyes_reference, "eyes"), (0, 0))
-    output.paste(_aligned_cell(mouth, mouth_reference, "mouth"), (CELL_SIZE, 0))
+    output.paste(
+        _aligned_cell(eyes, eyes_reference, "eyes", eyes_scale),
+        (0, 0),
+    )
+    output.paste(
+        _aligned_cell(mouth, mouth_reference, "mouth", mouth_scale),
+        (CELL_SIZE, 0),
+    )
 
     output_resolved.parent.mkdir(parents=True, exist_ok=True)
     temporary_path: Path | None = None
@@ -218,7 +316,17 @@ def package_sidecar(input_path: Path, canonical_path: Path, output_path: Path) -
 def main() -> None:
     args = parse_args()
     try:
-        package_sidecar(args.input, args.canonical, args.output)
+        eyes_scale, mouth_scale = _layout_scales(
+            args.layout.expanduser().resolve() if args.layout else None,
+            args.layout_id,
+        )
+        package_sidecar(
+            args.input,
+            args.canonical,
+            args.output,
+            eyes_scale,
+            mouth_scale,
+        )
     except (SidecarValidationError, OSError) as error:
         raise SystemExit(f"error: {error}") from error
     print(f"Packaged hero expression sidecar: {args.output}")

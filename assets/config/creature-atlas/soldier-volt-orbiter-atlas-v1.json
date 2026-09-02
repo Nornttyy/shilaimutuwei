@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "assetId": "soldier-volt-orbiter-atlas-v1",
+  "sourcePath": "assets/generated/soldier/soldier-volt-orbiter-atlas-v1.png",
+  "gutter": 2,
+  "alphaThreshold": 16,
+  "allowUpscale": true,
+  "physicalMinimumComponentArea": 16,
+  "physical": {
+    "body": { "sourceCenter": [220.5, 270], "sourceRadius": 250, "center": [209, 271], "maxSize": [300, 238], "z": 0, "group": "nearest" },
+    "headgear": {
+      "sourceCenter": [627.9, 230.3],
+      "sourceRadius": 250,
+      "center": [209, 235],
+      "maxSize": [330, 310],
+      "z": -5,
+      "group": "nearest",
+      "clearFlood": {
+        "seeds": [[628, 230]],
+        "sourceBounds": [582, 182, 666, 283],
+        "minimumValue": 160,
+        "maximumChroma": 18,
+        "minimumArea": 5000,
+        "maximumArea": 7000,
+        "allowAlreadyClear": true
+      }
+    },
+    "equipment": { "sourceCenter": [1038.1, 281.9], "sourceRadius": 250, "center": [340, 310], "maxSize": [120, 48], "z": 40, "group": "nearest" }
+  },
+  "expressions": {
+    "eyesCenter": [209, 240],
+    "mouthCenter": [209, 300],
+    "allowUpscale": false,
+    "boundaryMargin": 2,
+    "minimumComponentArea": 4,
+    "z": { "eyes": 30, "mouth": 31 },
+    "maxSize": {
+      "normalEyes": { "maxSize": [186, 72], "center": [209, 240], "allowUpscale": false },
+      "normalMouth": { "maxSize": [52, 22], "center": [209, 300], "allowUpscale": false },
+      "attackEyes": { "maxSize": [186, 72], "center": [209, 234], "allowUpscale": false },
+      "attackMouth": { "maxSize": [50, 43], "center": [209, 305], "allowUpscale": false },
+      "hurtEyes": { "maxSize": [180, 72], "center": [209, 252], "allowUpscale": false },
+      "hurtMouth": { "maxSize": [59, 15], "center": [209, 300], "allowUpscale": false }
+    }
+  }
+}

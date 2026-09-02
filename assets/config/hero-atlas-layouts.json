@@ -1,0 +1,336 @@
+{
+  "schemaVersion": 1,
+  "description": "Deterministic registration layouts for the eleven 3x3 hero atlases. Select one with repack-creature-atlas.py --layout-id.",
+  "layouts": {
+    "hero-berry-burst-atlas-v1": {
+      "assetPath": "assets/generated/hero/hero-berry-burst-atlas-v1.png",
+      "skillFacePath": "assets/generated/hero/hero-berry-burst-skill-face-v1.png",
+      "gutter": 2,
+      "alphaThreshold": 16,
+      "allowUpscale": false,
+      "physicalMinimumComponentArea": 4,
+      "physical": {
+        "body": { "sourceCenter": [210, 253.5], "sourceRadius": 300, "center": [210, 253.5], "maxSize": [312, 237], "z": 0, "allowUpscale": false, "group": "nearest" },
+        "headgear": { "sourceCenter": [627, 116.5], "sourceRadius": 300, "center": [209, 116.5], "maxSize": [90, 45], "z": 10, "allowUpscale": false, "group": "nearest" },
+        "equipment": { "sourceCenter": [909.5, 255], "sourceRadius": 300, "center": [73.5, 255], "maxSize": [123, 84], "z": 40, "allowUpscale": false, "group": "nearest" }
+      },
+      "expressions": {
+        "eyesCenter": [210, 200],
+        "mouthCenter": [210, 283],
+        "boundaryMargin": 2,
+        "minimumComponentArea": 4,
+        "allowUpscale": false,
+        "z": { "eyes": 30, "mouth": 31 },
+        "maxSize": {
+          "normalEyes": { "maxSize": [164, 76], "center": [210, 200], "allowUpscale": false },
+          "normalMouth": { "maxSize": [58, 24], "center": [210, 283], "allowUpscale": false },
+          "attackEyes": { "maxSize": [170, 93], "center": [210, 191.5], "allowUpscale": false },
+          "attackMouth": { "maxSize": [70, 46], "center": [210, 283], "allowUpscale": false },
+          "hurtEyes": { "maxSize": [170, 23], "center": [210, 202.5], "allowUpscale": false },
+          "hurtMouth": { "maxSize": [66, 24], "center": [210, 283], "allowUpscale": false }
+        }
+      },
+      "skillFace": { "eyesScale": 1.0, "mouthScale": 1.0 }
+    },
+    "hero-dew-bloom-atlas-v1": {
+      "assetPath": "assets/generated/hero/hero-dew-bloom-atlas-v1.png",
+      "skillFacePath": "assets/generated/hero/hero-dew-bloom-skill-face-v1.png",
+      "gutter": 2,
+      "alphaThreshold": 16,
+      "allowUpscale": false,
+      "physicalMinimumComponentArea": 4,
+      "physical": {
+        "body": { "sourceCenter": [209, 252], "sourceRadius": 300, "center": [209, 252], "maxSize": [322, 244], "z": 0, "allowUpscale": false, "group": "nearest" },
+        "headgear": { "sourceCenter": [627.5, 92], "sourceRadius": 300, "center": [209.5, 92], "maxSize": [145, 80], "z": -5, "allowUpscale": false, "group": "nearest" },
+        "equipment": { "sourceCenter": [901, 255], "sourceRadius": 300, "center": [65, 255], "maxSize": [70, 82], "z": 40, "allowUpscale": false, "group": "nearest" }
+      },
+      "expressions": {
+        "eyesCenter": [209, 200],
+        "mouthCenter": [209, 284],
+        "boundaryMargin": 2,
+        "minimumComponentArea": 4,
+        "allowUpscale": false,
+        "z": { "eyes": 30, "mouth": 31 },
+        "maxSize": {
+          "normalEyes": { "maxSize": [164, 76], "center": [209, 200], "allowUpscale": false },
+          "normalMouth": { "maxSize": [56, 24], "center": [209, 284], "allowUpscale": false },
+          "attackEyes": { "maxSize": [170, 93], "center": [209, 191.5], "allowUpscale": false },
+          "attackMouth": { "maxSize": [70, 46], "center": [209, 284], "allowUpscale": false },
+          "hurtEyes": { "maxSize": [170, 23], "center": [209, 202.5], "allowUpscale": false },
+          "hurtMouth": { "maxSize": [66, 24], "center": [209, 284], "allowUpscale": false }
+        }
+      },
+      "skillFace": { "eyesScale": 1.0, "mouthScale": 1.0 }
+    },
+    "hero-bell-boom-atlas-v1": {
+      "assetPath": "assets/generated/hero/hero-bell-boom-atlas-v1.png",
+      "skillFacePath": "assets/generated/hero/hero-bell-boom-skill-face-v1.png",
+      "gutter": 2,
+      "alphaThreshold": 16,
+      "allowUpscale": false,
+      "physicalMinimumComponentArea": 4,
+      "physical": {
+        "body": { "sourceCenter": [208.5, 282], "sourceRadius": 300, "center": [208.5, 282], "maxSize": [353, 216], "z": 0, "allowUpscale": false, "group": "nearest" },
+        "headgear": { "sourceCenter": [653, 115], "sourceRadius": 300, "center": [208.5, 115], "maxSize": [221, 198], "z": 10, "allowUpscale": false, "group": "nearest" },
+        "equipment": { "sourceCenter": [1166.5, 325], "sourceRadius": 300, "center": [330.5, 325], "maxSize": [165, 124], "z": 40, "allowUpscale": false, "group": "nearest" }
+      },
+      "expressions": {
+        "eyesCenter": [208.5, 243.5],
+        "mouthCenter": [208.5, 282],
+        "boundaryMargin": 2,
+        "minimumComponentArea": 4,
+        "allowUpscale": false,
+        "z": { "eyes": 30, "mouth": 31 },
+        "maxSize": {
+          "normalEyes": { "maxSize": [182, 73], "center": [208.5, 243.5], "allowUpscale": false },
+          "normalMouth": { "maxSize": [47, 17], "center": [208.5, 282], "allowUpscale": false },
+          "attackEyes": { "maxSize": [177, 84], "center": [208.5, 235], "allowUpscale": false },
+          "attackMouth": { "maxSize": [72, 48], "center": [208.5, 282], "allowUpscale": false },
+          "hurtEyes": { "maxSize": [149, 34], "center": [208.5, 246], "allowUpscale": false },
+          "hurtMouth": { "maxSize": [65, 17], "center": [208.5, 282], "allowUpscale": false }
+        }
+      },
+      "skillFace": { "eyesScale": 1.0, "mouthScale": 1.35 }
+    },
+    "hero-drill-gum-atlas-v1": {
+      "assetPath": "assets/generated/hero/hero-drill-gum-atlas-v1.png",
+      "skillFacePath": "assets/generated/hero/hero-drill-gum-skill-face-v1.png",
+      "gutter": 2,
+      "alphaThreshold": 16,
+      "allowUpscale": false,
+      "physicalMinimumComponentArea": 4,
+      "physical": {
+        "body": { "sourceCenter": [208.5, 259.5], "sourceRadius": 300, "center": [208.5, 259.5], "maxSize": [357, 261], "z": 0, "allowUpscale": false, "group": "nearest" },
+        "headgear": { "sourceCenter": [620, 115], "sourceRadius": 300, "center": [202, 115], "maxSize": [220, 220], "z": 10, "allowUpscale": false, "group": "nearest" },
+        "equipment": { "sourceCenter": [1166.5, 325], "sourceRadius": 300, "center": [330.5, 325], "maxSize": [165, 96], "z": 40, "allowUpscale": false, "group": "nearest" }
+      },
+      "expressions": {
+        "eyesCenter": [208.5, 205],
+        "mouthCenter": [208.5, 247],
+        "boundaryMargin": 2,
+        "minimumComponentArea": 4,
+        "allowUpscale": false,
+        "z": { "eyes": 30, "mouth": 31 },
+        "maxSize": {
+          "normalEyes": { "maxSize": [155, 68], "center": [208.5, 205], "allowUpscale": false },
+          "normalMouth": { "maxSize": [51, 18], "center": [208.5, 247], "allowUpscale": false },
+          "attackEyes": { "maxSize": [158, 85], "center": [208.5, 196.5], "allowUpscale": false },
+          "attackMouth": { "maxSize": [63, 42], "center": [208.5, 247], "allowUpscale": false },
+          "hurtEyes": { "maxSize": [160, 13], "center": [208.5, 207.5], "allowUpscale": false },
+          "hurtMouth": { "maxSize": [60, 18], "center": [208.5, 247], "allowUpscale": false }
+        }
+      },
+      "skillFace": { "eyesScale": 1.0, "mouthScale": 1.2 }
+    },
+    "hero-ember-fizz-atlas-v1": {
+      "assetPath": "assets/generated/hero/hero-ember-fizz-atlas-v1.png",
+      "skillFacePath": "assets/generated/hero/hero-ember-fizz-skill-face-v1.png",
+      "gutter": 2,
+      "alphaThreshold": 16,
+      "allowUpscale": false,
+      "physicalMinimumComponentArea": 4,
+      "physical": {
+        "body": { "sourceCenter": [209, 257.5], "sourceRadius": 300, "center": [209, 257.5], "maxSize": [336, 265], "z": 0, "allowUpscale": false, "group": "nearest" },
+        "headgear": { "sourceCenter": [638, 115], "sourceRadius": 300, "center": [210, 115], "maxSize": [236, 220], "z": 10, "allowUpscale": false, "group": "nearest" },
+        "equipment": { "sourceCenter": [1166.5, 324.5], "sourceRadius": 300, "center": [330.5, 324.5], "maxSize": [165, 97], "z": 40, "allowUpscale": false, "group": "nearest" }
+      },
+      "expressions": {
+        "eyesCenter": [209, 229],
+        "mouthCenter": [209, 262],
+        "boundaryMargin": 2,
+        "minimumComponentArea": 4,
+        "allowUpscale": false,
+        "z": { "eyes": 30, "mouth": 31 },
+        "maxSize": {
+          "normalEyes": { "maxSize": [181, 80], "center": [209, 229], "allowUpscale": false },
+          "normalMouth": { "maxSize": [46, 18], "center": [209, 262], "allowUpscale": false },
+          "attackEyes": { "maxSize": [176, 98], "center": [209, 220.5], "allowUpscale": false },
+          "attackMouth": { "maxSize": [68, 45], "center": [209, 262], "allowUpscale": false },
+          "hurtEyes": { "maxSize": [181, 41], "center": [209, 231.5], "allowUpscale": false },
+          "hurtMouth": { "maxSize": [72, 19], "center": [209, 262], "allowUpscale": false }
+        }
+      },
+      "skillFace": { "eyesScale": 1.0, "mouthScale": 1.25 }
+    },
+    "hero-ink-splash-atlas-v1": {
+      "assetPath": "assets/generated/hero/hero-ink-splash-atlas-v1.png",
+      "skillFacePath": "assets/generated/hero/hero-ink-splash-skill-face-v1.png",
+      "gutter": 2,
+      "alphaThreshold": 16,
+      "allowUpscale": false,
+      "physicalMinimumComponentArea": 4,
+      "physical": {
+        "body": { "sourceCenter": [209, 240.5], "sourceRadius": 300, "center": [209, 240.5], "maxSize": [370, 299], "z": 0, "allowUpscale": false, "group": "nearest" },
+        "headgear": { "sourceCenter": [682, 115.5], "sourceRadius": 300, "center": [264, 115.5], "maxSize": [280, 219], "z": 10, "allowUpscale": false, "group": "nearest" },
+        "equipment": { "sourceCenter": [1166.5, 325], "sourceRadius": 300, "center": [330.5, 332], "maxSize": [165, 100], "z": 40, "allowUpscale": false, "group": "nearest" }
+      },
+      "expressions": {
+        "eyesCenter": [209, 243.5],
+        "mouthCenter": [209, 293.5],
+        "boundaryMargin": 2,
+        "minimumComponentArea": 4,
+        "allowUpscale": false,
+        "z": { "eyes": 30, "mouth": 31 },
+        "maxSize": {
+          "normalEyes": { "maxSize": [181, 77], "center": [209, 243.5], "allowUpscale": false },
+          "normalMouth": { "maxSize": [53, 19], "center": [209, 293.5], "allowUpscale": false },
+          "attackEyes": { "maxSize": [179, 91], "center": [209, 235], "allowUpscale": false },
+          "attackMouth": { "maxSize": [72, 48], "center": [209, 293.5], "allowUpscale": false },
+          "hurtEyes": { "maxSize": [173, 17], "center": [209, 246], "allowUpscale": false },
+          "hurtMouth": { "maxSize": [62, 16], "center": [209, 293.5], "allowUpscale": false }
+        }
+      },
+      "skillFace": { "eyesScale": 1.0, "mouthScale": 1.3 }
+    },
+    "hero-cloud-spin-atlas-v1": {
+      "assetPath": "assets/generated/hero/hero-cloud-spin-atlas-v1.png",
+      "skillFacePath": "assets/generated/hero/hero-cloud-spin-skill-face-v1.png",
+      "gutter": 2,
+      "alphaThreshold": 16,
+      "allowUpscale": false,
+      "physicalMinimumComponentArea": 4,
+      "physical": {
+        "body": { "sourceCenter": [209, 253], "sourceRadius": 300, "center": [209, 253], "maxSize": [352, 274], "z": 0, "allowUpscale": false, "group": "nearest" },
+        "headgear": { "sourceCenter": [645, 115], "sourceRadius": 300, "center": [227, 115], "maxSize": [234, 220], "z": 10, "allowUpscale": false, "group": "nearest" },
+        "equipment": { "sourceCenter": [1166.5, 325], "sourceRadius": 300, "center": [330.5, 325], "maxSize": [165, 148], "z": 40, "allowUpscale": false, "group": "nearest" }
+      },
+      "expressions": {
+        "eyesCenter": [209, 211],
+        "mouthCenter": [209, 250],
+        "boundaryMargin": 2,
+        "minimumComponentArea": 4,
+        "allowUpscale": false,
+        "z": { "eyes": 30, "mouth": 31 },
+        "maxSize": {
+          "normalEyes": { "maxSize": [159, 70], "center": [209, 211], "allowUpscale": false },
+          "normalMouth": { "maxSize": [45, 15], "center": [209, 250], "allowUpscale": false },
+          "attackEyes": { "maxSize": [175, 85], "center": [209, 202.5], "allowUpscale": false },
+          "attackMouth": { "maxSize": [61, 42], "center": [209, 250], "allowUpscale": false },
+          "hurtEyes": { "maxSize": [145, 27], "center": [209, 213.5], "allowUpscale": false },
+          "hurtMouth": { "maxSize": [57, 15], "center": [209, 250], "allowUpscale": false }
+        }
+      },
+      "skillFace": { "eyesScale": 1.0, "mouthScale": 1.55 }
+    },
+    "hero-frost-drop-atlas-v1": {
+      "assetPath": "assets/generated/hero/hero-frost-drop-atlas-v1.png",
+      "skillFacePath": "assets/generated/hero/hero-frost-drop-skill-face-v1.png",
+      "gutter": 2,
+      "alphaThreshold": 16,
+      "allowUpscale": false,
+      "physicalMinimumComponentArea": 4,
+      "physical": {
+        "body": { "sourceCenter": [209, 244.5], "sourceRadius": 300, "center": [209, 244.5], "maxSize": [390, 291], "z": 0, "allowUpscale": false, "group": "nearest" },
+        "headgear": { "sourceCenter": [642.5, 115], "sourceRadius": 300, "center": [209.5, 115], "maxSize": [147, 220], "z": 10, "allowUpscale": false, "group": "nearest" },
+        "equipment": { "sourceCenter": [1166.5, 325], "sourceRadius": 300, "center": [330.5, 325], "maxSize": [165, 82], "z": 40, "allowUpscale": false, "group": "nearest" }
+      },
+      "expressions": {
+        "eyesCenter": [209, 237.5],
+        "mouthCenter": [209, 292],
+        "boundaryMargin": 2,
+        "minimumComponentArea": 4,
+        "allowUpscale": false,
+        "z": { "eyes": 30, "mouth": 31 },
+        "maxSize": {
+          "normalEyes": { "maxSize": [154, 63], "center": [209, 237.5], "allowUpscale": false },
+          "normalMouth": { "maxSize": [43, 18], "center": [209, 292], "allowUpscale": false },
+          "attackEyes": { "maxSize": [154, 76], "center": [209, 229], "allowUpscale": false },
+          "attackMouth": { "maxSize": [58, 46], "center": [209, 292], "allowUpscale": false },
+          "hurtEyes": { "maxSize": [137, 23], "center": [209, 240], "allowUpscale": false },
+          "hurtMouth": { "maxSize": [54, 15], "center": [209, 292], "allowUpscale": false }
+        }
+      },
+      "skillFace": { "eyesScale": 1.0, "mouthScale": 1.2 }
+    },
+    "hero-honey-pop-atlas-v1": {
+      "assetPath": "assets/generated/hero/hero-honey-pop-atlas-v1.png",
+      "skillFacePath": "assets/generated/hero/hero-honey-pop-skill-face-v1.png",
+      "gutter": 2,
+      "alphaThreshold": 16,
+      "allowUpscale": false,
+      "physicalMinimumComponentArea": 4,
+      "physical": {
+        "body": { "sourceCenter": [209.5, 255.5], "sourceRadius": 300, "center": [209.5, 255.5], "maxSize": [335, 269], "z": 0, "allowUpscale": false, "group": "nearest" },
+        "headgear": { "sourceCenter": [634, 119], "sourceRadius": 300, "center": [216, 119], "maxSize": [280, 212], "z": 10, "allowUpscale": false, "group": "nearest" },
+        "equipment": { "sourceCenter": [1166.5, 325], "sourceRadius": 300, "center": [330.5, 327], "maxSize": [165, 96], "z": 40, "allowUpscale": false, "group": "nearest" }
+      },
+      "expressions": {
+        "eyesCenter": [209.5, 240.5],
+        "mouthCenter": [209.5, 290],
+        "boundaryMargin": 2,
+        "minimumComponentArea": 4,
+        "allowUpscale": false,
+        "z": { "eyes": 30, "mouth": 31 },
+        "maxSize": {
+          "normalEyes": { "maxSize": [177, 91], "center": [209.5, 240.5], "allowUpscale": false },
+          "normalMouth": { "maxSize": [56, 20], "center": [209.5, 290], "allowUpscale": false },
+          "attackEyes": { "maxSize": [195, 105], "center": [209.5, 232], "allowUpscale": false },
+          "attackMouth": { "maxSize": [70, 51], "center": [209.5, 290], "allowUpscale": false },
+          "hurtEyes": { "maxSize": [178, 17], "center": [209.5, 243], "allowUpscale": false },
+          "hurtMouth": { "maxSize": [68, 18], "center": [209.5, 290], "allowUpscale": false }
+        }
+      },
+      "skillFace": { "eyesScale": 1.0, "mouthScale": 1.25 }
+    },
+    "hero-spark-bean-atlas-v1": {
+      "assetPath": "assets/generated/hero/hero-spark-bean-atlas-v1.png",
+      "skillFacePath": "assets/generated/hero/hero-spark-bean-skill-face-v1.png",
+      "gutter": 2,
+      "alphaThreshold": 16,
+      "allowUpscale": false,
+      "physicalMinimumComponentArea": 4,
+      "physical": {
+        "body": { "sourceCenter": [209.5, 253], "sourceRadius": 300, "center": [209.5, 253], "maxSize": [355, 274], "z": 0, "allowUpscale": false, "group": "nearest" },
+        "headgear": { "sourceCenter": [699, 123.5], "sourceRadius": 300, "center": [281, 123.5], "maxSize": [256, 203], "z": 10, "allowUpscale": false, "group": "nearest" },
+        "equipment": { "sourceCenter": [1166, 325], "sourceRadius": 300, "center": [330, 325], "maxSize": [102, 170], "z": 40, "allowUpscale": false, "group": "nearest" }
+      },
+      "expressions": {
+        "eyesCenter": [209.5, 243],
+        "mouthCenter": [209.5, 293.5],
+        "boundaryMargin": 2,
+        "minimumComponentArea": 4,
+        "allowUpscale": false,
+        "z": { "eyes": 30, "mouth": 31 },
+        "maxSize": {
+          "normalEyes": { "maxSize": [163, 70], "center": [209.5, 243], "allowUpscale": false },
+          "normalMouth": { "maxSize": [46, 15], "center": [209.5, 293.5], "allowUpscale": false },
+          "attackEyes": { "maxSize": [162, 84], "center": [209.5, 234.5], "allowUpscale": false },
+          "attackMouth": { "maxSize": [60, 50], "center": [209.5, 293.5], "allowUpscale": false },
+          "hurtEyes": { "maxSize": [166, 14], "center": [209.5, 245.5], "allowUpscale": false },
+          "hurtMouth": { "maxSize": [58, 14], "center": [209.5, 293.5], "allowUpscale": false }
+        }
+      },
+      "skillFace": { "eyesScale": 1.0, "mouthScale": 1.3 }
+    },
+    "hero-star-core-atlas-v1": {
+      "assetPath": "assets/generated/hero/hero-star-core-atlas-v1.png",
+      "skillFacePath": "assets/generated/hero/hero-star-core-skill-face-v1.png",
+      "gutter": 2,
+      "alphaThreshold": 16,
+      "allowUpscale": false,
+      "physicalMinimumComponentArea": 4,
+      "physical": {
+        "body": { "sourceCenter": [209, 233], "sourceRadius": 300, "center": [209, 233], "maxSize": [390, 314], "z": 0, "allowUpscale": false, "group": "nearest" },
+        "headgear": { "sourceCenter": [694, 137], "sourceRadius": 300, "center": [276, 137], "maxSize": [280, 176], "z": -5, "allowUpscale": false, "group": "nearest" },
+        "equipment": { "sourceCenter": [1166.5, 325], "sourceRadius": 300, "center": [330.5, 325], "maxSize": [165, 168], "z": 40, "allowUpscale": false, "group": "nearest" }
+      },
+      "expressions": {
+        "eyesCenter": [209, 230.5],
+        "mouthCenter": [209, 290],
+        "boundaryMargin": 2,
+        "minimumComponentArea": 4,
+        "allowUpscale": false,
+        "z": { "eyes": 30, "mouth": 31 },
+        "maxSize": {
+          "normalEyes": { "maxSize": [153, 71], "center": [209, 230.5], "allowUpscale": false },
+          "normalMouth": { "maxSize": [48, 15], "center": [209, 290], "allowUpscale": false },
+          "attackEyes": { "maxSize": [173, 90], "center": [209, 222], "allowUpscale": false },
+          "attackMouth": { "maxSize": [68, 46], "center": [209, 290], "allowUpscale": false },
+          "hurtEyes": { "maxSize": [199, 16], "center": [209, 233], "allowUpscale": false },
+          "hurtMouth": { "maxSize": [62, 17], "center": [209, 290], "allowUpscale": false }
+        }
+      },
+      "skillFace": { "eyesScale": 1.0, "mouthScale": 1.6 }
+    }
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "assetId": "enemy-thorn-roller-atlas-v1",
+  "sourcePath": "assets/generated/enemy/enemy-thorn-roller-atlas-v1.png",
+  "gutter": 2,
+  "alphaThreshold": 16,
+  "allowUpscale": true,
+  "physicalMinimumComponentArea": 16,
+  "physical": {
+    "body": { "sourceCenter": [214.6, 294.9], "sourceRadius": 260, "center": [209, 274.5], "maxSize": [310, 231], "z": 0, "group": "nearest" },
+    "headgear": { "sourceCenter": [639, 264.3], "sourceRadius": 270, "center": [224, 200], "maxSize": [320, 225], "z": -5, "group": "nearest" },
+    "equipment": { "sourceCenter": [1048.7, 286.4], "sourceRadius": 250, "center": [330, 323], "maxSize": [170, 171], "z": 40, "group": "nearest" }
+  },
+  "expressions": {
+    "eyesCenter": [209, 255],
+    "mouthCenter": [209, 315],
+    "allowUpscale": false,
+    "boundaryMargin": 2,
+    "minimumComponentArea": 4,
+    "z": { "eyes": 30, "mouth": 31 },
+    "maxSize": {
+      "normalEyes": { "maxSize": [175, 66], "center": [209, 255], "allowUpscale": false },
+      "normalMouth": { "maxSize": [64, 32], "center": [209, 315], "allowUpscale": false },
+      "attackEyes": { "maxSize": [180, 72], "center": [209, 247], "allowUpscale": false },
+      "attackMouth": { "maxSize": [70, 62], "center": [209, 325], "allowUpscale": false },
+      "hurtEyes": { "maxSize": [159, 44], "center": [209, 267], "allowUpscale": false },
+      "hurtMouth": { "maxSize": [85, 18], "center": [209, 310], "allowUpscale": false }
+    }
+  }
+}

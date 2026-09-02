@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "assetId": "enemy-mud-bulwark-atlas-v1",
+  "sourcePath": "assets/generated/enemy/enemy-mud-bulwark-atlas-v1.png",
+  "gutter": 2,
+  "alphaThreshold": 16,
+  "allowUpscale": true,
+  "physicalMinimumComponentArea": 16,
+  "physical": {
+    "body": { "sourceCenter": [208.3, 219.5], "sourceRadius": 270, "center": [209, 245], "maxSize": [346, 290], "z": 0, "group": "nearest" },
+    "headgear": { "sourceCenter": [624.1, 253.5], "sourceRadius": 260, "center": [209, 160], "maxSize": [300, 165], "z": 10, "group": "nearest" },
+    "equipment": { "sourceCenter": [1007.8, 288.1], "sourceRadius": 260, "center": [351, 315], "maxSize": [130, 136], "z": 40, "group": "nearest" }
+  },
+  "expressions": {
+    "eyesCenter": [209, 230],
+    "mouthCenter": [209, 290],
+    "allowUpscale": false,
+    "boundaryMargin": 2,
+    "minimumComponentArea": 4,
+    "z": { "eyes": 30, "mouth": 31 },
+    "maxSize": {
+      "normalEyes": { "maxSize": [200, 74], "center": [209, 230], "allowUpscale": false },
+      "normalMouth": { "maxSize": [73, 25], "center": [209, 290], "allowUpscale": false },
+      "attackEyes": { "maxSize": [205, 81], "center": [209, 222], "allowUpscale": false },
+      "attackMouth": { "maxSize": [96, 59], "center": [209, 305], "allowUpscale": false },
+      "hurtEyes": { "maxSize": [175, 44], "center": [209, 245], "allowUpscale": false },
+      "hurtMouth": { "maxSize": [100, 20], "center": [209, 290], "allowUpscale": false }
+    }
+  }
+}

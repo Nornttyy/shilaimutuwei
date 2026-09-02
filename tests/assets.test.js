@@ -689,7 +689,7 @@ test('runtime asset map covers manifest paths, formal extensions, and three alia
   assert.equal(ASSET_PATHS['enemy-portal'], ASSET_PATHS['rift-entry-portal']);
 });
 
-test('new tower-defense characters and skill icons use formal generated paths without frame atlases', () => {
+test('new tower-defense characters, projectiles, and skill icons use formal generated paths', () => {
   const expected = {
     'hero-berry-burst-atlas-v1': 'hero/hero-berry-burst-atlas-v1.png',
     'hero-dew-bloom-atlas-v1': 'hero/hero-dew-bloom-atlas-v1.png',
@@ -698,6 +698,19 @@ test('new tower-defense characters and skill icons use formal generated paths wi
     'turret-bubble-coil': 'turret/turret-bubble-coil-v1.png',
     'turret-crystal-repeater': 'turret/turret-crystal-repeater-v1.png',
     'region-sunbud-sanctuary-field-a': 'region/region-sunbud-sanctuary-field-a.png',
+    'effect-projectile-berry-v1': 'effect/effect-projectile-berry-v1.png',
+    'effect-projectile-dew-v1': 'effect/effect-projectile-dew-v1.png',
+    'effect-projectile-bell-v1': 'effect/effect-projectile-bell-v1.png',
+    'effect-projectile-drill-v1': 'effect/effect-projectile-drill-v1.png',
+    'effect-projectile-ember-v1': 'effect/effect-projectile-ember-v1.png',
+    'effect-projectile-ink-v1': 'effect/effect-projectile-ink-v1.png',
+    'effect-projectile-cloud-v1': 'effect/effect-projectile-cloud-v1.png',
+    'effect-projectile-frost-v1': 'effect/effect-projectile-frost-v1.png',
+    'effect-projectile-honey-v1': 'effect/effect-projectile-honey-v1.png',
+    'effect-projectile-spark-v1': 'effect/effect-projectile-spark-v1.png',
+    'effect-projectile-star-v1': 'effect/effect-projectile-star-v1.png',
+    'effect-projectile-bean-bow-v1': 'effect/effect-projectile-bean-bow-v1.png',
+    'effect-projectile-leaf-spinner-v1': 'effect/effect-projectile-leaf-spinner-v1.png',
     'skill-shell-triple-shock-icon': 'skill/skill-shell-triple-shock-icon.png',
     'skill-crystal-rain-icon': 'skill/skill-crystal-rain-icon.png',
     'skill-bubble-tide-domain-icon': 'skill/skill-bubble-tide-domain-icon.png',
@@ -714,6 +727,7 @@ test('new tower-defense characters and skill icons use formal generated paths wi
     'effect-skill-berry-burst-v1': 'effect/effect-skill-berry-burst-v1.png',
     'effect-skill-dew-wave-crest-v1': 'effect/effect-skill-dew-wave-crest-v1.png',
   };
+  const projectileIds = Object.keys(expected).filter((id) => id.startsWith('effect-projectile-'));
   for (const [id, relativePath] of Object.entries(expected)) {
     assert.equal(ALL_RUNTIME_ASSET_KEYS.includes(id), true, `${id} is runtime art`);
     assert.equal(TOWER_DEFENSE_ASSET_KEYS.includes(id), true, `${id} is battle art`);
@@ -747,6 +761,24 @@ test('new tower-defense characters and skill icons use formal generated paths wi
     assert.equal(asset.maxBytes, 180000);
     assert.match(asset.brief, /非治疗素材/);
   }
+  assert.equal(projectileIds.length, 13);
+  for (const id of projectileIds) {
+    const asset = PROJECT_ASSET_SPEC.assets.find((entry) => entry.id === id);
+    assert.ok(asset, `${id} has a formal asset specification`);
+    assert.equal(asset.category, 'effect', id);
+    assert.deepEqual(asset.recommendedCanvas, { width: 256, height: 256 }, id);
+    assert.equal(asset.width, 256, id);
+    assert.equal(asset.height, 256, id);
+    assert.equal(asset.transparent, true, id);
+    assert.equal(asset.priority, 'P0', id);
+    assert.equal(asset.maxBytes, 180000, id);
+    assert.equal(asset.path, `assets/generated/effect/${id}.png`, id);
+  }
+  assert.deepEqual(
+    projectileIds.filter((id) => !WECHAT_CRITICAL_ASSET_KEYS.includes(id)),
+    [],
+    'every authored friendly projectile is preloaded by the WeChat entry',
+  );
   const retiredFrameAtlases = [
     'effect-shell-triple-shock-frames-v1',
     'effect-crystal-rain-frames-v1',

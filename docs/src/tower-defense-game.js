@@ -243,6 +243,78 @@ const REINFORCEMENT_PROJECTILE_BY_ENEMY = Object.freeze({
   lantern: 'spore',
   'rift-boss': 'thunder',
 });
+const FRIENDLY_PROJECTILE_STYLE_BY_HERO = Object.freeze({
+  shell: Object.freeze({
+    assetKey: 'effect-projectile-goo', width: 27, height: 21,
+    trailKind: 'droplets', color: '#4FD39A', highlight: '#E6FFF2', spinRate: 0.18,
+  }),
+  needle: Object.freeze({
+    assetKey: 'effect-projectile-needle', width: 34, height: 17,
+    trailKind: 'crystal', color: '#7788F2', highlight: '#E7FAFF', spinRate: 0,
+  }),
+  bubble: Object.freeze({
+    assetKey: 'effect-projectile-bubble', width: 27, height: 27,
+    trailKind: 'bubbles', color: '#54D7F0', highlight: '#F1FEFF', spinRate: 0.52,
+  }),
+  sprout: Object.freeze({
+    assetKey: 'effect-projectile-seed', width: 29, height: 23,
+    trailKind: 'leaves', color: '#77D85C', highlight: '#EFFF9E', spinRate: 1.25,
+  }),
+  berry: Object.freeze({
+    assetKey: 'effect-projectile-berry-v1', width: 29, height: 29,
+    trailKind: 'berries', color: '#F15F82', highlight: '#FFF0A8', spinRate: 1.7,
+  }),
+  dew: Object.freeze({
+    assetKey: 'effect-projectile-dew-v1', width: 34, height: 22,
+    trailKind: 'ribbon', color: '#49D6CE', highlight: '#E9FFFF', spinRate: 0.12,
+  }),
+  bell: Object.freeze({
+    assetKey: 'effect-projectile-bell-v1', width: 31, height: 27,
+    trailKind: 'waves', color: '#F1B64B', highlight: '#FFF3B0', spinRate: 0.38,
+  }),
+  drill: Object.freeze({
+    assetKey: 'effect-projectile-drill-v1', width: 37, height: 22,
+    trailKind: 'helix', color: '#E67E54', highlight: '#FFE1B6', spinRate: 0.22,
+  }),
+  ember: Object.freeze({
+    assetKey: 'effect-projectile-ember-v1', width: 31, height: 25,
+    trailKind: 'flames', color: '#F06443', highlight: '#FFF09A', spinRate: -0.28,
+  }),
+  ink: Object.freeze({
+    assetKey: 'effect-projectile-ink-v1', width: 35, height: 23,
+    trailKind: 'splat', color: '#6B56C8', highlight: '#8EE9E3', spinRate: 0.16,
+  }),
+  cloud: Object.freeze({
+    assetKey: 'effect-projectile-cloud-v1', width: 34, height: 29,
+    trailKind: 'vortex', color: '#75CFD0', highlight: '#F2FFFF', spinRate: 2.15,
+  }),
+  frost: Object.freeze({
+    assetKey: 'effect-projectile-frost-v1', width: 32, height: 24,
+    trailKind: 'shards', color: '#72BDED', highlight: '#F1FCFF', spinRate: 0.76,
+  }),
+  honey: Object.freeze({
+    assetKey: 'effect-projectile-honey-v1', width: 30, height: 26,
+    trailKind: 'honey', color: '#F0B83D', highlight: '#FFF2A6', spinRate: 0.68,
+  }),
+  spark: Object.freeze({
+    assetKey: 'effect-projectile-spark-v1', width: 34, height: 22,
+    trailKind: 'bolt', color: '#F3D744', highlight: '#E9FFFF', spinRate: 0.08,
+  }),
+  star: Object.freeze({
+    assetKey: 'effect-projectile-star-v1', width: 31, height: 31,
+    trailKind: 'stars', color: '#A777EF', highlight: '#FFF09F', spinRate: 2.5,
+  }),
+});
+const FRIENDLY_PROJECTILE_STYLE_BY_SQUAD = Object.freeze({
+  ranged: Object.freeze({
+    assetKey: 'effect-projectile-bean-bow-v1', width: 32, height: 18,
+    trailKind: 'bean', color: '#EBAA43', highlight: '#F2FFB0', spinRate: 0,
+  }),
+  leaf: Object.freeze({
+    assetKey: 'effect-projectile-leaf-spinner-v1', width: 31, height: 25,
+    trailKind: 'spinner', color: '#74D75A', highlight: '#F1FF9C', spinRate: 5.4,
+  }),
+});
 const SKILL_VISUAL_STYLE = Object.freeze({
   shell: Object.freeze({ color: '#51D9A2', light: '#DFFFF0', deep: '#197B64' }),
   needle: Object.freeze({ color: '#7D80F5', light: '#E7F9FF', deep: '#3948A9' }),
@@ -744,6 +816,15 @@ const reinforcementProjectileStyleFor = (projectile) => {
   const visualId = REINFORCEMENT_PROJECTILE_BY_SQUAD[projectile?.squadType]
     || REINFORCEMENT_PROJECTILE_BY_TURRET[projectile?.turretType];
   return REINFORCEMENT_PROJECTILE_STYLE[visualId] || null;
+};
+const friendlyProjectileStyleFor = (projectile) => {
+  if (projectile?.sourceKind === 'hero') {
+    return FRIENDLY_PROJECTILE_STYLE_BY_HERO[projectile.heroType] || null;
+  }
+  if (projectile?.sourceKind === 'squad') {
+    return FRIENDLY_PROJECTILE_STYLE_BY_SQUAD[projectile.squadType] || null;
+  }
+  return null;
 };
 const heroSkillEffectLayer = (effect) => {
   if (effect?.type !== 'hero-skill-step') return 'front';
@@ -6057,6 +6138,237 @@ export class TowerDefenseGame {
     }]);
   }
 
+  drawFriendlyProjectileTrail(ctx, style, age, star = 1) {
+    const pulse = 0.82 + Math.sin(age * 15) * 0.12;
+    const strength = (0.7 + Math.min(4, star) * 0.06) * pulse;
+    const primary = style.color || '#65D9B0';
+    const highlight = style.highlight || '#F4FFFF';
+    ctx.save();
+    ctx.globalAlpha = (Number.isFinite(ctx.globalAlpha) ? ctx.globalAlpha : 1) * strength;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = primary;
+    ctx.fillStyle = primary;
+    const wave = Math.sin(age * 18);
+
+    if (style.trailKind === 'droplets') {
+      for (let index = 0; index < 2; index += 1) {
+        ctx.globalAlpha *= index ? 0.72 : 1;
+        ctx.beginPath();
+        ctx.ellipse(-18 - index * 10, (index ? -1 : 1) * wave * 2.2,
+          5 - index, 3.2 - index * 0.45, 0, 0, TAU);
+        ctx.fill();
+      }
+    } else if (style.trailKind === 'crystal') {
+      ctx.lineWidth = 3.2;
+      ctx.beginPath();
+      ctx.moveTo(-31, -4);
+      ctx.lineTo(-13, -1);
+      ctx.stroke();
+      ctx.strokeStyle = highlight;
+      ctx.lineWidth = 1.35;
+      ctx.beginPath();
+      ctx.moveTo(-28, 3);
+      ctx.lineTo(-11, 1);
+      ctx.stroke();
+    } else if (style.trailKind === 'bubbles') {
+      ctx.lineWidth = 2.3;
+      for (let index = 0; index < 2; index += 1) {
+        ctx.beginPath();
+        ctx.arc(-17 - index * 11, (index ? 1 : -1) * (3 + wave), 3.8 - index * 0.7, 0, TAU);
+        ctx.stroke();
+      }
+    } else if (style.trailKind === 'leaves') {
+      for (let index = 0; index < 2; index += 1) {
+        ctx.save();
+        ctx.translate(-17 - index * 11, (index ? -1 : 1) * (2.5 + wave));
+        ctx.rotate(age * 4 + index * 1.8);
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 5 - index * 0.7, 2.3, 0, 0, TAU);
+        ctx.fill();
+        ctx.restore();
+      }
+    } else if (style.trailKind === 'spinner') {
+      for (let index = 0; index < 2; index += 1) {
+        const x = -17 - index * 11;
+        const radius = 3.8 + index * 1.4;
+        ctx.strokeStyle = index ? highlight : primary;
+        ctx.lineWidth = index ? 1.4 : 2.5;
+        ctx.beginPath();
+        ctx.arc(x, 0, radius, age * 8 + index, age * 8 + Math.PI * 1.35 + index);
+        ctx.stroke();
+      }
+    } else if (style.trailKind === 'berries' || style.trailKind === 'splat') {
+      const count = style.trailKind === 'splat' ? 3 : 2;
+      for (let index = 0; index < count; index += 1) {
+        ctx.globalAlpha *= index ? 0.84 : 1;
+        ctx.beginPath();
+        ctx.arc(-16 - index * 8, Math.sin(age * 13 + index * 2.2) * 4,
+          Math.max(1.8, 4.2 - index * 0.7), 0, TAU);
+        ctx.fill();
+      }
+    } else if (style.trailKind === 'ribbon') {
+      ctx.strokeStyle = primary;
+      ctx.lineWidth = 4.2;
+      ctx.beginPath();
+      ctx.moveTo(-36, wave * 2.2);
+      ctx.quadraticCurveTo(-24, -6 - wave, -10, 0);
+      ctx.stroke();
+      ctx.strokeStyle = highlight;
+      ctx.lineWidth = 1.45;
+      ctx.beginPath();
+      ctx.moveTo(-32, 2 + wave);
+      ctx.quadraticCurveTo(-22, -2 - wave, -12, 0);
+      ctx.stroke();
+    } else if (style.trailKind === 'helix') {
+      for (let index = 0; index < 2; index += 1) {
+        ctx.strokeStyle = index ? highlight : primary;
+        ctx.lineWidth = index ? 1.5 : 2.8;
+        ctx.beginPath();
+        ctx.moveTo(-35, (index ? -1 : 1) * (5 + wave));
+        ctx.quadraticCurveTo(-29, (index ? 1 : -1) * (5 + wave), -23, 0);
+        ctx.quadraticCurveTo(-17, (index ? -1 : 1) * (4 - wave), -10, 0);
+        ctx.stroke();
+      }
+    } else if (style.trailKind === 'waves') {
+      ctx.lineWidth = 2.4;
+      for (let index = 0; index < 2; index += 1) {
+        ctx.strokeStyle = index ? highlight : primary;
+        ctx.beginPath();
+        ctx.arc(-11 - index * 10, 0, 7 + index * 2,
+          Math.PI * 0.62, Math.PI * 1.38);
+        ctx.stroke();
+      }
+    } else if (style.trailKind === 'vortex') {
+      ctx.save();
+      ctx.translate(-22, 0);
+      ctx.rotate(age * 4.6);
+      for (let index = 0; index < 2; index += 1) {
+        ctx.strokeStyle = index ? highlight : primary;
+        ctx.lineWidth = index ? 1.4 : 2.7;
+        ctx.beginPath();
+        ctx.arc(0, 0, 5 + index * 4, index * Math.PI,
+          index * Math.PI + Math.PI * 1.25);
+        ctx.stroke();
+      }
+      ctx.restore();
+    } else if (style.trailKind === 'flames') {
+      for (let index = 0; index < 2; index += 1) {
+        ctx.fillStyle = index ? highlight : primary;
+        ctx.save();
+        ctx.translate(-17 - index * 10, (index ? -2 : 2) + wave);
+        ctx.rotate(index ? -0.3 : 0.24);
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 6 - index, 2.8 - index * 0.35, 0, 0, TAU);
+        ctx.fill();
+        ctx.restore();
+      }
+    } else if (style.trailKind === 'shards') {
+      for (let index = 0; index < 2; index += 1) {
+        const x = -17 - index * 11;
+        const y = (index ? 1 : -1) * (3 + wave);
+        const size = 4 - index * 0.6;
+        ctx.fillStyle = index ? highlight : primary;
+        ctx.beginPath();
+        ctx.moveTo(x, y - size);
+        ctx.lineTo(x + size, y);
+        ctx.lineTo(x, y + size);
+        ctx.lineTo(x - size, y);
+        ctx.closePath();
+        ctx.fill();
+      }
+    } else if (style.trailKind === 'honey') {
+      for (let index = 0; index < 2; index += 1) {
+        ctx.beginPath();
+        ctx.ellipse(-17 - index * 11, 2 + Math.abs(wave) * 1.8,
+          5 - index, 3.4 - index * 0.45, index * -0.18, 0, TAU);
+        ctx.fill();
+      }
+    } else if (style.trailKind === 'bolt') {
+      ctx.strokeStyle = primary;
+      ctx.lineWidth = 3.2;
+      ctx.beginPath();
+      ctx.moveTo(-35, wave * 1.5);
+      ctx.lineTo(-28, -4);
+      ctx.lineTo(-21, 3.5);
+      ctx.lineTo(-11, 0);
+      ctx.stroke();
+      ctx.strokeStyle = highlight;
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+    } else if (style.trailKind === 'stars') {
+      for (let index = 0; index < 3; index += 1) {
+        const x = -15 - index * 9;
+        const y = Math.sin(age * 12 + index * 2) * 4;
+        const size = 3.4 - index * 0.55;
+        ctx.fillStyle = index % 2 ? highlight : primary;
+        ctx.beginPath();
+        ctx.moveTo(x, y - size);
+        ctx.lineTo(x + size * 0.45, y - size * 0.4);
+        ctx.lineTo(x + size, y);
+        ctx.lineTo(x + size * 0.4, y + size * 0.4);
+        ctx.lineTo(x, y + size);
+        ctx.lineTo(x - size * 0.4, y + size * 0.4);
+        ctx.lineTo(x - size, y);
+        ctx.lineTo(x - size * 0.45, y - size * 0.4);
+        ctx.closePath();
+        ctx.fill();
+      }
+    } else if (style.trailKind === 'bean') {
+      ctx.strokeStyle = highlight;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(-34, -3);
+      ctx.lineTo(-14, -1);
+      ctx.moveTo(-30, 4);
+      ctx.lineTo(-12, 2);
+      ctx.stroke();
+      ctx.fillStyle = primary;
+      ctx.beginPath();
+      ctx.arc(-24, wave * 2, 2.5, 0, TAU);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  drawDistinctFriendlyProjectile(ctx, projectile, point, angle, star) {
+    const friendlySource = projectile?.sourceKind === 'hero'
+      || projectile?.sourceKind === 'squad';
+    if (!friendlySource) return false;
+    const style = friendlyProjectileStyleFor(projectile);
+    // A future slime must be given its own authored bullet before it can render.
+    // Never let an unmapped friendly source fall through to another type's art.
+    if (!style) return reinforcementProjectileStyleFor(projectile) ? false : true;
+    const age = Math.max(0, finiteNumber(projectile.age));
+    const alpha = clamp(finiteNumber(
+      projectile.alpha,
+      projectile.secondary ? 0.82 : 1,
+    ), 0, 1);
+    const scale = (1 + (star - 1) * 0.08) * (projectile.secondary ? 0.82 : 1);
+    drawAssetOrFallback(ctx, this.assetStore, style.assetKey, (asset) => {
+      const bob = Math.sin(age * 14 + style.spinRate) * 1.35;
+      const normalX = -Math.sin(angle);
+      const normalY = Math.cos(angle);
+      ctx.save();
+      ctx.globalAlpha = (Number.isFinite(ctx.globalAlpha) ? ctx.globalAlpha : 1) * alpha;
+      ctx.translate(point.x + normalX * bob, point.y + normalY * bob);
+      ctx.rotate(angle);
+      this.drawFriendlyProjectileTrail(ctx, style, age, star);
+      ctx.rotate(finiteNumber(style.rotationOffset) + age * finiteNumber(style.spinRate));
+      ctx.drawImage(
+        asset,
+        -style.width * scale / 2,
+        -style.height * scale / 2,
+        style.width * scale,
+        style.height * scale,
+      );
+      ctx.restore();
+    }, () => {});
+    // Every shooting slime owns one formal projectile. If that PNG is missing,
+    // keep the shot empty instead of silently borrowing another slime's art.
+    return true;
+  }
+
   drawAuthoredStandardProjectile(ctx, projectile, point, angle, star) {
     const style = {
       berry: {
@@ -6119,6 +6431,8 @@ export class TowerDefenseGame {
       this.drawSkillProjectile(ctx, visualProjectile, angle);
       return;
     }
+    if (this.drawDistinctFriendlyProjectile(ctx, projectile, point, angle,
+      clamp(Math.floor(projectile.star || 1), 1, TD_MAX_STAR))) return;
     const reinforcementStyle = reinforcementProjectileStyleFor(projectile);
     if (reinforcementStyle) {
       this.drawReinforcementProjectile(ctx, visualProjectile, angle, reinforcementStyle);

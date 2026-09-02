@@ -1235,26 +1235,42 @@ test('hero skills combine eighteen authored components with continuous Canvas mo
   game.dispose();
 });
 
-test('berry and dew basic shots keep their own authored projectile art', () => {
+test('all fifteen heroes fire unique authored projectile art with animated source-specific trails', () => {
   const canvas = createCanvas();
   const game = new TowerDefenseGame(canvas, {
     runtime: createRuntime({ tutorialSeen: true }),
     pixelRatio: 1,
   });
-  const expectedAssetByType = {
-    berry: 'effect-skill-berry-bomb-v1',
-    dew: 'effect-skill-dew-wave-crest-v1',
+  const expectedAssetByHero = {
+    shell: 'effect-projectile-goo',
+    needle: 'effect-projectile-needle',
+    bubble: 'effect-projectile-bubble',
+    sprout: 'effect-projectile-seed',
+    berry: 'effect-projectile-berry-v1',
+    dew: 'effect-projectile-dew-v1',
+    bell: 'effect-projectile-bell-v1',
+    drill: 'effect-projectile-drill-v1',
+    ember: 'effect-projectile-ember-v1',
+    ink: 'effect-projectile-ink-v1',
+    cloud: 'effect-projectile-cloud-v1',
+    frost: 'effect-projectile-frost-v1',
+    honey: 'effect-projectile-honey-v1',
+    spark: 'effect-projectile-spark-v1',
+    star: 'effect-projectile-star-v1',
   };
-  const assets = createAssetStore(Object.values(expectedAssetByType));
+  const assets = createAssetStore(Object.values(expectedAssetByHero));
   game.setAssetStore(assets);
 
-  for (const [type, assetKey] of Object.entries(expectedAssetByType)) {
+  assert.equal(new Set(Object.values(expectedAssetByHero)).size, Object.keys(HERO_TYPES).length,
+    'no two heroes are assigned the same projectile PNG');
+  for (const [heroType, assetKey] of Object.entries(expectedAssetByHero)) {
     assets.requests.length = 0;
     canvas.context.calls.length = 0;
     game.drawShot(canvas.context, {
-      uid: `basic-${type}`,
+      uid: `basic-${heroType}`,
       sourceKind: 'hero',
-      type,
+      heroType,
+      type: HERO_TYPES[heroType].projectile,
       x: 220,
       y: 520,
       targetX: 430,
@@ -1263,12 +1279,84 @@ test('berry and dew basic shots keep their own authored projectile art', () => {
       star: 1,
     });
     assert.deepEqual(assets.requests, [assetKey]);
-    assert.ok(canvas.context.calls.filter(([kind, asset]) => (
+    assert.equal(canvas.context.calls.filter(([kind, asset]) => (
       kind === 'drawImage' && asset?.kind === assetKey
-    )).length >= 2, `${type} uses a moving authored head and trail`);
-    assert.equal(assets.requests.includes('effect-projectile-goo'), false,
-      `${type} never silently changes into the green goo projectile`);
+    )).length, 1, `${heroType} draws exactly its own authored projectile head`);
+    assert.ok(canvas.context.calls.some(([kind]) => (
+      kind === 'ellipse' || kind === 'arc' || kind === 'lineTo' || kind === 'quadraticCurveTo'
+    )), `${heroType} also receives a moving source-specific Canvas trail`);
   }
+
+  game.setAssetStore(createAssetStore([]));
+  canvas.context.calls.length = 0;
+  game.drawShot(canvas.context, {
+    uid: 'missing-bell-projectile', sourceKind: 'hero', heroType: 'bell', type: 'goo',
+    x: 220, y: 520, targetX: 430, targetY: 330, age: 0.22, star: 1,
+  });
+  assert.equal(canvas.context.calls.some(([kind]) => kind === 'drawImage'), false);
+  assert.equal(canvas.context.calls.some(([kind]) => (
+    kind === 'ellipse' || kind === 'arc' || kind === 'lineTo' || kind === 'quadraticCurveTo'
+  )), false, 'a missing hero PNG never borrows another slime projectile or its trail');
+
+  const unknownAssets = createAssetStore(['effect-projectile-goo']);
+  game.setAssetStore(unknownAssets);
+  canvas.context.calls.length = 0;
+  game.drawShot(canvas.context, {
+    uid: 'unmapped-future-slime', sourceKind: 'hero', heroType: 'future', type: 'goo',
+    x: 220, y: 520, targetX: 430, targetY: 330, age: 0.22, star: 1,
+  });
+  assert.deepEqual(unknownAssets.requests, []);
+  assert.equal(canvas.context.calls.some(([kind]) => kind === 'drawImage'), false,
+    'a newly added slime cannot silently reuse an existing projectile');
+  game.dispose();
+});
+
+test('all four projectile-firing slime squads keep a distinct visual signature', () => {
+  const canvas = createCanvas();
+  const game = new TowerDefenseGame(canvas, {
+    runtime: createRuntime({ tutorialSeen: true }),
+    pixelRatio: 1,
+  });
+  const atlasKey = 'effect-reinforcement-projectiles-atlas-v1';
+  const assets = createAssetStore([
+    'effect-projectile-bean-bow-v1',
+    'effect-projectile-leaf-spinner-v1',
+    atlasKey,
+  ]);
+  game.setAssetStore(assets);
+  const samples = [
+    ['ranged', 'effect-projectile-bean-bow-v1', null],
+    ['leaf', 'effect-projectile-leaf-spinner-v1', null],
+    ['spore-lobber', atlasKey, [0, 0, 768, 512]],
+    ['volt-orbiter', atlasKey, [0, 512, 768, 512]],
+  ];
+  const signatures = [];
+  for (const [squadType, assetKey, sourceRect] of samples) {
+    assets.requests.length = 0;
+    canvas.context.calls.length = 0;
+    game.drawShot(canvas.context, {
+      uid: `squad-projectile-${squadType}`,
+      sourceKind: 'squad',
+      squadType,
+      type: SQUAD_TYPES[squadType].projectile,
+      x: 180,
+      y: 500,
+      targetX: 440,
+      targetY: 320,
+      age: 0.2,
+      star: 1,
+    });
+    assert.deepEqual(assets.requests, [assetKey]);
+    const imageCalls = canvas.context.calls.filter(([kind, asset]) => (
+      kind === 'drawImage' && asset?.kind === assetKey
+    ));
+    assert.ok(imageCalls.length > 0, `${squadType} draws its formal projectile`);
+    const crop = sourceRect ? imageCalls[0].slice(2, 6) : null;
+    if (sourceRect) assert.deepEqual(crop, sourceRect);
+    signatures.push(`${assetKey}:${crop ? crop.join(',') : 'standalone'}`);
+  }
+  assert.equal(new Set(signatures).size, samples.length,
+    'bean, leaf, spore, and volt squads never share the same visible projectile');
   game.dispose();
 });
 

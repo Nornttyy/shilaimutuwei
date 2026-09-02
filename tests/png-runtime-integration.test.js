@@ -355,7 +355,8 @@ test('tower defense composes continuous skill actors without full-frame skill sh
   ];
   assert.doesNotMatch(TOWER_DEFENSE_SOURCE, /drawSkillEffectFrames/);
   assert.doesNotMatch(TOWER_DEFENSE_SOURCE, /effect-(?:shell|crystal|bubble|sprout|berry|dew)-.+-frames-v1/);
-  assert.doesNotMatch(TOWER_DEFENSE_SOURCE, /effect-projectile-berry/);
+  assert.match(TOWER_DEFENSE_SOURCE, /effect-projectile-berry-v1/,
+    'the authored berry projectile is independent from the berry skill components');
   for (const key of componentKeys) assert.match(TOWER_DEFENSE_SOURCE, new RegExp(key));
   const runtimeComponentKeys = [...TOWER_DEFENSE_SOURCE.matchAll(
     /['"](effect-skill-[a-z0-9-]+-v1)['"]/g,

@@ -105,19 +105,19 @@
         "equipment": { "sourceCenter": [1166.5, 325], "sourceRadius": 300, "center": [330.5, 325], "maxSize": [165, 96], "z": 40, "allowUpscale": false, "group": "nearest" }
       },
       "expressions": {
-        "eyesCenter": [208.5, 205],
-        "mouthCenter": [208.5, 247],
+        "eyesCenter": [208.5, 228],
+        "mouthCenter": [208.5, 270],
         "boundaryMargin": 2,
         "minimumComponentArea": 4,
         "allowUpscale": false,
         "z": { "eyes": 30, "mouth": 31 },
         "maxSize": {
-          "normalEyes": { "maxSize": [155, 68], "center": [208.5, 205], "allowUpscale": false },
-          "normalMouth": { "maxSize": [51, 18], "center": [208.5, 247], "allowUpscale": false },
-          "attackEyes": { "maxSize": [158, 85], "center": [208.5, 196.5], "allowUpscale": false },
-          "attackMouth": { "maxSize": [63, 42], "center": [208.5, 247], "allowUpscale": false },
-          "hurtEyes": { "maxSize": [160, 13], "center": [208.5, 207.5], "allowUpscale": false },
-          "hurtMouth": { "maxSize": [60, 18], "center": [208.5, 247], "allowUpscale": false }
+          "normalEyes": { "maxSize": [155, 68], "center": [208.5, 228], "allowUpscale": false },
+          "normalMouth": { "maxSize": [51, 18], "center": [208.5, 270], "allowUpscale": false },
+          "attackEyes": { "maxSize": [158, 85], "center": [208.5, 219.5], "allowUpscale": false },
+          "attackMouth": { "maxSize": [63, 42], "center": [208.5, 270], "allowUpscale": false },
+          "hurtEyes": { "maxSize": [160, 13], "center": [208.5, 230.5], "allowUpscale": false },
+          "hurtMouth": { "maxSize": [60, 18], "center": [208.5, 270], "allowUpscale": false }
         }
       },
       "skillFace": { "eyesScale": 1.0, "mouthScale": 1.2 }

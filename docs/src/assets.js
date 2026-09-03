@@ -6,7 +6,7 @@
  * useful to platform builds and isolated tests.
  */
 
-export const ASSET_CACHE_VERSION = 'shell-vivid-20260903-v26';
+export const ASSET_CACHE_VERSION = 'shell-vivid-20260903-v27';
 
 const generatedAssetUrl = (relativePath) => {
   const url = new URL(`../assets/generated/${relativePath}`, import.meta.url);
@@ -86,6 +86,15 @@ export const CRITICAL_STARTUP_ASSET_KEYS = Object.freeze([
   'equipment-damage-charm',
   'equipment-speed-charm',
   'equipment-health-charm',
+  'equipment-flame-hammer-v1',
+  'equipment-thunder-horn-v1',
+  'equipment-star-core-blade-v1',
+  'equipment-wing-bell-v1',
+  'equipment-lightning-gear-v1',
+  'equipment-time-hourglass-v1',
+  'equipment-coral-guard-v1',
+  'equipment-crystal-crown-v1',
+  'equipment-world-tree-heart-v1',
   'ui-hero-control-ring',
   'ui-hero-joystick-base',
   'ui-hero-joystick-knob',
@@ -299,6 +308,15 @@ export const TOWER_DEFENSE_ASSET_KEYS = Object.freeze([
   'equipment-damage-charm',
   'equipment-speed-charm',
   'equipment-health-charm',
+  'equipment-flame-hammer-v1',
+  'equipment-thunder-horn-v1',
+  'equipment-star-core-blade-v1',
+  'equipment-wing-bell-v1',
+  'equipment-lightning-gear-v1',
+  'equipment-time-hourglass-v1',
+  'equipment-coral-guard-v1',
+  'equipment-crystal-crown-v1',
+  'equipment-world-tree-heart-v1',
   'ui-hero-control-ring',
   'ui-hero-joystick-base',
   'ui-hero-joystick-knob',
@@ -454,6 +472,15 @@ const DECLARED_ASSET_PATHS = {
   'equipment-damage-charm': generatedAssetUrl('equipment/equipment-damage-charm-v1.png'),
   'equipment-speed-charm': generatedAssetUrl('equipment/equipment-speed-charm-v1.png'),
   'equipment-health-charm': generatedAssetUrl('equipment/equipment-health-charm-v1.png'),
+  'equipment-flame-hammer-v1': generatedAssetUrl('equipment/equipment-flame-hammer-v1.png'),
+  'equipment-thunder-horn-v1': generatedAssetUrl('equipment/equipment-thunder-horn-v1.png'),
+  'equipment-star-core-blade-v1': generatedAssetUrl('equipment/equipment-star-core-blade-v1.png'),
+  'equipment-wing-bell-v1': generatedAssetUrl('equipment/equipment-wing-bell-v1.png'),
+  'equipment-lightning-gear-v1': generatedAssetUrl('equipment/equipment-lightning-gear-v1.png'),
+  'equipment-time-hourglass-v1': generatedAssetUrl('equipment/equipment-time-hourglass-v1.png'),
+  'equipment-coral-guard-v1': generatedAssetUrl('equipment/equipment-coral-guard-v1.png'),
+  'equipment-crystal-crown-v1': generatedAssetUrl('equipment/equipment-crystal-crown-v1.png'),
+  'equipment-world-tree-heart-v1': generatedAssetUrl('equipment/equipment-world-tree-heart-v1.png'),
   'ui-hero-control-ring': generatedAssetUrl('ui/ui-hero-control-ring-v1.png'),
   'ui-hero-joystick-base': generatedAssetUrl('ui/ui-hero-joystick-base-v1.png'),
   'ui-hero-joystick-knob': generatedAssetUrl('ui/ui-hero-joystick-knob-v1.png'),

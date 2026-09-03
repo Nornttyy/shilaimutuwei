@@ -58,6 +58,110 @@ export const TD_ENDLESS_SCALE_CAPS = Object.freeze({
   bossCount: 2,
 });
 
+const freezeBattleUpgrade = (upgrade) => Object.freeze({
+  maxRank: 3,
+  ...upgrade,
+  modifiers: Object.freeze({ ...(upgrade.modifiers || {}) }),
+});
+
+/** Run-only choices offered after waves 2, 4, and 6. None of them restore health. */
+export const TD_BATTLE_UPGRADES = Object.freeze([
+  freezeBattleUpgrade({
+    id: 'hero-force', name: '英雄凝聚', description: '英雄普攻伤害 +28%',
+    target: 'hero', modifiers: { heroDamage: 0.28 },
+  }),
+  freezeBattleUpgrade({
+    id: 'hero-tempo', name: '心跳加速', description: '英雄普攻速度 +24%',
+    target: 'hero', modifiers: { heroAttackSpeed: 0.24 },
+  }),
+  freezeBattleUpgrade({
+    id: 'hero-sight', name: '晶光锁定', description: '英雄攻击距离 +22%',
+    target: 'hero', modifiers: { heroRange: 0.22 },
+  }),
+  freezeBattleUpgrade({
+    id: 'squad-force', name: '群胆爆发', description: '所有小兵伤害 +22%',
+    target: 'squad', modifiers: { squadDamage: 0.22 },
+  }),
+  freezeBattleUpgrade({
+    id: 'squad-tempo', name: '黏液鼓点', description: '所有小兵攻速 +20%',
+    target: 'squad', modifiers: { squadAttackSpeed: 0.2 },
+  }),
+  freezeBattleUpgrade({
+    id: 'squad-hunt', name: '追猎本能', description: '小兵射程 +16%，移速 +18%',
+    target: 'squad', modifiers: { squadRange: 0.16, squadSpeed: 0.18 },
+  }),
+  freezeBattleUpgrade({
+    id: 'turret-force', name: '炮芯过载', description: '所有炮台伤害 +30%',
+    target: 'turret', modifiers: { turretDamage: 0.3 },
+  }),
+  freezeBattleUpgrade({
+    id: 'turret-tempo', name: '双速齿轮', description: '所有炮台攻速 +25%',
+    target: 'turret', modifiers: { turretAttackSpeed: 0.25 },
+  }),
+  freezeBattleUpgrade({
+    id: 'turret-sight', name: '超距棱镜', description: '所有炮台射程 +24%',
+    target: 'turret', modifiers: { turretRange: 0.24 },
+  }),
+  freezeBattleUpgrade({
+    id: 'rich-gel', name: '富集凝胶', description: '击败奖励 +30%，立即获得 25 凝胶',
+    target: 'resource', modifiers: { bountyReward: 0.3 }, immediateCurrency: 25,
+  }),
+  freezeBattleUpgrade({
+    id: 'battle-cache', name: '战地储罐', description: '立即获得 80 凝胶',
+    target: 'resource', maxRank: 1, immediateCurrency: 80,
+  }),
+]);
+
+export const TD_BATTLE_UPGRADE_BY_ID = Object.freeze(Object.fromEntries(
+  TD_BATTLE_UPGRADES.map((upgrade) => [upgrade.id, upgrade]),
+));
+
+const TD_BATTLE_UPGRADE_WAVES = Object.freeze([2, 4, 6]);
+
+function battleUpgradeModifier(state, key) {
+  const ranks = state?.battleUpgradeRanks || {};
+  return TD_BATTLE_UPGRADES.reduce((total, upgrade) => (
+    total + (Number(upgrade.modifiers[key]) || 0)
+      * Math.max(0, Math.floor(Number(ranks[upgrade.id]) || 0))
+  ), 0);
+}
+
+function battleHeroStats(state, stats) {
+  const attackSpeed = 1 + battleUpgradeModifier(state, 'heroAttackSpeed');
+  const interval = scaleValue(stats.interval / attackSpeed);
+  return {
+    ...stats,
+    damage: scaleValue(stats.damage * (1 + battleUpgradeModifier(state, 'heroDamage'))),
+    interval,
+    attackSpeed: scaleValue(1 / interval),
+  };
+}
+
+function battleSquadStats(state, stats) {
+  return {
+    ...stats,
+    damagePerMember: scaleValue(
+      stats.damagePerMember * (1 + battleUpgradeModifier(state, 'squadDamage')),
+    ),
+    interval: scaleValue(
+      stats.interval / (1 + battleUpgradeModifier(state, 'squadAttackSpeed')),
+    ),
+    range: scaleValue(stats.range * (1 + battleUpgradeModifier(state, 'squadRange'))),
+    speed: scaleValue(stats.speed * (1 + battleUpgradeModifier(state, 'squadSpeed'))),
+  };
+}
+
+function battleTurretStats(state, stats) {
+  return {
+    ...stats,
+    damage: scaleValue(stats.damage * (1 + battleUpgradeModifier(state, 'turretDamage'))),
+    interval: scaleValue(
+      stats.interval / (1 + battleUpgradeModifier(state, 'turretAttackSpeed')),
+    ),
+    range: scaleValue(stats.range * (1 + battleUpgradeModifier(state, 'turretRange'))),
+  };
+}
+
 export const TOWER_TYPES = Object.freeze({
   shell: Object.freeze({
     id: 'shell',
@@ -1346,7 +1450,10 @@ export const TD_ENEMIES = Object.freeze({
   boss: Object.freeze({
     id: 'boss', ownerId: 'enemy-acid-shell-king', hp: 1050, speed: 21, reward: 100,
     size: 104, coreDamage: 10, attackDamage: 32, attackInterval: 1.45,
-    color: '#778D54', boss: true,
+    color: '#778D54', role: 'boss', boss: true,
+    bossSkill: 'shell-rush', bossSkillInterval: 5.6, bossSkillWarning: 1.1,
+    bossSkillDashDistance: 96, bossSkillRadius: 155,
+    bossSkillDamageMultiplier: 1.15, shellGuardDamageMultiplier: 0.38,
   }),
   thorn: Object.freeze({
     id: 'thorn', ownerId: 'enemy-thorn-roller', hp: 128, speed: 61, reward: 11,
@@ -1371,6 +1478,8 @@ export const TD_ENEMIES = Object.freeze({
     size: 110, coreDamage: 12, attackDamage: 38, attackInterval: 1.5,
     color: '#7659A8', role: 'boss', boss: true, armorReduction: 0.14,
     rangedAttackRange: 215, rangedDamageMultiplier: 0.58,
+    bossSkill: 'rift-lock', bossSkillInterval: 6.2, bossSkillWarning: 1.25,
+    bossSkillDisableTime: 2.6,
   }),
 });
 
@@ -1999,6 +2108,9 @@ function emptyRunState(progress, seed) {
     hand: [],
     towers: [],
     pendingSquadFusion: null,
+    pendingBattleUpgrade: null,
+    battleUpgradeRanks: {},
+    battleUpgradeHistory: [],
     turrets: [],
     turretSlots: TD_TURRET_SLOTS['stage-1'],
     hero: null,
@@ -2342,6 +2454,7 @@ function createHeroForState(state) {
     damage: stats.damage,
     interval: stats.interval,
     attackSpeed: stats.attackSpeed,
+    range: definition.range,
     skillEffect: stats.skillEffect,
     growthSummary: stats.growthSummary,
     x,
@@ -2358,6 +2471,7 @@ function createHeroForState(state) {
     shieldHp: 0,
     shieldMaxHp: 0,
     shieldTime: 0,
+    disabledTime: 0,
     attackPulse: 0,
     skillPulse: 0,
     hitPulse: 0,
@@ -2368,7 +2482,7 @@ function createHeroForState(state) {
 /** Directly purchases and deploys one complete four-member squad during preparation. */
 export function buyTowerDefenseSquad(state, squadType, padIndex) {
   if (state?.screen !== 'battle' || state.result || state.phase !== 'prep') return null;
-  if (state.pendingSquadFusion) return null;
+  if (state.pendingSquadFusion || state.pendingBattleUpgrade) return null;
   if (state.tutorial.active && state.tutorial.step !== 'squad') return null;
   const definition = SQUAD_TYPES[squadType];
   const stage = stageForState(state);
@@ -2387,7 +2501,7 @@ export function buyTowerDefenseSquad(state, squadType, padIndex) {
   if (state.currency < definition.cost) return null;
 
   const squadSize = definition.deployMembers;
-  const stats = squadStatsForRank(squadType, squadRank);
+  const stats = battleSquadStats(state, squadStatsForRank(squadType, squadRank));
   const maxHp = stats.memberHp * squadSize;
   const squad = {
     uid: nextUid(state, 'squad'),
@@ -2417,8 +2531,12 @@ export function buyTowerDefenseSquad(state, squadType, padIndex) {
     deployY: pad.y,
     laneIndex: pad.laneIndex,
     moveSpeed: stats.speed,
+    damagePerMember: stats.damagePerMember,
+    interval: stats.interval,
+    range: stats.range,
     moving: false,
     downed: false,
+    disabledTime: 0,
     members: [],
   };
   syncSquadMembers(squad, definition, { reset: true, stats });
@@ -2474,6 +2592,7 @@ export function buyTowerDefenseSquadFusion(state, squadType, targetUid) {
   if (
     state?.screen !== 'battle' || state.result || state.phase !== 'prep'
     || state.waveActive || state.tutorial?.active || state.pendingSquadFusion
+    || state.pendingBattleUpgrade
   ) return null;
   const definition = SQUAD_TYPES[squadType];
   const target = state.towers.find(({ uid }) => uid === targetUid);
@@ -2581,6 +2700,7 @@ export function mergeTowers(state, sourceUid, targetUid) {
   if (
     state?.screen !== 'battle' || state.result || state.phase !== 'prep'
     || state.waveActive || state.tutorial?.active || state.pendingSquadFusion
+    || state.pendingBattleUpgrade
   ) return null;
   const source = state.towers.find(({ uid }) => uid === sourceUid);
   const target = state.towers.find(({ uid }) => uid === targetUid);
@@ -2625,7 +2745,7 @@ export function chooseTowerDefenseSquadAbility(state, choiceId) {
   const pending = state?.pendingSquadFusion;
   if (
     state?.screen !== 'battle' || state.result || state.phase !== 'prep'
-    || state.waveActive || !pending
+    || state.waveActive || state.pendingBattleUpgrade || !pending
   ) return null;
   const directPurchase = pending.sourceMode === 'purchase'
     && pending.sourceUid == null;
@@ -2686,7 +2806,7 @@ export function reclaimTowerToHand() {
 export function moveTowerToPad(state, towerUid, padIndex) {
   if (
     state.screen !== 'battle' || state.result || state.phase !== 'prep'
-    || state.tutorial.active || state.pendingSquadFusion
+    || state.tutorial.active || state.pendingSquadFusion || state.pendingBattleUpgrade
   ) return null;
   const stage = stageForState(state);
   const targetPadIndex = Math.floor(Number(padIndex));
@@ -2728,7 +2848,7 @@ export function moveTowerToPad(state, towerUid, padIndex) {
 
 export function buildTowerDefenseTurret(state, slotIndex, type = 'gel-mortar') {
   if (state?.screen !== 'battle' || state.result || state.phase !== 'prep') return null;
-  if (state.pendingSquadFusion) return null;
+  if (state.pendingSquadFusion || state.pendingBattleUpgrade) return null;
   const tutorialBuild = state.tutorial.active && state.tutorial.step === 'turret';
   if (state.tutorial.active && !tutorialBuild) return null;
   const definition = TURRET_TYPES[type];
@@ -2746,6 +2866,7 @@ export function buildTowerDefenseTurret(state, slotIndex, type = 'gel-mortar') {
   if (!slot || state.turrets.some((turret) => turret.slotIndex === index)) return null;
   if (state.currency < definition.cost) return null;
   state.currency -= definition.cost;
+  const stats = battleTurretStats(state, turretStatsForRank(type, turretRank));
   const turret = {
     uid: nextUid(state, 'turret'),
     kind: 'turret',
@@ -2755,6 +2876,10 @@ export function buildTowerDefenseTurret(state, slotIndex, type = 'gel-mortar') {
     x: slot.x,
     y: slot.y,
     cooldown: 0.2,
+    disabledTime: 0,
+    damage: stats.damage,
+    interval: stats.interval,
+    range: stats.range,
     attackPulse: 0,
     aimAngle: 0,
   };
@@ -2778,6 +2903,7 @@ export function buildTowerDefenseTurret(state, slotIndex, type = 'gel-mortar') {
 export function acknowledgeTowerDefenseTutorialCategory(state, category) {
   if (
     state?.screen !== 'battle' || state.result || state.phase !== 'prep'
+    || state.pendingBattleUpgrade
     || !state.tutorial?.active || state.tutorial.step !== 'category'
     || category !== 'turret'
   ) return false;
@@ -3124,7 +3250,7 @@ export function activateTowerDefenseHeroSkill(state) {
   if (
     state?.screen !== 'battle' || state.result || state.phase !== 'combat'
     || !state.waveActive || !state.hero || state.hero.hp <= 0
-    || state.hero.skillCooldown > 0
+    || state.hero.skillCooldown > 0 || state.hero.disabledTime > 0
   ) return false;
   const tutorialTrainingEnemy = state.tutorial?.active
     ? state.enemies.find((enemy) => (
@@ -3322,10 +3448,119 @@ function queueForWave(state, waveNumber) {
   return queue;
 }
 
+function battleUpgradeOptions(state) {
+  const ranks = state.battleUpgradeRanks || {};
+  const candidates = TD_BATTLE_UPGRADES.filter((upgrade) => (
+    Math.max(0, Math.floor(Number(ranks[upgrade.id]) || 0)) < upgrade.maxRank
+  ));
+  for (let index = candidates.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(seededStep(state) * (index + 1));
+    [candidates[index], candidates[swapIndex]] = [candidates[swapIndex], candidates[index]];
+  }
+  const choices = [];
+  const selectedTargets = new Set();
+  for (const candidate of candidates) {
+    if (selectedTargets.has(candidate.target)) continue;
+    choices.push(candidate);
+    selectedTargets.add(candidate.target);
+    if (choices.length >= 3) break;
+  }
+  for (const candidate of candidates) {
+    if (choices.length >= 3) break;
+    if (choices.includes(candidate)) continue;
+    choices.push(candidate);
+  }
+  return choices.map(({ id }) => id);
+}
+
+function offerTowerDefenseBattleUpgrade(state) {
+  if (
+    !['stage', 'endless'].includes(state.mode)
+    || !TD_BATTLE_UPGRADE_WAVES.includes(state.wave)
+    || state.pendingBattleUpgrade
+    || state.battleUpgradeHistory.some(({ afterWave }) => afterWave === state.wave)
+  ) return null;
+  const options = battleUpgradeOptions(state);
+  if (options.length < 3) return null;
+  state.pendingBattleUpgrade = { afterWave: state.wave, options };
+  state.events.push({
+    type: 'battle-upgrade-offer', afterWave: state.wave, optionIds: [...options],
+  });
+  return state.pendingBattleUpgrade;
+}
+
+function refreshBattleUpgradeUnitStats(state) {
+  if (state.hero) {
+    const definition = HERO_TYPES[state.hero.type] || HERO_TYPES.shell;
+    const baseStats = heroStatsForProgress(state.progress, state.hero.type, state.hero.rank);
+    const stats = battleHeroStats(state, baseStats);
+    state.hero.damage = stats.damage;
+    state.hero.interval = stats.interval;
+    state.hero.attackSpeed = stats.attackSpeed;
+    state.hero.range = scaleValue(
+      definition.range * (1 + battleUpgradeModifier(state, 'heroRange')),
+    );
+  }
+  for (const tower of state.towers) {
+    const definition = SQUAD_TYPES[tower.squadType || tower.type] || SQUAD_TYPES.ranged;
+    const stats = battleSquadStats(
+      state,
+      squadStatsForRank(definition.id, tower.rank, tower.fusionAbility),
+    );
+    tower.damagePerMember = stats.damagePerMember;
+    tower.interval = stats.interval;
+    tower.range = stats.range;
+    tower.moveSpeed = stats.speed;
+  }
+  for (const turret of state.turrets) {
+    const baseStats = turretStatsForRank(turret.type, turret.rank)
+      || turretStatsForRank('gel-mortar', 1);
+    const stats = battleTurretStats(state, baseStats);
+    turret.damage = stats.damage;
+    turret.interval = stats.interval;
+    turret.range = stats.range;
+  }
+}
+
+/** Applies one offered run-only upgrade and releases the following wave. */
+export function chooseTowerDefenseBattleUpgrade(state, upgradeId) {
+  const pending = state?.pendingBattleUpgrade;
+  const definition = TD_BATTLE_UPGRADE_BY_ID[upgradeId];
+  if (
+    state?.screen !== 'battle' || state.result || state.waveActive || state.phase !== 'prep'
+    || !pending || !pending.options.includes(upgradeId) || !definition
+  ) return null;
+  const currentRank = Math.max(
+    0,
+    Math.floor(Number(state.battleUpgradeRanks?.[upgradeId]) || 0),
+  );
+  if (currentRank >= definition.maxRank) return null;
+  const rank = currentRank + 1;
+  state.battleUpgradeRanks = { ...(state.battleUpgradeRanks || {}), [upgradeId]: rank };
+  const currencyGranted = Math.max(0, Math.floor(Number(definition.immediateCurrency) || 0));
+  state.currency += currencyGranted;
+  const afterWave = pending.afterWave;
+  state.pendingBattleUpgrade = null;
+  state.battleUpgradeHistory.push({ afterWave, id: upgradeId, rank });
+  refreshBattleUpgradeUnitStats(state);
+  state.events.push({
+    type: 'battle-upgrade-chosen', afterWave, upgradeId, rank, currencyGranted,
+  });
+  return Object.freeze({
+    id: definition.id,
+    name: definition.name,
+    description: definition.description,
+    target: definition.target,
+    rank,
+    afterWave,
+    currencyGranted,
+  });
+}
+
 export function startNextTowerDefenseWave(state) {
   if (
     state.screen !== 'battle' || state.result || state.waveActive
-    || state.phase !== 'prep' || state.pendingSquadFusion
+    || state.phase !== 'prep' || state.pendingSquadFusion || state.pendingBattleUpgrade
   ) return false;
   if (state.tutorial.active && state.tutorial.step !== 'start') return false;
   const stage = stageForState(state);
@@ -3347,6 +3582,7 @@ export function startNextTowerDefenseWave(state) {
     soldier.y = Number.isFinite(Number(soldier.deployY))
       ? soldier.deployY : stage.pads[soldier.padIndex]?.y;
     soldier.moving = false;
+    soldier.disabledTime = 0;
     syncSquadMembers(
       soldier,
       squadDefinition,
@@ -3368,7 +3604,9 @@ export function startNextTowerDefenseWave(state) {
     state.hero.shieldHp = 0;
     state.hero.shieldMaxHp = 0;
     state.hero.shieldTime = 0;
+    state.hero.disabledTime = 0;
   }
+  for (const turret of state.turrets) turret.disabledTime = 0;
   state.events.push({ type: 'wave-start', wave: state.wave });
   if (state.tutorial.active && state.tutorial.step === 'start') {
     state.tutorial.step = 'move';
@@ -3451,6 +3689,15 @@ function spawnEnemy(state, type, laneIndex = 0) {
     chargeCooldown: Math.max(0, Number(definition.chargeInterval) || 0) * 0.48,
     chargeTime: 0,
     chargePulse: 0,
+    bossSkill: definition.bossSkill || null,
+    bossSkillCooldown: Math.max(0, Number(definition.bossSkillInterval) || 0) * 0.55,
+    bossSkillWarningTime: 0,
+    bossSkillWarningDuration: 0,
+    bossSkillTargetUid: null,
+    bossSkillTargetKind: null,
+    bossSkillTargetX: null,
+    bossSkillTargetY: null,
+    bossSkillPulse: 0,
   };
   state.enemies.push(enemy);
   if (state.tutorial?.active && state.tutorial.step === 'skill') {
@@ -3501,7 +3748,11 @@ function damageEnemy(state, enemy, amount, { emitHit = true } = {}) {
   const incomingDamage = Math.max(0, Number(amount) || 0);
   const definition = TD_ENEMIES[enemy.type] || TD_ENEMIES.bug;
   const armorReduction = clamp(Number(definition.armorReduction) || 0, 0, 0.6);
-  const damage = incomingDamage * (1 - armorReduction);
+  const guardMultiplier = definition.bossSkill === 'shell-rush'
+    && Number(enemy.bossSkillWarningTime) > 0
+    ? clamp(Number(definition.shellGuardDamageMultiplier) || 1, 0.1, 1)
+    : 1;
+  const damage = incomingDamage * (1 - armorReduction) * guardMultiplier;
   if (damage <= 0) return false;
   enemy.hp -= damage;
   enemy.hitPulse = 1;
@@ -3513,6 +3764,7 @@ function damageEnemy(state, enemy, amount, { emitHit = true } = {}) {
       damage,
       incomingDamage,
       armorReduction,
+      guardMultiplier,
     });
   }
   if (
@@ -3530,7 +3782,10 @@ function damageEnemy(state, enemy, amount, { emitHit = true } = {}) {
     Math.max(0, Number(state.waveEnemyTotal) || 0),
     Math.max(0, Number(state.waveEnemyResolved) || 0) + 1,
   );
-  state.currency += enemy.reward;
+  const bountyReward = Math.max(1, Math.round(
+    enemy.reward * (1 + battleUpgradeModifier(state, 'bountyReward')),
+  ));
+  state.currency += bountyReward;
   state.kills += 1;
   state.effects.push({
     uid: nextUid(state, 'fx'), type: 'defeat', age: 0, duration: 0.66,
@@ -3540,6 +3795,7 @@ function damageEnemy(state, enemy, amount, { emitHit = true } = {}) {
     type: 'enemy-defeat',
     enemyUid: enemy.uid,
     enemyType: enemy.type,
+    reward: bountyReward,
     x: enemy.x,
     y: enemy.y,
     facing: enemy.facing,
@@ -4066,15 +4322,22 @@ function updateTowers(state, dt) {
   for (const tower of state.towers) {
     ensureTowerHealth(tower, state);
     const definition = SQUAD_TYPES[tower.squadType || tower.type] || SQUAD_TYPES.ranged;
-    const stats = squadStatsForRank(definition.id, tower.rank, tower.fusionAbility);
+    const stats = battleSquadStats(
+      state,
+      squadStatsForRank(definition.id, tower.rank, tower.fusionAbility),
+    );
     const members = syncSquadMembers(tower, definition, { stats });
+    tower.disabledTime = Math.max(0, (Number(tower.disabledTime) || 0) - dt);
     for (const member of members) {
       member.attackPulse = Math.max(0, member.attackPulse - dt * 5.5);
       member.hitPulse = Math.max(0, member.hitPulse - dt * 6);
     }
     tower.attackPulse = Math.max(0, ...members.map(({ attackPulse }) => attackPulse));
     tower.hitPulse = Math.max(0, ...members.map(({ hitPulse }) => hitPulse));
-    if (tower.hp <= 0) continue;
+    if (tower.hp <= 0 || tower.disabledTime > 0) {
+      tower.moving = false;
+      continue;
+    }
     const liveEnemies = state.enemies.filter((enemy) => enemy.hp > 0);
     const targetLoads = new Map();
     for (const member of members.filter(({ alive }) => alive)) {
@@ -4156,7 +4419,10 @@ function targetForHero(state, hero, range) {
 
 function fireHero(state, hero, target) {
   const definition = HERO_TYPES[hero.type] || HERO_TYPES.shell;
-  const stats = heroStatsForProgress(state.progress, hero.type, hero.rank);
+  const stats = battleHeroStats(
+    state,
+    heroStatsForProgress(state.progress, hero.type, hero.rank),
+  );
   const evolution = towerAttackEvolution(hero.type, 1);
   const {
     projectileCount: patternProjectileCount,
@@ -4203,6 +4469,7 @@ function fireHero(state, hero, target) {
 function updateHero(state, dt) {
   const hero = state.hero;
   if (!hero) return;
+  hero.disabledTime = Math.max(0, (Number(hero.disabledTime) || 0) - dt);
   hero.shieldTime = Math.max(0, (Number(hero.shieldTime) || 0) - dt);
   if (hero.shieldTime <= 0) {
     hero.shieldHp = 0;
@@ -4210,12 +4477,16 @@ function updateHero(state, dt) {
   }
   if (hero.hp <= 0) return;
   const definition = HERO_TYPES[hero.type] || HERO_TYPES.shell;
-  const stats = heroStatsForProgress(state.progress, hero.type, hero.rank);
+  const stats = battleHeroStats(
+    state,
+    heroStatsForProgress(state.progress, hero.type, hero.rank),
+  );
   hero.cooldown -= dt;
   hero.skillCooldown = Math.max(0, hero.skillCooldown - dt);
   hero.attackPulse = Math.max(0, hero.attackPulse - dt * 5.5);
   hero.skillPulse = Math.max(0, hero.skillPulse - dt * 2.5);
   hero.hitPulse = Math.max(0, hero.hitPulse - dt * 6);
+  if (hero.disabledTime > 0) return;
   hero.x = clamp(
     hero.x + hero.moveX * definition.speed * dt,
     TD_HERO_BOUNDS.minX,
@@ -4227,7 +4498,8 @@ function updateHero(state, dt) {
     TD_HERO_BOUNDS.maxY,
   );
   if (hero.cooldown > 0) return;
-  const target = targetForHero(state, hero, definition.range);
+  const range = definition.range * (1 + battleUpgradeModifier(state, 'heroRange'));
+  const target = targetForHero(state, hero, range);
   if (!target) {
     hero.cooldown = Math.min(0.12, hero.cooldown + 0.08);
     return;
@@ -4238,10 +4510,14 @@ function updateHero(state, dt) {
 
 function updateTurrets(state, dt) {
   for (const turret of state.turrets) {
-    const definition = turretStatsForRank(turret.type, turret.rank)
-      || turretStatsForRank('gel-mortar', 1);
+    const definition = battleTurretStats(
+      state,
+      turretStatsForRank(turret.type, turret.rank) || turretStatsForRank('gel-mortar', 1),
+    );
+    turret.disabledTime = Math.max(0, (Number(turret.disabledTime) || 0) - dt);
     turret.cooldown -= dt;
     turret.attackPulse = Math.max(0, turret.attackPulse - dt * 5.5);
+    if (turret.disabledTime > 0) continue;
     if (turret.cooldown > 0) continue;
     const target = state.enemies
       .filter((enemy) => enemy.hp > 0 && distance(turret, enemy) <= definition.range)
@@ -4613,6 +4889,240 @@ function applyEnemyChargeImpact(state, enemy, definition, blocker) {
   return true;
 }
 
+function bossDefenseTargets(state, enemy, { includeTurrets = true } = {}) {
+  const targets = [];
+  for (const tower of state.towers) {
+    ensureTowerHealth(tower, state);
+    if (tower.hp <= 0) continue;
+    const liveMembers = Array.isArray(tower.members)
+      ? tower.members.filter((member) => member.alive && member.hp > 0)
+      : [];
+    const member = [...liveMembers].sort((left, right) => (
+      distance(enemy, left) - distance(enemy, right)
+      || String(left.uid).localeCompare(String(right.uid))
+    ))[0];
+    const position = member || towerPosition(state, tower);
+    if (!position) continue;
+    targets.push({
+      kind: 'squad', uid: tower.uid, targetUid: member?.uid || tower.uid,
+      tower, memberIndex: member?.memberIndex ?? null, x: position.x, y: position.y,
+    });
+  }
+  if (state.hero?.hp > 0) {
+    targets.push({
+      kind: 'hero', uid: state.hero.uid, targetUid: state.hero.uid,
+      tower: state.hero, memberIndex: null, x: state.hero.x, y: state.hero.y,
+    });
+  }
+  if (includeTurrets) {
+    for (const turret of state.turrets) {
+      targets.push({
+        kind: 'turret', uid: turret.uid, targetUid: turret.uid,
+        tower: turret, memberIndex: null, x: turret.x, y: turret.y,
+      });
+    }
+  }
+  return targets.sort((left, right) => (
+    distance(enemy, left) - distance(enemy, right)
+    || String(left.uid).localeCompare(String(right.uid))
+  ));
+}
+
+function bossDefenseTargetByUid(state, enemy, uid, kind = null) {
+  if (!uid) return null;
+  return bossDefenseTargets(state, enemy).find((target) => (
+    target.uid === uid && (!kind || target.kind === kind)
+  )) || null;
+}
+
+function emitBossSkillEffect(state, enemy, type, skillId, fields = {}) {
+  state.effects.push({
+    uid: nextUid(state, 'fx'), type, age: 0,
+    duration: type === 'boss-skill-warning'
+      ? Math.max(0.1, Number(fields.warningDuration) || 0.8)
+      : 0.72,
+    enemyUid: enemy.uid, enemyType: enemy.type, skillId, x: enemy.x, y: enemy.y,
+    ...fields,
+  });
+}
+
+function shellRushGeometry(state, enemy, definition) {
+  const stage = stageForState(state);
+  const laneIndex = laneIndexForEnemy(state, enemy);
+  const lane = stage.lanes[laneIndex];
+  const pathLength = pathMetrics(lane.path).total;
+  const originTravelled = clamp(Number(enemy.travelled) || 0, 0, pathLength);
+  const targetTravelled = clamp(
+    originTravelled + Math.max(1, Number(definition.bossSkillDashDistance) || 80),
+    0,
+    pathLength,
+  );
+  const origin = pointOnPath(lane.path, originTravelled);
+  const target = pointOnPath(lane.path, targetTravelled);
+  return {
+    originX: origin.x,
+    originY: origin.y,
+    targetX: target.x,
+    targetY: target.y,
+    originTravelled,
+    targetTravelled,
+    dashDistance: targetTravelled - originTravelled,
+    radius: Math.max(1, Number(definition.bossSkillRadius) || 140),
+  };
+}
+
+function updateRiftWarningTarget(state, enemy) {
+  const skillId = enemy.bossSkill || TD_ENEMIES[enemy.type]?.bossSkill;
+  if (skillId !== 'rift-lock' || Number(enemy.bossSkillWarningTime) <= 0) {
+    return null;
+  }
+  const target = bossDefenseTargetByUid(
+    state,
+    enemy,
+    enemy.bossSkillTargetUid,
+    enemy.bossSkillTargetKind,
+  );
+  if (!target) return null;
+  enemy.bossSkillTargetX = target.x;
+  enemy.bossSkillTargetY = target.y;
+  for (const effect of state.effects) {
+    if (
+      effect.type === 'boss-skill-warning'
+      && effect.enemyUid === enemy.uid
+      && effect.skillId === 'rift-lock'
+    ) {
+      effect.targetX = target.x;
+      effect.targetY = target.y;
+    }
+  }
+  return target;
+}
+
+function updateTrackedBossWarnings(state) {
+  for (const enemy of state.enemies) updateRiftWarningTarget(state, enemy);
+}
+
+function startBossSkillWarning(state, enemy, definition) {
+  const skillId = definition.bossSkill;
+  const warningDuration = Math.max(0.35, Number(definition.bossSkillWarning) || 1);
+  const target = skillId === 'rift-lock'
+    ? bossDefenseTargets(state, enemy)[0] || null
+    : null;
+  if (skillId === 'rift-lock' && !target) {
+    enemy.bossSkillCooldown = 0.5;
+    return false;
+  }
+  enemy.bossSkillWarningTime = warningDuration;
+  enemy.bossSkillWarningDuration = warningDuration;
+  enemy.bossSkillTargetUid = target?.uid || null;
+  enemy.bossSkillTargetKind = target?.kind || null;
+  enemy.bossSkillTargetX = target?.x ?? null;
+  enemy.bossSkillTargetY = target?.y ?? null;
+  enemy.bossSkillPulse = 1;
+  const shellGeometry = skillId === 'shell-rush'
+    ? shellRushGeometry(state, enemy, definition)
+    : null;
+  const fields = shellGeometry ? {
+    warningDuration, targetUid: null, targetKind: null,
+    x: shellGeometry.targetX, y: shellGeometry.targetY,
+    ...shellGeometry,
+  } : {
+    warningDuration,
+    targetUid: target?.uid || null,
+    targetKind: target?.kind || null,
+    targetX: target?.x ?? null,
+    targetY: target?.y ?? null,
+  };
+  emitBossSkillEffect(state, enemy, 'boss-skill-warning', skillId, fields);
+  state.events.push({
+    type: 'boss-skill-warning', enemyUid: enemy.uid, enemyType: enemy.type,
+    skillId, ...fields,
+  });
+  return true;
+}
+
+function castShellRush(state, enemy, definition) {
+  const geometry = shellRushGeometry(state, enemy, definition);
+  setEnemyTravelled(state, enemy, geometry.targetTravelled);
+  const { dashDistance, radius } = geometry;
+  const damage = (Number(enemy.attackDamage) || definition.attackDamage)
+    * Math.max(0.1, Number(definition.bossSkillDamageMultiplier) || 1);
+  const targets = bossDefenseTargets(state, enemy, { includeTurrets: false })
+    .filter((target) => distance(enemy, target) <= radius);
+  for (const target of targets) damageEnemyTarget(state, enemy, target, damage);
+  const fields = {
+    targetUid: null, targetKind: null,
+    targetUids: targets.map(({ targetUid }) => targetUid),
+    originX: geometry.originX, originY: geometry.originY,
+    targetX: enemy.x, targetY: enemy.y,
+    dashDistance, radius, damage,
+  };
+  emitBossSkillEffect(state, enemy, 'boss-skill-cast', definition.bossSkill, fields);
+  state.events.push({
+    type: 'boss-skill-cast', enemyUid: enemy.uid, enemyType: enemy.type,
+    skillId: definition.bossSkill, x: enemy.x, y: enemy.y, ...fields,
+  });
+}
+
+function castRiftLock(state, enemy, definition) {
+  const targetUid = enemy.bossSkillTargetUid;
+  const targetKind = enemy.bossSkillTargetKind;
+  const target = bossDefenseTargetByUid(state, enemy, targetUid, targetKind);
+  const disabledTime = Math.max(0.2, Number(definition.bossSkillDisableTime) || 2);
+  if (!target) {
+    state.events.push({
+      type: 'boss-skill-cancel', enemyUid: enemy.uid, enemyType: enemy.type,
+      skillId: definition.bossSkill, targetUid, targetKind,
+      targetX: enemy.bossSkillTargetX, targetY: enemy.bossSkillTargetY,
+      x: enemy.x, y: enemy.y, reason: 'target-lost',
+    });
+    return false;
+  }
+  target.tower.disabledTime = Math.max(
+    Number(target.tower.disabledTime) || 0,
+    disabledTime,
+  );
+  const fields = {
+    targetUid: target.uid,
+    targetKind: target.kind,
+    targetX: target.x,
+    targetY: target.y,
+    disabledTime,
+  };
+  emitBossSkillEffect(state, enemy, 'boss-skill-cast', definition.bossSkill, fields);
+  state.events.push({
+    type: 'boss-skill-cast', enemyUid: enemy.uid, enemyType: enemy.type,
+    skillId: definition.bossSkill, x: enemy.x, y: enemy.y, ...fields,
+  });
+  return true;
+}
+
+function updateBossSkill(state, enemy, definition, dt) {
+  const skillId = definition.bossSkill;
+  if (!skillId) return false;
+  enemy.bossSkillPulse = Math.max(0, (Number(enemy.bossSkillPulse) || 0) - dt * 2.8);
+  if (!Number.isFinite(Number(enemy.bossSkillCooldown))) {
+    enemy.bossSkillCooldown = Math.max(0.5, Number(definition.bossSkillInterval) || 5) * 0.55;
+  }
+  if (Number(enemy.bossSkillWarningTime) > 0) {
+    if (skillId === 'rift-lock') updateRiftWarningTarget(state, enemy);
+    enemy.bossSkillWarningTime = Math.max(0, enemy.bossSkillWarningTime - dt);
+    if (enemy.bossSkillWarningTime > 0) return true;
+    if (skillId === 'shell-rush') castShellRush(state, enemy, definition);
+    else if (skillId === 'rift-lock') castRiftLock(state, enemy, definition);
+    enemy.bossSkillCooldown = Math.max(0.5, Number(definition.bossSkillInterval) || 5);
+    enemy.bossSkillTargetUid = null;
+    enemy.bossSkillTargetKind = null;
+    enemy.bossSkillTargetX = null;
+    enemy.bossSkillTargetY = null;
+    enemy.bossSkillPulse = 1;
+    return true;
+  }
+  enemy.bossSkillCooldown -= dt;
+  if (enemy.bossSkillCooldown > 0) return false;
+  return startBossSkillWarning(state, enemy, definition);
+}
+
 function updateEnemies(state, dt) {
   const stage = stageForState(state);
   for (const enemy of state.enemies) {
@@ -4631,6 +5141,11 @@ function updateEnemies(state, dt) {
     if (enemy.hp <= 0) continue;
     if (enemy.slowTime > 0) enemy.slowTime -= dt;
     else enemy.slowMultiplier = 1;
+
+    if (updateBossSkill(state, enemy, definition, dt)) {
+      enemy.blockedByTowerUid = null;
+      continue;
+    }
 
     const movementMultiplier = enemyMovementMultiplier(state, enemy, definition, dt);
     const tutorialTrainingTarget = state.tutorial?.active
@@ -4752,6 +5267,7 @@ function finishRun(state, result) {
   state.heroSkillQueue = [];
   state.heroSkillActors = [];
   state.pendingSquadFusion = null;
+  state.pendingBattleUpgrade = null;
   state.screen = 'result';
   let firstClear = false;
   if (result === 'victory' && state.mode === 'stage') {
@@ -4819,6 +5335,7 @@ function completeWave(state) {
     tower.x = Number.isFinite(Number(tower.deployX)) ? tower.deployX : pad.x;
     tower.y = Number.isFinite(Number(tower.deployY)) ? tower.deployY : pad.y;
     tower.moving = false;
+    tower.disabledTime = 0;
     tower.cooldown = Math.min(Number(tower.cooldown) || 0, 0.12);
     syncSquadMembers(tower, squadDefinition, { reset: true, stats });
   }
@@ -4835,12 +5352,17 @@ function completeWave(state) {
     state.hero.shieldHp = 0;
     state.hero.shieldMaxHp = 0;
     state.hero.shieldTime = 0;
+    state.hero.disabledTime = 0;
   }
+  for (const turret of state.turrets) turret.disabledTime = 0;
   state.heroSkillQueue = [];
   state.heroSkillActors = [];
   state.projectiles = [];
   state.events.push({ type: 'wave-clear', wave: state.wave });
-  if (state.mode !== 'endless' && state.wave >= stageForState(state).waves.length) {
+  const stageComplete = state.mode !== 'endless'
+    && state.wave >= stageForState(state).waves.length;
+  if (!stageComplete) offerTowerDefenseBattleUpgrade(state);
+  if (stageComplete) {
     finishRun(state, 'victory');
   }
 }
@@ -4885,6 +5407,7 @@ export function updateTowerDefense(state, dt) {
   updateTowers(state, delta);
   updateHero(state, delta);
   updateTurrets(state, delta);
+  updateTrackedBossWarnings(state);
   updateProjectiles(state, delta);
   state.enemies = state.enemies.filter((enemy) => enemy.hp > 0 && !enemy.leaked);
   if (state.coreHp <= 0) {
@@ -4901,7 +5424,10 @@ export function updateTowerDefense(state, dt) {
 }
 
 export function skipTowerDefenseBreak(state) {
-  if (state.screen !== 'battle' || state.waveActive || state.result) return false;
+  if (
+    state.screen !== 'battle' || state.waveActive || state.result
+    || state.pendingSquadFusion || state.pendingBattleUpgrade
+  ) return false;
   state.waveBreak = 0;
   return startNextTowerDefenseWave(state);
 }
@@ -4918,6 +5444,9 @@ export function returnToTowerDefenseMenu(state) {
   state.heroSkillActors = [];
   state.effects = [];
   state.pendingSquadFusion = null;
+  state.pendingBattleUpgrade = null;
+  state.battleUpgradeRanks = {};
+  state.battleUpgradeHistory = [];
   state.selectedTowerUid = null;
   state.selectedHeroId = state.progress.selectedHero;
   state.heroes = heroRosterForProgress(state.progress);
@@ -4941,7 +5470,7 @@ export function towerByPad(state, padIndex) {
 }
 
 export function skipTowerDefenseTutorial(state) {
-  if (!state?.tutorial?.active) return false;
+  if (!state?.tutorial?.active || state.pendingBattleUpgrade) return false;
   state.tutorial.active = false;
   state.tutorial.step = 'done';
   state.progress.tutorialSeen = true;
@@ -4989,10 +5518,13 @@ export function serializeTowerDefenseProgress(state) {
 export function towerRange(state, tower) {
   const squadDefinition = SQUAD_TYPES[tower.squadType || tower.type];
   if (squadDefinition) {
-    return squadStatsForRank(
-      squadDefinition.id,
-      tower.rank ?? state?.progress?.squadRanks?.[squadDefinition.id],
-      tower.fusionAbility,
+    return battleSquadStats(
+      state,
+      squadStatsForRank(
+        squadDefinition.id,
+        tower.rank ?? state?.progress?.squadRanks?.[squadDefinition.id],
+        tower.fusionAbility,
+      ),
     ).range;
   }
   const definition = TOWER_TYPES[tower.type];

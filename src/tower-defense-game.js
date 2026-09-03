@@ -31,6 +31,8 @@ import {
   HERO_TYPES,
   SQUAD_TYPES,
   TURRET_TYPES,
+  TD_BATTLE_UPGRADES,
+  TD_BATTLE_UPGRADE_BY_ID,
   TD_CONTRACT_MAX_RANK,
   TD_ENEMIES,
   TD_EQUIPMENT_SUMMON_COSTS,
@@ -83,6 +85,7 @@ import {
   equipTowerDefenseHeroItem,
   unequipTowerDefenseHeroItem,
   chooseTowerDefenseSquadAbility,
+  chooseTowerDefenseBattleUpgrade,
 } from './tower-defense-core.js';
 import {
   TD_EQUIPMENT_BY_ID,
@@ -212,6 +215,9 @@ const COMBAT_FEEDBACK_DURATION = Object.freeze({
   'skill-cast': 0.52,
   'skill-step': 0.46,
   'boss-enter': 1.05,
+  'boss-warning': 1.2,
+  'boss-cast': 0.72,
+  'battle-upgrade': 0.86,
   'wave-clear': 0.92,
 });
 const SKILL_COMPONENT_ASSETS = Object.freeze({
@@ -391,6 +397,15 @@ const SQUAD_ABILITY_RECTS = Object.freeze([
   Object.freeze({ x: 74, y: 528, width: 272, height: 254 }),
   Object.freeze({ x: 374, y: 528, width: 272, height: 254 }),
 ]);
+const BATTLE_UPGRADE_RECTS = Object.freeze(Array.from({ length: 3 }, (_, index) => (
+  Object.freeze({ x: 70, y: 388 + index * 190, width: 580, height: 164 })
+)));
+const BATTLE_UPGRADE_STYLE = Object.freeze({
+  hero: Object.freeze({ fill: '#EAF8FF', accent: '#4BB8E3', deep: '#276D96', mark: '英' }),
+  squad: Object.freeze({ fill: '#ECFFE9', accent: '#69C85E', deep: '#34783D', mark: '兵' }),
+  turret: Object.freeze({ fill: '#FFF0DC', accent: '#F0A344', deep: '#965725', mark: '炮' }),
+  resource: Object.freeze({ fill: '#FFF6C9', accent: '#E8B73D', deep: '#8B6720', mark: '能' }),
+});
 
 const COLORS = Object.freeze({
   ink: '#273844',
@@ -435,6 +450,15 @@ function numericCost(value, key = 'metaCoins') {
     return Math.max(0, Math.floor(Number(value[key] ?? value.cost) || 0));
   }
   return Math.max(0, Math.floor(Number(value) || 0));
+}
+
+function compactBattleUpgradeDescription(description) {
+  return String(description || '')
+    .replace('英雄普攻', '英雄')
+    .replace('所有小兵', '小兵')
+    .replace('所有炮台', '炮台')
+    .replace('，立即获得', ' + ')
+    .trim();
 }
 
 function equipmentDefinitionFor(item) {
@@ -909,6 +933,9 @@ const friendlyProjectileStyleFor = (projectile) => {
   return null;
 };
 const heroSkillEffectLayer = (effect) => {
+  if (effect?.type === 'boss-skill-warning' || effect?.type === 'boss-skill-cast') {
+    return 'back';
+  }
   if (effect?.type !== 'hero-skill-step') return 'front';
   const kind = String(effect.stepKind || '');
   if (kind.includes('field') || kind.includes('quake') || kind.includes('root')) return 'back';
@@ -1663,8 +1690,11 @@ export class TowerDefenseGame {
       defeat: 3,
       'skill-step': 3,
       'skill-cast': 4,
+      'battle-upgrade': 4,
       'wave-clear': 4,
       'boss-enter': 5,
+      'boss-warning': 5,
+      'boss-cast': 5,
     }[kind], 1)), 1, 5);
     const defaultLayer = ['skill-cast', 'boss-enter'].includes(kind) ? 'back' : 'front';
     const layer = ['back', 'front'].includes(options.layer) ? options.layer : defaultLayer;
@@ -1730,6 +1760,50 @@ export class TowerDefenseGame {
 
   processCombatFeedbackEvent(event, intake) {
     if (!event || typeof event.type !== 'string' || this.state.screen !== 'battle') return;
+    if (event.type === 'boss-skill-warning') {
+      const enemy = this.state.enemies.find(({ uid }) => uid === event.enemyUid);
+      this.enqueueCombatFeedback('boss-warning', {
+        ...event,
+        x: event.x ?? enemy?.x,
+        y: event.y ?? enemy?.y,
+        boss: true,
+        duration: event.warningDuration,
+        priority: 5,
+        layer: 'front',
+      });
+      return;
+    }
+    if (event.type === 'boss-skill-cast') {
+      this.enqueueCombatFeedback('boss-cast', {
+        ...event,
+        boss: true,
+        duration: 0.72,
+        priority: 5,
+        layer: 'front',
+      });
+      const riftLock = event.skillId === 'rift-lock';
+      this.addCombatFlash(riftLock ? '#BDA8FF' : '#FFD16E', riftLock ? 0.12 : 0.15, 0.24);
+      this.addDirectionalShake(
+        finiteNumber(event.targetX, event.x) - TD_VIEW.width / 2,
+        finiteNumber(event.targetY, event.y) - 520,
+        riftLock ? 3.2 : 4.4,
+      );
+      return;
+    }
+    if (event.type === 'battle-upgrade-chosen') {
+      const definition = TD_BATTLE_UPGRADE_BY_ID[event.upgradeId];
+      this.enqueueCombatFeedback('battle-upgrade', {
+        x: TD_VIEW.width / 2,
+        y: 248,
+        upgradeName: definition?.name || '强化完成',
+        target: definition?.target || 'hero',
+        rank: event.rank,
+        priority: 4,
+        layer: 'front',
+      });
+      this.addCombatFlash('#FFF0A6', 0.1, 0.24);
+      return;
+    }
     if (event.type === 'enemy-hit') {
       if (intake.hits >= COMBAT_FEEDBACK_LIMITS.batchHits) return;
       const enemy = this.state.enemies.find(({ uid }) => uid === event.enemyUid);
@@ -2416,6 +2490,7 @@ export class TowerDefenseGame {
   }
 
   tutorialAllows(hit) {
+    if (this.state.pendingBattleUpgrade) return hit?.action === 'choose-battle-upgrade';
     if (hit?.action === 'toggle-audio') return true;
     if (hit?.action === 'skip-tutorial') return true;
     if (this.state.pendingSquadFusion) return hit?.action === 'choose-squad-ability';
@@ -3087,6 +3162,11 @@ export class TowerDefenseGame {
           this.processEvents();
         }
         break;
+      case 'choose-battle-upgrade':
+        if (chooseTowerDefenseBattleUpgrade(this.state, hit.data.upgradeId)) {
+          this.processEvents();
+        }
+        break;
       case 'battle-menu':
         this.resetHeroInput();
         returnToTowerDefenseMenu(this.state);
@@ -3338,6 +3418,7 @@ export class TowerDefenseGame {
     else this.drawBattle(ctx);
     this.drawAudioToggle(ctx);
     if (this.state.tutorial.active) this.drawTutorial(ctx);
+    if (this.state.pendingBattleUpgrade) this.drawBattleUpgradeChoice(ctx);
     ctx.restore();
     this.endVisualFrame();
     return this;
@@ -4828,6 +4909,89 @@ export class TowerDefenseGame {
     });
   }
 
+  drawBattleUpgradeChoice(ctx) {
+    const pending = this.state.pendingBattleUpgrade;
+    if (!pending) return;
+    this.hits = [];
+    ctx.save();
+    ctx.fillStyle = 'rgba(13,29,38,0.84)';
+    ctx.fillRect(0, 0, TD_VIEW.width, TD_VIEW.height);
+    ctx.restore();
+
+    const modal = { x: 42, y: 226, width: 636, height: 780 };
+    panel(ctx, modal, {
+      fill: '#FFF9E8', stroke: '#F0C550', lineWidth: 5, radius: 36, shadow: true,
+    });
+    const pulse = 1 + Math.sin(this.state.time * 4.2) * 0.06;
+    ctx.save();
+    ctx.globalAlpha = 0.22;
+    ctx.strokeStyle = '#F0C550';
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.arc(TD_VIEW.width / 2, 293, 52 * pulse, 0, TAU);
+    ctx.stroke();
+    ctx.globalAlpha = 0.12;
+    ctx.fillStyle = '#FFD95F';
+    ctx.beginPath();
+    ctx.arc(TD_VIEW.width / 2, 293, 44 * pulse, 0, TAU);
+    ctx.fill();
+    ctx.restore();
+    label(ctx, '波次强化', TD_VIEW.width / 2, 280, {
+      size: 31, color: COLORS.ink, weight: 950,
+    });
+    label(ctx, `第${pending.afterWave}波完成 · 选1项`, TD_VIEW.width / 2, 326, {
+      size: 16, color: COLORS.inkSoft, weight: 850,
+    });
+
+    pending.options.slice(0, 3).forEach((upgradeId, index) => {
+      const definition = TD_BATTLE_UPGRADE_BY_ID[upgradeId]
+        || TD_BATTLE_UPGRADES.find(({ id }) => id === upgradeId);
+      if (!definition) return;
+      const rect = BATTLE_UPGRADE_RECTS[index];
+      const style = BATTLE_UPGRADE_STYLE[definition.target] || BATTLE_UPGRADE_STYLE.hero;
+      const currentRank = Math.max(
+        0,
+        Math.floor(Number(this.state.battleUpgradeRanks?.[definition.id]) || 0),
+      );
+      panel(ctx, rect, {
+        fill: style.fill, stroke: style.accent, lineWidth: 4, radius: 25, shadow: true,
+      });
+      ctx.save();
+      ctx.fillStyle = style.accent;
+      ctx.beginPath();
+      ctx.arc(rect.x + 68, rect.y + rect.height / 2, 40, 0, TAU);
+      ctx.fill();
+      ctx.globalAlpha = 0.3;
+      ctx.strokeStyle = '#FFFFFF';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(rect.x + 68, rect.y + rect.height / 2, 31
+        + Math.sin(this.state.time * 3.5 + index) * 2, 0, TAU);
+      ctx.stroke();
+      ctx.restore();
+      label(ctx, style.mark, rect.x + 68, rect.y + rect.height / 2 + 1, {
+        size: 27, color: '#FFFFFF', weight: 950,
+      });
+      label(ctx, definition.name, rect.x + 126, rect.y + 45, {
+        size: 24, align: 'left', color: COLORS.ink, weight: 950,
+      });
+      label(ctx, compactBattleUpgradeDescription(definition.description),
+        rect.x + 126, rect.y + 91, {
+          size: 17, align: 'left', color: style.deep, weight: 880,
+        });
+      label(ctx, `当前 ${currentRank}/${definition.maxRank}层`,
+        rect.x + 126, rect.y + 132, {
+          size: 14, align: 'left', color: COLORS.inkSoft, weight: 850,
+        });
+      label(ctx, '选择', rect.x + rect.width - 40, rect.y + rect.height / 2, {
+        size: 15, color: style.deep, weight: 950,
+      });
+      this.addHit(`battle-upgrade-${definition.id}`, rect, 'choose-battle-upgrade', {
+        upgradeId: definition.id,
+      });
+    });
+  }
+
   drawHeroControls(ctx) {
     const active = this.isHeroControlActive();
     const hero = this.state.hero || {};
@@ -4926,6 +5090,56 @@ export class TowerDefenseGame {
       && Number(this.state.hero?.hp ?? 0) > 0;
   }
 
+  drawDisabledLock(ctx, x, y, radius, remaining) {
+    const timeLeft = Math.max(0, Number(remaining) || 0);
+    if (timeLeft <= 0) return false;
+    const orbit = this.state.time * 3.4;
+    const pulse = 1 + Math.sin(this.state.time * 10) * 0.055;
+    ctx.save();
+    ctx.globalAlpha = 0.13;
+    ctx.fillStyle = '#7357C8';
+    ctx.beginPath();
+    ctx.arc(x, y, radius * pulse, 0, TAU);
+    ctx.fill();
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = '#D8C6FF';
+    ctx.lineWidth = 4;
+    ctx.setLineDash?.([12, 8]);
+    ctx.lineDashOffset = -this.state.time * 76;
+    ctx.globalAlpha = 0.92;
+    ctx.beginPath();
+    ctx.arc(x, y, radius * pulse, orbit, orbit + Math.PI * 1.48);
+    ctx.stroke();
+    ctx.strokeStyle = '#7553D1';
+    ctx.lineWidth = 6;
+    ctx.lineDashOffset = this.state.time * 62;
+    ctx.beginPath();
+    ctx.arc(x, y, Math.max(12, radius - 9), -orbit, -orbit + Math.PI * 1.25);
+    ctx.stroke();
+    ctx.setLineDash?.([]);
+    for (let index = 0; index < 4; index += 1) {
+      const angle = orbit * (index % 2 ? -1 : 1) + index * TAU / 4;
+      ctx.fillStyle = index % 2 ? '#AEEBFF' : '#F0E7FF';
+      ctx.beginPath();
+      ctx.arc(x + Math.cos(angle) * radius, y + Math.sin(angle) * radius,
+        4 + (index % 2), 0, TAU);
+      ctx.fill();
+    }
+    ctx.restore();
+    const text = `封锁 ${timeLeft.toFixed(1)}`;
+    const tag = {
+      x: x - 39,
+      y: Math.max(BATTLE_FIELD.top + 4, y - radius - 55),
+      width: 78,
+      height: 25,
+    };
+    panel(ctx, tag, { fill: '#3C315F', stroke: '#CBB8FF', lineWidth: 2, radius: 13 });
+    label(ctx, text, x, tag.y + tag.height / 2 + 1, {
+      size: 12, color: '#FFFFFF', weight: 950,
+    });
+    return true;
+  }
+
   drawBattleHero(ctx) {
     const hero = this.state.hero;
     if (!hero || !Number.isFinite(hero.x) || !Number.isFinite(hero.y)) return;
@@ -4981,6 +5195,7 @@ export class TowerDefenseGame {
         ctx.fill();
       }
     }
+    this.drawDisabledLock(ctx, heroX, heroY, 54, hero.disabledTime);
   }
 
   turretSlots(stage) {
@@ -5061,6 +5276,7 @@ export class TowerDefenseGame {
             damage,
           });
         }
+        this.drawDisabledLock(ctx, x, buildingGroundY - 22, 52, turret.disabledTime);
         return;
       }
 
@@ -5467,6 +5683,8 @@ export class TowerDefenseGame {
       }
       ctx.restore();
     }
+    this.drawDisabledLock(ctx, drawX, drawY + (isSquad ? 14 : 2),
+      isSquad ? 64 : 50, tower.disabledTime);
     if (dropIntent === 'merge' || dropIntent === 'ability') {
       const mergeTagY = Math.max(BATTLE_FIELD.top + 4, pad.y - 116);
       const tagWidth = dropIntent === 'ability' ? 84 : 56;
@@ -5867,6 +6085,95 @@ export class TowerDefenseGame {
     const paletteIndex = Math.floor(Math.abs(entry.seed || 0)) % 4;
     const enemyColors = ['#FFE16B', '#63E2C0', '#72D8F2', '#F58CAB'];
     const color = entry.boss ? '#C39BFF' : enemyColors[paletteIndex];
+
+    if (entry.kind === 'boss-warning') {
+      const riftLock = entry.skillId === 'rift-lock';
+      const warningColor = riftLock ? '#B89BFF' : '#FFB33F';
+      const trackedWarning = riftLock
+        ? this.state.effects.find((effect) => (
+          effect.type === 'boss-skill-warning'
+          && effect.skillId === entry.skillId
+          && effect.enemyUid === entry.enemyUid
+          && (entry.targetUid == null || effect.targetUid === entry.targetUid)
+        ))
+        : null;
+      const liveTargetX = trackedWarning?.targetX ?? entry.targetX;
+      const liveTargetY = trackedWarning?.targetY ?? entry.targetY;
+      const targetX = liveTargetX == null ? entry.x : finiteNumber(liveTargetX, entry.x);
+      const targetY = liveTargetY == null ? entry.y : finiteNumber(liveTargetY, entry.y);
+      if (riftLock && entry.targetX != null && entry.targetY != null) {
+        const moving = (progress * 3.2) % 1;
+        ctx.save();
+        ctx.lineCap = 'round';
+        ctx.setLineDash?.([12, 10]);
+        ctx.lineDashOffset = -entry.age * 92;
+        ctx.globalAlpha = 0.28 + Math.sin(entry.age * 18) * 0.08;
+        ctx.strokeStyle = '#251D58';
+        ctx.lineWidth = 9;
+        ctx.beginPath();
+        ctx.moveTo(entry.x, entry.y);
+        ctx.lineTo(targetX, targetY);
+        ctx.stroke();
+        ctx.globalAlpha = 0.86;
+        ctx.strokeStyle = warningColor;
+        ctx.lineWidth = 3;
+        ctx.stroke();
+        ctx.setLineDash?.([]);
+        ctx.fillStyle = '#F6ECFF';
+        ctx.beginPath();
+        ctx.arc(lerp(entry.x, targetX, moving), lerp(entry.y, targetY, moving), 5, 0, TAU);
+        ctx.fill();
+        ctx.restore();
+      }
+      const pillWidth = riftLock ? 108 : 118;
+      const pillY = Math.max(BATTLE_FIELD.top + 12, targetY - 82);
+      panel(ctx, { x: targetX - pillWidth / 2, y: pillY, width: pillWidth, height: 32 }, {
+        fill: riftLock ? '#392D69' : '#6C4421', stroke: warningColor,
+        lineWidth: 2, radius: 16,
+      });
+      label(ctx, riftLock ? '裂隙锁定' : '蓄力冲撞', targetX, pillY + 16, {
+        size: 14, color: '#FFFFFF', weight: 950,
+      });
+      return;
+    }
+
+    if (entry.kind === 'boss-cast') {
+      const riftLock = entry.skillId === 'rift-lock';
+      const castX = riftLock && entry.targetX != null
+        ? finiteNumber(entry.targetX, entry.x) : entry.x;
+      const castY = riftLock && entry.targetY != null
+        ? finiteNumber(entry.targetY, entry.y) : entry.y;
+      const castColor = riftLock ? '#C6ADFF' : '#FFD15C';
+      this.drawFeedbackDynamicComponents(ctx, riftLock ? 'rift-shard' : 'impact-core', [{
+        x: castX,
+        y: castY,
+        size: (riftLock ? 112 : 148) * (0.72 + expand * 0.64),
+        alpha: fade * 0.94,
+        rotation: (riftLock ? -1 : 1) * progress * 1.8,
+      }]);
+      this.drawFeedbackRays(ctx, { ...entry, x: castX, y: castY },
+        riftLock ? 8 : 12, riftLock ? 94 : Math.max(110, finiteNumber(entry.radius, 150)),
+        castColor, fade * 0.9);
+      label(ctx, riftLock ? '封锁!' : '冲撞!', castX, castY - 64 - expand * 22, {
+        size: 21, color: castColor, weight: 950, alpha: fade,
+      });
+      return;
+    }
+
+    if (entry.kind === 'battle-upgrade') {
+      const upgradeStyle = BATTLE_UPGRADE_STYLE[entry.target] || BATTLE_UPGRADE_STYLE.hero;
+      const y = entry.y - expand * 22;
+      panel(ctx, { x: entry.x - 124, y: y - 28, width: 248, height: 56 }, {
+        fill: upgradeStyle.fill, stroke: upgradeStyle.accent, lineWidth: 3, radius: 28,
+      });
+      label(ctx, `${entry.upgradeName} · ${Math.max(1, Math.floor(entry.rank || 1))}层`,
+        entry.x, y, { size: 18, color: upgradeStyle.deep, weight: 950, alpha: fade });
+      this.drawFeedbackDynamicComponents(ctx, 'sparkle', [
+        { x: entry.x - 144 - expand * 22, y, size: 24, alpha: fade, rotation: progress * 2 },
+        { x: entry.x + 144 + expand * 22, y, size: 24, alpha: fade, rotation: -progress * 2 },
+      ]);
+      return;
+    }
 
     if (entry.kind === 'hit' || entry.kind === 'strong-hit') {
       const strong = entry.kind === 'strong-hit';
@@ -7111,6 +7418,141 @@ export class TowerDefenseGame {
     }, () => {});
   }
 
+  drawBossSkillEffect(ctx, effect, progress) {
+    if (effect.type !== 'boss-skill-warning' && effect.type !== 'boss-skill-cast') {
+      return false;
+    }
+    const warning = effect.type === 'boss-skill-warning';
+    const riftLock = effect.skillId === 'rift-lock';
+    const age = Math.max(0, finiteNumber(effect.age));
+    const sourceX = finiteNumber(effect.x);
+    const sourceY = finiteNumber(effect.y);
+    const hasTarget = effect.targetX != null && effect.targetY != null;
+    const targetX = hasTarget ? finiteNumber(effect.targetX, sourceX) : sourceX;
+    const targetY = hasTarget ? finiteNumber(effect.targetY, sourceY) : sourceY;
+    const centerX = riftLock && hasTarget ? targetX : sourceX;
+    const centerY = riftLock && hasTarget ? targetY : sourceY;
+    const palette = riftLock
+      ? { deep: '#392A78', color: '#A87AF2', light: '#E9DEFF' }
+      : { deep: '#7C3821', color: '#FF9E36', light: '#FFF0A5' };
+
+    if (warning) {
+      const warningRadius = riftLock
+        ? 58
+        : Math.max(84, finiteNumber(TD_ENEMIES[effect.enemyType]?.bossSkillRadius, 150));
+      const pulse = 1 + Math.sin(age * 14) * 0.045;
+      const tighten = riftLock ? 1 - progress * 0.24 : 1 - progress * 0.12;
+      ctx.save();
+      ctx.fillStyle = palette.color;
+      ctx.globalAlpha = 0.08 + progress * 0.1;
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, warningRadius * pulse * tighten, 0, TAU);
+      ctx.fill();
+      ctx.lineCap = 'round';
+      ctx.setLineDash?.([18, 12]);
+      ctx.lineDashOffset = -age * (riftLock ? 110 : 82);
+      ctx.globalAlpha = 0.78 + Math.sin(age * 18) * 0.14;
+      ctx.strokeStyle = palette.color;
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, warningRadius * pulse * tighten, 0, TAU);
+      ctx.stroke();
+      ctx.setLineDash?.([5, 9]);
+      ctx.lineDashOffset = age * 66;
+      ctx.strokeStyle = palette.light;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, warningRadius * 0.72 * tighten, 0, TAU);
+      ctx.stroke();
+      ctx.setLineDash?.([]);
+      if (riftLock && hasTarget) {
+        ctx.globalAlpha = 0.56;
+        ctx.strokeStyle = palette.color;
+        ctx.lineWidth = 5;
+        ctx.setLineDash?.([12, 13]);
+        ctx.lineDashOffset = -age * 90;
+        ctx.beginPath();
+        ctx.moveTo(sourceX, sourceY);
+        ctx.lineTo(targetX, targetY);
+        ctx.stroke();
+        ctx.setLineDash?.([]);
+      }
+      ctx.restore();
+      for (let index = 0; index < 4; index += 1) {
+        const angle = age * (index % 2 ? -2.1 : 1.8) + index * TAU / 4;
+        const orbit = warningRadius * (0.64 + (index % 2) * 0.19) * tighten;
+        drawParticle(ctx,
+          centerX + Math.cos(angle) * orbit,
+          centerY + Math.sin(angle) * orbit * 0.72,
+          13 + (index % 2) * 3,
+          index % 2 ? 'ring' : 'spark', {
+            progress: (age * 1.6 + index * 0.17) % 1,
+            alpha: 0.64 + Math.sin(age * 12 + index) * 0.18,
+            rotation: angle,
+            assetStore: this.assetStore,
+          });
+      }
+      return true;
+    }
+
+    const fade = (1 - progress) ** 0.62;
+    const radius = riftLock ? 96 : Math.max(104, finiteNumber(effect.radius, 150));
+    ctx.save();
+    ctx.lineCap = 'round';
+    if (!riftLock) {
+      const dashDistance = Math.max(56, finiteNumber(effect.dashDistance, 96));
+      for (let index = -2; index <= 2; index += 1) {
+        const offset = index * 15;
+        ctx.globalAlpha = fade * (0.4 + (2 - Math.abs(index)) * 0.11);
+        ctx.strokeStyle = index % 2 ? palette.light : palette.color;
+        ctx.lineWidth = 8 - Math.abs(index);
+        ctx.beginPath();
+        ctx.moveTo(sourceX + offset, sourceY - dashDistance * (0.92 - Math.abs(index) * 0.08));
+        ctx.quadraticCurveTo(sourceX + offset * 0.3, sourceY - dashDistance * 0.32,
+          sourceX + offset * 0.18, sourceY);
+        ctx.stroke();
+      }
+    } else if (hasTarget) {
+      ctx.globalAlpha = fade * 0.72;
+      ctx.strokeStyle = palette.light;
+      ctx.lineWidth = 6;
+      ctx.setLineDash?.([8, 11]);
+      ctx.lineDashOffset = age * 130;
+      ctx.beginPath();
+      ctx.moveTo(sourceX, sourceY);
+      ctx.lineTo(targetX, targetY);
+      ctx.stroke();
+      ctx.setLineDash?.([]);
+    }
+    for (let index = 0; index < 3; index += 1) {
+      const local = delayedEffectProgress(progress, index * 0.12);
+      if (local <= 0) continue;
+      ctx.globalAlpha = (1 - local) * (0.82 - index * 0.14);
+      ctx.strokeStyle = index === 1 ? palette.light : palette.color;
+      ctx.lineWidth = Math.max(2, 8 - index * 2 - local * 3);
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, radius * (0.12 + easeOutCubic(local) * 0.88), 0, TAU);
+      ctx.stroke();
+    }
+    ctx.restore();
+    for (let index = 0; index < (riftLock ? 7 : 9); index += 1) {
+      const angle = index * TAU / (riftLock ? 7 : 9)
+        + (riftLock ? -1 : 1) * progress * 0.7;
+      const travel = radius * (0.18 + easeOutCubic(progress) * (0.52 + index % 3 * 0.1));
+      drawParticle(ctx,
+        centerX + Math.cos(angle) * travel,
+        centerY + Math.sin(angle) * travel * 0.7,
+        15 + index % 3 * 3,
+        index % 3 === 1 ? 'ring' : 'spark', {
+          progress,
+          alpha: fade * (0.72 + index % 2 * 0.16),
+          rotation: angle + progress * 2,
+          assetStore: this.assetStore,
+        });
+    }
+    return true;
+  }
+
   drawEnemyReinforcementEffect(ctx, effect, progress) {
     if (effect.type === 'enemy-ranged-shot') {
       const visualId = REINFORCEMENT_PROJECTILE_BY_ENEMY[effect.enemyType];
@@ -7203,6 +7645,7 @@ export class TowerDefenseGame {
         this.drawSkillImpact(ctx, effect, progress);
         continue;
       }
+      if (this.drawBossSkillEffect(ctx, effect, progress)) continue;
       if (this.drawEnemyReinforcementEffect(ctx, effect, progress)) continue;
       if (effect.type === 'merge') {
         for (let index = 0; index < 4; index += 1) {

@@ -5,6 +5,8 @@ import {
   HERO_TYPES,
   SQUAD_TYPES,
   SQUAD_RARITY_SCALING,
+  TD_BATTLE_UPGRADES,
+  TD_BATTLE_UPGRADE_BY_ID,
   TD_CONTRACT_RARITIES,
   TD_CONTRACT_START_CURRENCY,
   TD_CONTRACT_SUMMON_COSTS,
@@ -37,6 +39,7 @@ import {
   buyTowerDefenseSquad,
   buyTowerDefenseSquadFusion,
   canMergeTowers,
+  chooseTowerDefenseBattleUpgrade,
   chooseTowerDefenseSquadAbility,
   createTowerDefenseState,
   equipTowerDefenseHeroItem,
@@ -51,6 +54,7 @@ import {
   pathMetrics,
   pointOnPath,
   reclaimTowerToHand,
+  replayTowerDefenseRun,
   returnToTowerDefenseMenu,
   selectTowerDefenseHero,
   serializeTowerDefenseProgress,
@@ -1417,6 +1421,194 @@ test('wave clear returns to prep, restores actors, and never auto-starts', () =>
   assert.equal(state.phase, 'combat');
 });
 
+test('waves two, four, and six offer deterministic run-only choices that block the next wave', () => {
+  assert.ok(TD_BATTLE_UPGRADES.length >= 9);
+  assert.equal(new Set(TD_BATTLE_UPGRADES.map(({ id }) => id)).size,
+    TD_BATTLE_UPGRADES.length);
+  assert.equal(Object.isFrozen(TD_BATTLE_UPGRADES), true);
+  for (const upgrade of TD_BATTLE_UPGRADES) {
+    assert.equal(TD_BATTLE_UPGRADE_BY_ID[upgrade.id], upgrade);
+    assert.equal(Object.isFrozen(upgrade), true);
+    assert.equal(Object.isFrozen(upgrade.modifiers), true);
+    assert.equal(/heal|healing|治疗|恢复|回血/i.test([
+      upgrade.id, upgrade.name, upgrade.description, ...Object.keys(upgrade.modifiers),
+    ].join(' ')), false, `${upgrade.id} is not a healing choice`);
+  }
+
+  for (const wave of [2, 4, 6]) {
+    const first = createBattleState({ mode: 'endless', seed: 0xABCD1234 });
+    const second = createBattleState({ mode: 'endless', seed: 0xABCD1234 });
+    for (const state of [first, second]) {
+      state.wave = wave;
+      state.phase = 'combat';
+      state.waveActive = true;
+      state.spawnQueue = [];
+      state.enemies = [];
+      updateTowerDefense(state, 0.01);
+      assert.deepEqual(state.pendingBattleUpgrade?.afterWave, wave);
+      assert.equal(state.pendingBattleUpgrade.options.length, 3);
+      assert.equal(new Set(state.pendingBattleUpgrade.options).size, 3);
+      assert.equal(new Set(state.pendingBattleUpgrade.options.map((id) => (
+        TD_BATTLE_UPGRADE_BY_ID[id].target
+      ))).size, 3, 'each offer covers three different play styles');
+      assert.equal(startNextTowerDefenseWave(state), false);
+      assert.deepEqual(state.events.findLast(({ type }) => type === 'battle-upgrade-offer'), {
+        type: 'battle-upgrade-offer', afterWave: wave,
+        optionIds: [...state.pendingBattleUpgrade.options],
+      });
+    }
+    assert.deepEqual(first.pendingBattleUpgrade, second.pendingBattleUpgrade);
+  }
+
+  const stage = createBattleState({ stageId: 'stage-3', seed: 0x13572468 });
+  stage.wave = 2;
+  stage.phase = 'combat';
+  stage.waveActive = true;
+  stage.spawnQueue = [];
+  stage.enemies = [];
+  updateTowerDefense(stage, 0.01);
+  const snapshot = clone(stage);
+  assert.equal(chooseTowerDefenseBattleUpgrade(stage, 'not-offered'), null);
+  assert.deepEqual(stage, snapshot, 'an invalid choice is atomic');
+  const upgradeId = stage.pendingBattleUpgrade.options[0];
+  const chosen = chooseTowerDefenseBattleUpgrade(stage, upgradeId);
+  assert.equal(chosen.id, upgradeId);
+  assert.equal(chosen.afterWave, 2);
+  assert.equal(chosen.rank, 1);
+  assert.equal(stage.pendingBattleUpgrade, null);
+  assert.equal(stage.battleUpgradeRanks[upgradeId], 1);
+  assert.deepEqual(stage.battleUpgradeHistory, [{ afterWave: 2, id: upgradeId, rank: 1 }]);
+  assert.equal(startNextTowerDefenseWave(stage), true);
+
+  const daily = createBattleState({ mode: 'daily' });
+  daily.wave = 2;
+  daily.phase = 'combat';
+  daily.waveActive = true;
+  daily.spawnQueue = [];
+  daily.enemies = [];
+  updateTowerDefense(daily, 0.01);
+  assert.equal(daily.pendingBattleUpgrade, null, 'daily rules do not add the ordinary run choice');
+});
+
+test('a pending battle choice atomically freezes every preparation layout mutation', () => {
+  const state = createBattleState({
+    progress: {
+      squadRanks: { melee: 1, ranged: 1 },
+      turretRanks: { 'gel-mortar': 1 },
+    },
+  });
+  state.currency = 5_000;
+  const first = buyTowerDefenseSquad(state, 'melee', 0);
+  const second = buyTowerDefenseSquad(state, 'melee', 1);
+  const turret = buildTowerDefenseTurret(state, 0, 'gel-mortar');
+  assert.ok(first && second && turret);
+  state.waveBreak = 1.25;
+  state.pendingBattleUpgrade = { afterWave: 2, options: ['hero-force'] };
+
+  const blockedMutations = [
+    () => buyTowerDefenseSquad(state, 'ranged', 2),
+    () => buildTowerDefenseTurret(state, 1, 'gel-mortar'),
+    () => moveTowerToPad(state, first.uid, 3),
+    () => mergeTowers(state, first.uid, second.uid),
+    () => buyTowerDefenseSquadFusion(state, 'melee', first.uid),
+    () => reclaimTowerToHand(state, first.uid),
+    () => skipTowerDefenseBreak(state),
+  ];
+  for (const mutate of blockedMutations) {
+    const snapshot = clone(state);
+    const result = mutate();
+    assert.ok(result == null || result === false);
+    assert.deepEqual(state, snapshot);
+  }
+
+  assert.ok(chooseTowerDefenseBattleUpgrade(state, 'hero-force'));
+  assert.equal(state.pendingBattleUpgrade, null);
+  assert.equal(moveTowerToPad(state, first.uid, 3), first,
+    'layout mutations resume immediately after the required choice');
+
+  const fusionState = createBattleState({ progress: { squadRanks: { melee: 1 } } });
+  fusionState.currency = 5_000;
+  const fusionTarget = buyTowerDefenseSquad(fusionState, 'melee', 0);
+  assert.equal(buyTowerDefenseSquadFusion(fusionState, 'melee', fusionTarget.uid), fusionTarget);
+  fusionState.pendingBattleUpgrade = { afterWave: 2, options: ['hero-force'] };
+  const fusionSnapshot = clone(fusionState);
+  assert.equal(chooseTowerDefenseSquadAbility(fusionState, 'shell-wall'), null);
+  assert.deepEqual(fusionState, fusionSnapshot,
+    'an already-open fusion choice cannot bypass the battle-upgrade modal');
+  assert.ok(chooseTowerDefenseBattleUpgrade(fusionState, 'hero-force'));
+  assert.equal(chooseTowerDefenseSquadAbility(fusionState, 'shell-wall'), fusionTarget);
+});
+
+test('every battle upgrade immediately changes its unit snapshot or combat currency', () => {
+  const state = createBattleState({
+    progress: {
+      squadRanks: { melee: 1 },
+      turretRanks: { 'gel-mortar': 1 },
+    },
+  });
+  state.currency = 2_000;
+  const squad = buyTowerDefenseSquad(state, 'melee', 0);
+  const turret = buildTowerDefenseTurret(state, 0, 'gel-mortar');
+  const base = {
+    heroDamage: state.hero.damage,
+    heroInterval: state.hero.interval,
+    heroRange: state.hero.range,
+    squadDamage: squad.damagePerMember,
+    squadInterval: squad.interval,
+    squadRange: squad.range,
+    squadSpeed: squad.moveSpeed,
+    turretDamage: turret.damage,
+    turretInterval: turret.interval,
+    turretRange: turret.range,
+    heroHp: state.hero.hp,
+    squadHp: squad.hp,
+  };
+  const currencyBeforeChoices = state.currency;
+  TD_BATTLE_UPGRADES.forEach((upgrade, index) => {
+    state.pendingBattleUpgrade = { afterWave: 2 + index, options: [upgrade.id] };
+    const chosen = chooseTowerDefenseBattleUpgrade(state, upgrade.id);
+    assert.equal(chosen?.id, upgrade.id);
+    assert.equal(state.battleUpgradeRanks[upgrade.id], 1);
+  });
+  assert.ok(state.hero.damage > base.heroDamage);
+  assert.ok(state.hero.interval < base.heroInterval);
+  assert.ok(state.hero.range > base.heroRange);
+  assert.ok(squad.damagePerMember > base.squadDamage);
+  assert.ok(squad.interval < base.squadInterval);
+  assert.ok(squad.range > base.squadRange);
+  assert.ok(squad.moveSpeed > base.squadSpeed);
+  assert.ok(turret.damage > base.turretDamage);
+  assert.ok(turret.interval < base.turretInterval);
+  assert.ok(turret.range > base.turretRange);
+  assert.equal(state.hero.hp, base.heroHp, 'battle choices do not heal the hero');
+  assert.equal(squad.hp, base.squadHp, 'battle choices do not heal squads');
+  assert.equal(state.currency, currencyBeforeChoices + 25 + 80);
+  assert.equal(towerRange(state, squad), squad.range);
+
+  replayTowerDefenseRun(state);
+  assert.equal(state.pendingBattleUpgrade, null);
+  assert.deepEqual(state.battleUpgradeRanks, {});
+  assert.deepEqual(state.battleUpgradeHistory, []);
+});
+
+test('rich gel increases real defeat income rather than only changing display state', () => {
+  const state = createBattleState();
+  state.pendingBattleUpgrade = { afterWave: 2, options: ['rich-gel'] };
+  assert.ok(chooseTowerDefenseBattleUpgrade(state, 'rich-gel'));
+  holdCombatWithHero(state);
+  state.hero.cooldown = 0;
+  const enemy = enemyAt({
+    laneIndex: 2, y: state.hero.y - 80, uid: 'rich-gel-target', hp: 1, speed: 0,
+  });
+  state.enemies = [enemy];
+  const currency = state.currency;
+  updateTowerDefense(state, 0.01);
+  resolveProjectiles(state);
+  assert.equal(state.currency - currency, Math.round(TD_ENEMIES.bug.reward * 1.3));
+  assert.equal(state.events.find(({ type }) => type === 'enemy-defeat').reward,
+    Math.round(TD_ENEMIES.bug.reward * 1.3));
+});
+
 test('menu and defeat transitions clear persistent skill actors and ground projectiles', () => {
   const menuState = createBattleState({
     progress: {
@@ -1721,6 +1913,187 @@ test('thorn periodically charges and applies one stronger impact on contact', ()
     'the disabled normal attack proves the damage came from the charge impact');
 });
 
+test('acid shell boss warns, guards, then rushes forward with a damaging shockwave', () => {
+  const state = holdCombatWithHero(createBattleState());
+  state.hero.x = 360;
+  state.hero.y = 360;
+  state.hero.cooldown = 0;
+  const enemy = enemyAt({
+    laneIndex: 2, y: 222, uid: 'acid-shell-skill-probe',
+    type: 'boss', hp: 100_000, speed: 0,
+  });
+  enemy.attackCooldown = 999;
+  enemy.bossSkillCooldown = 0;
+  enemy.bossSkillWarningTime = 0;
+  state.enemies = [enemy];
+  state.events = [];
+
+  const warningOrigin = { x: enemy.x, y: enemy.y };
+  const lane = stageForState(state).lanes[enemy.laneIndex];
+  const predictedTravelled = Math.min(
+    pathMetrics(lane.path).total,
+    enemy.travelled + TD_ENEMIES.boss.bossSkillDashDistance,
+  );
+  const predictedImpact = pointOnPath(lane.path, predictedTravelled);
+  updateTowerDefense(state, 0.01);
+  const warning = state.events.find(({ type }) => type === 'boss-skill-warning');
+  assert.ok(warning);
+  assert.deepEqual({
+    enemyUid: warning.enemyUid,
+    enemyType: warning.enemyType,
+    skillId: warning.skillId,
+    targetUid: warning.targetUid,
+    targetKind: warning.targetKind,
+  }, {
+    enemyUid: enemy.uid,
+    enemyType: 'boss',
+    skillId: 'shell-rush',
+    targetUid: null,
+    targetKind: null,
+  });
+  assert.equal(warning.warningDuration, TD_ENEMIES.boss.bossSkillWarning);
+  assert.equal(warning.originX, warningOrigin.x);
+  assert.equal(warning.originY, warningOrigin.y);
+  assert.equal(warning.targetX, predictedImpact.x);
+  assert.equal(warning.targetY, predictedImpact.y);
+  assert.equal(warning.x, predictedImpact.x);
+  assert.equal(warning.y, predictedImpact.y);
+  assert.equal(warning.radius, TD_ENEMIES.boss.bossSkillRadius);
+  assert.equal(warning.dashDistance, predictedTravelled - enemy.travelled);
+  resolveProjectiles(state);
+  const guardedHit = state.events.find(({ type, enemyUid }) => (
+    type === 'enemy-hit' && enemyUid === enemy.uid
+  ));
+  assert.ok(guardedHit);
+  assert.equal(guardedHit.guardMultiplier, TD_ENEMIES.boss.shellGuardDamageMultiplier);
+
+  const travelledBefore = enemy.travelled;
+  const heroHp = state.hero.hp;
+  for (let tick = 0; tick < 40 && !state.events.some(({ type }) => (
+    type === 'boss-skill-cast'
+  )); tick += 1) updateTowerDefense(state, 0.05);
+  const cast = state.events.find(({ type }) => type === 'boss-skill-cast');
+  assert.ok(cast);
+  assert.equal(cast.skillId, 'shell-rush');
+  assert.equal(cast.originX, warning.originX);
+  assert.equal(cast.originY, warning.originY);
+  assert.equal(cast.targetX, warning.targetX);
+  assert.equal(cast.targetY, warning.targetY);
+  assert.equal(cast.x, warning.targetX);
+  assert.equal(cast.y, warning.targetY);
+  assert.equal(cast.radius, warning.radius,
+    'the telegraphed circle and resolved shockwave share one hit area');
+  assert.ok(cast.dashDistance >= TD_ENEMIES.boss.bossSkillDashDistance - 0.01);
+  assert.ok(enemy.travelled >= travelledBefore + cast.dashDistance - 0.01);
+  assert.ok(cast.targetUids.includes(state.hero.uid));
+  assert.ok(state.hero.hp < heroHp, 'the warned shockwave damages a nearby defender');
+});
+
+test('rift boss warns its target then temporarily disables exactly that defense unit', () => {
+  const state = createBattleState();
+  const squad = buyTowerDefenseSquad(state, 'melee', 0);
+  const turret = buildTowerDefenseTurret(state, 0, 'gel-mortar');
+  holdCombatWithHero(state);
+  state.hero.x = 360;
+  state.hero.y = 350;
+  state.hero.cooldown = 0;
+  state.hero.skillCooldown = 0;
+  const enemy = enemyAt({
+    laneIndex: 2, y: 222, uid: 'rift-lock-skill-probe',
+    type: 'rift-boss', hp: 100_000, speed: 0,
+  });
+  enemy.attackCooldown = 999;
+  enemy.bossSkillCooldown = 0;
+  enemy.bossSkillWarningTime = 0;
+  state.enemies = [enemy];
+  state.events = [];
+
+  updateTowerDefense(state, 0.01);
+  const warning = state.events.find(({ type }) => type === 'boss-skill-warning');
+  assert.ok(warning);
+  assert.equal(warning.skillId, 'rift-lock');
+  assert.equal(warning.targetUid, state.hero.uid);
+  assert.equal(warning.targetKind, 'hero');
+  assert.equal(state.hero.disabledTime, 0);
+
+  state.hero.x += 34;
+  state.hero.y += 18;
+  updateTowerDefense(state, 0.05);
+  const warningEffect = state.effects.find(({ type, enemyUid }) => (
+    type === 'boss-skill-warning' && enemyUid === enemy.uid
+  ));
+  assert.ok(warningEffect);
+  assert.equal(warningEffect.targetX, state.hero.x);
+  assert.equal(warningEffect.targetY, state.hero.y,
+    'the visible warning follows the originally locked living unit');
+
+  for (let tick = 0; tick < 40 && !state.events.some(({ type }) => (
+    type === 'boss-skill-cast'
+  )); tick += 1) updateTowerDefense(state, 0.05);
+  const cast = state.events.find(({ type }) => type === 'boss-skill-cast');
+  assert.ok(cast);
+  assert.equal(cast.skillId, 'rift-lock');
+  assert.equal(cast.targetUid, state.hero.uid);
+  assert.equal(cast.targetKind, 'hero');
+  assert.equal(cast.targetX, state.hero.x);
+  assert.equal(cast.targetY, state.hero.y);
+  assert.equal(cast.disabledTime, TD_ENEMIES['rift-boss'].bossSkillDisableTime);
+  assert.ok(state.hero.disabledTime > 2.4);
+  assert.equal(squad.disabledTime, 0);
+  assert.equal(turret.disabledTime, 0);
+  state.hero.cooldown = 0;
+  state.hero.skillCooldown = 0;
+  state.projectiles = [];
+  assert.equal(activateTowerDefenseHeroSkill(state), false);
+  updateTowerDefense(state, 0.05);
+  assert.equal(state.projectiles.length, 0, 'a sealed hero cannot auto-attack');
+
+  for (let tick = 0; tick < 70 && state.hero.disabledTime > 0; tick += 1) {
+    updateTowerDefense(state, 0.05);
+  }
+  assert.equal(state.hero.disabledTime, 0);
+  updateTowerDefense(state, 0.05);
+  assert.ok(state.projectiles.length > 0, 'the hero resumes attacking after the seal expires');
+});
+
+test('rift lock cancels when its warned target is lost and never retargets silently', () => {
+  const state = createBattleState({ progress: { turretRanks: { 'gel-mortar': 1 } } });
+  const turret = buildTowerDefenseTurret(state, 0, 'gel-mortar');
+  holdCombatWithHero(state);
+  state.hero.x = 360;
+  state.hero.y = 350;
+  const enemy = enemyAt({
+    laneIndex: 2, y: 222, uid: 'rift-lost-target-probe',
+    type: 'rift-boss', hp: 100_000, speed: 0,
+  });
+  enemy.attackCooldown = 999;
+  enemy.bossSkillCooldown = 0;
+  enemy.bossSkillWarningTime = 0;
+  state.enemies = [enemy];
+  state.events = [];
+
+  updateTowerDefense(state, 0.01);
+  const warning = state.events.find(({ type }) => type === 'boss-skill-warning');
+  assert.equal(warning.targetUid, state.hero.uid);
+  const warnedPosition = { x: warning.targetX, y: warning.targetY };
+  state.hero.hp = 0;
+
+  for (let tick = 0; tick < 40 && !state.events.some(({ type }) => (
+    type === 'boss-skill-cancel'
+  )); tick += 1) updateTowerDefense(state, 0.05);
+
+  assert.equal(state.events.some(({ type }) => type === 'boss-skill-cast'), false);
+  const canceled = state.events.find(({ type }) => type === 'boss-skill-cancel');
+  assert.deepEqual(canceled, {
+    type: 'boss-skill-cancel', enemyUid: enemy.uid, enemyType: 'rift-boss',
+    skillId: 'rift-lock', targetUid: state.hero.uid, targetKind: 'hero',
+    targetX: warnedPosition.x, targetY: warnedPosition.y,
+    x: enemy.x, y: enemy.y, reason: 'target-lost',
+  });
+  assert.equal(turret.disabledTime, 0,
+    'an unwarned surviving defense is not substituted at cast time');
+});
+
 function singleHeroShotDamageAgainst(enemyType) {
   const state = holdCombatWithHero(createBattleState());
   state.hero.x = 360;
@@ -1871,6 +2244,12 @@ function simulateStarterLineup({ heroActive }) {
   let ticks = 0;
   while (!state.result && ticks < 8000) {
     if (!state.waveActive && state.phase === 'prep') {
+      if (state.pendingBattleUpgrade) {
+        assert.ok(chooseTowerDefenseBattleUpgrade(
+          state,
+          state.pendingBattleUpgrade.options[0],
+        ));
+      }
       assert.equal(startNextTowerDefenseWave(state), true);
     }
     if (heroActive && state.waveActive && state.hero?.hp > 0) {
@@ -1906,8 +2285,10 @@ test('the autonomous starter lineup clears stage one and the hero improves the r
   const active = simulateStarterLineup({ heroActive: true });
   assert.equal(active.result, 'victory');
   assert.equal(active.wave, 5);
-  assert.equal(active.coreHp, active.coreMaxHp);
-  assert.equal(active.kills, 33);
+  assert.ok(active.coreHp > 0,
+    'the starter lineup survives the acid boss rush without making its mechanic cosmetic');
+  assert.ok(active.kills >= 32 && active.kills <= 33,
+    'the boss rush may be the single enemy that reaches the core');
 
   const idle = simulateStarterLineup({ heroActive: false });
   assert.equal(idle.result, 'victory');

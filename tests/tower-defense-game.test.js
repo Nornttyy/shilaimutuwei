@@ -1512,6 +1512,99 @@ test('combat feedback layers hits, kill chains, skills, boss entry, and wave cle
   game.dispose();
 });
 
+test('boss skills show animated warnings, cast bursts, and visible lock countdowns', () => {
+  const canvas = createCanvas();
+  const assets = createAssetStore([
+    'effect-dynamic-components-v1',
+    'effect-particle-expanding-ring',
+    'effect-particle-impact-spark',
+  ]);
+  const game = new TowerDefenseGame(canvas, {
+    runtime: createRuntime({ tutorialSeen: true }), pixelRatio: 1,
+  });
+  game.setAssetStore(assets);
+  game.state.screen = 'battle';
+  game.state.phase = 'combat';
+  game.state.waveActive = true;
+  game.state.tutorial.active = false;
+  game.state.time = 8.4;
+  game.state.hero = {
+    uid: 'locked-hero', type: 'shell', x: 360, y: 780,
+    hp: 180, maxHp: 180, facing: 1, moveX: 0, moveY: 0,
+    hitPulse: 0, disabledTime: 2.4,
+  };
+  game.state.events.push(
+    {
+      type: 'boss-skill-warning', enemyUid: 'rift-king', enemyType: 'rift-boss',
+      skillId: 'rift-lock', x: 360, y: 270, targetUid: 'locked-hero',
+      targetKind: 'hero', targetX: 360, targetY: 780, warningDuration: 1.25,
+    },
+    {
+      type: 'boss-skill-cast', enemyUid: 'shell-king', enemyType: 'boss',
+      skillId: 'shell-rush', x: 250, y: 520, targetUids: ['locked-hero'],
+      dashDistance: 96, radius: 155, damage: 44,
+    },
+  );
+  game.processEvents();
+  assert.ok(game.combatFeedback.some(({ kind }) => kind === 'boss-warning'));
+  assert.ok(game.combatFeedback.some(({ kind }) => kind === 'boss-cast'));
+  assert.ok(game.combatFlash, 'a boss cast produces a bounded field flash');
+
+  game.state.effects = [
+    {
+      uid: 'warning-rift', type: 'boss-skill-warning', enemyType: 'rift-boss',
+      enemyUid: 'rift-king', skillId: 'rift-lock', x: 360, y: 270,
+      targetUid: 'locked-hero', targetX: 360, targetY: 780,
+      age: 0.18, duration: 1.25, phase: 0.144,
+    },
+    {
+      uid: 'cast-shell', type: 'boss-skill-cast', enemyType: 'boss',
+      skillId: 'shell-rush', x: 250, y: 520, dashDistance: 96, radius: 155,
+      age: 0.2, duration: 0.72, phase: 0.278,
+    },
+  ];
+  canvas.context.calls.length = 0;
+  game.drawEffects(canvas.context, 'back');
+  game.resetFeedbackRenderBudget();
+  game.drawCombatFeedback(canvas.context, 'front');
+  game.drawBattleHero(canvas.context);
+  const firstArcs = canvas.context.calls
+    .filter(([kind]) => kind === 'arc')
+    .map((call) => call[3]);
+  const labels = canvas.context.calls
+    .filter(([kind]) => kind === 'fillText')
+    .map(([, text]) => text);
+  assert.ok(labels.includes('裂隙锁定'));
+  assert.ok(labels.includes('冲撞!'));
+  assert.ok(labels.includes('封锁 2.4'));
+  assert.ok(canvas.context.calls.filter(([kind]) => kind === 'lineTo').length >= 4,
+    'warning target lines and rush streaks are composed as moving Canvas paths');
+  assert.ok(canvas.context.calls.filter(([kind]) => kind === 'stroke').length >= 8,
+    'warnings and casts use layered rings instead of one fading image');
+
+  game.state.effects[0].targetX = 418;
+  game.state.effects[0].targetY = 742;
+  canvas.context.calls.length = 0;
+  game.resetFeedbackRenderBudget();
+  game.drawCombatFeedback(canvas.context, 'front');
+  assert.ok(canvas.context.calls.some(([kind, x, y]) => (
+    kind === 'lineTo' && x === 418 && y === 742
+  )), 'the front warning follows the core tracked target instead of showing a stale hit area');
+
+  game.state.effects[0].age = 0.78;
+  game.state.effects[0].phase = 0.624;
+  game.state.effects[1].age = 0.5;
+  game.state.effects[1].phase = 0.694;
+  canvas.context.calls.length = 0;
+  game.drawEffects(canvas.context, 'back');
+  const laterArcs = canvas.context.calls
+    .filter(([kind]) => kind === 'arc')
+    .map((call) => call[3]);
+  assert.notDeepEqual(laterArcs, firstArcs.slice(0, laterArcs.length),
+    'warning and cast geometry changes throughout the animation');
+  game.dispose();
+});
+
 test('combat feedback strictly clips event intake, active entries, and per-frame artwork', () => {
   const canvas = createCanvas();
   const dynamicAtlas = 'effect-dynamic-components-v1';
@@ -3702,5 +3795,47 @@ test('result rewards and squad fusion choice are visible, blocking overlays', ()
   assert.deepEqual(game.hits.map(({ id }) => id), [
     'squad-ability-choice-a', 'squad-ability-choice-b', 'audio-toggle',
   ]);
+  game.dispose();
+});
+
+test('wave upgrade uses a topmost blocking three-card choice and applies the tapped rank', () => {
+  const canvas = createCanvas();
+  const game = new TowerDefenseGame(canvas, {
+    runtime: createRuntime({ tutorialSeen: true }), pixelRatio: 1,
+  });
+  game.state.screen = 'battle';
+  game.state.phase = 'prep';
+  game.state.waveActive = false;
+  game.state.result = null;
+  game.state.tutorial.active = false;
+  game.state.wave = 2;
+  game.state.battleUpgradeRanks = { 'hero-force': 1 };
+  game.state.pendingBattleUpgrade = {
+    afterWave: 2,
+    options: ['hero-force', 'squad-tempo', 'battle-cache'],
+  };
+  game.render();
+  assert.deepEqual(game.hits.map(({ id }) => id), [
+    'battle-upgrade-hero-force',
+    'battle-upgrade-squad-tempo',
+    'battle-upgrade-battle-cache',
+  ], 'the upgrade modal replaces every lower interaction, including audio and battle controls');
+  const labels = canvas.context.calls
+    .filter(([kind]) => kind === 'fillText')
+    .map(([, text]) => text);
+  for (const expected of [
+    '波次强化', '第2波完成 · 选1项', '当前 1/3层',
+    '英雄凝聚', '黏液鼓点', '战地储罐',
+  ]) assert.ok(labels.includes(expected), `upgrade panel labels ${expected}`);
+
+  click(game, canvas, hitCenter(game, 'battle-upgrade-hero-force'));
+  assert.equal(game.state.pendingBattleUpgrade, null);
+  assert.equal(game.state.battleUpgradeRanks['hero-force'], 2);
+  assert.deepEqual(game.state.battleUpgradeHistory.at(-1), {
+    afterWave: 2, id: 'hero-force', rank: 2,
+  });
+  assert.ok(game.combatFeedback.some(({ kind, upgradeName }) => (
+    kind === 'battle-upgrade' && upgradeName === '英雄凝聚'
+  )), 'the choice event becomes immediate battle feedback');
   game.dispose();
 });

@@ -77,9 +77,35 @@ export const TD_EQUIPMENT_RARITIES = deepFreeze({
   },
 });
 
+/**
+ * Authored identity for every catalog entry. Definition IDs stay unchanged so
+ * existing saves, stage rewards, and summon results hydrate into the new art.
+ */
+const TD_EQUIPMENT_IDENTITIES = deepFreeze({
+  damage: {
+    R: { name: '赤曜徽记', iconKey: 'equipment-damage-charm' },
+    SR: { name: '焰心战锤', iconKey: 'equipment-flame-hammer-v1' },
+    SSR: { name: '雷鸣战角', iconKey: 'equipment-thunder-horn-v1' },
+    UR: { name: '星核光刃', iconKey: 'equipment-star-core-blade-v1' },
+  },
+  speed: {
+    R: { name: '流光徽记', iconKey: 'equipment-speed-charm' },
+    SR: { name: '翼风铃', iconKey: 'equipment-wing-bell-v1' },
+    SSR: { name: '雷闪齿轮', iconKey: 'equipment-lightning-gear-v1' },
+    UR: { name: '时之沙漏', iconKey: 'equipment-time-hourglass-v1' },
+  },
+  health: {
+    R: { name: '青芽徽记', iconKey: 'equipment-health-charm' },
+    SR: { name: '珊瑚守卫', iconKey: 'equipment-coral-guard-v1' },
+    SSR: { name: '晶辉王冠', iconKey: 'equipment-crystal-crown-v1' },
+    UR: { name: '世界树之心', iconKey: 'equipment-world-tree-heart-v1' },
+  },
+});
+
 function definitionFor(slotId, rarityId) {
   const slot = TD_EQUIPMENT_SLOTS[slotId];
   const rarity = TD_EQUIPMENT_RARITIES[rarityId];
+  const identity = TD_EQUIPMENT_IDENTITIES[slotId][rarityId];
   const stats = Object.fromEntries(TD_EQUIPMENT_STAT_IDS.map((statId) => [
     statId,
     Math.round(slot.baseStats[statId] * rarity.statScale),
@@ -88,8 +114,8 @@ function definitionFor(slotId, rarityId) {
     id: `${slotId}-${rarityId.toLowerCase()}`,
     slot: slotId,
     rarity: rarityId,
-    name: `${slot.seriesName}·${rarityId}`,
-    iconKey: slot.iconKey,
+    name: identity.name,
+    iconKey: identity.iconKey,
     stats,
   });
 }

@@ -43,6 +43,7 @@ import {
   rigPreloadSucceeded,
 } from '../src/main.js';
 import { WECHAT_CRITICAL_ASSET_KEYS } from '../src/platform/wechat-entry.js';
+import { TD_EQUIPMENT_CATALOG } from '../src/tower-defense-equipment.js';
 
 const PROJECT_ROOT = fileURLToPath(new URL('../', import.meta.url));
 const execFileAsync = promisify(execFile);
@@ -139,6 +140,18 @@ const EXPANSION_P0_ASSETS = Object.freeze([
   ...EXPANSION_SKILL_ASSETS,
 ]);
 
+const DISTINCT_EQUIPMENT_ASSETS = Object.freeze([
+  'equipment-flame-hammer-v1',
+  'equipment-thunder-horn-v1',
+  'equipment-star-core-blade-v1',
+  'equipment-wing-bell-v1',
+  'equipment-lightning-gear-v1',
+  'equipment-time-hourglass-v1',
+  'equipment-coral-guard-v1',
+  'equipment-crystal-crown-v1',
+  'equipment-world-tree-heart-v1',
+]);
+
 test('the workspace asset manifest strictly validates every finished PNG', async () => {
   const result = await verifyAssets({ cwd: PROJECT_ROOT, allowMissingSpec: false });
   assert.equal(result.ok, true, formatErrors(result));
@@ -147,6 +160,49 @@ test('the workspace asset manifest strictly validates every finished PNG', async
   assert.equal(result.summary.checkedAssets, PROJECT_ASSET_SPEC.assets.length);
   assert.deepEqual(result.errors, [], formatErrors(result));
   assert.deepEqual(result.warnings, [], formatErrors(result));
+});
+
+test('nine new equipment definitions use distinct formal 512px RGBA art everywhere', async () => {
+  assert.equal(DISTINCT_EQUIPMENT_ASSETS.length, 9);
+  const fileContents = [];
+
+  for (const id of DISTINCT_EQUIPMENT_ASSETS) {
+    const expectedPath = `assets/generated/equipment/${id}.png`;
+    const asset = PROJECT_ASSET_SPEC.assets.find((candidate) => candidate.id === id);
+    assert.ok(asset, `${id} has an asset-spec contract`);
+    assert.equal(asset.category, 'equipment', id);
+    assert.equal(asset.path, expectedPath, id);
+    assert.deepEqual(asset.recommendedCanvas, { width: 512, height: 512 }, id);
+    assert.equal(asset.width, 512, id);
+    assert.equal(asset.height, 512, id);
+    assert.equal(asset.transparent, true, id);
+    assert.equal(asset.priority, 'P0', id);
+    assert.match(asset.brief, /壳壳/, id);
+    assert.match(asset.brief, /高饱和软胶/, id);
+    assert.match(asset.brief, /独立完整轮廓/, id);
+    assert.match(asset.brief, /无文字.*写实纹理/, id);
+
+    const png = await readFile(path.join(PROJECT_ROOT, expectedPath));
+    const metadata = parsePng(png);
+    assert.equal(metadata.width, 512, id);
+    assert.equal(metadata.height, 512, id);
+    assert.equal(metadata.colorTypeName, 'RGBA', id);
+    assert.equal(metadata.hasAlphaChannel, true, id);
+    fileContents.push(png.toString('base64'));
+
+    assert.equal(ALL_RUNTIME_ASSET_KEYS.includes(id), true, id);
+    assert.equal(TOWER_DEFENSE_ASSET_KEYS.includes(id), true, id);
+    assert.equal(CRITICAL_STARTUP_ASSET_KEYS.includes(id), true, id);
+    assert.equal(WECHAT_CRITICAL_ASSET_KEYS.includes(id), true, id);
+    assert.ok(new URL(ASSET_PATHS[id]).pathname.endsWith(`/${expectedPath}`), id);
+  }
+
+  assert.equal(new Set(fileContents).size, DISTINCT_EQUIPMENT_ASSETS.length,
+    'every equipment definition has its own PNG instead of a reused texture');
+  for (const definition of TD_EQUIPMENT_CATALOG) {
+    assert.ok(ASSET_PATHS[definition.iconKey],
+      `${definition.id} iconKey ${definition.iconKey} resolves to formal art`);
+  }
 });
 
 test('the 28-piece battle expansion uses unique formal RGBA PNGs and strict startup paths', async () => {

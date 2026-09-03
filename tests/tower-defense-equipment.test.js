@@ -25,7 +25,7 @@ const rarityRank = (rarity) => TD_EQUIPMENT_RARITIES[rarity].rank;
 
 const item = (uid, definitionId, extra = {}) => ({ uid, definitionId, ...extra });
 
-test('catalog has three complete four-rarity series with formal icon keys and three stats', () => {
+test('catalog has twelve named definitions with unique formal icons and three stats', () => {
   assert.equal(TD_EQUIPMENT_CATALOG.length, 12);
   assert.deepEqual(TD_EQUIPMENT_SLOT_IDS, ['damage', 'speed', 'health']);
   assert.deepEqual(TD_EQUIPMENT_RARITY_IDS, ['R', 'SR', 'SSR', 'UR']);
@@ -33,11 +33,26 @@ test('catalog has three complete four-rarity series with formal icon keys and th
     TD_EQUIPMENT_SLOT_IDS.map((slotId) => TD_EQUIPMENT_SLOTS[slotId].iconKey),
     ['equipment-damage-charm', 'equipment-speed-charm', 'equipment-health-charm'],
   );
+  assert.equal(new Set(TD_EQUIPMENT_CATALOG.map(({ name }) => name)).size, 12);
+  assert.equal(new Set(TD_EQUIPMENT_CATALOG.map(({ iconKey }) => iconKey)).size, 12);
+  assert.deepEqual(TD_EQUIPMENT_CATALOG.map(({ iconKey }) => iconKey), [
+    'equipment-damage-charm',
+    'equipment-flame-hammer-v1',
+    'equipment-thunder-horn-v1',
+    'equipment-star-core-blade-v1',
+    'equipment-speed-charm',
+    'equipment-wing-bell-v1',
+    'equipment-lightning-gear-v1',
+    'equipment-time-hourglass-v1',
+    'equipment-health-charm',
+    'equipment-coral-guard-v1',
+    'equipment-crystal-crown-v1',
+    'equipment-world-tree-heart-v1',
+  ]);
 
   for (const slotId of TD_EQUIPMENT_SLOT_IDS) {
     const series = TD_EQUIPMENT_CATALOG.filter(({ slot }) => slot === slotId);
     assert.deepEqual(series.map(({ rarity }) => rarity), TD_EQUIPMENT_RARITY_IDS);
-    assert.ok(series.every(({ iconKey }) => iconKey === TD_EQUIPMENT_SLOTS[slotId].iconKey));
     for (const definition of series) {
       assert.deepEqual(Object.keys(definition.stats), TD_EQUIPMENT_STAT_IDS);
       assert.ok(Object.isFrozen(definition));
@@ -54,6 +69,36 @@ test('catalog has three complete four-rarity series with formal icon keys and th
   }
   assert.ok(Object.isFrozen(TD_EQUIPMENT_CATALOG));
   assert.ok(Object.isFrozen(TD_EQUIPMENT_RARITIES.UR.salvage));
+});
+
+test('legacy definition IDs hydrate saved equipment into the authored catalog', () => {
+  const legacyIds = [
+    'damage-r', 'damage-sr', 'damage-ssr', 'damage-ur',
+    'speed-r', 'speed-sr', 'speed-ssr', 'speed-ur',
+    'health-r', 'health-sr', 'health-ssr', 'health-ur',
+  ];
+  const normalized = normalizeTowerDefenseEquipmentProgress({
+    equipmentItems: legacyIds.map((definitionId, index) => (
+      item(`legacy-${index + 1}`, definitionId, {
+        name: 'old generated name',
+        iconKey: 'old-shared-icon',
+        stats: { damagePct: 999999 },
+      })
+    )),
+  });
+
+  assert.deepEqual(normalized.equipmentItems.map(({ definitionId }) => definitionId), legacyIds);
+  assert.deepEqual(
+    normalized.equipmentItems.map(({ iconKey }) => iconKey),
+    legacyIds.map((definitionId) => TD_EQUIPMENT_BY_ID[definitionId].iconKey),
+  );
+  assert.deepEqual(
+    normalized.equipmentItems.map(({ name }) => name),
+    legacyIds.map((definitionId) => TD_EQUIPMENT_BY_ID[definitionId].name),
+  );
+  assert.ok(normalized.equipmentItems.every(({ stats, definitionId }) => (
+    stats === TD_EQUIPMENT_BY_ID[definitionId].stats
+  )));
 });
 
 test('inventory and progress normalization reject forged records and repair references', () => {

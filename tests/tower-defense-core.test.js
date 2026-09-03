@@ -35,6 +35,7 @@ import {
   beginTowerDefenseRun,
   buildTowerDefenseTurret,
   buyTowerDefenseSquad,
+  buyTowerDefenseSquadFusion,
   canMergeTowers,
   chooseTowerDefenseSquadAbility,
   createTowerDefenseState,
@@ -144,16 +145,6 @@ function holdCombatWithHero(state) {
   state.hero.moveX = 0;
   state.hero.moveY = 0;
   return state;
-}
-
-function purchaseAndMergeFour(state, type, targetPadIndex, sourcePadIndex) {
-  const target = buyTowerDefenseSquad(state, type, targetPadIndex);
-  const source = buyTowerDefenseSquad(state, type, sourcePadIndex);
-  assert.ok(target);
-  assert.ok(source);
-  assert.equal(mergeTowers(state, source.uid, target.uid), target);
-  assert.equal(target.squadSize, 4);
-  return target;
 }
 
 function resolveProjectiles(state, maxTicks = 100) {
@@ -309,18 +300,18 @@ test('direct squad purchase is prep-only, correctly priced, one-cell, and atomic
   assert.deepEqual(Object.fromEntries(Object.entries(SQUAD_TYPES).map(([type, squad]) => (
     [type, squad.cost]
   ))), {
-    melee: 50,
-    ranged: 75,
-    charger: 65,
-    leaf: 85,
-    'drill-lancer': 90,
-    'spore-lobber': 95,
-    'volt-orbiter': 110,
+    melee: 60,
+    ranged: 85,
+    charger: 75,
+    leaf: 95,
+    'drill-lancer': 100,
+    'spore-lobber': 105,
+    'volt-orbiter': 120,
   });
-  assert.equal(SQUAD_TYPES.melee.deployMembers, 2);
+  assert.equal(SQUAD_TYPES.melee.deployMembers, 4);
   assert.equal(SQUAD_TYPES.melee.maxMembers, 4);
   assert.equal(SQUAD_TYPES.melee.squadSize, 4, 'legacy cap remains readable');
-  assert.equal(SQUAD_TYPES.ranged.deployMembers, 2);
+  assert.equal(SQUAD_TYPES.ranged.deployMembers, 4);
   assert.equal(SQUAD_TYPES.charger.movementMode, 'contact');
   assert.equal(SQUAD_TYPES.leaf.effect, 'poison');
   assert.equal(SQUAD_TYPES['drill-lancer'].rarity, 'SR');
@@ -336,18 +327,18 @@ test('direct squad purchase is prep-only, correctly priced, one-cell, and atomic
   assert.deepEqual(state, invalid, 'locked squads cannot be bought or mutate the run');
   const melee = buyTowerDefenseSquad(state, 'melee', 0);
   assert.ok(melee);
-  assert.equal(state.currency, 450);
+  assert.equal(state.currency, 440);
   assert.deepEqual({
     kind: melee.kind, squadType: melee.squadType, squadSize: melee.squadSize,
     maxMembers: melee.maxMembers, aliveMembers: melee.aliveMembers, padIndex: melee.padIndex,
   }, {
-    kind: 'soldier', squadType: 'melee', squadSize: 2,
-    maxMembers: 4, aliveMembers: 2, padIndex: 0,
+    kind: 'soldier', squadType: 'melee', squadSize: 4,
+    maxMembers: 4, aliveMembers: 4, padIndex: 0,
   });
-  assert.equal(melee.maxHp, squadStatsForRank('melee', 1).memberHp * 2);
-  assert.equal(melee.members.length, 2);
-  assert.equal(new Set(melee.members.map(({ uid }) => uid)).size, 2);
-  assert.equal(new Set(melee.members.map(({ x, y }) => `${x}:${y}`)).size, 2);
+  assert.equal(melee.maxHp, squadStatsForRank('melee', 1).memberHp * 4);
+  assert.equal(melee.members.length, 4);
+  assert.equal(new Set(melee.members.map(({ uid }) => uid)).size, 4);
+  assert.equal(new Set(melee.members.map(({ x, y }) => `${x}:${y}`)).size, 4);
   for (const member of melee.members) {
     assert.deepEqual({
       facing: member.facing,
@@ -371,10 +362,10 @@ test('direct squad purchase is prep-only, correctly priced, one-cell, and atomic
   assert.equal(buyTowerDefenseSquad(state, 'ranged', 0), null);
   assert.deepEqual(state, occupied);
   assert.ok(buyTowerDefenseSquad(state, 'ranged', 1));
-  assert.equal(state.currency, 375);
-  assert.equal(state.towers.length, 2, 'two two-member squads occupy two grid cells');
+  assert.equal(state.currency, 355);
+  assert.equal(state.towers.length, 2, 'two complete squads occupy two grid cells');
 
-  state.currency = 49;
+  state.currency = 59;
   const poor = clone(state);
   assert.equal(buyTowerDefenseSquad(state, 'melee', 2), null);
   assert.deepEqual(state, poor);
@@ -425,49 +416,35 @@ test('squad rarity, rank, and all fourteen fusion choices change shared combat s
   );
 });
 
-test('two matching pairs fuse into one four-member squad without losing identities', () => {
-  const state = createBattleState();
-  const target = buyTowerDefenseSquad(state, 'melee', 0);
-  const source = buyTowerDefenseSquad(state, 'melee', 1);
-  const wrongType = buyTowerDefenseSquad(state, 'ranged', 2);
-  assert.equal(canMergeTowers(source, target), true);
-  assert.equal(canMergeTowers(source, wrongType), false);
-  assert.equal(canMergeTowers(source, source), false);
-  const memberUids = [...target.members, ...source.members].map(({ uid }) => uid).sort();
-  const merged = mergeTowers(state, source.uid, target.uid);
-  assert.equal(merged, target);
-  assert.equal(state.towers.some(({ uid }) => uid === source.uid), false);
-  assert.equal(target.squadSize, 4);
-  assert.equal(target.maxMembers, 4);
-  assert.equal(target.fusionTier, 1);
-  assert.equal(target.fusionAbility, null);
-  assert.deepEqual(target.members.map(({ uid }) => uid).sort(), memberUids);
-  assert.equal(new Set(target.members.map(({ x, y }) => `${x}:${y}`)).size, 4);
-  assert.equal(target.maxHp, squadStatsForRank('melee', 1).memberHp * 4);
-  assert.equal(state.events.some(({ type, towerUid, sourceUid }) => (
-    type === 'merge' && towerUid === target.uid && sourceUid === source.uid
-  )), true);
-  assert.ok(buyTowerDefenseSquad(state, 'melee', 1), 'the consumed source frees its cell');
-});
-
-test('four-plus-four fusion waits for an ability and blocks prep mutations atomically', () => {
+test('one matching purchase evolves a deployed full squad without a staging pad', () => {
   const state = createBattleState();
   state.currency = 1_000;
-  const target = purchaseAndMergeFour(state, 'melee', 0, 1);
-  const source = purchaseAndMergeFour(state, 'melee', 2, 3);
-  assert.equal(mergeTowers(state, source.uid, target.uid), target);
-  assert.equal(state.towers.length, 2, 'neither squad is consumed before the choice');
+  const target = buyTowerDefenseSquad(state, 'melee', 0);
+  target.members[0].hp /= 2;
+  target.hp = target.members.reduce((total, member) => total + member.hp, 0);
+  const targetBeforePurchase = clone(target);
+  const memberUids = target.members.map(({ uid }) => uid);
+  assert.equal(buyTowerDefenseSquadFusion(state, 'melee', target.uid), target);
+  assert.equal(state.currency, 1_000 - SQUAD_TYPES.melee.cost * 2);
+  assert.equal(state.towers.length, 1);
+  assert.deepEqual(target, targetBeforePurchase,
+    'paying for the evolution does not mutate the squad before an ability is chosen');
   assert.deepEqual(state.pendingSquadFusion, {
-    sourceUid: source.uid,
+    sourceMode: 'purchase',
+    sourceUid: null,
     targetUid: target.uid,
     squadType: 'melee',
+    paidCost: SQUAD_TYPES.melee.cost,
     options: SQUAD_TYPES.melee.fusionChoices.map(({ id, name, description }) => ({
       id, name, description,
     })),
   });
+  assert.equal(state.events.some(({ type, directFusion, cost }) => (
+    type === 'squad-buy' && directFusion && cost === SQUAD_TYPES.melee.cost
+  )), true);
   const invalidChoice = clone(state);
   assert.equal(chooseTowerDefenseSquadAbility(state, 'unknown'), null);
-  assert.deepEqual(state, invalidChoice, 'an invalid choice cannot mutate either squad');
+  assert.deepEqual(state, invalidChoice, 'an invalid choice cannot mutate the paid pending fusion');
   assert.equal(startNextTowerDefenseWave(state), false);
   assert.equal(moveTowerToPad(state, target.uid, 4), null);
   assert.equal(buyTowerDefenseSquad(state, 'ranged', 4), null);
@@ -478,12 +455,86 @@ test('four-plus-four fusion waits for an ability and blocks prep mutations atomi
   assert.equal(chosen, target);
   assert.equal(state.pendingSquadFusion, null);
   assert.equal(state.towers.length, 1);
+  assert.deepEqual(target.members.map(({ uid }) => uid), memberUids);
   assert.equal(target.squadSize, 4);
   assert.equal(target.members.length, 4);
   assert.equal(target.fusionTier, 2);
   assert.equal(target.fusionAbility, 'shell-wall');
   assert.equal(target.maxHp, chosenStats.memberHp * 4);
   assert.equal(target.members.every(({ maxHp }) => maxHp === chosenStats.memberHp), true);
+  assert.equal(target.members[0].hp, chosenStats.memberHp / 2,
+    'evolution preserves each surviving member health ratio');
+  assert.equal(state.events.findLast(({ type }) => type === 'merge').sourceUid, null);
+});
+
+test('direct squad evolution rejects invalid purchases atomically', () => {
+  const state = createBattleState();
+  state.currency = 1_000;
+  const target = buyTowerDefenseSquad(state, 'melee', 0);
+  for (const [type, uid] of [['ranged', target.uid], ['melee', 'missing']]) {
+    const snapshot = clone(state);
+    assert.equal(buyTowerDefenseSquadFusion(state, type, uid), null);
+    assert.deepEqual(state, snapshot);
+  }
+
+  state.currency = SQUAD_TYPES.melee.cost - 1;
+  const poor = clone(state);
+  assert.equal(buyTowerDefenseSquadFusion(state, 'melee', target.uid), null);
+  assert.deepEqual(state, poor);
+
+  state.currency = 1_000;
+  target.fusionAbility = 'shell-wall';
+  const evolved = clone(state);
+  assert.equal(buyTowerDefenseSquadFusion(state, 'melee', target.uid), null);
+  assert.deepEqual(state, evolved);
+  target.fusionAbility = null;
+
+  assert.equal(startNextTowerDefenseWave(state), true);
+  const combat = clone(state);
+  assert.equal(buyTowerDefenseSquadFusion(state, 'melee', target.uid), null);
+  assert.deepEqual(state, combat);
+
+  const tutorial = createBattleState({ tutorialSeen: false });
+  const tutorialTarget = buyTowerDefenseSquad(tutorial, 'melee', 0);
+  const tutorialSnapshot = clone(tutorial);
+  assert.equal(buyTowerDefenseSquadFusion(tutorial, 'melee', tutorialTarget.uid), null);
+  assert.deepEqual(tutorial, tutorialSnapshot);
+});
+
+test('physical four-plus-four fusion remains available and consumes its source after choice', () => {
+  const state = createBattleState();
+  state.currency = 1_000;
+  const target = buyTowerDefenseSquad(state, 'melee', 0);
+  const source = buyTowerDefenseSquad(state, 'melee', 1);
+  const wrongType = buyTowerDefenseSquad(state, 'ranged', 2);
+  assert.equal(canMergeTowers(source, target), true);
+  assert.equal(canMergeTowers(source, wrongType), false);
+  assert.equal(canMergeTowers(source, source), false);
+  assert.equal(mergeTowers(state, source.uid, target.uid), target);
+  assert.equal(state.towers.length, 3, 'the source remains until an ability is selected');
+  assert.deepEqual(state.pendingSquadFusion, {
+    sourceUid: source.uid,
+    targetUid: target.uid,
+    squadType: 'melee',
+    options: SQUAD_TYPES.melee.fusionChoices.map(({ id, name, description }) => ({
+      id, name, description,
+    })),
+  });
+  assert.equal(chooseTowerDefenseSquadAbility(state, 'shell-wall'), target);
+  assert.equal(state.pendingSquadFusion, null);
+  assert.equal(state.towers.some(({ uid }) => uid === source.uid), false);
+  assert.equal(state.towers.length, 2);
+  assert.equal(target.fusionTier, 2);
+  assert.equal(target.fusionAbility, 'shell-wall');
+  assert.ok(buyTowerDefenseSquad(state, 'melee', 1), 'the consumed source frees its cell');
+});
+
+test('a chosen squad ability survives wave clear and revives the full squad', () => {
+  const state = createBattleState();
+  const target = buyTowerDefenseSquad(state, 'melee', 0);
+  assert.equal(buyTowerDefenseSquadFusion(state, 'melee', target.uid), target);
+  assert.equal(chooseTowerDefenseSquadAbility(state, 'shell-wall'), target);
+  const chosenStats = squadStatsForRank('melee', target.rank, 'shell-wall');
   assert.equal(startNextTowerDefenseWave(state), true);
   state.spawnQueue = [];
   state.enemies = [];
@@ -497,8 +548,8 @@ test('four-plus-four fusion waits for an ability and blocks prep mutations atomi
 
 test('a selected squad ability drives projectile count, damage, status, and attack interval', () => {
   const state = createBattleState({ progress: { squadRanks: { leaf: 1 } } });
-  const target = purchaseAndMergeFour(state, 'leaf', 1, 0);
-  const source = purchaseAndMergeFour(state, 'leaf', 3, 2);
+  const target = buyTowerDefenseSquad(state, 'leaf', 1);
+  const source = buyTowerDefenseSquad(state, 'leaf', 3);
   assert.equal(mergeTowers(state, source.uid, target.uid), target);
   assert.equal(chooseTowerDefenseSquadAbility(state, 'double-leaf'), target);
   const stats = squadStatsForRank('leaf', 1, 'double-leaf');
@@ -543,10 +594,10 @@ test('member losses reduce aliveMembers and squad damage linearly', () => {
     state.events = [];
     updateTowerDefense(state, 0.01);
     const full = state.events.filter(({ type }) => type === 'shot');
-    assert.equal(full.length, 2);
-    assert.equal(new Set(full.map(({ soldierUid }) => soldierUid)).size, 2);
+    assert.equal(full.length, 4);
+    assert.equal(new Set(full.map(({ soldierUid }) => soldierUid)).size, 4);
     assert.equal(full.reduce((sum, event) => sum + event.damage, 0),
-      squadStatsForRank(squadType, 1).damagePerMember * 2);
+      squadStatsForRank(squadType, 1).damagePerMember * 4);
 
     // Aggregate HP is deliberately written here to cover old battle saves and
     // callers that predate per-member health.
@@ -619,10 +670,10 @@ test('melee closes to contact while ranged fires a long-distance projectile', ()
   rangedState.events = [];
   updateTowerDefense(rangedState, 0.01);
   const rangedShots = rangedState.events.filter(({ type }) => type === 'shot');
-  assert.equal(rangedShots.length, 2);
+  assert.equal(rangedShots.length, 4);
   assert.equal(rangedShots.every(({ attackMode }) => attackMode === 'ranged-volley'), true);
   assert.equal(rangedShots.every(({ projectileCount }) => projectileCount === 1), true);
-  assert.equal(rangedState.projectiles.length, 2);
+  assert.equal(rangedState.projectiles.length, 4);
   assert.equal(rangedState.projectiles[0].sourceKind, 'squad');
   assert.equal(rangedState.projectiles[0].damage, SQUAD_TYPES.ranged.damagePerMember);
   resolveProjectiles(rangedState);
@@ -656,7 +707,7 @@ test('new squads use movementMode and apply their authored contact or poison att
   leafState.enemies = [leafTarget];
   leaf.members.forEach((member) => { member.attackCooldown = 0; });
   updateTowerDefense(leafState, 0.01);
-  assert.equal(leafState.projectiles.length, 2);
+  assert.equal(leafState.projectiles.length, 4);
   assert.equal(leafState.projectiles.every(({ effect }) => effect === 'poison'), true);
   resolveProjectiles(leafState);
   assert.ok(leafTarget.hp < leafTarget.maxHp);
@@ -664,7 +715,7 @@ test('new squads use movementMode and apply their authored contact or poison att
   assert.ok(leafTarget.poisonTime > 0);
 });
 
-test('recruited drill, spore, and volt squads deploy as two authored independent soldiers', () => {
+test('recruited drill, spore, and volt squads deploy as four authored independent soldiers', () => {
   const expected = {
     'drill-lancer': { rarity: 'SR', mode: 'contact', attack: 'drill-lance' },
     'spore-lobber': { rarity: 'SR', mode: 'keep-range', attack: 'spore-lob' },
@@ -675,7 +726,7 @@ test('recruited drill, spore, and volt squads deploy as two authored independent
     const squad = buyTowerDefenseSquad(state, type, 1);
     assert.ok(squad);
     assert.equal(squad.rank, 1);
-    assert.equal(squad.members.length, 2);
+    assert.equal(squad.members.length, 4);
     assert.equal(SQUAD_TYPES[type].rarity, authored.rarity);
     assert.equal(SQUAD_TYPES[type].movementMode, authored.mode);
     assert.equal(SQUAD_TYPES[type].attackMode, authored.attack);
@@ -699,10 +750,10 @@ test('contact damage downs members once and wave clear revives the retained squa
   state.enemies = [enemy];
   squad.cooldown = 999;
   state.events = [];
-  for (let tick = 0; tick < 80 && squad.aliveMembers === 2; tick += 1) {
+  for (let tick = 0; tick < 80 && squad.aliveMembers === 4; tick += 1) {
     updateTowerDefense(state, 0.05);
   }
-  assert.ok(squad.aliveMembers < 2);
+  assert.ok(squad.aliveMembers < 4);
   const memberDown = state.events.find(({ type }) => type === 'squad-member-down');
   assert.ok(memberDown);
   assert.ok(memberDown.soldierUid);
@@ -733,7 +784,7 @@ test('contact damage downs members once and wave clear revives the retained squa
   updateTowerDefense(state, 0.05);
   assert.equal(state.phase, 'prep');
   assert.equal(squad.hp, squad.maxHp);
-  assert.equal(squad.aliveMembers, 2);
+  assert.equal(squad.aliveMembers, 4);
   assert.equal(squad.downed, false);
   assert.equal(squad.y, squad.deployY);
   assert.equal(squad.members.every((member) => (
@@ -1349,7 +1400,7 @@ test('wave clear returns to prep, restores actors, and never auto-starts', () =>
   assert.equal(state.waveBreak, 0);
   assert.equal(squad.y, squad.deployY);
   assert.equal(squad.hp, squad.maxHp);
-  assert.equal(squad.aliveMembers, 2);
+  assert.equal(squad.aliveMembers, 4);
   assert.equal(squad.members.every((member) => (
     member.hp === member.maxHp && member.alive && !member.downed
     && member.x === member.deployX && member.y === member.deployY
@@ -1814,7 +1865,7 @@ function simulateStarterLineup({ heroActive }) {
   assert.ok(buyTowerDefenseSquad(state, 'melee', padIndex(0, 0)));
   assert.ok(buyTowerDefenseSquad(state, 'ranged', padIndex(2, 4)));
   assert.ok(buildTowerDefenseTurret(state, 1));
-  assert.equal(state.currency, 200);
+  assert.equal(state.currency, 180);
   if (!heroActive) state.hero.hp = 0;
 
   let ticks = 0;
@@ -2201,7 +2252,7 @@ test('versioned tutorial teaches stage, purchase categories, turret prep, combat
   assert.ok(tutorialTurret);
   assert.equal(tutorialTurret.type, 'gel-mortar');
   assert.equal(tutorialTurret.slotIndex, 0);
-  assert.equal(state.currency, 275,
+  assert.equal(state.currency, 265,
     'the guided squad and turret purchases leave enough currency to continue');
   assert.deepEqual(tutorialTargetForState(state), { type: 'start', label: '战' });
   assert.equal(startNextTowerDefenseWave(state), true);

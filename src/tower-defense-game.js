@@ -68,6 +68,7 @@ import {
   setTowerDefenseHeroMovement,
   activateTowerDefenseHeroSkill,
   buyTowerDefenseSquad,
+  buyTowerDefenseSquadFusion,
   buildTowerDefenseTurret,
   selectTowerDefenseHero,
   towerAttackEvolution,
@@ -87,6 +88,7 @@ import {
   TD_EQUIPMENT_BY_ID,
   TD_EQUIPMENT_SLOT_IDS,
   TD_EQUIPMENT_SLOTS,
+  summarizeTowerDefenseEquipmentInventory,
 } from './tower-defense-equipment.js';
 import { dailyChallengeForDay } from './tower-defense-challenges.js';
 
@@ -2272,6 +2274,27 @@ export class TowerDefenseGame {
     };
   }
 
+  activeSquadPurchaseType() {
+    const draggedPurchase = this.drag?.kind === 'purchase'
+      ? this.drag.purchaseType : null;
+    return squadTypeForPurchase(draggedPurchase || this.selectedPurchase);
+  }
+
+  isSquadFusionPurchaseTarget(squadType, tower) {
+    const definition = SQUAD_TYPES[squadType];
+    if (
+      !definition || !tower || !this.isPreparation() || this.state.pendingSquadFusion
+      || this.state.tutorial?.active || this.state.currency < definition.cost
+      || !isSquadTower(tower) || tower.fusionAbility
+    ) return false;
+    const targetType = squadTypeFor(tower.type, tower.squadType || tower.unitType);
+    const memberCount = Math.max(
+      Math.floor(Number(tower.squadSize) || 0),
+      Array.isArray(tower.members) ? tower.members.length : 0,
+    );
+    return targetType === squadType && memberCount === definition.maxMembers;
+  }
+
   hitAt(point, predicate = null) {
     if (!predicate && turretTypeForPurchase(this.selectedPurchase)) {
       for (let index = this.hits.length - 1; index >= 0; index -= 1) {
@@ -2359,13 +2382,17 @@ export class TowerDefenseGame {
     return Math.max(0, Math.floor(Number(this.state.progress?.metaCoins) || 0));
   }
 
+  drawMetaCoinIcon(ctx, x, y, size = 34) {
+    drawAssetOrFallback(ctx, this.assetStore, 'ui-meta-coin', (asset) => {
+      ctx.drawImage(asset, x, y, size, size);
+    }, () => {});
+  }
+
   drawMetaCoinWallet(ctx, rect = HEADER_META_COIN_RECT) {
     panel(ctx, rect, {
       fill: 'rgba(255,245,204,0.94)', stroke: '#C68B2F', lineWidth: 2, radius: 20,
     });
-    drawAssetOrFallback(ctx, this.assetStore, 'ui-meta-coin-v1', (asset) => {
-      ctx.drawImage(asset, rect.x + 8, rect.y + 8, 42, 42);
-    }, () => {});
+    this.drawMetaCoinIcon(ctx, rect.x + 8, rect.y + 8, 42);
     label(ctx, this.metaCoins(), rect.x + rect.width - 12,
       rect.y + rect.height / 2 + 1, {
         size: 19, align: 'right', color: COLORS.ink, weight: 950,
@@ -2622,11 +2649,14 @@ export class TowerDefenseGame {
           );
         }
       } else if (purchase?.kind === 'squad' && isSquadType(purchase.type)) {
+        const towerHit = this.hitAt(point, (hit) => hit.action === 'tower');
         const padHit = this.emptyPadHitAt(point);
         const target = tutorialTargetForState(this.state);
         const tutorialMatches = !target || target.type !== 'squad'
           || (target.squadType === purchase.type && target.padIndex === padHit?.data.padIndex);
-        if (padHit && tutorialMatches) {
+        if (towerHit && this.tutorialAllows(towerHit)) {
+          this.tryPurchaseSquadFusion(drag.purchaseType, towerHit.data.towerUid);
+        } else if (padHit && tutorialMatches) {
           buyTowerDefenseSquad(this.state, purchase.type, padHit.data.padIndex);
         }
       }
@@ -2710,6 +2740,17 @@ export class TowerDefenseGame {
     return true;
   }
 
+  tryPurchaseSquadFusion(purchaseType, targetUid) {
+    const squadType = squadTypeForPurchase(purchaseType);
+    if (!squadType) return false;
+    const fused = buyTowerDefenseSquadFusion(this.state, squadType, targetUid);
+    if (!fused) return false;
+    this.selectedPurchase = null;
+    this.selectedCardUid = null;
+    this.state.selectedTowerUid = fused.uid || targetUid;
+    return true;
+  }
+
   moveTower(towerUid, padIndex) {
     const moved = moveTowerToPad(this.state, towerUid, padIndex);
     if (!moved) return false;
@@ -2727,6 +2768,10 @@ export class TowerDefenseGame {
   }
 
   selectOrMergeTower(towerUid) {
+    if (squadTypeForPurchase(this.selectedPurchase)) {
+      if (this.tryPurchaseSquadFusion(this.selectedPurchase, towerUid)) this.processEvents();
+      return;
+    }
     const selected = this.state.selectedTowerUid;
     if (this.selectedCardUid) {
       this.tryMergeCard(this.selectedCardUid, towerUid);
@@ -3902,10 +3947,16 @@ export class TowerDefenseGame {
       && requiredShards > 0 && shards >= requiredShards && this.metaCoins() >= rankCost;
     const rankLabel = inspectedRank >= TD_CONTRACT_MAX_RANK
       ? '已满阶'
-      : `升阶 ${shards}/${requiredShards} · 金币${rankCost}`;
+      : `升阶 ${shards}/${requiredShards} · ${rankCost}`;
     button(ctx, ROSTER_RANK_RECT, rankLabel, {
       enabled: canRankUp, fill: '#F0B84D', accent: '#9A5A23', size: 15,
     });
+    if (inspectedRank < TD_CONTRACT_MAX_RANK) {
+      ctx.save();
+      ctx.globalAlpha = canRankUp ? 1 : 0.46;
+      this.drawMetaCoinIcon(ctx, ROSTER_RANK_RECT.x + 8, ROSTER_RANK_RECT.y + 23, 26);
+      ctx.restore();
+    }
     this.addHit(`hero-rank-up-${inspectType}`, ROSTER_RANK_RECT, 'hero-rank-up', {
       heroType: inspectType,
     }, canRankUp);
@@ -3925,11 +3976,11 @@ export class TowerDefenseGame {
     const picker = this.equipmentPicker;
     if (!picker) return;
     const slot = TD_EQUIPMENT_SLOTS[picker.slotId];
-    const allItems = (this.state.progress?.equipmentItems || [])
-      .filter((item) => item.slot === picker.slotId);
-    const pageCount = Math.max(1, Math.ceil(allItems.length / EQUIPMENT_PICKER_PAGE_SIZE));
+    const allStacks = summarizeTowerDefenseEquipmentInventory(this.state.progress)
+      .filter((stack) => stack.slot === picker.slotId);
+    const pageCount = Math.max(1, Math.ceil(allStacks.length / EQUIPMENT_PICKER_PAGE_SIZE));
     picker.page = clamp(Math.floor(Number(picker.page) || 0), 0, pageCount - 1);
-    const visibleItems = allItems.slice(
+    const visibleStacks = allStacks.slice(
       picker.page * EQUIPMENT_PICKER_PAGE_SIZE,
       (picker.page + 1) * EQUIPMENT_PICKER_PAGE_SIZE,
     );
@@ -3952,37 +4003,36 @@ export class TowerDefenseGame {
     this.addHit('equipment-picker-close', EQUIPMENT_PICKER_CLOSE_RECT,
       'equipment-picker-close');
 
-    if (!visibleItems.length) {
+    if (!visibleStacks.length) {
       label(ctx, '还没有这类装备', TD_VIEW.width / 2, 624, {
         size: 24, color: COLORS.inkSoft, weight: 900,
       });
     }
-    visibleItems.forEach((item, index) => {
-      const definition = equipmentDefinitionFor(item);
-      const rarity = rarityStyle(item.rarity || definition?.rarity);
+    visibleStacks.forEach((stack, index) => {
+      const definition = equipmentDefinitionFor(stack);
+      const rarity = rarityStyle(stack.rarity || definition?.rarity);
       const rect = {
         x: 72 + (index % 2) * 300,
         y: 292 + Math.floor(index / 2) * 224,
         width: 276,
         height: 196,
       };
-      const selected = equipped?.uid === item.uid;
-      const holder = Object.entries(this.state.progress?.equipmentLoadouts || {})
-        .find(([, loadout]) => loadout?.[picker.slotId] === item.uid)?.[0];
+      const selected = equipped?.definitionId === stack.definitionId;
+      const availableItemUid = stack.availableItemUids[0] || null;
       panel(ctx, rect, {
         fill: selected ? '#FFF1B9' : rarity.fill,
         stroke: selected ? COLORS.gold : rarity.color,
         lineWidth: selected ? 5 : 3, radius: 22, shadow: true,
       });
-      drawAssetOrFallback(ctx, this.assetStore, item.iconKey || definition?.iconKey, (asset) => {
+      drawAssetOrFallback(ctx, this.assetStore, stack.iconKey || definition?.iconKey, (asset) => {
         ctx.drawImage(asset, rect.x + 16, rect.y + 38, 86, 86);
       }, () => {});
-      label(ctx, item.rarity || definition?.rarity || 'R', rect.x + 18, rect.y + 22, {
+      label(ctx, stack.rarity || definition?.rarity || 'R', rect.x + 18, rect.y + 22, {
         size: 15, align: 'left', color: rarity.deep, weight: 950,
       });
-      label(ctx, item.name || definition?.name || slot?.name, rect.x + rect.width - 16,
+      label(ctx, stack.name || definition?.name || slot?.name, rect.x + rect.width - 16,
         rect.y + 24, { size: 15, align: 'right', color: COLORS.ink, weight: 950 });
-      const stats = item.stats || definition?.stats || {};
+      const stats = stack.stats || definition?.stats || {};
       const statText = [
         `攻+${((Number(stats.damagePct) || 0) / 100).toFixed(1)}%`,
         `速+${((Number(stats.attackSpeedPct) || 0) / 100).toFixed(1)}%`,
@@ -3992,13 +4042,20 @@ export class TowerDefenseGame {
         rect.y + 70 + statIndex * 29, {
           size: 14, align: 'left', color: COLORS.inkSoft, weight: 850,
         }));
-      label(ctx, selected ? '已装备' : holder ? `${HERO_TYPES[holder]?.name || holder}使用中` : '点击装备',
+      const inventoryLabel = selected
+        ? `已装备 · 可用×${stack.availableCount}`
+        : stack.availableCount > 0
+          ? `装备 · 可用×${stack.availableCount}`
+          : '可用×0';
+      label(ctx, inventoryLabel,
         rect.x + rect.width / 2, rect.y + rect.height - 20, {
           size: 13, color: selected ? '#9A6A21' : rarity.deep, weight: 900,
         });
-      this.addHit(`equip-item-${item.uid}`, rect, 'equip-equipment-item', {
-        itemUid: item.uid,
-      }, !selected);
+      this.addHit(`equip-item-${availableItemUid || `empty-${stack.definitionId}`}`,
+        rect, 'equip-equipment-item', {
+          itemUid: availableItemUid,
+          definitionId: stack.definitionId,
+        }, !selected && Boolean(availableItemUid));
     });
 
     button(ctx, EQUIPMENT_PICKER_UNEQUIP_RECT, equipped ? '卸下当前装备' : '当前为空', {
@@ -4346,11 +4403,12 @@ export class TowerDefenseGame {
     if (kind === 'squad') {
       const visual = SOLDIER_VISUALS[result.type];
       if (!visual) return false;
-      const memberSize = single ? 86 : 30;
+      const memberSize = single ? 72 : 25;
       const centerY = single ? 172 : 32;
-      const spreadX = single ? 48 : 17;
-      const spreadY = single ? 18 : 7;
+      const spreadX = single ? 43 : 15;
+      const spreadY = single ? 24 : 9;
       const positions = [
+        [-spreadX, -spreadY], [spreadX, -spreadY],
         [-spreadX, spreadY], [spreadX, spreadY],
       ];
       let rendered = false;
@@ -4502,7 +4560,14 @@ export class TowerDefenseGame {
       const rewardText = result.kind === 'equipment' ? '获得装备'
         : result.unlocked
         ? unlockedLabel
-        : converted ? `金币 +${converted}` : rankUps ? `升阶 +${rankUps}` : `碎片 +${shards}`;
+        : converted ? `+${converted}` : rankUps ? `升阶 +${rankUps}` : `碎片 +${shards}`;
+      if (converted) {
+        const coinSize = single ? 30 : 18;
+        this.drawMetaCoinIcon(ctx,
+          -(single ? 70 : 46),
+          localRect.y + localRect.height - (single ? 84 : 31),
+          coinSize);
+      }
       label(ctx, rewardText,
         0, localRect.y + localRect.height - (single ? 68 : 18), {
           size: single ? 23 : 13,
@@ -5283,15 +5348,22 @@ export class TowerDefenseGame {
       ? this.drag.uid
       : null;
     const activeTower = this.state.towers.find((candidate) => candidate.uid === activeTowerUid);
+    const activeSquadPurchaseType = preparation ? this.activeSquadPurchaseType() : null;
     let dropIntent = null;
-    if (activeCard) {
+    if (activeSquadPurchaseType) {
+      if (!tower) dropIntent = 'place';
+      else if (this.isSquadFusionPurchaseTarget(activeSquadPurchaseType, tower)) {
+        dropIntent = 'ability';
+      }
+    } else if (activeCard) {
       if (!tower) dropIntent = 'place';
       else if (canMergeCardIntoTower(activeCard, tower)) dropIntent = 'merge';
     } else if (activeTower && activeTower.uid !== tower?.uid) {
       if (!tower) dropIntent = 'move';
-      else if (canMergeTowers(activeTower, tower)) dropIntent = 'merge';
+      else if (canMergeTowers(activeTower, tower)) {
+        dropIntent = Number(activeTower.squadSize) >= 4 ? 'ability' : 'merge';
+      }
     }
-    if (!tower && squadTypeForPurchase(this.selectedPurchase)) dropIntent = 'place';
     const hoverRect = {
       x: pad.x - DEPLOY_CELL_SIZE.width / 2,
       y: pad.y - DEPLOY_CELL_SIZE.height / 2,
@@ -5310,7 +5382,7 @@ export class TowerDefenseGame {
       ctx.globalAlpha = dropIntent
         ? (hot ? 0.88 : 0.64)
         : tower ? 0.18 : 0.62;
-      ctx.fillStyle = dropIntent === 'merge'
+      ctx.fillStyle = dropIntent === 'merge' || dropIntent === 'ability'
         ? '#FFE59A'
         : dropIntent === 'move'
           ? '#D8EFFF'
@@ -5319,7 +5391,7 @@ export class TowerDefenseGame {
             : tower ? '#D8F2DC' : '#FFF8DA';
       ctx.strokeStyle = tutorialPad
         ? COLORS.gold
-        : dropIntent === 'merge'
+        : dropIntent === 'merge' || dropIntent === 'ability'
           ? '#D79B26'
           : dropIntent === 'move'
             ? '#4E9CC9'
@@ -5395,12 +5467,13 @@ export class TowerDefenseGame {
       }
       ctx.restore();
     }
-    if (dropIntent === 'merge') {
+    if (dropIntent === 'merge' || dropIntent === 'ability') {
       const mergeTagY = Math.max(BATTLE_FIELD.top + 4, pad.y - 116);
-      panel(ctx, { x: pad.x - 24, y: mergeTagY, width: 48, height: 28 }, {
+      const tagWidth = dropIntent === 'ability' ? 84 : 56;
+      panel(ctx, { x: pad.x - tagWidth / 2, y: mergeTagY, width: tagWidth, height: 28 }, {
         fill: '#F4C94C', stroke: '#9B6E20', lineWidth: 2, radius: 14,
       });
-      label(ctx, `★${tower.star + 1}`, pad.x, mergeTagY + 15, {
+      label(ctx, dropIntent === 'ability' ? '选能力' : '融合', pad.x, mergeTagY + 15, {
         size: 13, color: COLORS.ink, weight: 950,
       });
     }
@@ -7408,7 +7481,7 @@ export class TowerDefenseGame {
     const compact = rect.width < 100 || rect.height < 140;
     const previewCount = Math.max(1, Math.floor(Number(
       SQUAD_TYPES[squadType]?.deployMembers,
-    ) || 2));
+    ) || 4));
     const positions = previewCount <= 2
       ? compact
         ? [{ x: -22, y: 4, scale: 0.86 }, { x: 22, y: 4, scale: 0.86 }]
@@ -8000,6 +8073,9 @@ export class TowerDefenseGame {
       });
       label(ctx, rewardParts.join('  ·  '), rewardRect.x + rewardRect.width / 2,
         rewardRect.y + 54, { size: 18, color: COLORS.ink, weight: 950 });
+      if (rewardCoins > 0) {
+        this.drawMetaCoinIcon(ctx, rewardRect.x + 74, rewardRect.y + 34, 30);
+      }
       const firstEquipment = rewardEquipment[0];
       const equipmentDefinition = equipmentDefinitionFor(firstEquipment);
       if (firstEquipment) {

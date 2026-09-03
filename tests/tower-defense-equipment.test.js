@@ -17,6 +17,7 @@ import {
   salvageTowerDefenseEquipment,
   sanitizeTowerDefenseEquipmentInventory,
   setTowerDefenseEquipmentLocked,
+  summarizeTowerDefenseEquipmentInventory,
   unequipTowerDefenseItem,
 } from '../src/tower-defense-equipment.js';
 
@@ -200,32 +201,97 @@ test('earned equipment grants preserve every independent summon pity counter', (
   assert.equal(grantTowerDefenseEquipment(source, []), null);
 });
 
-test('equip moves one item between heroes, displaces its target slot, and unequips cleanly', () => {
+test('equipment summaries stack matching copies and track available inventory', () => {
+  const source = {
+    equipmentItems: [
+      item('gear-4', 'speed-sr'),
+      item('gear-1', 'damage-r'),
+      item('gear-2', 'damage-r'),
+      item('gear-3', 'damage-r'),
+    ],
+    equipmentLoadouts: {
+      shell: { damage: 'gear-1' },
+      sprout: { damage: 'gear-2' },
+    },
+  };
+  const summary = summarizeTowerDefenseEquipmentInventory(source);
+  const damage = summary.find(({ definitionId }) => definitionId === 'damage-r');
+  const speed = summary.find(({ definitionId }) => definitionId === 'speed-sr');
+
+  assert.equal(summary.length, 2);
+  assert.deepEqual(summary.map(({ definitionId }) => definitionId), ['damage-r', 'speed-sr'],
+    'non-empty stacks follow catalog order rather than save order');
+  assert.deepEqual(
+    {
+      totalCount: damage.totalCount,
+      equippedCount: damage.equippedCount,
+      availableCount: damage.availableCount,
+    },
+    { totalCount: 3, equippedCount: 2, availableCount: 1 },
+  );
+  assert.deepEqual(damage.availableItemUids, ['gear-3']);
+  assert.deepEqual(
+    {
+      totalCount: speed.totalCount,
+      equippedCount: speed.equippedCount,
+      availableCount: speed.availableCount,
+    },
+    { totalCount: 1, equippedCount: 0, availableCount: 1 },
+  );
+  assert.deepEqual(speed.availableItemUids, ['gear-4']);
+  assert.ok(Object.isFrozen(summary));
+  assert.ok(Object.isFrozen(damage));
+  assert.ok(Object.isFrozen(damage.availableItemUids));
+});
+
+test('equip consumes a free UID, never steals one, and unequip returns it to the stack', () => {
   const source = normalizeTowerDefenseEquipmentProgress({
     equipmentItems: [
       item('gear-1', 'damage-r'),
       item('gear-2', 'speed-sr'),
       item('gear-3', 'health-ssr'),
       item('gear-4', 'damage-sr'),
+      item('gear-5', 'damage-r'),
     ],
   });
   const snapshot = JSON.stringify(source);
   const first = equipTowerDefenseItem(source, 'shell', 'gear-1');
   const target = equipTowerDefenseItem(first.progress, 'sprout', 'gear-4');
-  const moved = equipTowerDefenseItem(target.progress, 'sprout', 'gear-1');
+  const beforeRejectedSteal = JSON.stringify(target.progress);
+  assert.equal(equipTowerDefenseItem(target.progress, 'sprout', 'gear-1'), null);
+  assert.equal(JSON.stringify(target.progress), beforeRejectedSteal,
+    'an occupied physical copy cannot be moved away from its wearer');
+  const equipped = equipTowerDefenseItem(target.progress, 'sprout', 'gear-5');
 
-  assert.equal(moved.previousHeroId, 'shell');
-  assert.equal(moved.displacedItemUid, 'gear-4');
-  assert.equal(moved.progress.equipmentLoadouts.shell.damage, null);
-  assert.equal(moved.progress.equipmentLoadouts.sprout.damage, 'gear-1');
-  assert.equal(
-    Object.values(moved.progress.equipmentLoadouts)
-      .filter((loadout) => loadout.damage === 'gear-1').length,
-    1,
+  assert.equal(equipped.previousHeroId, null);
+  assert.equal(equipped.displacedItemUid, 'gear-4');
+  assert.equal(equipped.progress.equipmentLoadouts.shell.damage, 'gear-1');
+  assert.equal(equipped.progress.equipmentLoadouts.sprout.damage, 'gear-5');
+  const fullyUsed = summarizeTowerDefenseEquipmentInventory(equipped.progress);
+  assert.deepEqual(
+    fullyUsed.find(({ definitionId }) => definitionId === 'damage-r'),
+    {
+      definitionId: 'damage-r',
+      slot: 'damage',
+      rarity: 'R',
+      name: TD_EQUIPMENT_BY_ID['damage-r'].name,
+      iconKey: 'equipment-damage-charm',
+      stats: TD_EQUIPMENT_BY_ID['damage-r'].stats,
+      totalCount: 2,
+      equippedCount: 2,
+      availableCount: 0,
+      availableItemUids: [],
+    },
   );
-  const removed = unequipTowerDefenseItem(moved.progress, 'sprout', 'damage');
-  assert.equal(removed.itemUid, 'gear-1');
+  assert.equal(equipTowerDefenseItem(equipped.progress, 'shell', 'gear-1'), null,
+    'equipping the already selected copy is a no-op');
+  const removed = unequipTowerDefenseItem(equipped.progress, 'sprout', 'damage');
+  assert.equal(removed.itemUid, 'gear-5');
   assert.equal(removed.progress.equipmentLoadouts.sprout.damage, null);
+  const returned = summarizeTowerDefenseEquipmentInventory(removed.progress)
+    .find(({ definitionId }) => definitionId === 'damage-r');
+  assert.equal(returned.availableCount, 1);
+  assert.deepEqual(returned.availableItemUids, ['gear-5']);
   assert.equal(unequipTowerDefenseItem(removed.progress, 'sprout', 'damage'), null);
   assert.equal(equipTowerDefenseItem(source, 'shell', 'missing'), null);
   assert.equal(equipTowerDefenseItem(source, 'bad hero id', 'gear-1'), null);

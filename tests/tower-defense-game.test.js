@@ -280,6 +280,7 @@ test('formal asset and rig stores can be replaced and are used during rendering'
     'background-menu-portrait-v1',
     'fortress-slime-core',
     'effect-damage-cracks-overlay',
+    'ui-meta-coin',
   ];
   const assets = createAssetStore(menuAssets);
   const rigs = createRigStore();
@@ -294,6 +295,10 @@ test('formal asset and rig stores can be replaced and are used during rendering'
   assert.equal(assets.requests.includes('background-garden-base'), false,
     'the ready formal menu backdrop needs no fallback scene');
   assert.ok(assets.requests.includes('fortress-slime-core'));
+  assert.ok(assets.requests.includes('ui-meta-coin'));
+  assert.ok(canvas.context.calls.some(([kind, asset]) => (
+    kind === 'drawImage' && asset?.kind === 'ui-meta-coin'
+  )), 'the formal coin icon is visible beside the meta-currency amount');
   for (const key of [
     'rift-entry-portal', 'tile-build-light', 'tile-build-dark',
     'tile-route-open', 'turret-gel-mount',
@@ -827,8 +832,8 @@ test('expanded heroes, squads, turrets, and enemies request only their own produ
     });
     assert.deepEqual([...new Set(assets.requests)], [assetKey],
       `${type} recruitment uses only its authored atlas`);
-    assert.equal(assets.requests.length, 2,
-      `${type} recruitment preview matches the initial two-member squad`);
+    assert.equal(assets.requests.length, 4,
+      `${type} recruitment preview matches the initial four-member squad`);
   }
 
   for (const [type, assetKey] of Object.entries(turretAtlases)) {
@@ -2847,6 +2852,82 @@ test('battle dock purchases squads and a fixed turret, moves squads in prep, the
   game.dispose();
 });
 
+test('a squad card taps or drags directly onto its matching full squad to choose an ability', () => {
+  const canvas = createCanvas();
+  const game = new TowerDefenseGame(canvas, {
+    runtime: createRuntime({
+      tutorialSeen: true,
+      squadRanks: { melee: 1, ranged: 1 },
+    }),
+    pixelRatio: 1,
+  });
+  game.state.screen = 'battle';
+  game.state.stageId = 'stage-1';
+  game.state.phase = 'prep';
+  game.state.waveActive = false;
+  game.state.result = null;
+  game.state.currency = 1000;
+  game.state.tutorial.active = false;
+  game.render();
+
+  click(game, canvas, hitCenter(game, 'purchase-melee'));
+  game.render();
+  click(game, canvas, hitCenter(game, 'pad-0'));
+  game.render();
+  click(game, canvas, hitCenter(game, 'purchase-ranged'));
+  game.render();
+  click(game, canvas, hitCenter(game, 'pad-1'));
+  const melee = game.state.towers.find(({ squadType }) => squadType === 'melee');
+  const ranged = game.state.towers.find(({ squadType }) => squadType === 'ranged');
+  assert.equal(melee.members.length, 4);
+  assert.equal(ranged.members.length, 4);
+
+  game.render();
+  click(game, canvas, hitCenter(game, 'purchase-melee'));
+  canvas.context.calls.length = 0;
+  game.render();
+  assert.equal(canvas.context.calls.filter(([kind, text]) => (
+    kind === 'fillText' && text === '选能力'
+  )).length, 1, 'only the matching full squad is marked as an ability target');
+
+  const beforeInvalidTap = game.state.currency;
+  click(game, canvas, hitCenter(game, `tower-${ranged.uid}`));
+  assert.equal(game.state.pendingSquadFusion, null);
+  assert.equal(game.state.currency, beforeInvalidTap);
+  assert.equal(game.selectedPurchase, 'melee', 'an invalid target keeps the card selected');
+
+  click(game, canvas, hitCenter(game, `tower-${melee.uid}`));
+  assert.equal(game.state.currency, beforeInvalidTap - SQUAD_TYPES.melee.cost);
+  assert.equal(game.state.towers.length, 2, 'direct fusion does not stage a duplicate squad');
+  assert.equal(game.state.pendingSquadFusion.sourceMode, 'purchase');
+  assert.equal(game.state.pendingSquadFusion.targetUid, melee.uid);
+  assert.equal(game.selectedPurchase, null);
+  game.render();
+  assert.deepEqual(game.hits.map(({ id }) => id), [
+    'squad-ability-shell-wall', 'squad-ability-gel-crash', 'audio-toggle',
+  ]);
+  click(game, canvas, hitCenter(game, 'squad-ability-shell-wall'));
+  assert.equal(melee.fusionAbility, 'shell-wall');
+
+  game.render();
+  const rangedCard = hitCenter(game, 'purchase-ranged');
+  const rangedTarget = hitCenter(game, `tower-${ranged.uid}`);
+  const beforeDrag = game.state.currency;
+  canvas.dispatch('pointerdown', pointerEvent(game, canvas, rangedCard));
+  canvas.dispatch('pointermove', pointerEvent(game, canvas, rangedTarget));
+  canvas.context.calls.length = 0;
+  game.render();
+  assert.ok(canvas.context.calls.some(([kind, text]) => (
+    kind === 'fillText' && text === '选能力'
+  )), 'dragging a matching card previews the ability choice on its target');
+  canvas.dispatch('pointerup', pointerEvent(game, canvas, rangedTarget));
+  assert.equal(game.state.currency, beforeDrag - SQUAD_TYPES.ranged.cost);
+  assert.equal(game.state.towers.length, 2);
+  assert.equal(game.state.pendingSquadFusion.sourceMode, 'purchase');
+  assert.equal(game.state.pendingSquadFusion.targetUid, ranged.uid);
+  game.dispose();
+});
+
 test('purchase gestures wait for clear intent and remain owned by their first pointer', () => {
   const canvas = createCanvas();
   const game = new TowerDefenseGame(canvas, {
@@ -3280,9 +3361,9 @@ test('portrait deployment cards use all four formal nine-layer soldier atlases',
 
   assert.ok(assets.requests.includes('ui-card-frame-deploy'));
   assert.equal(rigPreviewCount, 4,
-    'all four squad cards each render one two-member skeletal preview');
-  assert.deepEqual(previewAssetRequests.map((requests) => requests.length), [2, 2, 2, 2],
-    'each purchase-card preview matches the two soldiers received on initial deployment');
+    'all four squad cards each render one four-member skeletal preview');
+  assert.deepEqual(previewAssetRequests.map((requests) => requests.length), [4, 4, 4, 4],
+    'each purchase-card preview matches the four soldiers received on initial deployment');
   assert.deepEqual(previewAssetRequests.map((requests) => [...new Set(requests)]), [
     ['soldier-shield-dun-atlas-v1'],
     ['soldier-bean-bow-atlas-v1'],
@@ -3512,14 +3593,17 @@ test('stage difficulty and daily challenge start the requested run mode', () => 
   game.dispose();
 });
 
-test('hero roster equips inventory and exposes rank-up controls', () => {
+test('hero roster stacks equipment quantities and consumes one available copy per wearer', () => {
   const canvas = createCanvas();
   const game = new TowerDefenseGame(canvas, {
     runtime: createRuntime({
       tutorialSeen: true,
       metaCoins: 99999,
       contractShards: { shell: 999 },
-      equipmentItems: [{ uid: 'eq-shell-damage', definitionId: 'damage-r' }],
+      equipmentItems: [
+        { uid: 'eq-shell-damage-a', definitionId: 'damage-r' },
+        { uid: 'eq-shell-damage-b', definitionId: 'damage-r' },
+      ],
     }),
     pixelRatio: 1,
   });
@@ -3536,14 +3620,36 @@ test('hero roster equips inventory and exposes rank-up controls', () => {
   assert.ok(game.state.progress.contractShards.shell < beforeShards);
   game.render();
   click(game, canvas, hitCenter(game, 'equipment-slot-shell-damage'));
+  canvas.context.calls.length = 0;
   game.render();
   assert.deepEqual(game.hits.map(({ id }) => id), [
-    'equipment-picker-close', 'equip-item-eq-shell-damage',
+    'equipment-picker-close', 'equip-item-eq-shell-damage-a',
     'equipment-picker-unequip', 'equipment-picker-previous', 'equipment-picker-next',
     'audio-toggle',
   ]);
-  click(game, canvas, hitCenter(game, 'equip-item-eq-shell-damage'));
-  assert.equal(game.state.progress.equipmentLoadouts.shell.damage, 'eq-shell-damage');
+  assert.ok(canvas.context.calls.some(([kind, text]) => (
+    kind === 'fillText' && text === '装备 · 可用×2'
+  )));
+  click(game, canvas, hitCenter(game, 'equip-item-eq-shell-damage-a'));
+  assert.equal(game.state.progress.equipmentLoadouts.shell.damage, 'eq-shell-damage-a');
+
+  game.render();
+  click(game, canvas, hitCenter(game, 'equipment-slot-shell-damage'));
+  canvas.context.calls.length = 0;
+  game.render();
+  assert.ok(canvas.context.calls.some(([kind, text]) => (
+    kind === 'fillText' && text === '已装备 · 可用×1'
+  )), 'equipping one copy decrements the available stack');
+  click(game, canvas, hitCenter(game, 'equipment-picker-unequip'));
+  assert.equal(game.state.progress.equipmentLoadouts.shell.damage, null);
+
+  game.render();
+  click(game, canvas, hitCenter(game, 'equipment-slot-shell-damage'));
+  canvas.context.calls.length = 0;
+  game.render();
+  assert.ok(canvas.context.calls.some(([kind, text]) => (
+    kind === 'fillText' && text === '装备 · 可用×2'
+  )), 'unequipping returns the physical copy to the available stack');
   game.dispose();
 });
 
@@ -3552,6 +3658,8 @@ test('result rewards and squad fusion choice are visible, blocking overlays', ()
   const game = new TowerDefenseGame(canvas, {
     runtime: createRuntime({ tutorialSeen: true }), pixelRatio: 1,
   });
+  const assets = createAssetStore(['ui-meta-coin']);
+  game.setAssetStore(assets);
   game.state.screen = 'result';
   game.state.result = 'victory';
   game.state.resultRewards = {
@@ -3575,8 +3683,10 @@ test('result rewards and squad fusion choice are visible, blocking overlays', ()
   });
   const conversionLabels = canvas.context.calls
     .filter(([kind]) => kind === 'fillText').map(([, text]) => text);
-  assert.ok(conversionLabels.includes('金币 +96'));
+  assert.ok(conversionLabels.includes('+96'));
   assert.equal(conversionLabels.includes('碎片 +3'), false);
+  assert.ok(assets.requests.includes('ui-meta-coin'),
+    'result rewards and converted duplicates use the formal coin icon');
 
   game.state.screen = 'battle';
   game.state.phase = 'prep';

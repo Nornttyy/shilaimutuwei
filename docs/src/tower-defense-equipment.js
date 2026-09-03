@@ -215,6 +215,51 @@ export function normalizeTowerDefenseEquipmentProgress(source = {}) {
   });
 }
 
+/**
+ * Presents the UID-based inventory as definition stacks without changing the
+ * persistence format. `availableCount` is the number of physical copies that
+ * can still be equipped; unequipping a UID therefore returns it to the stack.
+ */
+export function summarizeTowerDefenseEquipmentInventory(source = {}) {
+  const progress = normalizeTowerDefenseEquipmentProgress(source);
+  const equippedUids = new Set(Object.values(progress.equipmentLoadouts).flatMap((loadout) => (
+    TD_EQUIPMENT_SLOT_IDS.map((slotId) => loadout[slotId]).filter(Boolean)
+  )));
+  const stacks = new Map();
+
+  for (const item of progress.equipmentItems) {
+    let stack = stacks.get(item.definitionId);
+    if (!stack) {
+      stack = {
+        totalCount: 0,
+        equippedCount: 0,
+        availableItemUids: [],
+      };
+      stacks.set(item.definitionId, stack);
+    }
+    stack.totalCount += 1;
+    if (equippedUids.has(item.uid)) stack.equippedCount += 1;
+    else stack.availableItemUids.push(item.uid);
+  }
+
+  return Object.freeze(TD_EQUIPMENT_CATALOG.flatMap((definition) => {
+    const stack = stacks.get(definition.id);
+    if (!stack) return [];
+    return [Object.freeze({
+      definitionId: definition.id,
+      slot: definition.slot,
+      rarity: definition.rarity,
+      name: definition.name,
+      iconKey: definition.iconKey,
+      stats: definition.stats,
+      totalCount: stack.totalCount,
+      equippedCount: stack.equippedCount,
+      availableCount: stack.totalCount - stack.equippedCount,
+      availableItemUids: Object.freeze(stack.availableItemUids),
+    })];
+  }));
+}
+
 function mutableBanner(progress) {
   return {
     rngState: progress.equipmentBanner.rngState,
@@ -385,7 +430,7 @@ function equippedLocation(loadouts, itemUid) {
   return null;
 }
 
-/** Moves an item atomically; one UID can never be worn by two heroes. */
+/** Equips one physical item atomically; an occupied UID cannot be stolen. */
 export function equipTowerDefenseItem(source, heroId, itemUid) {
   if (!validHeroId(heroId) || !validUid(itemUid)) return null;
   const progress = normalizeTowerDefenseEquipmentProgress(source);
@@ -395,9 +440,11 @@ export function equipTowerDefenseItem(source, heroId, itemUid) {
   const loadouts = cloneLoadouts(progress.equipmentLoadouts);
   const previousLocation = equippedLocation(loadouts, itemUid);
   const target = loadouts[heroId] || blankLoadout();
+  if (previousLocation
+    && (previousLocation.heroId !== heroId || previousLocation.slot !== item.slot)) return null;
+  if (target[item.slot] === itemUid) return null;
   const displacedItemUid = target[item.slot] === itemUid ? null : target[item.slot];
 
-  if (previousLocation) loadouts[previousLocation.heroId][previousLocation.slot] = null;
   if (!loadouts[heroId]) loadouts[heroId] = target;
   loadouts[heroId][item.slot] = itemUid;
 
@@ -411,7 +458,7 @@ export function equipTowerDefenseItem(source, heroId, itemUid) {
     slot: item.slot,
     itemUid,
     displacedItemUid: displacedItemUid || null,
-    previousHeroId: previousLocation?.heroId || null,
+    previousHeroId: null,
   });
 }
 

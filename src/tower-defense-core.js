@@ -965,8 +965,8 @@ export const SQUAD_RARITY_SCALING = Object.freeze({
 
 export const SQUAD_TYPES = Object.freeze({
   melee: Object.freeze({
-    id: 'melee', ownerId: 'soldier-melee', name: '盾墩小队', rarity: 'R', glyph: '盾', cost: 50,
-    deployMembers: 2, maxMembers: 4, squadSize: 4,
+    id: 'melee', ownerId: 'soldier-melee', name: '盾墩小队', rarity: 'R', glyph: '盾', cost: 60,
+    deployMembers: 4, maxMembers: 4, squadSize: 4,
     memberHp: 72, range: 70, interval: 0.62,
     damagePerMember: 11, speed: 88, color: '#62D5A0',
     movementMode: 'contact', attackMode: 'melee-contact', effect: 'direct',
@@ -983,8 +983,8 @@ export const SQUAD_TYPES = Object.freeze({
     ]),
   }),
   ranged: Object.freeze({
-    id: 'ranged', ownerId: 'soldier-ranged', name: '豆弩小队', rarity: 'R', glyph: '弩', cost: 75,
-    deployMembers: 2, maxMembers: 4, squadSize: 4,
+    id: 'ranged', ownerId: 'soldier-ranged', name: '豆弩小队', rarity: 'R', glyph: '弩', cost: 85,
+    deployMembers: 4, maxMembers: 4, squadSize: 4,
     memberHp: 48, range: 265, interval: 0.92,
     damagePerMember: 10, speed: 68, color: '#75CFF4',
     movementMode: 'keep-range', attackMode: 'ranged-volley', effect: 'direct',
@@ -1001,8 +1001,8 @@ export const SQUAD_TYPES = Object.freeze({
     ]),
   }),
   charger: Object.freeze({
-    id: 'charger', ownerId: 'soldier-charger', name: '跳槌小队', rarity: 'R', glyph: '槌', cost: 65,
-    deployMembers: 2, maxMembers: 4, squadSize: 4,
+    id: 'charger', ownerId: 'soldier-charger', name: '跳槌小队', rarity: 'R', glyph: '槌', cost: 75,
+    deployMembers: 4, maxMembers: 4, squadSize: 4,
     memberHp: 60, range: 72, interval: 0.52,
     damagePerMember: 9, speed: 116, color: '#EF7188',
     movementMode: 'contact', attackMode: 'bounce-hammer', effect: 'direct',
@@ -1019,8 +1019,8 @@ export const SQUAD_TYPES = Object.freeze({
     ]),
   }),
   leaf: Object.freeze({
-    id: 'leaf', ownerId: 'soldier-leaf', name: '叶旋小队', rarity: 'SR', glyph: '叶', cost: 85,
-    deployMembers: 2, maxMembers: 4, squadSize: 4,
+    id: 'leaf', ownerId: 'soldier-leaf', name: '叶旋小队', rarity: 'SR', glyph: '叶', cost: 95,
+    deployMembers: 4, maxMembers: 4, squadSize: 4,
     memberHp: 46, range: 240, interval: 1,
     damagePerMember: 11, speed: 72, color: '#8EDB70',
     movementMode: 'keep-range', attackMode: 'leaf-spinner', effect: 'poison',
@@ -1038,8 +1038,8 @@ export const SQUAD_TYPES = Object.freeze({
   }),
   'drill-lancer': Object.freeze({
     id: 'drill-lancer', ownerId: 'soldier-drill-lancer', name: '钻枪小队',
-    rarity: 'SR', glyph: '钻', cost: 90,
-    deployMembers: 2, maxMembers: 4, squadSize: 4,
+    rarity: 'SR', glyph: '钻', cost: 100,
+    deployMembers: 4, maxMembers: 4, squadSize: 4,
     memberHp: 66, range: 82, interval: 0.72,
     damagePerMember: 16, speed: 106, color: '#E78B5C',
     movementMode: 'contact', attackMode: 'drill-lance', effect: 'pierce',
@@ -1056,8 +1056,8 @@ export const SQUAD_TYPES = Object.freeze({
   }),
   'spore-lobber': Object.freeze({
     id: 'spore-lobber', ownerId: 'soldier-spore-lobber', name: '孢投小队',
-    rarity: 'SR', glyph: '孢', cost: 95,
-    deployMembers: 2, maxMembers: 4, squadSize: 4,
+    rarity: 'SR', glyph: '孢', cost: 105,
+    deployMembers: 4, maxMembers: 4, squadSize: 4,
     memberHp: 45, range: 280, interval: 1.08,
     damagePerMember: 15, speed: 66, color: '#B58BD8',
     movementMode: 'keep-range', attackMode: 'spore-lob', effect: 'splash',
@@ -1076,8 +1076,8 @@ export const SQUAD_TYPES = Object.freeze({
   }),
   'volt-orbiter': Object.freeze({
     id: 'volt-orbiter', ownerId: 'soldier-volt-orbiter', name: '电环小队',
-    rarity: 'SSR', glyph: '电', cost: 110,
-    deployMembers: 2, maxMembers: 4, squadSize: 4,
+    rarity: 'SSR', glyph: '电', cost: 120,
+    deployMembers: 4, maxMembers: 4, squadSize: 4,
     memberHp: 44, range: 255, interval: 0.76,
     damagePerMember: 13, speed: 76, color: '#F1D84F',
     movementMode: 'keep-range', attackMode: 'volt-orbit', effect: 'slow',
@@ -2365,7 +2365,7 @@ function createHeroForState(state) {
   };
 }
 
-/** Directly purchases and deploys one two-member squad during preparation. */
+/** Directly purchases and deploys one complete four-member squad during preparation. */
 export function buyTowerDefenseSquad(state, squadType, padIndex) {
   if (state?.screen !== 'battle' || state.result || state.phase !== 'prep') return null;
   if (state.pendingSquadFusion) return null;
@@ -2463,6 +2463,58 @@ function squadDefinitionForTower(tower) {
   return SQUAD_TYPES[tower.squadType || tower.type] || null;
 }
 
+function squadFusionOptions(definition) {
+  return definition.fusionChoices.map(({ id, name, description }) => ({
+    id, name, description,
+  }));
+}
+
+/** Buys one matching squad card directly into a deployed full squad to evolve it. */
+export function buyTowerDefenseSquadFusion(state, squadType, targetUid) {
+  if (
+    state?.screen !== 'battle' || state.result || state.phase !== 'prep'
+    || state.waveActive || state.tutorial?.active || state.pendingSquadFusion
+  ) return null;
+  const definition = SQUAD_TYPES[squadType];
+  const target = state.towers.find(({ uid }) => uid === targetUid);
+  const squadRank = clamp(
+    Math.floor(Number(state.progress?.squadRanks?.[squadType]) || 0),
+    0,
+    TD_CONTRACT_MAX_RANK,
+  );
+  if (
+    !definition || squadRank <= 0 || !target
+    || squadDefinitionForTower(target) !== definition
+    || target.fusionAbility
+    || squadCurrentMemberCount(target, definition) !== definition.maxMembers
+    || state.currency < definition.cost
+  ) return null;
+
+  const options = squadFusionOptions(definition);
+  state.currency -= definition.cost;
+  state.pendingSquadFusion = {
+    sourceMode: 'purchase',
+    sourceUid: null,
+    targetUid: target.uid,
+    squadType: definition.id,
+    paidCost: definition.cost,
+    options,
+  };
+  state.selectedTowerUid = target.uid;
+  state.events.push({
+    type: 'squad-buy', squadUid: target.uid, squadType: definition.id,
+    padIndex: target.padIndex, cost: definition.cost,
+    squadSize: definition.maxMembers, maxMembers: definition.maxMembers,
+    directFusion: true,
+  });
+  state.events.push({
+    type: 'squad-fusion-choice', sourceMode: 'purchase', sourceUid: null,
+    targetUid: target.uid, squadType: definition.id,
+    cost: definition.cost, optionIds: options.map(({ id }) => id),
+  });
+  return target;
+}
+
 export function canMergeTowers(source, target) {
   if (!source || !target || source === target || source.uid === target.uid) return false;
   const sourceDefinition = squadDefinitionForTower(source);
@@ -2518,7 +2570,7 @@ function emitSquadFusion(state, source, target, abilityId = null) {
     x: target.deployX, y: target.deployY,
   });
   state.events.push({
-    type: 'merge', towerUid: target.uid, sourceUid: source.uid,
+    type: 'merge', towerUid: target.uid, sourceUid: source?.uid ?? null,
     towerType: target.type, squadType: target.squadType,
     squadSize: target.squadSize, fusionTier: target.fusionTier,
     fusionAbility: abilityId,
@@ -2540,9 +2592,7 @@ export function mergeTowers(state, sourceUid, targetUid) {
       sourceUid: source.uid,
       targetUid: target.uid,
       squadType: definition.id,
-      options: definition.fusionChoices.map(({ id, name, description }) => ({
-        id, name, description,
-      })),
+      options: squadFusionOptions(definition),
     };
     state.selectedTowerUid = target.uid;
     state.events.push({
@@ -2577,32 +2627,45 @@ export function chooseTowerDefenseSquadAbility(state, choiceId) {
     state?.screen !== 'battle' || state.result || state.phase !== 'prep'
     || state.waveActive || !pending
   ) return null;
-  const source = state.towers.find(({ uid }) => uid === pending.sourceUid);
+  const directPurchase = pending.sourceMode === 'purchase'
+    && pending.sourceUid == null;
+  const source = directPurchase
+    ? null
+    : state.towers.find(({ uid }) => uid === pending.sourceUid);
   const target = state.towers.find(({ uid }) => uid === pending.targetUid);
   const definition = SQUAD_TYPES[pending.squadType];
   const choice = definition?.fusionChoices.find(({ id }) => id === choiceId);
-  if (!source || !target || !choice || !canMergeTowers(source, target)) return null;
-  if (
-    squadCurrentMemberCount(source, definition) !== definition.maxMembers
+  if (!target || !choice || squadDefinitionForTower(target) !== definition) return null;
+  if (directPurchase) {
+    if (
+      pending.paidCost !== definition.cost || target.fusionAbility
+      || squadCurrentMemberCount(target, definition) !== definition.maxMembers
+    ) return null;
+  } else if (
+    !source || !canMergeTowers(source, target)
+    || squadCurrentMemberCount(source, definition) !== definition.maxMembers
     || squadCurrentMemberCount(target, definition) !== definition.maxMembers
   ) return null;
 
   const previousStats = squadStatsForRank(definition.id, target.rank, target.fusionAbility);
   syncSquadMembers(target, definition, { stats: previousStats });
-  target.rank = Math.max(Number(target.rank) || 1, Number(source.rank) || 1);
+  if (source) {
+    target.rank = Math.max(Number(target.rank) || 1, Number(source.rank) || 1);
+  }
   target.fusionTier = 2;
   target.fusionAbility = choice.id;
   target.squadSize = definition.maxMembers;
   target.maxMembers = definition.maxMembers;
   const upgradedStats = squadStatsForRank(definition.id, target.rank, choice.id);
   reseatSquadMembers(target, target.members, upgradedStats);
-  state.towers = state.towers.filter(({ uid }) => uid !== source.uid);
+  if (source) state.towers = state.towers.filter(({ uid }) => uid !== source.uid);
   state.pendingSquadFusion = null;
   state.selectedTowerUid = target.uid;
   emitSquadFusion(state, source, target, choice.id);
   state.events.push({
     type: 'squad-ability-selected', towerUid: target.uid, squadType: definition.id,
     abilityId: choice.id, abilityName: choice.name,
+    sourceMode: directPurchase ? 'purchase' : 'tower',
   });
   return target;
 }

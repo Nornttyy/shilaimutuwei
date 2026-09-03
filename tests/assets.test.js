@@ -246,6 +246,59 @@ test('the 28-piece battle expansion uses unique formal RGBA PNGs and strict star
   }
 });
 
+test('the nine hero skill signatures share one formal transparent 3x3 atlas', async () => {
+  const id = 'effect-skill-signatures-atlas-v1';
+  const expectedPath = `assets/generated/effect/${id}.png`;
+  const asset = PROJECT_ASSET_SPEC.assets.find((candidate) => candidate.id === id);
+  assert.ok(asset);
+  assert.equal(asset.category, 'effect');
+  assert.equal(asset.path, expectedPath);
+  assert.deepEqual(asset.recommendedCanvas, { width: 1254, height: 1254 });
+  assert.equal(asset.transparent, true);
+  assert.equal(asset.priority, 'P0');
+  assert.match(asset.view, /铃音.*钻痕.*火蛇.*墨斑.*云眼.*霜径.*蜜丝.*链电.*坠星/);
+  assert.match(asset.brief, /禁止写实纹理/);
+
+  const png = await readFile(path.join(PROJECT_ROOT, expectedPath));
+  const metadata = parsePng(png);
+  assert.equal(metadata.width, 1254);
+  assert.equal(metadata.height, 1254);
+  assert.equal(metadata.colorTypeName, 'RGBA');
+  assert.equal(metadata.hasAlphaChannel, true);
+  assert.ok(png.length <= asset.maxBytes);
+
+  const atlas = decodeRgbaPng(png, id);
+  const alphaAt = (x, y) => atlas.pixels[(y * atlas.width + x) * 4 + 3];
+  for (const boundary of [418, 836]) {
+    for (let offset = -8; offset < 8; offset += 1) {
+      for (let axis = 0; axis < 1254; axis += 1) {
+        assert.equal(alphaAt(boundary + offset, axis), 0,
+          `${id} vertical cell gutter ${boundary} stays transparent`);
+        assert.equal(alphaAt(axis, boundary + offset), 0,
+          `${id} horizontal cell gutter ${boundary} stays transparent`);
+      }
+    }
+  }
+  for (let row = 0; row < 3; row += 1) {
+    for (let column = 0; column < 3; column += 1) {
+      let visiblePixels = 0;
+      for (let y = row * 418; y < (row + 1) * 418; y += 1) {
+        for (let x = column * 418; x < (column + 1) * 418; x += 1) {
+          if (alphaAt(x, y) > 8) visiblePixels += 1;
+        }
+      }
+      assert.ok(visiblePixels > 1000,
+        `${id} cell ${row},${column} contains its own visible component`);
+    }
+  }
+
+  assert.equal(ALL_RUNTIME_ASSET_KEYS.includes(id), true);
+  assert.equal(TOWER_DEFENSE_ASSET_KEYS.includes(id), true);
+  assert.equal(CRITICAL_STARTUP_ASSET_KEYS.includes(id), true);
+  assert.equal(WECHAT_CRITICAL_ASSET_KEYS.includes(id), true);
+  assert.ok(new URL(ASSET_PATHS[id]).pathname.endsWith(`/${expectedPath}`));
+});
+
 test('all eleven atlas heroes publish strict shell-style 2x1 skill-face sidecars', () => {
   const ids = [
     'hero-berry-burst-skill-face-v1',

@@ -2337,6 +2337,22 @@
       "maxBytes": 950000
     },
     {
+      "id": "effect-skill-signatures-atlas-v1",
+      "category": "effect",
+      "sourceId": "tower-defense:hero-skills:signature-atlas",
+      "filename": "effect-skill-signatures-atlas-v1.png",
+      "path": "assets/generated/effect/effect-skill-signatures-atlas-v1.png",
+      "recommendedCanvas": { "width": 1254, "height": 1254 },
+      "width": 1254,
+      "height": 1254,
+      "runtimeDisplaySize": "固定3×3图集，每格418×418；技能组件约18–180逻辑像素，由Canvas沿专属轨迹裁切、旋转与缩放",
+      "view": "固定3×3透明技能签名图集：铃音、钻痕、火蛇、墨斑、云眼、霜径、蜜丝、链电、坠星",
+      "brief": "九名英雄专属动态技能组件，每格轮廓与运动语义均不同；高饱和、亮面软胶卡通、深色清晰描边、简化分层，真透明背景。禁止写实纹理、角色、文字、整图直接显示或以单张淡出冒充动画。",
+      "transparent": true,
+      "priority": "P0",
+      "maxBytes": 1350000
+    },
+    {
       "id": "effect-reinforcement-projectiles-atlas-v1",
       "category": "effect",
       "sourceId": "tower-defense:reinforcement-projectiles:component-atlas",

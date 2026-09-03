@@ -170,6 +170,7 @@ export const WECHAT_CRITICAL_ASSET_KEYS = Object.freeze([
   'effect-particle-bubble',
   'effect-particle-dust-puff',
   'effect-dynamic-components-v1',
+  'effect-skill-signatures-atlas-v1',
   'effect-reinforcement-projectiles-atlas-v1',
   'effect-skill-shell-impact-v1',
   'effect-skill-crystal-laser-emitter-v1',

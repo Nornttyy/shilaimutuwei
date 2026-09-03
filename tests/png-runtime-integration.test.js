@@ -352,6 +352,7 @@ test('tower defense composes continuous skill actors without full-frame skill sh
     'effect-skill-berry-bomb-v1',
     'effect-skill-berry-burst-v1',
     'effect-skill-dew-wave-crest-v1',
+    'effect-skill-signatures-atlas-v1',
   ];
   assert.doesNotMatch(TOWER_DEFENSE_SOURCE, /drawSkillEffectFrames/);
   assert.doesNotMatch(TOWER_DEFENSE_SOURCE, /effect-(?:shell|crystal|bubble|sprout|berry|dew)-.+-frames-v1/);
@@ -362,7 +363,7 @@ test('tower defense composes continuous skill actors without full-frame skill sh
     /['"](effect-skill-[a-z0-9-]+-v1)['"]/g,
   )].map(([, key]) => key);
   assert.deepEqual([...new Set(runtimeComponentKeys)].sort(), [...componentKeys].sort(),
-    'runtime refers only to the nine registered skill components');
+    'runtime refers only to the registered skill components and signature atlas');
   assert.match(TOWER_DEFENSE_SOURCE, /drawHeroSkillActors\(ctx, 'back'\)/);
   assert.match(TOWER_DEFENSE_SOURCE, /drawHeroSkillActors\(ctx, 'front'\)/);
   const battlefieldStart = TOWER_DEFENSE_SOURCE.indexOf('  drawBattlefield(ctx, stage) {');

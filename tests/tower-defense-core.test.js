@@ -297,6 +297,29 @@ test('all fifteen hero ranks use one bounded data-driven combat growth calculati
   assert.ok(equippedShell.maxHp > plainShell.maxHp);
 });
 
+test('hero detail summaries include delayed and persistent skill actor damage', () => {
+  const actorTypes = [
+    'needle', 'bubble', 'sprout', 'berry', 'dew', 'bell', 'drill',
+    'ember', 'ink', 'cloud', 'frost', 'honey', 'spark', 'star',
+  ];
+  for (const type of actorTypes) {
+    const stats = heroStatsForRank(type, 1);
+    const damageText = stats.skillEffect.match(/伤害 ([\d./]+)/)?.[1];
+    assert.ok(damageText, `${type} exposes skill damage in the hero detail`);
+    const displayedPeak = Math.max(...damageText.split('/').map(Number));
+    const authoredPeak = Math.max(...stats.skillSteps.flatMap((step) => [
+      step.damage, step.tickDamage, step.burstDamage, step.returnDamage,
+      step.splitDamage, step.landingDamage, step.resonanceDamage,
+      step.scorchDamage, step.igniteDamage, step.weakDamage,
+      step.tossDamage, step.shatterDamage, step.meteorDamage,
+    ].map((value) => Math.max(0, Number(value) || 0))));
+    assert.ok(
+      displayedPeak > authoredPeak,
+      `${type} summary aggregates its repeated or delayed hits instead of showing one raw hit`,
+    );
+  }
+});
+
 test('direct squad purchase is prep-only, correctly priced, one-cell, and atomic', () => {
   assert.deepEqual(Object.keys(SQUAD_TYPES), [
     'melee', 'ranged', 'charger', 'leaf', 'drill-lancer', 'spore-lobber', 'volt-orbiter',
@@ -1014,35 +1037,47 @@ test('hero auto-attacks and its active skill has cooldown and bounded area', () 
   const nearHp = near.hp;
   const farHp = far.hp;
   state.events = [];
+  setTowerDefenseHeroMovement(state, 0, 0);
   assert.equal(activateTowerDefenseHeroSkill(state), true);
+  const startedCooldown = hero.skillCooldown;
+  assert.equal(near.hp, nearHp, 'guard skill waits to counter instead of dealing fake cast damage');
+  for (let tick = 0; tick < 46; tick += 1) updateTowerDefense(state, 0.05);
   assert.ok(near.hp < nearHp);
   assert.equal(far.hp, farHp);
-  assert.equal(hero.skillCooldown, HERO_TYPES.shell.skillCooldown);
-  assert.deepEqual(state.events.find(({ type }) => type === 'hero-skill').targetUids, [near.uid]);
+  assert.equal(startedCooldown, HERO_TYPES.shell.skillCooldown);
+  assert.ok(hero.skillCooldown > 0 && hero.skillCooldown < startedCooldown);
+  assert.deepEqual(state.events.find(({ type }) => type === 'hero-skill').targetUids, []);
+  assert.ok(state.events.some(({ type, phase }) => (
+    type === 'hero-skill-mechanic' && phase === 'counter-release'
+  )));
   const cooldown = clone(state);
   assert.equal(activateTowerDefenseHeroSkill(state), false);
   assert.deepEqual(state, cooldown);
 });
 
-test('all fifteen heroes execute serialisable three-step damage skills without healing allies', () => {
+test('all fifteen heroes own unique serialisable mechanics rather than five recoloured templates', () => {
   const snapshots = {};
   const expectedActions = {
-    shell: ['radial', 'radial', 'radial'],
-    needle: ['beam', 'beam', 'beam'],
-    bubble: ['field', 'radial', 'radial'],
-    sprout: ['radial', 'radial', 'radial'],
-    berry: ['projectile-volley', 'projectile-volley', 'projectile-volley'],
-    dew: ['wave', 'wave', 'wave'],
-    bell: ['radial', 'radial', 'radial'],
-    drill: ['wave', 'wave', 'wave'],
-    ember: ['field', 'field', 'radial'],
-    ink: ['projectile-volley', 'projectile-volley', 'radial'],
-    cloud: ['field', 'radial', 'radial'],
-    frost: ['wave', 'wave', 'wave'],
-    honey: ['projectile-volley', 'projectile-volley', 'projectile-volley'],
-    spark: ['beam', 'beam', 'beam'],
-    star: ['projectile-volley', 'projectile-volley', 'radial'],
+    shell: ['guard-counter', 'guard-brace', 'guard-release'],
+    needle: ['prism-beam', 'prism-focus', 'prism-shatter'],
+    bubble: ['bubble-prison', 'bubble-tighten', 'bubble-burst-cue'],
+    sprout: ['thorn-node', 'thorn-node', 'thorn-triangle'],
+    berry: ['bouncing-bomb', 'bomb-bounce-cue', 'bomb-split-cue'],
+    dew: ['return-wave', 'wave-turn-cue', 'wave-return-cue'],
+    bell: ['resonance-mark', 'resonance-mark', 'resonance-detonate'],
+    drill: ['hero-dash', 'dash-bore-cue', 'dash-impact-cue'],
+    ember: ['fire-snake', 'snake-turn-cue', 'snake-ignite-cue'],
+    ink: ['ink-cone', 'ink-weakpoint-cue', 'ink-trigger-cue'],
+    cloud: ['moving-vortex', 'vortex-pull-cue', 'vortex-toss-cue'],
+    frost: ['frost-wall', 'wall-grow-cue', 'wall-shatter-cue'],
+    honey: ['honey-stack', 'honey-stack', 'honey-stack'],
+    spark: ['chain-lightning', 'chain-lightning', 'chain-lightning'],
+    star: ['orbit-stars', 'orbit-release-cue', 'meteor-cue'],
   };
+  assert.equal(new Set(TD_CONTRACT_TYPES.map((type) => HERO_TYPES[type].skill.mechanic)).size, 15);
+  assert.equal(new Set(TD_CONTRACT_TYPES.map((type) => (
+    HERO_TYPES[type].skill.steps.map(({ action }) => action).join('|')
+  ))).size, 15);
   for (const type of TD_CONTRACT_TYPES) {
     const state = createBattleState({
       progress: {
@@ -1082,6 +1117,7 @@ test('all fifteen heroes execute serialisable three-step damage skills without h
     assert.doesNotMatch(HERO_TYPES[type].skill.description, /治疗|治愈|回复/);
     assert.ok(HERO_TYPES[type].skill.name.length >= 3);
     assert.ok(HERO_TYPES[type].skill.description.length >= 12);
+    assert.ok(HERO_TYPES[type].skill.mechanic.length >= 8);
     assert.equal(activateTowerDefenseHeroSkill(state), true);
     assert.doesNotThrow(() => JSON.stringify(state.heroSkillQueue));
     assert.doesNotThrow(() => JSON.stringify(state.heroSkillActors));
@@ -1092,6 +1128,8 @@ test('all fifteen heroes execute serialisable three-step damage skills without h
       stepIndex,
       skillId: HERO_TYPES[type].skill.id,
     })));
+    assert.equal(state.events.find(({ type: eventType }) => eventType === 'hero-skill').mechanic,
+      HERO_TYPES[type].skill.mechanic);
     assert.equal(state.events.filter(({ type: eventType }) => (
       eventType === 'hero-skill-step'
     )).length, 1);
@@ -1111,7 +1149,14 @@ test('all fifteen heroes execute serialisable three-step damage skills without h
       stepKind: HERO_TYPES[type].skill.steps[0].kind,
       action: HERO_TYPES[type].skill.steps[0].action,
     });
-    for (let tick = 0; tick < 70; tick += 1) updateTowerDefense(state, 0.05);
+    assert.ok(immediateStep.geometry?.origin && immediateStep.geometry?.target);
+    assert.equal(
+      immediateStep.geometry.radius,
+      Math.max(0, Number(HERO_TYPES[type].skill.steps[0].radius) || 0),
+      `${type} reports only its real step radius instead of faking the whole cast range`,
+    );
+    assert.equal(immediateStep.geometry.skillRange, HERO_TYPES[type].skill.radius);
+    for (let tick = 0; tick < 90; tick += 1) updateTowerDefense(state, 0.05);
     const steps = state.events.filter(({ type: eventType, heroType }) => (
       eventType === 'hero-skill-step' && heroType === type
     ));
@@ -1130,23 +1175,34 @@ test('all fifteen heroes execute serialisable three-step damage skills without h
       poisonDps: target.poisonDps,
       poisonTime: target.poisonTime,
       shieldHp: state.hero.shieldHp,
+      phases: state.events
+        .filter(({ type: eventType, mechanic }) => (
+          eventType === 'hero-skill-mechanic' && mechanic === HERO_TYPES[type].skill.mechanic
+        ))
+        .map(({ phase }) => phase),
     };
-    if (type === 'needle' || type === 'bubble' || type === 'dew') {
+    if (['needle', 'bubble', 'sprout', 'berry', 'dew', 'drill', 'ember', 'cloud', 'frost', 'star'].includes(type)) {
       assert.ok(state.events.some(({ type: eventType }) => eventType === 'hero-skill-tick'));
     }
-    if (type === 'berry') {
-      assert.equal(state.events.filter(({ type: eventType }) => (
-        eventType === 'hero-skill-projectile'
-      )).length, 5);
-      assert.ok(state.events.some(({ type: eventType }) => eventType === 'hero-skill-impact'));
-    }
+    assert.ok(snapshots[type].phases.length > 0, `${type} exposes its mechanic phase to rendering`);
+    assert.doesNotThrow(() => JSON.stringify(state.events));
   }
 
-  assert.ok(snapshots.shell.shieldHp > 0);
-  assert.equal(snapshots.needle.damage > snapshots.shell.damage * 0.7, true);
-  assert.ok(snapshots.bubble.slowMultiplier < 1 && snapshots.bubble.slowTime > 0);
+  assert.ok(snapshots.shell.phases.includes('counter-release'));
+  assert.ok(snapshots.needle.phases.includes('shatter'));
+  assert.ok(snapshots.bubble.phases.includes('prison-break'));
   assert.ok(snapshots.sprout.poisonDps > 0 && snapshots.sprout.poisonTime > 0);
-  assert.ok(snapshots.berry.damage > snapshots.dew.damage * 1.2);
+  assert.ok(snapshots.berry.phases.includes('final-split'));
+  assert.ok(snapshots.dew.phases.includes('turn') && snapshots.dew.phases.includes('return'));
+  assert.ok(snapshots.bell.phases.includes('detonate'));
+  assert.ok(snapshots.drill.phases.includes('landing'));
+  assert.ok(snapshots.ember.phases.includes('scorch'));
+  assert.ok(snapshots.ink.phases.includes('mark'));
+  assert.ok(snapshots.cloud.phases.includes('toss'));
+  assert.ok(snapshots.frost.phases.includes('shatter'));
+  assert.ok(snapshots.honey.phases.includes('stack-burst'));
+  assert.ok(snapshots.spark.phases.includes('chain'));
+  assert.ok(snapshots.star.phases.includes('meteor'));
   assert.equal(new Set(TD_CONTRACT_TYPES.map((type) => HERO_TYPES[type].skill.id)).size, 15);
   assert.equal(new Set(TD_CONTRACT_TYPES.map((type) => HERO_TYPES[type].skill.name)).size, 15);
   assert.equal(new Set(TD_CONTRACT_TYPES.map((type) => HERO_TYPES[type].skill.description)).size, 15);
@@ -1191,7 +1247,94 @@ test('queued hero skill steps survive a JSON save and resume in order', () => {
   });
 });
 
-test('needle skill is a continuous piercing beam rather than instant radial damage', () => {
+test('ink basic attacks preserve their own weakpoint while allied shots trigger it', () => {
+  const state = createBattleState({
+    progress: {
+      contractRanks: { shell: 1, ink: 1 },
+      selectedHero: 'ink',
+    },
+  });
+  assert.equal(startNextTowerDefenseWave(state), true);
+  state.spawnQueue = [{ uid: 'held-spawn', type: 'bug', laneIndex: 0, at: 999 }];
+  state.hero.cooldown = 999;
+  const target = enemyAt({
+    laneIndex: 2, y: state.hero.y - 90, uid: 'ink-mark-target', hp: 100_000,
+    speed: 0.0001,
+  });
+  state.enemies = [target];
+  state.events = [];
+  assert.equal(activateTowerDefenseHeroSkill(state), true);
+  const weakDamage = target.inkWeakDamage;
+  assert.ok(weakDamage > 0);
+
+  const addShot = ({ uid, sourceKind, heroType = null }) => {
+    state.projectiles.push({
+      uid, type: 'berry', effect: 'pierce', sourceKind, heroType,
+      star: 1, effectTier: 1, targetUid: target.uid,
+      x: target.x, y: target.y - 18,
+      targetX: target.x, targetY: target.y - 18,
+      speed: 1, damage: 10, age: 0, maxAge: 1,
+    });
+    updateTowerDefense(state, 0.05);
+  };
+
+  addShot({ uid: 'ink-basic-shot', sourceKind: 'hero', heroType: 'ink' });
+  assert.ok(target.inkWeakTime > 0);
+  assert.equal(state.events.some(({ type, phase }) => (
+    type === 'hero-skill-mechanic' && phase === 'weakpoint-trigger'
+  )), false);
+  assert.equal(state.events.findLast(({ type }) => type === 'enemy-hit').sourceSkill, 'ink');
+
+  addShot({ uid: 'ally-shot', sourceKind: 'squad' });
+  const trigger = state.events.find(({ type, phase }) => (
+    type === 'hero-skill-mechanic' && phase === 'weakpoint-trigger'
+  ));
+  assert.ok(trigger);
+  assert.equal(trigger.triggerSource, null);
+  assert.equal(trigger.bonusDamage, weakDamage);
+  assert.equal(target.inkWeakTime, 0);
+});
+
+test('moving skill mechanic events snapshot paths instead of sharing actor arrays', () => {
+  for (const { heroType, actorType, phase } of [
+    { heroType: 'ember', actorType: 'fire-snake', phase: 'scorch' },
+    { heroType: 'cloud', actorType: 'moving-vortex', phase: 'pull' },
+  ]) {
+    const state = createBattleState({
+      progress: {
+        contractRanks: { shell: 1, [heroType]: 1 },
+        selectedHero: heroType,
+      },
+    });
+    assert.equal(startNextTowerDefenseWave(state), true);
+    state.spawnQueue = [{ uid: 'held-spawn', type: 'bug', laneIndex: 0, at: 999 }];
+    state.hero.cooldown = 999;
+    state.enemies = [enemyAt({
+      laneIndex: 2, y: state.hero.y - 90, uid: `${heroType}-path-target`,
+      hp: 100_000, speed: 0.0001,
+    })];
+    state.events = [];
+    assert.equal(activateTowerDefenseHeroSkill(state), true);
+    const actor = state.heroSkillActors.find(({ type }) => type === actorType);
+    assert.ok(actor);
+    let firstEvent = null;
+    for (let tick = 0; tick < 20 && !firstEvent; tick += 1) {
+      updateTowerDefense(state, 0.05);
+      firstEvent = state.events.find(({ type, phase: eventPhase }) => (
+        type === 'hero-skill-mechanic' && eventPhase === phase
+      ));
+    }
+    assert.ok(firstEvent?.path?.length > 1);
+    assert.notEqual(firstEvent.path, actor.path);
+    const savedPath = JSON.stringify(firstEvent.path);
+    const savedLength = firstEvent.path.length;
+    for (let tick = 0; tick < 10; tick += 1) updateTowerDefense(state, 0.05);
+    assert.equal(JSON.stringify(firstEvent.path), savedPath);
+    assert.ok(actor.path.length > savedLength);
+  }
+});
+
+test('needle prism beam etches repeated marks, refracts, then shatters them', () => {
   const state = createBattleState({
     progress: {
       contractRanks: { shell: 1, needle: 1 },
@@ -1213,24 +1356,26 @@ test('needle skill is a continuous piercing beam rather than instant radial dama
 
   assert.equal(activateTowerDefenseHeroSkill(state), true);
   assert.equal(target.hp, initialTargetHp, 'starting the beam never applies radial damage');
-  assert.equal(state.heroSkillActors[0].type, 'beam');
+  assert.equal(state.heroSkillActors[0].type, 'prism-beam');
   assert.doesNotThrow(() => JSON.stringify(state.heroSkillActors[0]));
-  updateTowerDefense(state, 0.05);
-  updateTowerDefense(state, 0.05);
+  for (let tick = 0; tick < 3; tick += 1) updateTowerDefense(state, 0.05);
   assert.equal(target.hp, initialTargetHp, 'damage waits for the authored beam tick');
   updateTowerDefense(state, 0.05);
   const hpAfterFirstTick = target.hp;
   assert.ok(hpAfterFirstTick < initialTargetHp);
-  for (let tick = 0; tick < 3; tick += 1) updateTowerDefense(state, 0.05);
+  for (let tick = 0; tick < 8; tick += 1) updateTowerDefense(state, 0.05);
   assert.ok(target.hp < hpAfterFirstTick, 'the same beam keeps dealing damage over time');
-  assert.equal(offAxis.hp, initialOffAxisHp, 'an enemy outside the beam width is untouched');
+  assert.ok(offAxis.hp < initialOffAxisHp, 'the third etched hit refracts to an off-axis enemy');
+  assert.ok(state.events.some(({ type, phase }) => (
+    type === 'hero-skill-mechanic' && phase === 'refraction'
+  )));
   const actorUid = state.events.find(({ type }) => type === 'hero-skill-tick').actorUid;
   assert.ok(state.events.filter(({ type, actorUid: uid }) => (
     type === 'hero-skill-tick' && uid === actorUid
   )).length >= 2);
 });
 
-test('bubble skill creates one persistent damaging field with repeated slow ticks', () => {
+test('bubble skill captures a fixed group, rewinds it, and bursts by recorded travel', () => {
   const state = createBattleState({
     progress: {
       contractRanks: { shell: 1, bubble: 1 },
@@ -1256,7 +1401,8 @@ test('bubble skill creates one persistent damaging field with repeated slow tick
     type: state.heroSkillActors[0].type,
     x: state.heroSkillActors[0].x,
     y: state.heroSkillActors[0].y,
-  }, { type: 'field', x: inside.x, y: inside.y });
+  }, { type: 'bubble-prison', x: inside.x, y: inside.y });
+  assert.deepEqual(state.heroSkillActors[0].capturedUids, [inside.uid]);
   assert.equal(inside.hp, insideHp);
   for (let tick = 0; tick < 5; tick += 1) updateTowerDefense(state, 0.05);
   const hpAfterFirstTick = inside.hp;
@@ -1265,9 +1411,16 @@ test('bubble skill creates one persistent damaging field with repeated slow tick
   for (let tick = 0; tick < 5; tick += 1) updateTowerDefense(state, 0.05);
   assert.ok(inside.hp < hpAfterFirstTick);
   assert.equal(outside.hp, outsideHp);
+  const travelledBeforeBreak = inside.travelled;
+  for (let tick = 0; tick < 45; tick += 1) updateTowerDefense(state, 0.05);
+  const burst = state.events.find(({ type, phase }) => (
+    type === 'hero-skill-mechanic' && phase === 'prison-break'
+  ));
+  assert.ok(burst.bursts[0].rewindDistance > 0);
+  assert.ok(inside.travelled <= travelledBeforeBreak);
 });
 
-test('berry skill launches moving bombs that still explode after their target dies', () => {
+test('berry skill uses one bomb actor for three landings and a final three-way split', () => {
   const state = createBattleState({
     progress: {
       contractRanks: { shell: 1, berry: 1 },
@@ -1287,27 +1440,26 @@ test('berry skill launches moving bombs that still explode after their target di
   const bystanderHp = bystander.hp;
 
   assert.equal(activateTowerDefenseHeroSkill(state), true);
-  assert.equal(state.projectiles.length, 2);
-  assert.equal(state.projectiles.every(({ sourceKind, groundSplash, tracksTarget }) => (
-    sourceKind === 'hero-skill' && groundSplash && tracksTarget === false
-  )), true);
-  const doomedProjectile = state.projectiles.find(({ targetUid }) => targetUid === primary.uid);
-  assert.ok(doomedProjectile);
-  const initialPosition = { x: doomedProjectile.x, y: doomedProjectile.y };
+  assert.equal(state.projectiles.length, 0);
+  assert.equal(state.heroSkillActors.length, 1);
+  const bomb = state.heroSkillActors[0];
+  assert.equal(bomb.type, 'berry-bounce');
+  assert.equal(bomb.waypoints.length, 3);
+  const initialPosition = { x: bomb.x, y: bomb.y };
   updateTowerDefense(state, 0.05);
-  assert.notDeepEqual({ x: doomedProjectile.x, y: doomedProjectile.y }, initialPosition);
+  assert.notDeepEqual({ x: bomb.x, y: bomb.y }, initialPosition);
   assert.equal(bystander.hp, bystanderHp, 'bombs deal no damage before reaching the ground');
-  primary.hp = 0;
-  for (let tick = 0; tick < 30; tick += 1) updateTowerDefense(state, 0.05);
+  for (let tick = 0; tick < 31; tick += 1) updateTowerDefense(state, 0.05);
   assert.ok(bystander.hp < bystanderHp);
-  const storedImpact = state.events.find(({ type, projectileUid }) => (
-    type === 'hero-skill-impact' && projectileUid === doomedProjectile.uid
+  const impacts = state.events.filter(({ type, mechanic, phase }) => (
+    type === 'hero-skill-mechanic' && mechanic === HERO_TYPES.berry.skill.mechanic
+      && ['bounce', 'final-split'].includes(phase)
   ));
-  assert.ok(storedImpact, 'the projectile resolves its stored landing point');
-  assert.ok(storedImpact.targetUids.includes(bystander.uid));
+  assert.equal(impacts.length, 3);
+  assert.equal(impacts.at(-1).splits.length, 3);
 });
 
-test('dew waves travel through the field and each wave hits an enemy only once', () => {
+test('dew tide travels out and back so one enemy can be hit once per direction', () => {
   const state = createBattleState({
     progress: {
       contractRanks: { shell: 1, dew: 1 },
@@ -1329,18 +1481,49 @@ test('dew waves travel through the field and each wave hits an enemy only once',
 
   assert.equal(activateTowerDefenseHeroSkill(state), true);
   const firstWave = state.heroSkillActors[0];
-  assert.equal(firstWave.type, 'wave');
+  assert.equal(firstWave.type, 'return-wave');
   assert.equal(target.hp, targetHp);
   for (let tick = 0; tick < 6; tick += 1) updateTowerDefense(state, 0.05);
   assert.ok(firstWave.distanceTravelled > 0);
-  assert.deepEqual(firstWave.hitUids, [target.uid]);
+  assert.deepEqual(firstWave.outboundHitUids, [target.uid]);
   assert.ok(Math.abs(
     (targetHp - target.hp) - heroStatsForRank('dew', 1).skillSteps[0].damage,
   ) < 1e-6);
   assert.equal(offAxis.hp, offAxisHp);
-  assert.equal(state.events.filter(({ type, actorUid }) => (
-    type === 'hero-skill-tick' && actorUid === firstWave.uid
-  )).length, 1);
+  for (let tick = 0; tick < 40; tick += 1) updateTowerDefense(state, 0.05);
+  assert.deepEqual(firstWave.returnHitUids, [target.uid]);
+  assert.ok(Math.abs(
+    (targetHp - target.hp)
+      - heroStatsForRank('dew', 1).skillSteps[0].damage
+      - heroStatsForRank('dew', 1).skillSteps[0].returnDamage,
+  ) < 1e-6);
+  assert.ok(state.events.some(({ type, phase }) => type === 'hero-skill-mechanic' && phase === 'turn'));
+});
+
+test('frost wall intersects a nearby aimed enemy instead of spawning behind it', () => {
+  const state = createBattleState({
+    progress: {
+      contractRanks: { shell: 1, frost: 1 },
+      selectedHero: 'frost',
+    },
+  });
+  assert.equal(startNextTowerDefenseWave(state), true);
+  state.spawnQueue = [{ uid: 'held-spawn', type: 'bug', laneIndex: 0, at: 999 }];
+  state.hero.cooldown = 999;
+  const target = enemyAt({
+    laneIndex: 2, y: state.hero.y - 90, uid: 'near-wall-target', hp: 100_000,
+    speed: 0.0001,
+  });
+  state.enemies = [target];
+  const targetHp = target.hp;
+
+  assert.equal(activateTowerDefenseHeroSkill(state), true);
+  const wall = state.heroSkillActors.find(({ type }) => type === 'frost-wall');
+  assert.ok(wall);
+  assert.ok(Math.hypot(wall.x - target.x, wall.y - target.y) < 1e-6);
+  updateTowerDefense(state, 0.05);
+  assert.ok(target.hp < targetHp);
+  assert.deepEqual(wall.crossedUids, [target.uid]);
 });
 
 test('shell skill shield absorbs contact damage before hero health', () => {
@@ -1353,8 +1536,7 @@ test('shell skill shield absorbs contact damage before hero health', () => {
   })];
   state.enemies[0].attackCooldown = 999;
   assert.equal(activateTowerDefenseHeroSkill(state), true);
-  for (let tick = 0; tick < 13; tick += 1) updateTowerDefense(state, 0.05);
-  assert.equal(state.hero.shieldHp, 180);
+  assert.equal(state.hero.shieldHp, 190);
   const attacker = enemyAt({
     laneIndex: 2, y: state.hero.y - 60, uid: 'shield-attacker', type: 'boss',
     hp: 100_000, speed: 0,
@@ -1368,11 +1550,18 @@ test('shell skill shield absorbs contact damage before hero health', () => {
   const hpBefore = state.hero.hp;
   updateTowerDefense(state, 0.01);
   assert.equal(state.hero.hp, hpBefore);
-  assert.equal(state.hero.shieldHp, 80);
+  assert.equal(state.hero.shieldHp, 90);
   const hit = state.events.findLast(({ type }) => type === 'hero-hit');
   assert.deepEqual({ damage: hit.damage, absorbed: hit.absorbed }, {
     damage: 0, absorbed: 100,
   });
+  attacker.attackCooldown = 999;
+  for (let tick = 0; tick < 45; tick += 1) updateTowerDefense(state, 0.05);
+  const counter = state.events.find(({ type, phase }) => (
+    type === 'hero-skill-mechanic' && phase === 'counter-release'
+  ));
+  assert.equal(counter.absorbedDamage, 100);
+  assert.ok(counter.damage > HERO_TYPES.shell.skill.steps[0].damage);
 });
 
 test('wave clear returns to prep, restores actors, and never auto-starts', () => {
@@ -1383,6 +1572,7 @@ test('wave clear returns to prep, restores actors, and never auto-starts', () =>
   squad.hp = squad.memberHp;
   squad.aliveMembers = 1;
   state.hero.y -= 200;
+  state.hero.skillDashTime = 0.47;
   state.heroSkillQueue = [{ uid: 'lingering-queue', remaining: 999 }];
   state.heroSkillActors = [{
     uid: 'lingering-field', type: 'field', age: 0, duration: 10,
@@ -1410,6 +1600,7 @@ test('wave clear returns to prep, restores actors, and never auto-starts', () =>
     && member.x === member.deployX && member.y === member.deployY
   )), true);
   assert.equal(state.hero.y, state.hero.spawnY);
+  assert.equal(state.hero.skillDashTime, 0);
   assert.deepEqual(state.heroSkillQueue, []);
   assert.deepEqual(state.heroSkillActors, []);
   assert.deepEqual(state.projectiles, []);
@@ -1419,6 +1610,7 @@ test('wave clear returns to prep, restores actors, and never auto-starts', () =>
   assert.equal(skipTowerDefenseBreak(state), true);
   assert.equal(state.wave, 2);
   assert.equal(state.phase, 'combat');
+  assert.equal(state.hero.skillDashTime, 0);
 });
 
 test('waves two, four, and six offer deterministic run-only choices that block the next wave', () => {
@@ -1642,7 +1834,7 @@ test('menu and defeat transitions clear persistent skill actors and ground proje
     laneIndex: 2, y: defeatState.hero.y - 120, uid: 'defeat-bomb-target', speed: 0,
   })];
   assert.equal(activateTowerDefenseHeroSkill(defeatState), true);
-  assert.ok(defeatState.projectiles.length > 0);
+  assert.ok(defeatState.heroSkillActors.some(({ type }) => type === 'berry-bounce'));
   defeatState.coreHp = 0;
   updateTowerDefense(defeatState, 0.05);
   assert.equal(defeatState.result, 'defeat');

@@ -6,7 +6,7 @@
  * useful to platform builds and isolated tests.
  */
 
-export const ASSET_CACHE_VERSION = 'shell-vivid-20260903-v27';
+export const ASSET_CACHE_VERSION = 'shell-vivid-20260903-v28';
 
 const generatedAssetUrl = (relativePath) => {
   const url = new URL(`../assets/generated/${relativePath}`, import.meta.url);
@@ -180,6 +180,7 @@ export const CRITICAL_STARTUP_ASSET_KEYS = Object.freeze([
   'effect-particle-bubble',
   'effect-particle-dust-puff',
   'effect-dynamic-components-v1',
+  'effect-skill-signatures-atlas-v1',
   'effect-reinforcement-projectiles-atlas-v1',
   'effect-skill-shell-impact-v1',
   'effect-skill-crystal-laser-emitter-v1',
@@ -358,6 +359,7 @@ export const TOWER_DEFENSE_ASSET_KEYS = Object.freeze([
   'effect-particle-bubble',
   'effect-particle-dust-puff',
   'effect-dynamic-components-v1',
+  'effect-skill-signatures-atlas-v1',
   'effect-reinforcement-projectiles-atlas-v1',
   'effect-skill-shell-impact-v1',
   'effect-skill-crystal-laser-emitter-v1',
@@ -607,6 +609,7 @@ const DECLARED_ASSET_PATHS = {
   'effect-particle-bubble': generatedAssetUrl('effect/effect-particle-bubble.png'),
   'effect-particle-dust-puff': generatedAssetUrl('effect/effect-particle-dust-puff.png'),
   'effect-dynamic-components-v1': generatedAssetUrl('effect/effect-dynamic-components-v1.png'),
+  'effect-skill-signatures-atlas-v1': generatedAssetUrl('effect/effect-skill-signatures-atlas-v1.png'),
   'effect-reinforcement-projectiles-atlas-v1': generatedAssetUrl('effect/effect-reinforcement-projectiles-atlas-v1.png'),
   'effect-skill-shell-impact-v1': generatedAssetUrl('effect/effect-skill-shell-impact-v1.png'),
   'effect-skill-crystal-laser-emitter-v1': generatedAssetUrl('effect/effect-skill-crystal-laser-emitter-v1.png'),

@@ -233,6 +233,19 @@ const SKILL_COMPONENT_ASSETS = Object.freeze({
 });
 const DYNAMIC_SKILL_COMPONENT_ATLAS_KEY = 'effect-dynamic-components-v1';
 const DYNAMIC_SKILL_COMPONENT_GRID = 4;
+const HERO_SKILL_SIGNATURE_ATLAS_KEY = 'effect-skill-signatures-atlas-v1';
+const HERO_SKILL_SIGNATURE_GRID = 3;
+const HERO_SKILL_SIGNATURE_COMPONENTS = Object.freeze({
+  bell: Object.freeze({ column: 0, row: 0 }),
+  drill: Object.freeze({ column: 1, row: 0 }),
+  ember: Object.freeze({ column: 2, row: 0 }),
+  ink: Object.freeze({ column: 0, row: 1 }),
+  cloud: Object.freeze({ column: 1, row: 1 }),
+  frost: Object.freeze({ column: 2, row: 1 }),
+  honey: Object.freeze({ column: 0, row: 2 }),
+  spark: Object.freeze({ column: 1, row: 2 }),
+  star: Object.freeze({ column: 2, row: 2 }),
+});
 const DYNAMIC_SKILL_COMPONENTS = Object.freeze({
   'impact-core': Object.freeze({ column: 0, row: 0 }),
   'impact-streak': Object.freeze({ column: 1, row: 0 }),
@@ -364,6 +377,60 @@ const SKILL_VISUAL_STYLE = Object.freeze({
   honey: Object.freeze({ color: '#F0B941', light: '#FFF3AF', deep: '#9D6722' }),
   spark: Object.freeze({ color: '#F2D94F', light: '#FFFBD1', deep: '#8D7322' }),
   star: Object.freeze({ color: '#9D83F2', light: '#F3ECFF', deep: '#59449F' }),
+});
+// This is deliberately more than a palette table.  Each hero owns a motion
+// language that the world renderer dispatches independently, so adding a new
+// colour can never accidentally turn one skill into another hero's reskin.
+export const HERO_SKILL_VISUAL_SIGNATURES = Object.freeze({
+  shell: Object.freeze({ id: 'shell-clamp-quake', layer: 'back', rhythm: 'compress-counter', maxPrimitives: 10 }),
+  needle: Object.freeze({ id: 'needle-prism-refraction', layer: 'front', rhythm: 'aim-split', maxPrimitives: 12 }),
+  bubble: Object.freeze({ id: 'bubble-rewind-membrane', layer: 'back', rhythm: 'orbit-reverse-pop', maxPrimitives: 10 }),
+  sprout: Object.freeze({ id: 'sprout-thorn-root-net', layer: 'back', rhythm: 'one-two-three-root', maxPrimitives: 12 }),
+  berry: Object.freeze({ id: 'berry-three-bounce', layer: 'front', rhythm: 'arc-land-arc-land', maxPrimitives: 11 }),
+  dew: Object.freeze({ id: 'dew-out-and-return', layer: 'front', rhythm: 'surge-pause-return', maxPrimitives: 9 }),
+  bell: Object.freeze({ id: 'bell-resonance-beats', layer: 'front', rhythm: 'beat-beat-unison', maxPrimitives: 10 }),
+  drill: Object.freeze({ id: 'drill-charge-spiral-dash', layer: 'front', rhythm: 'compress-dash-impact', maxPrimitives: 12 }),
+  ember: Object.freeze({ id: 'ember-hunting-fire-snake', layer: 'back', rhythm: 'coil-hunt-scorch', maxPrimitives: 12 }),
+  ink: Object.freeze({ id: 'ink-fan-splat', layer: 'front', rhythm: 'fan-spray-stain', maxPrimitives: 11 }),
+  cloud: Object.freeze({ id: 'cloud-twin-vortex-eye', layer: 'back', rhythm: 'counterspin-pull-collapse', maxPrimitives: 12 }),
+  frost: Object.freeze({ id: 'frost-growing-shard-road', layer: 'back', rhythm: 'grow-lock-shatter', maxPrimitives: 12 }),
+  honey: Object.freeze({ id: 'honey-mother-drop-cluster', layer: 'front', rhythm: 'lob-split-tether', maxPrimitives: 11 }),
+  spark: Object.freeze({ id: 'spark-target-chain', layer: 'front', rhythm: 'hop-hop-branch', maxPrimitives: 12 }),
+  star: Object.freeze({ id: 'star-orbit-peel-meteor', layer: 'front', rhythm: 'orbit-release-fall', maxPrimitives: 12 }),
+});
+// These actions already emit a geometry-rich `hero-skill-mechanic` event. The
+// mechanic event owns their one-shot presentation; replaying the generic step
+// effect would paint the same skill a second time at the queued target.
+const HERO_SKILL_MECHANIC_OWNED_ACTIONS = new Set([
+  'resonance-mark',
+  'resonance-detonate',
+  'ink-cone',
+  'honey-stack',
+  'chain-lightning',
+  'prism-shatter',
+]);
+// Actor mechanics are milestones emitted by an already-visible live actor.
+// Only these terminal phases take ownership from that actor; all other actor
+// phases are hit telemetry and must not replay the complete hero signature.
+const HERO_SKILL_TERMINAL_MECHANIC_PHASES = new Set([
+  'counter-release',
+  'prison-break',
+  'final-split',
+  'return',
+  'landing',
+  'toss',
+  'shatter',
+  'meteor',
+]);
+const HERO_SKILL_FINALE_CUE_PHASES = Object.freeze({
+  'guard-release': Object.freeze(['counter-release']),
+  'bubble-burst-cue': Object.freeze(['prison-break']),
+  'bomb-split-cue': Object.freeze(['final-split']),
+  'wave-return-cue': Object.freeze(['return']),
+  'dash-impact-cue': Object.freeze(['landing']),
+  'vortex-toss-cue': Object.freeze(['toss']),
+  'wall-shatter-cue': Object.freeze(['shatter']),
+  'meteor-cue': Object.freeze(['meteor']),
 });
 const GEL_MOUNT_ASSET_LAYOUT = Object.freeze({
   width: 118,
@@ -937,6 +1004,8 @@ const heroSkillEffectLayer = (effect) => {
     return 'back';
   }
   if (effect?.type !== 'hero-skill-step') return 'front';
+  const authoredLayer = HERO_SKILL_VISUAL_SIGNATURES[skillHeroType(effect)]?.layer;
+  if (authoredLayer) return authoredLayer;
   const kind = String(effect.stepKind || '');
   if (kind.includes('field') || kind.includes('quake') || kind.includes('root')) return 'back';
   if (skillHeroType(effect) === 'sprout' && kind.includes('burst')) return 'back';
@@ -1758,6 +1827,75 @@ export class TowerDefenseGame {
     this.shake = Math.min(10, this.shake + boundedStrength * 0.35);
   }
 
+  heroSkillMechanicFeedbackGeometry(event, hero) {
+    const validPoint = (value) => (
+      value && Number.isFinite(Number(value.x)) && Number.isFinite(Number(value.y))
+        ? { x: Number(value.x), y: Number(value.y) }
+        : null
+    );
+    const points = (value) => (Array.isArray(value)
+      ? value.map(validPoint).filter(Boolean)
+      : []);
+    const chainPoints = points(event.chain);
+    const branchPoints = points(event.branches);
+    const detonationPoints = points(event.detonations);
+    const burstPoints = points(event.bursts);
+    const shardPoints = points(event.shards);
+    const splitPoints = points(event.splits);
+    const nodePositions = points(event.nodePositions);
+    const path = points(event.path);
+    const wall = points(event.wall);
+    const refractions = Array.isArray(event.refractions) ? event.refractions : [];
+    const lastRefraction = refractions[refractions.length - 1] || null;
+    const fallbackOrigin = validPoint(hero) || { x: TD_VIEW.width / 2, y: 720 };
+    const origin = validPoint(event.origin)
+      || validPoint(event.from)
+      || validPoint(lastRefraction?.from)
+      || wall[0]
+      || path[0]
+      || fallbackOrigin;
+    const target = validPoint(event.to)
+      || validPoint(event.end)
+      || validPoint(event.point)
+      || validPoint(event.node)
+      || validPoint(event.center)
+      || validPoint(lastRefraction?.to)
+      || chainPoints[chainPoints.length - 1]
+      || detonationPoints[detonationPoints.length - 1]
+      || burstPoints[burstPoints.length - 1]
+      || shardPoints[shardPoints.length - 1]
+      || splitPoints[splitPoints.length - 1]
+      || nodePositions[nodePositions.length - 1]
+      || wall[wall.length - 1]
+      || path[path.length - 1]
+      || origin;
+    const wallLength = wall.length > 1 ? pointDistance(wall[0], wall[wall.length - 1]) : 0;
+    const phase = String(event.phase || '');
+    const inferredRadius = phase === 'meteor' ? 175
+      : wallLength > 0 ? clamp(wallLength * 0.42, 72, 132)
+        : 92;
+    return {
+      x: target.x,
+      y: target.y,
+      originX: origin.x,
+      originY: origin.y,
+      targetX: target.x,
+      targetY: target.y,
+      radius: Math.max(36, finiteNumber(event.radius, event.geometry?.radius, inferredRadius)),
+      chainPoints,
+      branchPoints,
+      detonationPoints,
+      burstPoints,
+      shardPoints,
+      splitPoints,
+      nodePositions,
+      path,
+      wall,
+      refractions,
+      branches: Array.isArray(event.branches) ? event.branches : [],
+    };
+  }
+
   processCombatFeedbackEvent(event, intake) {
     if (!event || typeof event.type !== 'string' || this.state.screen !== 'battle') return;
     if (event.type === 'boss-skill-warning') {
@@ -1851,25 +1989,115 @@ export class TowerDefenseGame {
       const hero = this.state.hero;
       if (!hero) return;
       const heroType = event.heroType || hero.type || this.state.selectedHeroId;
+      const geometry = event.geometry || {};
       this.enqueueCombatFeedback('skill-cast', {
         x: hero.x,
         y: hero.y - 18,
+        originX: finiteNumber(geometry.origin?.x, hero.x),
+        originY: finiteNumber(geometry.origin?.y, hero.y - 18),
+        targetX: finiteNumber(geometry.target?.x, hero.x),
+        targetY: finiteNumber(geometry.target?.y, hero.y - 80),
+        // Activation radius is targeting range, not the size of the cast tell.
+        radius: 62,
+        skillRange: Math.max(0, finiteNumber(geometry.radius)),
+        geometry,
         heroType,
+        visualMode: 'cast',
         priority: 4,
+        layer: HERO_SKILL_VISUAL_SIGNATURES[heroType]?.layer || 'front',
       });
       this.addCombatFlash(SKILL_VISUAL_STYLE[heroType]?.light || '#FFFFFF', 0.11, 0.2);
       this.addDirectionalShake(0, -1, 1.8);
       return;
     }
+    if (event.type === 'hero-skill-mechanic') {
+      const hero = this.state.hero;
+      if (!hero) return;
+      const mechanicPhase = String(event.phase || 'active');
+      // A living actor already draws the complete continuous signature. Its
+      // tick/refraction/pull/etc. events are combat telemetry, not another
+      // animation owner. Terminal events survive because the core removes the
+      // actor in that same update and they own the visible finish.
+      if (event.actorUid && !HERO_SKILL_TERMINAL_MECHANIC_PHASES.has(mechanicPhase)) {
+        return;
+      }
+      const geometry = this.heroSkillMechanicFeedbackGeometry(event, hero);
+      const heroType = event.heroType || hero.type;
+      if (HERO_SKILL_TERMINAL_MECHANIC_PHASES.has(mechanicPhase)) {
+        for (const effect of Array.isArray(this.state.effects) ? this.state.effects : []) {
+          const ownedPhases = HERO_SKILL_FINALE_CUE_PHASES[effect.action];
+          if (
+            effect.type === 'hero-skill-step'
+            && effect.heroType === heroType
+            && (!event.skillId || !effect.skillId || event.skillId === effect.skillId)
+            && ownedPhases?.includes(mechanicPhase)
+          ) {
+            effect.visualOwner = 'mechanic';
+          }
+        }
+      }
+      const focalPoint = event.point || event.to || event.center || {};
+      const spatialIdentity = Number.isFinite(Number(focalPoint.x))
+        && Number.isFinite(Number(focalPoint.y))
+        ? `${Math.round(Number(focalPoint.x) * 10)}:${Math.round(Number(focalPoint.y) * 10)}`
+        : 'group';
+      const eventIdentity = event.actorUid || event.enemyUid || event.targetUid
+        || event.projectileUid
+        || (Array.isArray(event.targetUids) && event.targetUids.length === 1
+          ? event.targetUids[0] : spatialIdentity);
+      const dedupeKey = [
+        'mechanic', event.heroUid || hero.uid || heroType, eventIdentity,
+        mechanicPhase, finiteNumber(event.stage, 1),
+      ].join(':');
+      const feedback = {
+        ...event,
+        ...geometry,
+        heroType,
+        visualMode: 'mechanic',
+        mechanicPhase,
+        dedupeKey,
+        layer: HERO_SKILL_VISUAL_SIGNATURES[heroType]?.layer || 'front',
+        priority: 3,
+        duration: 0.56,
+        seed: finiteNumber(event.stage, 1) * 31 + finiteNumber(this.state.time),
+      };
+      const active = this.combatFeedback.find((entry) => (
+        entry.kind === 'skill-step' && entry.dedupeKey === dedupeKey
+        && entry.age < entry.duration
+      ));
+      if (active) {
+        const uid = active.uid;
+        Object.assign(active, feedback, { uid, kind: 'skill-step', age: 0 });
+      } else {
+        this.enqueueCombatFeedback('skill-step', feedback);
+      }
+      return;
+    }
     if (event.type === 'hero-skill-step') {
       const hero = this.state.hero;
       if (!hero) return;
+      // Current core events always carry `action`. Their main visual is already
+      // owned by either the live actor, the state effect, or the paired
+      // mechanic event. Keep the branch only for old/synthetic events that do
+      // not have an authored action, avoiding a second full skill replay.
+      if (event.action) return;
+      const geometry = event.geometry || {};
       this.enqueueCombatFeedback('skill-step', {
-        x: hero.x,
-        y: hero.y - 24,
+        x: finiteNumber(geometry.target?.x, hero.x),
+        y: finiteNumber(geometry.target?.y, hero.y - 24),
+        originX: finiteNumber(geometry.origin?.x, hero.x),
+        originY: finiteNumber(geometry.origin?.y, hero.y - 24),
+        targetX: finiteNumber(geometry.target?.x, hero.x),
+        targetY: finiteNumber(geometry.target?.y, hero.y - 80),
+        radius: Math.max(36, finiteNumber(geometry.radius, 66)),
         heroType: event.heroType || hero.type,
         stage: clamp(Math.floor(finiteNumber(event.stage, event.stepIndex + 1, 1)), 1, 3),
         stepKind: event.stepKind,
+        action: event.action,
+        mechanic: event.mechanic,
+        geometry: event.geometry,
+        visualMode: 'feedback-step',
+        layer: HERO_SKILL_VISUAL_SIGNATURES[event.heroType || hero.type]?.layer || 'front',
         priority: 3,
         seed: finiteNumber(event.stepIndex, 0) * 29 + finiteNumber(this.state.time),
       });
@@ -5913,7 +6141,8 @@ export class TowerDefenseGame {
 
   drawExpandedSkillComponents(ctx, heroType, instances) {
     const componentName = EXPANDED_SKILL_COMPONENT_BY_TYPE[heroType];
-    const cell = DYNAMIC_SKILL_COMPONENTS[componentName];
+    const signatureCell = HERO_SKILL_SIGNATURE_COMPONENTS[heroType];
+    const cell = signatureCell || DYNAMIC_SKILL_COMPONENTS[componentName];
     if (!cell || !this.assetStore || typeof this.assetStore.useOrFallback !== 'function') {
       return false;
     }
@@ -5923,7 +6152,11 @@ export class TowerDefenseGame {
       drawable.push(instance);
     }
     if (!drawable.length) return false;
-    return this.assetStore.useOrFallback(DYNAMIC_SKILL_COMPONENT_ATLAS_KEY, (asset) => {
+    const atlasKey = signatureCell
+      ? HERO_SKILL_SIGNATURE_ATLAS_KEY : DYNAMIC_SKILL_COMPONENT_ATLAS_KEY;
+    const atlasGrid = signatureCell
+      ? HERO_SKILL_SIGNATURE_GRID : DYNAMIC_SKILL_COMPONENT_GRID;
+    return this.assetStore.useOrFallback(atlasKey, (asset) => {
       const sourceWidth = Math.max(1, Math.round(finiteNumber(
         asset?.naturalWidth,
         asset?.videoWidth,
@@ -5936,13 +6169,13 @@ export class TowerDefenseGame {
         asset?.height,
         1254,
       )));
-      const sourceLeft = Math.round(sourceWidth * cell.column / DYNAMIC_SKILL_COMPONENT_GRID);
-      const sourceTop = Math.round(sourceHeight * cell.row / DYNAMIC_SKILL_COMPONENT_GRID);
+      const sourceLeft = Math.round(sourceWidth * cell.column / atlasGrid);
+      const sourceTop = Math.round(sourceHeight * cell.row / atlasGrid);
       const sourceRight = Math.round(
-        sourceWidth * (cell.column + 1) / DYNAMIC_SKILL_COMPONENT_GRID,
+        sourceWidth * (cell.column + 1) / atlasGrid,
       );
       const sourceBottom = Math.round(
-        sourceHeight * (cell.row + 1) / DYNAMIC_SKILL_COMPONENT_GRID,
+        sourceHeight * (cell.row + 1) / atlasGrid,
       );
       const sourceCellWidth = Math.max(1, sourceRight - sourceLeft);
       const sourceCellHeight = Math.max(1, sourceBottom - sourceTop);
@@ -6081,7 +6314,6 @@ export class TowerDefenseGame {
     const progress = clamp(entry.age / Math.max(0.001, entry.duration), 0, 1);
     const expand = easeOutCubic(progress);
     const fade = (1 - progress) ** 0.68;
-    const heroStyle = SKILL_VISUAL_STYLE[entry.heroType] || SKILL_VISUAL_STYLE.shell;
     const paletteIndex = Math.floor(Math.abs(entry.seed || 0)) % 4;
     const enemyColors = ['#FFE16B', '#63E2C0', '#72D8F2', '#F58CAB'];
     const color = entry.boss ? '#C39BFF' : enemyColors[paletteIndex];
@@ -6242,40 +6474,31 @@ export class TowerDefenseGame {
     }
 
     if (entry.kind === 'skill-cast') {
-      this.drawFeedbackDynamicComponents(ctx, 'shock-ring', [{
-        x: entry.x,
-        y: entry.y + 10,
-        width: 96 + expand * 82,
-        height: 58 + expand * 38,
-        alpha: fade * 0.82,
-        rotation: progress * 0.5,
-      }]);
-      this.drawFeedbackDynamicComponents(ctx, 'sparkle', Array.from({ length: 3 }, (_, index) => {
-        const angle = index * TAU / 3 - Math.PI / 2 + progress * 1.2;
-        return {
-          x: entry.x + Math.cos(angle) * (30 + expand * 20),
-          y: entry.y + Math.sin(angle) * (24 + expand * 16),
-          size: 18 + index * 2,
-          alpha: fade * 0.75,
-          rotation: angle,
-        };
-      }));
-      this.drawFeedbackRays(ctx, entry, 5, 72, heroStyle.color, fade * 0.64);
+      this.drawHeroSkillSignature(ctx, {
+        ...entry,
+        radius: Math.max(36, finiteNumber(entry.radius, 62)),
+        originX: finiteNumber(entry.originX, entry.geometry?.origin?.x, entry.x),
+        originY: finiteNumber(entry.originY, entry.geometry?.origin?.y, entry.y + 8),
+        targetX: finiteNumber(entry.targetX, entry.geometry?.target?.x, entry.x),
+        targetY: finiteNumber(entry.targetY, entry.geometry?.target?.y, entry.y - 62),
+      }, progress, entry.visualMode || 'cast');
       return;
     }
 
     if (entry.kind === 'skill-step') {
       const stage = clamp(Math.floor(entry.stage || 1), 1, 3);
-      const componentName = EXPANDED_SKILL_COMPONENT_BY_TYPE[entry.heroType] || 'impact-core';
-      this.drawFeedbackDynamicComponents(ctx, componentName, [{
-        x: entry.x,
-        y: entry.y,
-        size: (46 + stage * 13) * (0.74 + expand * 0.45),
-        alpha: fade * 0.72,
-        rotation: (stage % 2 ? 1 : -1) * progress * 0.9,
-      }]);
-      this.drawFeedbackRays(ctx, entry, 2 + stage, 42 + stage * 10,
-        heroStyle.light, fade * 0.62);
+      this.drawHeroSkillSignature(ctx, {
+        ...entry,
+        radius: Math.max(36, finiteNumber(entry.radius, 42 + stage * 12)),
+        originX: finiteNumber(entry.originX, entry.geometry?.origin?.x, entry.x),
+        originY: finiteNumber(entry.originY, entry.geometry?.origin?.y, entry.y + 5),
+        targetX: finiteNumber(
+          entry.targetX, entry.geometry?.target?.x, entry.x + (stage - 2) * 18,
+        ),
+        targetY: finiteNumber(
+          entry.targetY, entry.geometry?.target?.y, entry.y - 48 - stage * 7,
+        ),
+      }, progress, entry.visualMode || 'feedback-step');
       return;
     }
 
@@ -6386,6 +6609,886 @@ export class TowerDefenseGame {
     }
     ctx.restore();
     return true;
+  }
+
+  heroSkillVisualGeometry(effect) {
+    const hero = this.state.hero || {};
+    const geometry = effect.geometry || {};
+    const path = Array.isArray(effect.path) ? effect.path : [];
+    const waypoints = Array.isArray(effect.waypoints) ? effect.waypoints : [];
+    const chain = Array.isArray(effect.chain) ? effect.chain : [];
+    const pathEnd = path[path.length - 1] || waypoints[waypoints.length - 1]
+      || chain[chain.length - 1] || {};
+    const originX = finiteNumber(
+      effect.originX, effect.startX, effect.origin?.x, geometry.origin?.x,
+      path[0]?.x, hero.x, effect.x,
+    );
+    const originY = finiteNumber(
+      effect.originY, effect.startY, effect.origin?.y, geometry.origin?.y,
+      path[0]?.y, hero.y, effect.y,
+    );
+    let targetX = finiteNumber(
+      effect.targetX, effect.endX, effect.end?.x, effect.center?.x,
+      effect.meteorTargetX, geometry.target?.x, pathEnd.x, effect.x, originX,
+    );
+    let targetY = finiteNumber(
+      effect.targetY, effect.endY, effect.end?.y, effect.center?.y,
+      effect.meteorTargetY, geometry.target?.y, pathEnd.y, effect.y, originY - 1,
+    );
+    const needsDirectionalFallback = [
+      'needle', 'berry', 'dew', 'drill', 'ember', 'ink', 'frost', 'spark', 'star',
+    ].includes(skillHeroType(effect));
+    if (needsDirectionalFallback && Math.hypot(targetX - originX, targetY - originY) < 4) {
+      const angle = finiteNumber(effect.directionAngle,
+        Math.atan2(
+          finiteNumber(effect.directionY, effect.direction?.y, geometry.direction?.y, -1),
+          finiteNumber(effect.directionX, effect.direction?.x, geometry.direction?.x, 0),
+        ));
+      const reach = Math.max(72, finiteNumber(
+        effect.length, geometry.length, effect.radius, geometry.radius, 150,
+      ));
+      targetX = originX + Math.cos(angle) * reach;
+      targetY = originY + Math.sin(angle) * reach;
+    }
+    let radius = Math.max(36, finiteNumber(
+      effect.radius, geometry.radius, effect.width, geometry.width, 110,
+    ));
+    // Actor records carry their own physical dimensions. Prefer those over a
+    // generic cast-range fallback, otherwise narrow walls render as tiny dots
+    // while orbiting stars and beams borrow an unrelated 400+ px skill range.
+    if (effect.type === 'prism-beam') {
+      radius = clamp(finiteNumber(effect.refractionRadius, effect.width * 4, 110), 80, 190);
+    } else if (effect.type === 'return-wave') {
+      radius = clamp(finiteNumber(effect.width, 120), 72, 160);
+    } else if (effect.type === 'hero-dash') {
+      radius = clamp(finiteNumber(effect.landingRadius, effect.width * 1.5, 100), 76, 140);
+    } else if (effect.type === 'frost-wall') {
+      radius = clamp(pointDistance(
+        { x: finiteNumber(effect.startX), y: finiteNumber(effect.startY) },
+        { x: finiteNumber(effect.endX), y: finiteNumber(effect.endY) },
+      ) * 0.34, 76, 118);
+    } else if (effect.type === 'orbit-stars') {
+      radius = clamp(Math.max(
+        finiteNumber(effect.orbitRadius, 72) / 0.48,
+        finiteNumber(effect.meteorRadius, 150),
+      ), 120, 190);
+    }
+    return {
+      originX,
+      originY,
+      targetX,
+      targetY,
+      radius,
+      age: Math.max(0, finiteNumber(effect.age, effect.elapsed)),
+    };
+  }
+
+  heroSkillSignatureProgress(effect, progress, mode) {
+    const local = clamp(progress, 0, 1);
+    if (mode === 'actor' || mode === 'full') return local;
+    if (mode === 'cast') return local * 0.24;
+    if (mode === 'mechanic') {
+      const phase = String(effect.mechanicPhase || effect.phase || 'active');
+      if (phase === 'chain') return local;
+      if (HERO_SKILL_TERMINAL_MECHANIC_PHASES.has(phase)
+        || phase === 'stack-burst' || phase === 'detonate') {
+        return lerp(0.72, 1, local);
+      }
+      if (/refraction|turn|star-release|weakpoint-trigger|first-crossing/.test(phase)) {
+        return lerp(0.36, 0.78, local);
+      }
+      return lerp(0.08, 0.68, local);
+    }
+    const stage = clamp(Math.floor(finiteNumber(effect.stage, 1)), 1, 3);
+    const start = (stage - 1) / 3;
+    return lerp(start, stage / 3, local);
+  }
+
+  drawHeroSkillSignature(ctx, effect, progress = skillProgress(effect), mode = 'full') {
+    const heroType = skillHeroType(effect);
+    const signature = HERO_SKILL_VISUAL_SIGNATURES[heroType];
+    if (!signature) return false;
+    const method = {
+      shell: 'drawShellSkillSignature',
+      needle: 'drawNeedleSkillSignature',
+      bubble: 'drawBubbleSkillSignature',
+      sprout: 'drawSproutSkillSignature',
+      berry: 'drawBerrySkillSignature',
+      dew: 'drawDewSkillSignature',
+      bell: 'drawBellSkillSignature',
+      drill: 'drawDrillSkillSignature',
+      ember: 'drawEmberSkillSignature',
+      ink: 'drawInkSkillSignature',
+      cloud: 'drawCloudSkillSignature',
+      frost: 'drawFrostSkillSignature',
+      honey: 'drawHoneySkillSignature',
+      spark: 'drawSparkSkillSignature',
+      star: 'drawStarSkillSignature',
+    }[heroType];
+    if (!method || typeof this[method] !== 'function') return false;
+    const signatureProgress = this.heroSkillSignatureProgress(effect, progress, mode);
+    this[method](ctx, effect, signatureProgress, mode);
+    return true;
+  }
+
+  drawShellSkillSignature(ctx, effect, progress) {
+    const { targetX: x, targetY: y, radius } = this.heroSkillVisualGeometry(effect);
+    const style = SKILL_VISUAL_STYLE.shell;
+    const slam = Math.sin(Math.min(1, progress * 1.35) * Math.PI);
+    const spread = radius * (0.72 - slam * 0.34);
+    ctx.save();
+    ctx.lineCap = 'round';
+    for (let index = 0; index < 3; index += 1) {
+      const local = clamp(progress * 1.8 - index * 0.18, 0, 1);
+      ctx.globalAlpha = (1 - local) * (0.72 - index * 0.12);
+      ctx.strokeStyle = index === 1 ? style.light : style.color;
+      ctx.lineWidth = 7 - index * 1.5;
+      ctx.beginPath();
+      ctx.ellipse(x, y + 12, radius * (0.2 + local * 0.75),
+        radius * (0.06 + local * 0.2), 0, 0, TAU);
+      ctx.stroke();
+    }
+    ctx.strokeStyle = style.deep;
+    ctx.lineWidth = 5;
+    ctx.globalAlpha = 0.82 * (1 - progress * 0.55);
+    for (const side of [-1, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(x + side * radius * 0.14, y + 8);
+      ctx.lineTo(x + side * radius * 0.34, y + 18 + slam * 7);
+      ctx.lineTo(x + side * radius * 0.52, y + 12);
+      ctx.stroke();
+    }
+    ctx.restore();
+    this.drawSkillComponents(ctx, SKILL_COMPONENT_ASSETS.shellImpact, [-1, 1].map((side) => ({
+      x: x + side * spread * 0.34,
+      y: y - 2 + slam * 12,
+      width: radius * 0.58,
+      height: radius * 0.42,
+      rotation: side * (0.42 - slam * 0.28),
+      alpha: 0.94 * (1 - progress * 0.35),
+    })));
+  }
+
+  drawNeedleSkillSignature(ctx, effect, progress) {
+    const geometry = this.heroSkillVisualGeometry(effect);
+    const { originX, originY, targetX, targetY, radius } = geometry;
+    const style = SKILL_VISUAL_STYLE.needle;
+    const reveal = easeOutCubic(clamp(progress / 0.34, 0, 1));
+    const prismX = lerp(originX, targetX, 0.62 * reveal);
+    const prismY = lerp(originY, targetY, 0.62 * reveal);
+    const angle = Math.atan2(targetY - originY, targetX - originX);
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.setLineDash?.(progress < 0.22 ? [12, 9] : []);
+    ctx.lineDashOffset = -progress * 80;
+    ctx.strokeStyle = progress < 0.22 ? style.color : style.light;
+    ctx.lineWidth = progress < 0.22 ? 2.5 : 5;
+    ctx.globalAlpha = 0.92;
+    ctx.beginPath();
+    ctx.moveTo(originX, originY);
+    ctx.lineTo(prismX, prismY);
+    ctx.stroke();
+    ctx.setLineDash?.([]);
+    ctx.strokeStyle = style.color;
+    ctx.lineWidth = 3.5;
+    for (const split of [-0.36, 0, 0.36]) {
+      const length = radius * (0.72 + (split === 0 ? 0.22 : 0));
+      ctx.beginPath();
+      ctx.moveTo(prismX, prismY);
+      ctx.lineTo(prismX + Math.cos(angle + split) * length * reveal,
+        prismY + Math.sin(angle + split) * length * reveal);
+      ctx.stroke();
+    }
+    const refractions = Array.isArray(effect.refractions) ? effect.refractions : [];
+    for (const refraction of refractions.slice(0, 5)) {
+      const fromX = finiteNumber(refraction?.from?.x, originX);
+      const fromY = finiteNumber(refraction?.from?.y, originY);
+      const toX = finiteNumber(refraction?.to?.x, targetX);
+      const toY = finiteNumber(refraction?.to?.y, targetY);
+      ctx.strokeStyle = style.light;
+      ctx.lineWidth = 4;
+      ctx.globalAlpha = 0.86;
+      ctx.beginPath();
+      ctx.moveTo(fromX, fromY);
+      ctx.lineTo(lerp(fromX, toX, reveal), lerp(fromY, toY, reveal));
+      ctx.stroke();
+    }
+    ctx.beginPath();
+    for (let index = 0; index < 3; index += 1) {
+      const pointAngle = angle + index * TAU / 3;
+      const px = prismX + Math.cos(pointAngle) * 15;
+      const py = prismY + Math.sin(pointAngle) * 15;
+      if (!index) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.stroke();
+    ctx.restore();
+    this.drawSkillComponents(ctx, SKILL_COMPONENT_ASSETS.crystalLaserEmitter, [{
+      x: originX, y: originY, size: 48, rotation: angle, alpha: 0.9,
+    }]);
+    this.drawSkillComponents(ctx, SKILL_COMPONENT_ASSETS.crystalLaserHit, [{
+      x: prismX, y: prismY, size: 52 + reveal * 16,
+      rotation: progress * 3.1, alpha: reveal,
+    }]);
+  }
+
+  drawBubbleSkillSignature(ctx, effect, progress) {
+    const { targetX: x, targetY: y, radius } = this.heroSkillVisualGeometry(effect);
+    const style = SKILL_VISUAL_STYLE.bubble;
+    const orbitPhase = clamp(progress / 0.52, 0, 1);
+    const rewindPhase = clamp((progress - 0.52) / 0.3, 0, 1);
+    const orbitRadius = radius * (0.18 + easeOutCubic(orbitPhase) * 0.62)
+      * (1 - rewindPhase * 0.88);
+    const spin = progress < 0.52 ? progress * 8 : 4.16 - rewindPhase * 5.2;
+    this.drawSkillComponents(ctx, SKILL_COMPONENT_ASSETS.bubbleOrb,
+      Array.from({ length: 5 }, (_, index) => {
+        const angle = spin + index * TAU / 5;
+        return {
+          x: x + Math.cos(angle) * orbitRadius,
+          y: y + Math.sin(angle) * orbitRadius * 0.62,
+          size: 20 + (index % 2) * 7,
+          rotation: -angle * 0.18,
+          alpha: 0.74 + rewindPhase * 0.2,
+        };
+      }));
+    ctx.save();
+    ctx.strokeStyle = style.light;
+    ctx.lineWidth = 3 + rewindPhase * 4;
+    ctx.globalAlpha = 0.32 + rewindPhase * 0.5;
+    ctx.beginPath();
+    ctx.ellipse(x, y, Math.max(8, orbitRadius), Math.max(5, orbitRadius * 0.62),
+      -spin * 0.12, 0, TAU);
+    ctx.stroke();
+    ctx.restore();
+    const authoredBurst = String(effect.stepKind || effect.mechanic || '').includes('burst');
+    if (progress > 0.78 || authoredBurst) {
+      const burst = authoredBurst
+        ? easeOutCubic(progress) : clamp((progress - 0.78) / 0.22, 0, 1);
+      this.drawSkillComponents(ctx, SKILL_COMPONENT_ASSETS.bubbleBurst, [{
+        x, y, size: radius * (0.55 + burst * 1.15),
+        rotation: -burst * 0.35, alpha: 1 - burst * 0.55,
+      }]);
+    }
+  }
+
+  drawSproutSkillSignature(ctx, effect, progress) {
+    const { targetX: x, targetY: y, radius } = this.heroSkillVisualGeometry(effect);
+    const style = SKILL_VISUAL_STYLE.sprout;
+    const suppliedNodes = Array.isArray(effect.nodePositions) ? effect.nodePositions : [];
+    const nodes = suppliedNodes.length >= 2
+      ? suppliedNodes.slice(0, 3).map((node) => ({ x: node.x, y: node.y }))
+      : [-0.72, 0, 0.72].map((offset, index) => ({
+        x: x + offset * radius * 0.68,
+        y: y + (index === 1 ? -0.28 : 0.18) * radius,
+      }));
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = style.deep;
+    ctx.lineWidth = 5;
+    ctx.globalAlpha = 0.82;
+    for (const node of nodes) {
+      ctx.beginPath();
+      ctx.moveTo(x, y + radius * 0.22);
+      ctx.lineTo(lerp(x, node.x, clamp(progress * 1.5, 0, 1)),
+        lerp(y + radius * 0.22, node.y, clamp(progress * 1.5, 0, 1)));
+      ctx.stroke();
+    }
+    if (progress > 0.62) {
+      ctx.strokeStyle = style.light;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      nodes.forEach((node, index) => {
+        if (!index) ctx.moveTo(node.x, node.y); else ctx.lineTo(node.x, node.y);
+      });
+      ctx.closePath();
+      ctx.stroke();
+    }
+    ctx.restore();
+    this.drawSkillComponents(ctx, SKILL_COMPONENT_ASSETS.sproutThorn,
+      nodes.map((node, index) => {
+        const local = clamp((progress - index * 0.16) / 0.36, 0, 1);
+        return {
+          x: node.x, y: node.y + 25 * (1 - local),
+          width: 28 + index * 3, height: (48 + index * 5) * local,
+          rotation: (index - 1) * 0.18,
+          anchorY: 0.82, alpha: local,
+        };
+      }));
+  }
+
+  drawBerrySkillSignature(ctx, effect, progress) {
+    const { originX, originY, targetX, targetY, radius } = this.heroSkillVisualGeometry(effect);
+    const style = SKILL_VISUAL_STYLE.berry;
+    const suppliedWaypoints = Array.isArray(effect.waypoints) ? effect.waypoints : [];
+    const points = suppliedWaypoints.length >= 3
+      ? suppliedWaypoints.slice(0, 3).map((point) => ({ x: point.x, y: point.y }))
+      : [
+        { x: lerp(originX, targetX, 0.38) - radius * 0.26, y: lerp(originY, targetY, 0.38) },
+        { x: lerp(originX, targetX, 0.68) + radius * 0.24, y: lerp(originY, targetY, 0.68) },
+        { x: targetX, y: targetY },
+      ];
+    let from = { x: originX, y: originY };
+    const active = Math.min(2, Math.floor(progress * 3));
+    for (let index = 0; index < 3; index += 1) {
+      const local = clamp(progress * 3 - index, 0, 1);
+      const point = points[index];
+      ctx.save();
+      ctx.strokeStyle = style.deep;
+      ctx.lineWidth = 3;
+      ctx.globalAlpha = 0.26 + local * 0.42;
+      ctx.beginPath();
+      ctx.ellipse(point.x, point.y + 7, radius * 0.2 * (0.7 + local * 0.3),
+        radius * 0.07, 0, 0, TAU);
+      ctx.stroke();
+      ctx.restore();
+      if (index === active && progress < 0.96) {
+        const flightX = lerp(from.x, point.x, local);
+        const flightY = lerp(from.y, point.y, local) - Math.sin(local * Math.PI) * radius * 0.72;
+        this.drawSkillComponents(ctx, SKILL_COMPONENT_ASSETS.berryBomb, [{
+          x: flightX, y: flightY, size: 48,
+          rotation: local * 4.8 + index, alpha: 1,
+        }]);
+      }
+      from = point;
+    }
+    if (progress > 0.82) {
+      const burst = clamp((progress - 0.82) / 0.18, 0, 1);
+      this.drawSkillComponents(ctx, SKILL_COMPONENT_ASSETS.berryBurst, [{
+        x: targetX, y: targetY, size: radius * (0.48 + burst * 1.2),
+        rotation: burst * 0.7, alpha: 1 - burst * 0.4,
+      }]);
+      ctx.save();
+      ctx.strokeStyle = style.light;
+      ctx.lineWidth = 5;
+      for (let index = 0; index < 4; index += 1) {
+        const angle = index * Math.PI / 2;
+        ctx.beginPath();
+        ctx.moveTo(targetX + Math.cos(angle) * radius * 0.12,
+          targetY + Math.sin(angle) * radius * 0.12);
+        ctx.lineTo(targetX + Math.cos(angle) * radius * burst,
+          targetY + Math.sin(angle) * radius * burst);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+  }
+
+  drawDewSkillSignature(ctx, effect, progress) {
+    const { originX, originY, targetX, targetY, radius } = this.heroSkillVisualGeometry(effect);
+    const style = SKILL_VISUAL_STYLE.dew;
+    const actorWave = effect.type === 'return-wave';
+    const returning = actorWave ? effect.travelDirection < 0 : progress >= 0.52;
+    const local = returning
+      ? clamp((progress - 0.52) / 0.48, 0, 1)
+      : clamp(progress / 0.52, 0, 1);
+    const farX = actorWave
+      ? originX + finiteNumber(effect.directionX, 0) * finiteNumber(effect.maxDistance, 1)
+      : targetX;
+    const farY = actorWave
+      ? originY + finiteNumber(effect.directionY, -1) * finiteNumber(effect.maxDistance, 1)
+      : targetY;
+    const fromX = returning ? farX : originX;
+    const fromY = returning ? farY : originY;
+    const toX = returning ? originX : farX;
+    const toY = returning ? originY : farY;
+    const headX = actorWave ? finiteNumber(effect.x, originX)
+      : lerp(fromX, toX, easeOutCubic(local));
+    const headY = actorWave ? finiteNumber(effect.y, originY)
+      : lerp(fromY, toY, easeOutCubic(local));
+    const angle = Math.atan2(toY - fromY, toX - fromX);
+    const px = -Math.sin(angle);
+    const py = Math.cos(angle);
+    ctx.save();
+    ctx.lineCap = 'round';
+    for (const side of [-1, 1]) {
+      ctx.strokeStyle = side < 0 ? style.color : style.light;
+      ctx.lineWidth = side < 0 ? 13 : 5;
+      ctx.globalAlpha = side < 0 ? 0.58 : 0.88;
+      ctx.beginPath();
+      ctx.moveTo(fromX, fromY);
+      ctx.quadraticCurveTo(
+        (fromX + headX) / 2 + px * side * radius * 0.3,
+        (fromY + headY) / 2 + py * side * radius * 0.3,
+        headX, headY,
+      );
+      ctx.stroke();
+    }
+    ctx.restore();
+    this.drawSkillComponents(ctx, SKILL_COMPONENT_ASSETS.dewWaveCrest, [{
+      x: headX, y: headY, width: radius * 0.92, height: radius * 0.6,
+      rotation: angle, alpha: 0.94,
+    }]);
+  }
+
+  drawBellSkillSignature(ctx, effect, progress) {
+    const { targetX: x, targetY: y, radius } = this.heroSkillVisualGeometry(effect);
+    const style = SKILL_VISUAL_STYLE.bell;
+    const beatPosition = progress * 3;
+    ctx.save();
+    ctx.lineCap = 'round';
+    for (let beat = 0; beat < 3; beat += 1) {
+      const local = clamp(beatPosition - beat, 0, 1);
+      if (local <= 0) continue;
+      ctx.strokeStyle = beat === 2 ? style.light : style.color;
+      ctx.lineWidth = 6 - beat;
+      ctx.globalAlpha = (1 - local) * 0.88;
+      ctx.beginPath();
+      ctx.arc(x, y, radius * (0.12 + easeOutCubic(local) * (0.46 + beat * 0.18)), 0, TAU);
+      ctx.stroke();
+    }
+    ctx.strokeStyle = style.light;
+    ctx.lineWidth = 3;
+    ctx.globalAlpha = 0.82;
+    ctx.beginPath();
+    for (let index = 0; index <= 8; index += 1) {
+      const px = x - radius * 0.72 + radius * 1.44 * index / 8;
+      const py = y + Math.sin(index * Math.PI + progress * 6 * Math.PI) * radius * 0.11;
+      if (!index) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+    ctx.restore();
+    const activeBeat = Math.min(2, Math.floor(beatPosition));
+    this.drawExpandedSkillComponents(ctx, 'bell', [{
+      x, y, size: radius * (0.54 + (beatPosition % 1) * 0.4),
+      rotation: (activeBeat % 2 ? -1 : 1) * progress * 0.7,
+      alpha: 0.72,
+    }]);
+  }
+
+  drawDrillSkillSignature(ctx, effect, progress) {
+    const { originX, originY, targetX, targetY, radius } = this.heroSkillVisualGeometry(effect);
+    const style = SKILL_VISUAL_STYLE.drill;
+    const angle = Math.atan2(targetY - originY, targetX - originX);
+    const px = -Math.sin(angle);
+    const py = Math.cos(angle);
+    const dash = easeOutCubic(clamp((progress - 0.2) / 0.62, 0, 1));
+    const headX = lerp(originX, targetX, dash);
+    const headY = lerp(originY, targetY, dash);
+    ctx.save();
+    ctx.lineCap = 'round';
+    if (progress < 0.22) {
+      ctx.strokeStyle = style.light;
+      ctx.lineWidth = 5;
+      ctx.globalAlpha = 0.9;
+      ctx.beginPath();
+      ctx.ellipse(originX - Math.cos(angle) * 10, originY - Math.sin(angle) * 10,
+        radius * (0.38 - progress), radius * 0.12, angle, 0, TAU);
+      ctx.stroke();
+    }
+    ctx.strokeStyle = style.color;
+    ctx.lineWidth = 10;
+    ctx.globalAlpha = 0.7;
+    ctx.beginPath();
+    for (let index = 0; index <= 10; index += 1) {
+      const along = dash * index / 10;
+      const wobble = Math.sin(index * 1.7 + progress * 18) * radius * 0.12 * along;
+      const x = lerp(originX, targetX, along) + px * wobble;
+      const y = lerp(originY, targetY, along) + py * wobble;
+      if (!index) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    ctx.restore();
+    this.drawExpandedSkillComponents(ctx, 'drill', [{
+      x: headX,
+      y: headY,
+      width: radius * 0.82,
+      height: radius * 0.62,
+      rotation: angle + progress * 5.8,
+      alpha: 0.94,
+    }]);
+    if (progress > 0.8) {
+      ctx.save();
+      ctx.strokeStyle = style.light;
+      ctx.lineWidth = 6;
+      ctx.globalAlpha = 1 - (progress - 0.8) / 0.2;
+      ctx.beginPath();
+      ctx.ellipse(targetX, targetY + 8, radius * (progress - 0.72),
+        radius * (progress - 0.72) * 0.28, angle, 0, TAU);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  drawEmberSkillSignature(ctx, effect, progress) {
+    const { originX, originY, targetX, targetY, radius } = this.heroSkillVisualGeometry(effect);
+    const style = SKILL_VISUAL_STYLE.ember;
+    const angle = Math.atan2(targetY - originY, targetX - originX);
+    const px = -Math.sin(angle);
+    const py = Math.cos(angle);
+    const headProgress = easeOutCubic(progress);
+    const suppliedPath = Array.isArray(effect.path) ? effect.path.slice(-7) : [];
+    const points = suppliedPath.length >= 2
+      ? suppliedPath.map((point, index) => ({
+        x: point.x + px * Math.sin(progress * 11 + index) * 5,
+        y: point.y + py * Math.sin(progress * 11 + index) * 5,
+      }))
+      : Array.from({ length: 7 }, (_, index) => {
+        const along = headProgress * index / 6;
+        const coil = Math.sin(along * Math.PI * 3 + progress * 11) * radius * 0.22 * along;
+        return {
+          x: lerp(originX, targetX, along) + px * coil,
+          y: lerp(originY, targetY, along) + py * coil,
+        };
+      });
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = style.deep;
+    ctx.lineWidth = 18;
+    ctx.globalAlpha = 0.3;
+    ctx.beginPath();
+    points.forEach((point, index) => {
+      if (!index) ctx.moveTo(point.x, point.y); else ctx.lineTo(point.x, point.y);
+    });
+    ctx.stroke();
+    ctx.strokeStyle = style.color;
+    ctx.lineWidth = 9;
+    ctx.globalAlpha = 0.9;
+    ctx.stroke();
+    points.slice(1, 6).forEach((point, index) => {
+      ctx.globalAlpha = 0.26 + index * 0.05;
+      ctx.beginPath();
+      ctx.ellipse(point.x, point.y + 7, 13 + index * 2, 5, angle, 0, TAU);
+      ctx.fillStyle = style.deep;
+      ctx.fill();
+    });
+    ctx.restore();
+    const head = points[points.length - 1];
+    this.drawExpandedSkillComponents(ctx, 'ember', [{
+      x: head.x,
+      y: head.y - 5,
+      width: radius * 0.96,
+      height: radius * 0.62,
+      rotation: angle,
+      alpha: 0.96,
+    }]);
+  }
+
+  drawInkSkillSignature(ctx, effect, progress) {
+    const { originX, originY, targetX, targetY, radius } = this.heroSkillVisualGeometry(effect);
+    const style = SKILL_VISUAL_STYLE.ink;
+    const angle = Math.atan2(targetY - originY, targetX - originX);
+    const reach = Math.hypot(targetX - originX, targetY - originY) * easeOutCubic(progress);
+    ctx.save();
+    ctx.lineCap = 'round';
+    for (let index = 0; index < 5; index += 1) {
+      const fan = (index - 2) * 0.17;
+      const endX = originX + Math.cos(angle + fan) * reach * (0.82 + index * 0.04);
+      const endY = originY + Math.sin(angle + fan) * reach * (0.82 + index * 0.04);
+      ctx.strokeStyle = index % 2 ? style.color : style.deep;
+      ctx.lineWidth = 3 + (index % 3) * 2;
+      ctx.globalAlpha = 0.58 + index * 0.06;
+      ctx.beginPath();
+      ctx.moveTo(originX, originY);
+      ctx.quadraticCurveTo(
+        lerp(originX, endX, 0.52) - Math.sin(angle + fan) * (index - 2) * 7,
+        lerp(originY, endY, 0.52) + Math.cos(angle + fan) * (index - 2) * 7,
+        endX, endY,
+      );
+      ctx.stroke();
+      ctx.fillStyle = style.color;
+      ctx.beginPath();
+      ctx.ellipse(endX, endY, 8 + index * 2, 4 + (index % 2) * 3,
+        fan + progress * 0.4, 0, TAU);
+      ctx.fill();
+    }
+    ctx.restore();
+    this.drawSkillComponents(ctx, FRIENDLY_PROJECTILE_STYLE_BY_HERO.ink.assetKey,
+      Array.from({ length: 3 }, (_, index) => {
+        const fan = (index - 1) * 0.22;
+        return {
+          x: originX + Math.cos(angle + fan) * reach * (0.72 + index * 0.1),
+          y: originY + Math.sin(angle + fan) * reach * (0.72 + index * 0.1),
+          width: 28 + index * 4, height: 22 + index * 3,
+          rotation: angle + fan, alpha: 0.92,
+        };
+      }));
+    this.drawExpandedSkillComponents(ctx, 'ink', [{
+      x: targetX,
+      y: targetY + 4,
+      width: radius * (0.58 + progress * 0.34),
+      height: radius * (0.36 + progress * 0.18),
+      rotation: angle + Math.PI / 2,
+      alpha: 0.42 + progress * 0.45,
+    }]);
+    if (progress > 0.7) {
+      ctx.save();
+      ctx.fillStyle = style.deep;
+      ctx.globalAlpha = 0.28;
+      ctx.beginPath();
+      ctx.ellipse(targetX, targetY + 8, radius * 0.62, radius * 0.24,
+        angle, 0, TAU);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  drawCloudSkillSignature(ctx, effect, progress) {
+    const { targetX: x, targetY: y, radius } = this.heroSkillVisualGeometry(effect);
+    const style = SKILL_VISUAL_STYLE.cloud;
+    const collapse = clamp((progress - 0.72) / 0.28, 0, 1);
+    ctx.save();
+    ctx.lineCap = 'round';
+    for (const direction of [-1, 1]) {
+      ctx.strokeStyle = direction < 0 ? style.color : style.light;
+      ctx.lineWidth = direction < 0 ? 9 : 5;
+      ctx.globalAlpha = 0.72;
+      ctx.beginPath();
+      for (let index = 0; index <= 11; index += 1) {
+        const t = index / 11;
+        const angle = direction * (t * TAU * 1.45 + progress * 5);
+        const distance = radius * (0.82 - t * 0.72) * (1 - collapse * 0.72);
+        const px = x + Math.cos(angle) * distance;
+        const py = y + Math.sin(angle) * distance * 0.58;
+        if (!index) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+    }
+    ctx.strokeStyle = style.deep;
+    ctx.lineWidth = 7;
+    ctx.globalAlpha = 0.88;
+    ctx.beginPath();
+    ctx.ellipse(x, y, radius * (0.18 - collapse * 0.1),
+      radius * (0.1 - collapse * 0.045), progress * 2, 0, TAU);
+    ctx.stroke();
+    ctx.restore();
+    this.drawExpandedSkillComponents(ctx, 'cloud', [{
+      x,
+      y,
+      width: radius * (1.12 - collapse * 0.32),
+      height: radius * (0.72 - collapse * 0.18),
+      rotation: Math.sin(progress * 9) * 0.055,
+      alpha: 0.88,
+    }]);
+  }
+
+  drawFrostSkillSignature(ctx, effect, progress) {
+    const { originX, originY, targetX, targetY, radius } = this.heroSkillVisualGeometry(effect);
+    const style = SKILL_VISUAL_STYLE.frost;
+    const angle = Math.atan2(targetY - originY, targetX - originX);
+    const px = -Math.sin(angle);
+    const py = Math.cos(angle);
+    const shardInstances = [];
+    ctx.save();
+    ctx.strokeStyle = style.light;
+    ctx.lineWidth = 5;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(originX, originY);
+    for (let index = 1; index <= 6; index += 1) {
+      const local = clamp(progress * 1.35 - (index - 1) * 0.1, 0, 1);
+      const along = index / 6 * local;
+      const side = (index % 2 ? -1 : 1) * radius * 0.12;
+      const x = lerp(originX, targetX, along) + px * side;
+      const y = lerp(originY, targetY, along) + py * side;
+      ctx.lineTo(x, y);
+      if (local > 0.05) {
+        shardInstances.push({
+          x, y, width: 24 + index * 3, height: 38 + index * 4,
+          rotation: angle - Math.PI / 2 + (index % 2 ? -0.22 : 0.22),
+          alpha: local,
+        });
+      }
+    }
+    ctx.globalAlpha = 0.84;
+    ctx.stroke();
+    if (progress > 0.78) {
+      ctx.strokeStyle = style.color;
+      ctx.lineWidth = 3;
+      for (let index = 0; index < 6; index += 1) {
+        const burst = clamp((progress - 0.78) / 0.22, 0, 1);
+        const shardAngle = angle + (index - 2.5) * 0.3;
+        ctx.beginPath();
+        ctx.moveTo(targetX, targetY);
+        ctx.lineTo(targetX + Math.cos(shardAngle) * radius * burst,
+          targetY + Math.sin(shardAngle) * radius * burst);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+    this.drawSkillComponents(ctx, FRIENDLY_PROJECTILE_STYLE_BY_HERO.frost.assetKey,
+      shardInstances.slice(-5));
+    this.drawExpandedSkillComponents(ctx, 'frost', [{
+      x: lerp(originX, targetX, easeOutCubic(progress)),
+      y: lerp(originY, targetY, easeOutCubic(progress)),
+      width: radius * (0.72 + progress * 0.34),
+      height: radius * (0.54 + progress * 0.28),
+      rotation: angle,
+      alpha: 0.5 + progress * 0.44,
+    }]);
+  }
+
+  drawHoneySkillSignature(ctx, effect, progress) {
+    const { originX, originY, targetX, targetY, radius } = this.heroSkillVisualGeometry(effect);
+    const style = SKILL_VISUAL_STYLE.honey;
+    const split = clamp((progress - 0.46) / 0.54, 0, 1);
+    const motherT = clamp(progress / 0.5, 0, 1);
+    const motherX = lerp(originX, targetX, motherT);
+    const motherY = lerp(originY, targetY, motherT) - Math.sin(motherT * Math.PI) * radius * 0.74;
+    const droplets = Array.from({ length: 4 }, (_, index) => {
+      const angle = -Math.PI * 0.82 + index * Math.PI * 0.55;
+      const bounce = Math.sin(split * Math.PI) * radius * 0.34;
+      return {
+        x: targetX + Math.cos(angle) * radius * 0.52 * split,
+        y: targetY + Math.sin(angle) * radius * 0.22 * split - bounce,
+        angle,
+      };
+    });
+    ctx.save();
+    ctx.strokeStyle = style.light;
+    ctx.lineWidth = 4;
+    ctx.lineCap = 'round';
+    if (split > 0) {
+      droplets.forEach((drop) => {
+        ctx.beginPath();
+        ctx.moveTo(targetX, targetY);
+        ctx.quadraticCurveTo(
+          (targetX + drop.x) / 2,
+          (targetY + drop.y) / 2 - radius * 0.18,
+          drop.x, drop.y,
+        );
+        ctx.stroke();
+      });
+    }
+    ctx.fillStyle = style.deep;
+    ctx.globalAlpha = 0.25 + split * 0.28;
+    ctx.beginPath();
+    ctx.ellipse(targetX, targetY + 8, radius * (0.18 + split * 0.46),
+      radius * (0.08 + split * 0.12), 0, 0, TAU);
+    ctx.fill();
+    ctx.restore();
+    this.drawExpandedSkillComponents(ctx, 'honey', [{
+      x: lerp(motherX, targetX, split * 0.7),
+      y: lerp(motherY, targetY, split * 0.7),
+      width: radius * (0.74 + split * 0.24),
+      height: radius * (0.58 + split * 0.18),
+      rotation: motherT * 0.45,
+      alpha: 0.94,
+    }]);
+    this.drawSkillComponents(ctx, FRIENDLY_PROJECTILE_STYLE_BY_HERO.honey.assetKey,
+      droplets.slice(0, 3).map((drop, index) => ({
+        x: drop.x, y: drop.y, width: 26 + index * 3, height: 22 + index * 2,
+        rotation: drop.angle + split * (index % 2 ? -2.2 : 2.2), alpha: split,
+      })));
+  }
+
+  drawSparkSkillSignature(ctx, effect, progress) {
+    const { originX, originY, targetX, targetY, radius } = this.heroSkillVisualGeometry(effect);
+    const style = SKILL_VISUAL_STYLE.spark;
+    const supplied = effect.chainPoints || effect.targetPoints || effect.points || effect.chain;
+    const points = Array.isArray(supplied) && supplied.length > 0
+      ? [{ x: originX, y: originY }, ...supplied.slice(0, 6).map((point) => ({
+        x: finiteNumber(point.x, targetX), y: finiteNumber(point.y, targetY),
+      }))]
+      : Array.from({ length: 6 }, (_, index) => {
+        const t = index / 5;
+        return {
+          x: lerp(originX, targetX, t) + Math.sin(index * 2.7) * radius * 0.15,
+          y: lerp(originY, targetY, t) + Math.cos(index * 2.1) * radius * 0.1,
+        };
+      });
+    const visibleSegments = Math.max(1, Math.ceil(progress * (points.length - 1)));
+    ctx.save();
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    for (let pass = 0; pass < 2; pass += 1) {
+      ctx.strokeStyle = pass ? style.light : style.deep;
+      ctx.lineWidth = pass ? 3 : 10;
+      ctx.globalAlpha = pass ? 0.98 : 0.4;
+      ctx.beginPath();
+      points.slice(0, visibleSegments + 1).forEach((point, index) => {
+        if (!index) ctx.moveTo(point.x, point.y); else ctx.lineTo(point.x, point.y);
+      });
+      ctx.stroke();
+    }
+    const authoredChain = Array.isArray(effect.chain) ? effect.chain : [];
+    const authoredBranches = Array.isArray(effect.branches) ? effect.branches : [];
+    for (const branch of authoredBranches.slice(0, 3)) {
+      const fromIndex = authoredChain.findIndex(({ uid }) => uid === branch.fromUid);
+      if (fromIndex >= visibleSegments) continue;
+      const from = fromIndex >= 0 ? authoredChain[fromIndex] : points[visibleSegments];
+      const branchReveal = clamp(progress * (points.length - 1) - Math.max(0, fromIndex), 0, 1);
+      const branchX = finiteNumber(branch.x, targetX);
+      const branchY = finiteNumber(branch.y, targetY);
+      ctx.globalAlpha = 0.9;
+      ctx.strokeStyle = style.light;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(finiteNumber(from?.x, originX), finiteNumber(from?.y, originY));
+      ctx.lineTo(
+        lerp(finiteNumber(from?.x, originX), branchX, branchReveal),
+        lerp(finiteNumber(from?.y, originY), branchY, branchReveal),
+      );
+      ctx.stroke();
+    }
+    ctx.restore();
+    const chainEnd = points[Math.min(points.length - 1, visibleSegments)];
+    const chainAngle = Math.atan2(chainEnd.y - originY, chainEnd.x - originX);
+    this.drawExpandedSkillComponents(ctx, 'spark', [{
+      x: (originX + chainEnd.x) / 2,
+      y: (originY + chainEnd.y) / 2,
+      width: radius * 1.08,
+      height: radius * 0.72,
+      rotation: chainAngle,
+      alpha: 0.84,
+    }]);
+    const crawler = points[Math.min(points.length - 1, visibleSegments)];
+    this.drawSkillMote(ctx, crawler.x, crawler.y, 6, style.light, 0.95, progress * 8);
+  }
+
+  drawStarSkillSignature(ctx, effect, progress) {
+    const { originX, originY, targetX, targetY, radius } = this.heroSkillVisualGeometry(effect);
+    const style = SKILL_VISUAL_STYLE.star;
+    const release = clamp((progress - 0.42) / 0.4, 0, 1);
+    const starCount = Math.max(1, Math.min(7, Math.floor(finiteNumber(
+      effect.starCount, effect.remainingStars, 5,
+    ))));
+    const instances = Array.from({ length: starCount }, (_, index) => {
+      const localRelease = clamp(release * 5 - index, 0, 1);
+      const angle = index * TAU / starCount + progress * (4.2 + index * 0.08);
+      const orbitX = originX + Math.cos(angle) * radius * 0.48;
+      const orbitY = originY + Math.sin(angle) * radius * 0.3;
+      return {
+        x: lerp(orbitX, targetX + (index - (starCount - 1) / 2) * 13,
+          easeOutCubic(localRelease)),
+        y: lerp(orbitY, targetY + Math.abs(index - (starCount - 1) / 2) * 8,
+          easeOutCubic(localRelease)),
+        size: 28 + (index % 2) * 7,
+        rotation: angle + localRelease * 4,
+        alpha: 0.86,
+      };
+    });
+    ctx.save();
+    ctx.strokeStyle = style.color;
+    ctx.lineWidth = 3;
+    ctx.globalAlpha = 0.62 * (1 - release * 0.5);
+    ctx.setLineDash?.([8, 7]);
+    ctx.lineDashOffset = -progress * 90;
+    ctx.beginPath();
+    ctx.ellipse(originX, originY, radius * 0.52, radius * 0.32,
+      progress * 0.4, 0, TAU);
+    ctx.stroke();
+    ctx.setLineDash?.([]);
+    if (progress > 0.68) {
+      const fall = clamp((progress - 0.68) / 0.32, 0, 1);
+      ctx.strokeStyle = style.light;
+      ctx.lineWidth = 12 - fall * 7;
+      ctx.globalAlpha = 0.92;
+      ctx.beginPath();
+      ctx.moveTo(targetX, targetY - radius * (1.8 - fall * 1.5));
+      ctx.lineTo(targetX, targetY - radius * 0.12);
+      ctx.stroke();
+      ctx.fillStyle = style.light;
+      ctx.beginPath();
+      ctx.arc(targetX, targetY, radius * fall * 0.44, 0, TAU);
+      ctx.fill();
+    }
+    ctx.restore();
+    this.drawSkillComponents(ctx, FRIENDLY_PROJECTILE_STYLE_BY_HERO.star.assetKey, instances);
+    this.drawExpandedSkillComponents(ctx, 'star', [{
+      x: targetX, y: targetY - radius * Math.max(0, 1 - progress) * 1.4,
+      size: radius * (0.32 + progress * 0.24), rotation: progress * 5.4,
+      alpha: progress > 0.62 ? 0.95 : 0,
+    }]);
   }
 
   drawSkillShock(ctx, effect, progress = skillProgress(effect)) {
@@ -6845,106 +7948,15 @@ export class TowerDefenseGame {
     }
     const heroType = skillHeroType(effect);
     if (EXPANDED_SKILL_COMPONENT_BY_TYPE[heroType]) {
-      let instances = [];
-      if (heroType === 'bell') {
-        instances = Array.from({ length: 3 }, (_, index) => {
-          const delay = index * 0.1;
-          const local = clamp((progress - delay) / Math.max(0.001, 1 - delay), 0, 1);
-          return {
-            x,
-            y,
-            size: radius * (0.35 + easeOutCubic(local) * (0.58 + index * 0.18)),
-            rotation: (index % 2 ? -1 : 1) * local * 0.5,
-            alpha: local > 0 ? (1 - local) * (0.9 - index * 0.12) : 0,
-          };
-        });
-      } else if (heroType === 'ember') {
-        instances = Array.from({ length: 4 }, (_, index) => {
-          const angle = index * TAU / 4 + progress * 1.35;
-          const travel = radius * (0.08 + expand * (0.3 + index * 0.055));
-          return {
-            x: x + Math.cos(angle) * travel,
-            y: y + Math.sin(angle) * travel,
-            size: radius * (0.56 - index * 0.045) * (1 + Math.sin(progress * 18 + index) * 0.08),
-            rotation: angle + progress * 2.4,
-            alpha: fade * (0.88 - index * 0.11),
-          };
-        });
-      } else if (heroType === 'ink') {
-        instances = Array.from({ length: 5 }, (_, index) => {
-          const angle = -Math.PI * 0.86 + index * Math.PI * 0.18 + progress * 0.42;
-          const travel = radius * (0.12 + expand * (0.42 + index * 0.055));
-          return {
-            x: x + Math.cos(angle) * travel,
-            y: y + Math.sin(angle) * travel,
-            size: radius * (0.52 - index * 0.035),
-            rotation: angle + Math.PI / 2 + progress * 1.1,
-            alpha: fade * (0.9 - index * 0.08),
-          };
-        });
-      } else if (heroType === 'cloud') {
-        instances = [{
-          x,
-          y,
-          size: radius * (0.62 + expand * 0.62),
-          rotation: -progress * 2.8,
-          alpha: fade * 0.9,
-        }, ...Array.from({ length: 3 }, (_, index) => {
-          const angle = progress * 5.4 + index * TAU / 3;
-          const travel = radius * (0.18 + expand * 0.62);
-          return {
-            x: x + Math.cos(angle) * travel,
-            y: y + Math.sin(angle) * travel,
-            size: radius * (0.34 - index * 0.025),
-            rotation: angle - progress * 3.2,
-            alpha: fade * (0.72 - index * 0.08),
-          };
-        })];
-      } else if (heroType === 'honey') {
-        instances = Array.from({ length: 4 }, (_, index) => {
-          const angle = index * TAU / 4 - progress * 1.6;
-          const travel = radius * (index === 0 ? 0 : 0.12 + expand * 0.48);
-          return {
-            x: x + Math.cos(angle) * travel,
-            y: y + Math.sin(angle) * travel,
-            size: radius * (index === 0 ? 0.82 : 0.48)
-              * (1 + Math.sin(progress * 14 + index) * 0.08),
-            rotation: angle + progress * (index % 2 ? -2.2 : 2.2),
-            alpha: fade * (index === 0 ? 0.94 : 0.72),
-          };
-        });
-      } else if (heroType === 'star') {
-        instances = [{
-          x,
-          y,
-          size: radius * (0.56 + expand * 0.72),
-          rotation: progress * 3.2,
-          alpha: fade * 0.96,
-        }, ...Array.from({ length: 5 }, (_, index) => {
-          const angle = progress * (index % 2 ? -4.2 : 4.2) + index * TAU / 5;
-          const travel = radius * (0.22 + expand * 0.68);
-          return {
-            x: x + Math.cos(angle) * travel,
-            y: y + Math.sin(angle) * travel,
-            size: radius * 0.3 * (1 + Math.sin(progress * 16 + index) * 0.1),
-            rotation: angle + progress * 3.8,
-            alpha: fade * 0.72,
-          };
-        })];
-      } else {
-        const direction = finiteNumber(effect.directionAngle, effect.stage, 1) * 0.34;
-        instances = Array.from({ length: 3 }, (_, index) => {
-          const travel = radius * expand * index * 0.26;
-          return {
-            x: x + Math.cos(direction) * travel,
-            y: y + Math.sin(direction) * travel,
-            size: radius * (0.72 - index * 0.14) * (1 + Math.sin(progress * 15 + index) * 0.07),
-            rotation: direction + progress * (index % 2 ? -2.1 : 2.1),
-            alpha: fade * (0.9 - index * 0.18),
-          };
-        });
-      }
-      this.drawExpandedSkillComponents(ctx, heroType, instances);
+      const direction = finiteNumber(effect.directionAngle, effect.stage, 1) * 0.2;
+      this.drawExpandedSkillComponents(ctx, heroType, [{
+        x,
+        y,
+        width: radius * (0.72 + expand * 0.62),
+        height: radius * (0.58 + expand * 0.46),
+        rotation: direction + progress * (heroType === 'cloud' ? -0.35 : 0.45),
+        alpha: fade * 0.94,
+      }]);
     }
     for (let index = 0; index < 4; index += 1) {
       const angle = index * TAU / 4 + finiteNumber(effect.stage, 1) * 0.3;
@@ -6965,11 +7977,14 @@ export class TowerDefenseGame {
       if (!actor || finiteNumber(actor.age, 0) >= Math.max(0.001, finiteNumber(actor.duration, 1))) {
         continue;
       }
-      const actorLayer = actor.layer || (actor.type === 'field' ? 'back' : 'front');
+      const actorLayer = actor.layer
+        || HERO_SKILL_VISUAL_SIGNATURES[skillHeroType(actor)]?.layer
+        || (actor.type === 'field' ? 'back' : 'front');
       if (actorLayer !== layer || !this.spendSkillRenderBudget('actors')) continue;
       if (actor.type === 'beam') this.drawSkillBeam(ctx, actor);
       else if (actor.type === 'field') this.drawSkillField(ctx, actor);
       else if (actor.type === 'wave') this.drawSkillWave(ctx, actor);
+      this.drawHeroSkillSignature(ctx, actor, skillProgress(actor), 'actor');
     }
   }
 
@@ -6993,6 +8008,15 @@ export class TowerDefenseGame {
     const lateral = (volleyIndex - (volleyCount - 1) / 2) * 15 * arc;
     const renderX = projectile.x - sin * lateral;
     const renderY = projectile.y + cos * lateral - arc * (24 + volleyIndex * 2);
+    const heroType = skillHeroType(projectile);
+    if (EXPANDED_SKILL_COMPONENT_BY_TYPE[heroType]) {
+      this.drawDistinctFriendlyProjectile(ctx, {
+        ...projectile,
+        sourceKind: 'hero',
+        heroType,
+      }, { x: renderX, y: renderY }, angle, 1);
+      return;
+    }
     for (let index = 1; index <= 3; index += 1) {
       if (!this.spendSkillRenderBudget('projectileTrails')) break;
       const distance = 8 + index * 8;
@@ -7012,29 +8036,6 @@ export class TowerDefenseGame {
       );
       ctx.fill();
       ctx.restore();
-    }
-
-    const heroType = skillHeroType(projectile);
-    if (EXPANDED_SKILL_COMPONENT_BY_TYPE[heroType]) {
-      const spinRate = heroType === 'star' ? 4.8
-        : heroType === 'honey' ? -2.7
-          : heroType === 'ink' ? 1.9 : 2.4;
-      const baseScale = heroType === 'honey' ? 2.05
-        : heroType === 'ink' ? 1.86 : 1.72;
-      this.drawExpandedSkillComponents(ctx, heroType,
-        Array.from({ length: 3 }, (_, index) => {
-          const lag = index * size * 0.42;
-          const side = Math.sin(age * 17 + index * 1.7) * index * size * 0.08;
-          const pulseScale = 1 + Math.sin(age * 12 + index) * 0.08;
-          return {
-            x: renderX - cos * lag - sin * side,
-            y: renderY - sin * lag + cos * side,
-            size: size * baseScale * (1 - index * 0.19) * pulseScale,
-            rotation: angle + age * spinRate + index * 0.22,
-            alpha: 1 - index * 0.28,
-          };
-        }));
-      return;
     }
 
     if (projectile.type !== 'berry') {
@@ -7597,17 +8598,18 @@ export class TowerDefenseGame {
   }
 
   drawHeroSkillStep(ctx, effect, progress) {
-    const actorCount = Array.isArray(effect.actorUids) ? effect.actorUids.length : 0;
-    const projectileCount = Array.isArray(effect.projectileUids) ? effect.projectileUids.length : 0;
-    if (actorCount || projectileCount) return;
+    const actorOwned = Array.isArray(effect.actorUids) && effect.actorUids.length > 0;
+    const projectileOwned = Array.isArray(effect.projectileUids) && effect.projectileUids.length > 0;
+    const mechanicOwned = HERO_SKILL_MECHANIC_OWNED_ACTIONS.has(effect.action);
+    if (effect.visualOwner === 'mechanic' || actorOwned || projectileOwned || mechanicOwned) return;
+    if (!this.spendSkillRenderBudget('impacts')) return;
+    if (this.drawHeroSkillSignature(ctx, effect, progress, 'step')) return;
     const kind = String(effect.stepKind || '');
     if (kind.includes('field')) {
-      if (!this.spendSkillRenderBudget('impacts')) return;
       this.drawSkillField(ctx, effect);
       return;
     }
     if (kind.includes('wave')) {
-      if (!this.spendSkillRenderBudget('impacts')) return;
       this.drawSkillWave(ctx, {
         ...effect,
         type: 'wave',
@@ -7620,7 +8622,6 @@ export class TowerDefenseGame {
       return;
     }
     if (kind.includes('quake') || kind.includes('burst') || kind.includes('root')) {
-      if (!this.spendSkillRenderBudget('impacts')) return;
       this.drawSkillShock(ctx, effect, progress);
       return;
     }

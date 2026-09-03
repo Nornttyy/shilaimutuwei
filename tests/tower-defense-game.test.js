@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { TowerDefenseGame } from '../src/tower-defense-game.js';
+import {
+  HERO_SKILL_VISUAL_SIGNATURES,
+  TowerDefenseGame,
+} from '../src/tower-defense-game.js';
 import {
   HERO_TYPES,
   SQUAD_TYPES,
@@ -10,7 +13,10 @@ import {
   TD_STAGES,
   TD_STORAGE_KEY,
   TD_TUTORIAL_VERSION,
+  activateTowerDefenseHeroSkill,
+  beginTowerDefenseRun,
   heroStatsForRank,
+  startNextTowerDefenseWave,
   updateTowerDefense,
 } from '../src/tower-defense-core.js';
 import { SOLDIER_RIG } from '../src/animation/rigs.js';
@@ -171,11 +177,12 @@ function createAssetStore(availableKeys = []) {
         const layeredTurret = /^turret-.+-atlas-v1$/.test(key);
         const reinforcementAtlas = key === 'effect-reinforcement-projectiles-atlas-v1';
         const dynamicEffectAtlas = key === 'effect-dynamic-components-v1';
+        const skillSignatureAtlas = key === 'effect-skill-signatures-atlas-v1';
         const width = reinforcementAtlas ? 1536
-          : dynamicEffectAtlas ? 1254
+          : dynamicEffectAtlas || skillSignatureAtlas ? 1254
           : layeredTurret ? 1536 : heroSkillFace ? 836 : formalAtlas ? 1254 : 768;
         const height = reinforcementAtlas ? 1024
-          : dynamicEffectAtlas ? 1254
+          : dynamicEffectAtlas || skillSignatureAtlas ? 1254
           : layeredTurret ? 768 : heroSkillFace ? 418 : key.startsWith('turret-') ? 723 : width;
         drawAsset?.({ key, kind: key, width, height, naturalWidth: width, naturalHeight: height });
         return true;
@@ -880,7 +887,7 @@ test('expanded heroes, squads, turrets, and enemies request only their own produ
   game.dispose();
 });
 
-test('hero skills combine eighteen authored components with continuous Canvas motion', () => {
+test('hero skills combine formal components with continuous Canvas motion', () => {
   const canvas = createCanvas();
   const retiredSkillSheets = [
     'effect-shell-triple-shock-frames-v1',
@@ -913,11 +920,13 @@ test('hero skills combine eighteen authored components with continuous Canvas mo
     'skill-star-orbit-barrage-icon',
   ];
   const dynamicComponentAtlas = 'effect-dynamic-components-v1';
+  const skillSignatureAtlas = 'effect-skill-signatures-atlas-v1';
   const assets = createAssetStore([
     ...retiredSkillSheets,
     ...skillComponents,
     ...expandedSkillIcons,
     dynamicComponentAtlas,
+    skillSignatureAtlas,
   ]);
   const game = new TowerDefenseGame(canvas, {
     runtime: createRuntime({ tutorialSeen: true }),
@@ -1129,7 +1138,7 @@ test('hero skills combine eighteen authored components with continuous Canvas mo
   const animatedSkillSamples = [
     {
       heroType: 'bell', iconKey: 'skill-bell-sonic-ring-icon',
-      sourceRect: [627, 0, 314, 314],
+      sourceRect: [0, 0, 418, 418],
       draw: (time) => game.drawSkillImpact(canvas.context, {
         uid: 'bell-impact', heroType: 'bell', stepKind: 'bell-sonic-ring',
         x: 360, y: 430, radius: 145, age: time, duration: 1,
@@ -1137,7 +1146,7 @@ test('hero skills combine eighteen authored components with continuous Canvas mo
     },
     {
       heroType: 'drill', iconKey: 'skill-drill-rupture-dash-icon',
-      sourceRect: [314, 0, 313, 314],
+      sourceRect: [418, 0, 418, 418],
       draw: (time) => game.drawSkillWave(canvas.context, {
         uid: 'drill-wave', type: 'wave', heroType: 'drill', stepKind: 'drill-rupture',
         x: 390, y: 520, previousX: 330, previousY: 540,
@@ -1147,7 +1156,7 @@ test('hero skills combine eighteen authored components with continuous Canvas mo
     },
     {
       heroType: 'ember', iconKey: 'skill-ember-scorch-line-icon',
-      sourceRect: [0, 0, 314, 314],
+      sourceRect: [836, 0, 418, 418],
       draw: (time) => game.drawSkillField(canvas.context, {
         uid: 'ember-field', type: 'field', heroType: 'ember', stepKind: 'ember-scorch-field',
         x: 360, y: 480, radius: 135, age: time, duration: 2.4,
@@ -1155,16 +1164,16 @@ test('hero skills combine eighteen authored components with continuous Canvas mo
     },
     {
       heroType: 'ink', iconKey: 'skill-ink-cone-burst-icon',
-      sourceRect: [941, 314, 313, 313],
-      draw: (time) => game.drawSkillProjectile(canvas.context, {
-        uid: 'ink-shot', sourceKind: 'hero-skill', heroType: 'ink', type: 'berry',
-        x: 380, y: 480, targetX: 520, targetY: 330, speed: 520,
-        age: time, maxAge: 1,
-      }, -0.82),
+      sourceRect: [0, 418, 418, 418],
+      draw: (time) => game.drawHeroSkillSignature(canvas.context, {
+        uid: 'ink-fan', heroType: 'ink', stepKind: 'ink-fan-splat',
+        originX: 270, originY: 670, targetX: 520, targetY: 330,
+        radius: 120, age: time, duration: 1,
+      }, time),
     },
     {
       heroType: 'cloud', iconKey: 'skill-cloud-vortex-icon',
-      sourceRect: [0, 314, 314, 313],
+      sourceRect: [418, 418, 418, 418],
       draw: (time) => game.drawSkillField(canvas.context, {
         uid: 'cloud-field', type: 'field', heroType: 'cloud', stepKind: 'cloud-vortex',
         x: 360, y: 480, radius: 145, age: time, duration: 3,
@@ -1172,7 +1181,7 @@ test('hero skills combine eighteen authored components with continuous Canvas mo
     },
     {
       heroType: 'frost', iconKey: 'skill-frost-shard-lane-icon',
-      sourceRect: [314, 941, 313, 313],
+      sourceRect: [836, 418, 418, 418],
       draw: (time) => game.drawSkillWave(canvas.context, {
         uid: 'frost-wave', type: 'wave', heroType: 'frost', stepKind: 'frost-shard-lane',
         x: 370, y: 500, previousX: 330, previousY: 555,
@@ -1182,16 +1191,16 @@ test('hero skills combine eighteen authored components with continuous Canvas mo
     },
     {
       heroType: 'honey', iconKey: 'skill-honey-cluster-icon',
-      sourceRect: [0, 627, 314, 314],
-      draw: (time) => game.drawSkillProjectile(canvas.context, {
-        uid: 'honey-shot', sourceKind: 'hero-skill', heroType: 'honey', type: 'berry',
-        x: 380, y: 480, targetX: 500, targetY: 340, speed: 470,
-        age: time, maxAge: 1,
-      }, -0.86),
+      sourceRect: [0, 836, 418, 418],
+      draw: (time) => game.drawHeroSkillSignature(canvas.context, {
+        uid: 'honey-cluster', heroType: 'honey', stepKind: 'honey-mother-drop-cluster',
+        originX: 270, originY: 670, targetX: 500, targetY: 340,
+        radius: 120, age: time, duration: 1,
+      }, time),
     },
     {
       heroType: 'spark', iconKey: 'skill-spark-chain-arc-icon',
-      sourceRect: [627, 314, 314, 313],
+      sourceRect: [418, 836, 418, 418],
       draw: (time) => game.drawSkillBeam(canvas.context, {
         uid: 'spark-beam', type: 'beam', heroType: 'spark', stepKind: 'spark-chain-beam',
         originX: 280, originY: 720, endX: 510, endY: 310,
@@ -1201,12 +1210,12 @@ test('hero skills combine eighteen authored components with continuous Canvas mo
     },
     {
       heroType: 'star', iconKey: 'skill-star-orbit-barrage-icon',
-      sourceRect: [627, 941, 314, 313],
-      draw: (time) => game.drawSkillProjectile(canvas.context, {
-        uid: 'star-shot', sourceKind: 'hero-skill', heroType: 'star', type: 'berry',
-        x: 380, y: 480, targetX: 530, targetY: 320, speed: 560,
-        age: time, maxAge: 1,
-      }, -0.82),
+      sourceRect: [836, 836, 418, 418],
+      draw: (time) => game.drawHeroSkillSignature(canvas.context, {
+        uid: 'star-orbit', heroType: 'star', stepKind: 'star-orbit-peel-meteor',
+        originX: 270, originY: 670, targetX: 530, targetY: 320,
+        radius: 120, age: time, duration: 1,
+      }, time),
     },
   ];
   for (const sample of animatedSkillSamples) {
@@ -1216,14 +1225,14 @@ test('hero skills combine eighteen authored components with continuous Canvas mo
       game.resetSkillRenderBudget();
       sample.draw(time);
       const imageCalls = canvas.context.calls.filter(([kind, asset]) => (
-        kind === 'drawImage' && asset?.kind === dynamicComponentAtlas
+        kind === 'drawImage' && asset?.kind === skillSignatureAtlas
       ));
-      assert.ok(assets.requests.includes(dynamicComponentAtlas),
+      assert.ok(assets.requests.includes(skillSignatureAtlas),
         `${sample.heroType} requests the formal component atlas in the world`);
       assert.equal(assets.requests.includes(sample.iconKey), false,
         `${sample.heroType} keeps its complete button icon out of the battlefield`);
-      assert.ok(imageCalls.length >= 3,
-        `${sample.heroType} animates a sequence of authored components`);
+      assert.ok(imageCalls.length >= 1,
+        `${sample.heroType} animates its authored signature component`);
       assert.ok(imageCalls.every((call) => (
         call.slice(2, 6).every(Number.isInteger)
         && call.slice(2, 6).join() === sample.sourceRect.join()
@@ -1240,6 +1249,429 @@ test('hero skills combine eighteen authored components with continuous Canvas mo
     assert.ok(assets.available.has(key), `${key} is a production asset, not a fallback`);
   }
   assert.ok(assets.available.has(dynamicComponentAtlas));
+  assert.ok(assets.available.has(skillSignatureAtlas));
+  game.dispose();
+});
+
+test('all fifteen hero skills own a different motion signature with bounded artwork', () => {
+  const canvas = createCanvas();
+  const signatureAtlas = 'effect-skill-signatures-atlas-v1';
+  const assets = createAssetStore([
+    signatureAtlas,
+    'effect-skill-shell-impact-v1',
+    'effect-skill-crystal-laser-emitter-v1',
+    'effect-skill-crystal-laser-hit-v1',
+    'effect-skill-bubble-orb-v1',
+    'effect-skill-bubble-burst-v1',
+    'effect-skill-sprout-thorn-v1',
+    'effect-skill-berry-bomb-v1',
+    'effect-skill-berry-burst-v1',
+    'effect-skill-dew-wave-crest-v1',
+    'effect-projectile-ink-v1',
+    'effect-projectile-frost-v1',
+    'effect-projectile-star-v1',
+  ]);
+  const game = new TowerDefenseGame(canvas, {
+    runtime: createRuntime({ tutorialSeen: true }),
+    pixelRatio: 1,
+  });
+  game.setAssetStore(assets);
+  game.state.screen = 'battle';
+  game.state.hero = { uid: 'signature-hero', type: 'shell', x: 180, y: 700 };
+
+  const heroTypes = Object.keys(HERO_TYPES);
+  assert.equal(heroTypes.length, 15);
+  assert.deepEqual(Object.keys(HERO_SKILL_VISUAL_SIGNATURES), heroTypes,
+    'the renderer has an explicit signature for every playable hero');
+  assert.equal(new Set(Object.values(HERO_SKILL_VISUAL_SIGNATURES)
+    .map(({ id }) => id)).size, 15, 'no two heroes share a signature id');
+  assert.equal(new Set(Object.values(HERO_SKILL_VISUAL_SIGNATURES)
+    .map(({ rhythm }) => rhythm)).size, 15, 'no two heroes share an animation rhythm');
+  assert.ok(Object.values(HERO_SKILL_VISUAL_SIGNATURES)
+    .every(({ maxPrimitives }) => maxPrimitives <= 12));
+
+  const snapshot = (heroType, progress) => {
+    canvas.context.calls.length = 0;
+    assets.requests.length = 0;
+    game.resetSkillRenderBudget();
+    const drawn = game.drawHeroSkillSignature(canvas.context, {
+      uid: `signature-${heroType}`,
+      type: 'hero-skill-step',
+      heroType,
+      stepKind: HERO_SKILL_VISUAL_SIGNATURES[heroType].id,
+      originX: 180,
+      originY: 700,
+      targetX: 510,
+      targetY: 330,
+      radius: 120,
+      age: progress,
+      duration: 1,
+      chainPoints: [
+        { x: 260, y: 610 }, { x: 350, y: 500 }, { x: 430, y: 410 },
+      ],
+    }, progress);
+    assert.equal(drawn, true);
+    const calls = canvas.context.calls.map((call) => call.map((value) => {
+      if (typeof value === 'number') return Math.round(value * 10) / 10;
+      if (value && typeof value === 'object') return value.kind || value.key || 'asset';
+      return value;
+    }));
+    return JSON.stringify({ requests: assets.requests, calls });
+  };
+
+  const earlySignatures = new Map();
+  for (const heroType of heroTypes) {
+    const early = snapshot(heroType, 0.24);
+    const late = snapshot(heroType, 0.76);
+    assert.notEqual(early, late, `${heroType} changes geometry during its cast`);
+    earlySignatures.set(heroType, early);
+  }
+  assert.equal(new Set(earlySignatures.values()).size, 15,
+    'the fifteen skills produce pairwise-distinct path and component layouts');
+
+  for (const heroType of ['bell', 'drill', 'ember', 'ink', 'cloud', 'frost', 'honey', 'spark', 'star']) {
+    snapshot(heroType, 0.5);
+    assert.ok(assets.requests.includes(signatureAtlas),
+      `${heroType} crops its dedicated cell from the formal signature atlas`);
+  }
+
+  game.combatFeedback.length = 0;
+  game.processCombatFeedbackEvent({
+    type: 'hero-skill-mechanic', heroType: 'spark', mechanic: 'unique-target-chain-lightning',
+    origin: { x: 180, y: 700 },
+    chain: [{ x: 280, y: 590 }, { x: 390, y: 470 }, { x: 500, y: 350 }],
+    branches: [{ x: 445, y: 415 }], phase: 'chain', stage: 2,
+  }, { hits: 0 });
+  assert.deepEqual(game.combatFeedback.at(-1).chainPoints.map(({ x, y }) => ({ x, y })), [
+    { x: 280, y: 590 }, { x: 390, y: 470 }, { x: 500, y: 350 },
+  ], 'mechanic events keep their real target geometry for the visual signature');
+
+  game.state.effects = Array.from({ length: 45 }, (_, index) => ({
+    uid: `dense-skill-${index}`,
+    type: 'hero-skill-step',
+    heroType: heroTypes[index % heroTypes.length],
+    stepKind: HERO_SKILL_VISUAL_SIGNATURES[heroTypes[index % heroTypes.length]].id,
+    originX: 180,
+    originY: 700,
+    targetX: 500,
+    targetY: 340,
+    radius: 105,
+    age: 0.32,
+    duration: 1,
+  }));
+  canvas.context.calls.length = 0;
+  game.resetSkillRenderBudget();
+  game.drawEffects(canvas.context, 'back');
+  game.drawEffects(canvas.context, 'front');
+  assert.equal(game.skillRenderBudget.impacts, 0,
+    'dense skill steps stop at the shared twelve-impact frame cap');
+  assert.ok(canvas.context.calls.filter(([kind]) => kind === 'drawImage').length <= 24,
+    'formal component draws stay under the shared component frame cap');
+  game.dispose();
+});
+
+test('real hero skill events keep authored geometry and render one owner per phase', () => {
+  const signatureAtlas = 'effect-skill-signatures-atlas-v1';
+  const createSkillBattle = (heroType) => {
+    const canvas = createCanvas();
+    const assets = createAssetStore([signatureAtlas]);
+    const game = new TowerDefenseGame(canvas, {
+      runtime: createRuntime({
+        tutorialSeen: true,
+        contractRanks: { shell: 1, [heroType]: 1 },
+        selectedHero: heroType,
+      }),
+      pixelRatio: 1,
+      seed: 0x51A7,
+    });
+    game.setAssetStore(assets);
+    assert.equal(beginTowerDefenseRun(game.state, { mode: 'stage', stageId: 'stage-1' }), true);
+    assert.equal(startNextTowerDefenseWave(game.state), true);
+    game.state.spawnQueue = [{ uid: 'held-spawn', type: 'bug', laneIndex: 0, at: 999 }];
+    game.state.events = [];
+    game.state.effects = [];
+    game.eventCursor = 0;
+    return { canvas, assets, game };
+  };
+  const enemy = (hero, index) => ({
+    uid: `geometry-enemy-${index}`,
+    type: 'bug',
+    laneIndex: 2,
+    travelled: 120 + index * 16,
+    x: hero.x + (index % 3 - 1) * 52,
+    y: hero.y - 105 - Math.floor(index / 3) * 58,
+    facing: -1,
+    hp: 100_000,
+    maxHp: 100_000,
+    speed: 0,
+    reward: TD_ENEMIES.bug.reward,
+    attackDamage: TD_ENEMIES.bug.attackDamage,
+    attackInterval: TD_ENEMIES.bug.attackInterval,
+    slowMultiplier: 1,
+    slowTime: 0,
+    poisonDps: 0,
+    poisonTime: 0,
+    hitPulse: 0,
+    attackCooldown: 999,
+    blockedByTowerUid: null,
+  });
+
+  const spark = createSkillBattle('spark');
+  spark.game.state.enemies = Array.from({ length: 6 }, (_, index) => (
+    enemy(spark.game.state.hero, index)
+  ));
+  assert.equal(activateTowerDefenseHeroSkill(spark.game.state), true);
+  const mechanicEvent = spark.game.state.events.find(({ type }) => (
+    type === 'hero-skill-mechanic'
+  ));
+  const genericEvent = spark.game.state.events.find(({ type }) => type === 'hero-skill-step');
+  assert.ok(mechanicEvent?.chain?.length > 0, 'the real core emits its resolved chain points');
+  assert.equal(genericEvent?.action, 'chain-lightning');
+  spark.game.processEvents();
+  const castFeedback = spark.game.combatFeedback.find(({ kind }) => kind === 'skill-cast');
+  const mechanicFeedback = spark.game.combatFeedback.filter(({ kind }) => kind === 'skill-step');
+  assert.equal(castFeedback.radius, 62);
+  assert.equal(castFeedback.skillRange, HERO_TYPES.spark.skill.radius,
+    'targeting range stays metadata and never inflates the cast artwork');
+  assert.equal(mechanicFeedback.length, 1,
+    'the paired generic event does not replay a mechanic-owned signature');
+  assert.equal(mechanicFeedback[0].visualMode, 'mechanic');
+  assert.equal(mechanicFeedback[0].mechanicPhase, 'chain');
+  assert.deepEqual(
+    { x: mechanicFeedback[0].originX, y: mechanicFeedback[0].originY },
+    mechanicEvent.origin,
+  );
+  assert.deepEqual(
+    { x: mechanicFeedback[0].targetX, y: mechanicFeedback[0].targetY },
+    { x: mechanicEvent.chain.at(-1).x, y: mechanicEvent.chain.at(-1).y },
+  );
+  const countBeforeReplay = spark.game.combatFeedback.length;
+  spark.game.processCombatFeedbackEvent(mechanicEvent, { hits: 0 });
+  assert.equal(spark.game.combatFeedback.length, countBeforeReplay,
+    'repeated updates for the same actor, stage, and phase coalesce in place');
+
+  mechanicFeedback[0].age = mechanicFeedback[0].duration / 2;
+  spark.canvas.context.calls.length = 0;
+  spark.game.resetSkillRenderBudget();
+  spark.game.drawCombatFeedbackEntry(spark.canvas.context, mechanicFeedback[0]);
+  assert.ok(spark.canvas.context.calls.some(([kind, x, y]) => (
+    kind === 'moveTo' && x === mechanicEvent.origin.x && y === mechanicEvent.origin.y
+  )), 'feedback rendering starts at the real core-provided origin');
+  assert.ok(spark.canvas.context.calls.some(([kind, x, y]) => (
+    kind === 'lineTo' && x === mechanicEvent.chain[0].x && y === mechanicEvent.chain[0].y
+  )), 'feedback rendering follows the real first chain target');
+
+  spark.assets.requests.length = 0;
+  spark.canvas.context.calls.length = 0;
+  spark.game.resetSkillRenderBudget();
+  spark.game.drawEffects(spark.canvas.context, 'back');
+  spark.game.drawEffects(spark.canvas.context, 'front');
+  assert.equal(spark.assets.requests.includes(signatureAtlas), false,
+    'a mechanic-owned state effect does not paint a second full signature');
+  spark.game.dispose();
+
+  const star = createSkillBattle('star');
+  star.game.state.enemies = [enemy(star.game.state.hero, 0)];
+  assert.equal(activateTowerDefenseHeroSkill(star.game.state), true);
+  const starActor = star.game.state.heroSkillActors.find(({ type }) => type === 'orbit-stars');
+  const actorOwnedEffect = star.game.state.effects.find(({ action }) => action === 'orbit-stars');
+  assert.ok(starActor);
+  assert.ok(actorOwnedEffect?.actorUids?.includes(starActor.uid));
+  star.assets.requests.length = 0;
+  star.game.resetSkillRenderBudget();
+  star.game.drawEffects(star.canvas.context, 'front');
+  assert.equal(star.assets.requests.includes(signatureAtlas), false,
+    'the actor-owned queue effect leaves presentation to the live actor');
+  const starGeometry = star.game.heroSkillVisualGeometry(starActor);
+  assert.ok(starGeometry.radius >= starActor.orbitRadius / 0.48
+    && starGeometry.radius <= 190,
+  'live actor geometry uses orbit and meteor dimensions, never the 430 px cast range');
+  star.assets.requests.length = 0;
+  star.canvas.context.calls.length = 0;
+  star.game.resetSkillRenderBudget();
+  star.game.drawHeroSkillActors(star.canvas.context, 'front');
+  assert.ok(star.assets.requests.includes(signatureAtlas),
+    'the live actor still owns and draws its authored signature');
+  star.game.dispose();
+});
+
+test('live actors own periodic mechanics while terminal phases replace their finale cues', () => {
+  const signatureAtlas = 'effect-skill-signatures-atlas-v1';
+  const createBattle = (heroType) => {
+    const canvas = createCanvas();
+    const assets = createAssetStore([signatureAtlas]);
+    const game = new TowerDefenseGame(canvas, {
+      runtime: createRuntime({
+        tutorialSeen: true,
+        contractRanks: { shell: 1, [heroType]: 1 },
+        selectedHero: heroType,
+      }),
+      pixelRatio: 1,
+      seed: 0xAC70,
+    });
+    game.setAssetStore(assets);
+    assert.equal(beginTowerDefenseRun(game.state, { mode: 'stage', stageId: 'stage-1' }), true);
+    assert.equal(startNextTowerDefenseWave(game.state), true);
+    game.state.spawnQueue = [{ uid: 'held-spawn', type: 'bug', laneIndex: 0, at: 999 }];
+    game.state.events = [];
+    game.state.effects = [];
+    game.state.hero.cooldown = 999;
+    return { canvas, assets, game };
+  };
+  const targetFor = (game, suffix = 'target') => ({
+    uid: `${game.state.hero.type}-${suffix}`,
+    type: 'bug',
+    laneIndex: 2,
+    travelled: 180,
+    x: game.state.hero.x,
+    y: game.state.hero.y - 120,
+    facing: -1,
+    hp: 100_000,
+    maxHp: 100_000,
+    speed: 0,
+    reward: TD_ENEMIES.bug.reward,
+    attackDamage: TD_ENEMIES.bug.attackDamage,
+    attackInterval: TD_ENEMIES.bug.attackInterval,
+    slowMultiplier: 1,
+    slowTime: 0,
+    poisonDps: 0,
+    poisonTime: 0,
+    hitPulse: 0,
+    attackCooldown: 999,
+    blockedByTowerUid: null,
+  });
+
+  for (const sample of [
+    { heroType: 'ember', phase: 'scorch', ticks: 7 },
+    { heroType: 'cloud', phase: 'pull', ticks: 7 },
+    { heroType: 'sprout', phase: 'node-spit', ticks: 2 },
+  ]) {
+    const battle = createBattle(sample.heroType);
+    battle.game.state.enemies = [targetFor(battle.game)];
+    assert.equal(activateTowerDefenseHeroSkill(battle.game.state), true);
+    battle.game.processEvents();
+    battle.game.combatFeedback.length = 0;
+    const emitted = [];
+    for (let tick = 0; tick < sample.ticks; tick += 1) {
+      updateTowerDefense(battle.game.state, 0.05);
+      emitted.push(...battle.game.processEvents());
+    }
+    assert.ok(emitted.some(({ type, phase, actorUid }) => (
+      type === 'hero-skill-mechanic' && phase === sample.phase && actorUid
+    )), `${sample.heroType} emits its real ${sample.phase} actor event`);
+    assert.ok(battle.game.state.heroSkillActors.length > 0,
+      `${sample.heroType} actor is still the continuous visual owner`);
+    assert.equal(battle.game.combatFeedback.some(({ kind }) => kind === 'skill-step'), false,
+      `${sample.heroType} periodic mechanics never replay the full signature`);
+    battle.game.dispose();
+  }
+
+  for (const sample of [
+    { heroType: 'bubble', phase: 'prison-break', cue: 'bubble-burst-cue' },
+    { heroType: 'frost', phase: 'shatter', cue: 'wall-shatter-cue' },
+    { heroType: 'star', phase: 'meteor', cue: 'meteor-cue' },
+  ]) {
+    const battle = createBattle(sample.heroType);
+    battle.game.state.enemies = [targetFor(battle.game)];
+    assert.equal(activateTowerDefenseHeroSkill(battle.game.state), true);
+    const actorDuration = battle.game.state.heroSkillActors[0].duration;
+    battle.game.processEvents();
+    battle.game.combatFeedback.length = 0;
+    const emitted = [];
+    for (let tick = 0; tick < Math.ceil(actorDuration / 0.05) + 2; tick += 1) {
+      updateTowerDefense(battle.game.state, 0.05);
+      emitted.push(...battle.game.processEvents());
+    }
+    assert.ok(emitted.some(({ type, phase }) => (
+      type === 'hero-skill-mechanic' && phase === sample.phase
+    )), `${sample.heroType} emits its real terminal phase`);
+    const terminalFeedback = battle.game.combatFeedback.filter(({ kind }) => (
+      kind === 'skill-step'
+    ));
+    assert.equal(terminalFeedback.length, 1,
+      `${sample.heroType} terminal mechanic is the only finale owner`);
+    assert.equal(terminalFeedback[0].mechanicPhase, sample.phase);
+    const finaleCue = battle.game.state.effects.find(({ action }) => action === sample.cue);
+    assert.equal(finaleCue?.visualOwner, 'mechanic',
+      `${sample.heroType} finale cue yields permanently to its terminal mechanic`);
+    battle.canvas.context.calls.length = 0;
+    battle.assets.requests.length = 0;
+    battle.game.resetSkillRenderBudget();
+    battle.game.drawHeroSkillStep(battle.canvas.context, finaleCue, 0.5);
+    assert.equal(battle.canvas.context.calls.length, 0,
+      `${sample.heroType} superseded finale cue cannot reappear after feedback expires`);
+    terminalFeedback[0].age = terminalFeedback[0].duration / 2;
+    battle.game.drawCombatFeedbackEntry(battle.canvas.context, terminalFeedback[0]);
+    assert.ok(battle.canvas.context.calls.length > 0,
+      `${sample.heroType} terminal owner still renders its finish`);
+    battle.game.dispose();
+  }
+});
+
+test('same-frame Ink weakpoint events keep one feedback owner per enemy', () => {
+  const canvas = createCanvas();
+  const game = new TowerDefenseGame(canvas, {
+    runtime: createRuntime({
+      tutorialSeen: true,
+      contractRanks: { shell: 1, ink: 1 },
+      selectedHero: 'ink',
+    }),
+    pixelRatio: 1,
+    seed: 0x1A2B,
+  });
+  assert.equal(beginTowerDefenseRun(game.state, { mode: 'stage', stageId: 'stage-1' }), true);
+  assert.equal(startNextTowerDefenseWave(game.state), true);
+  game.state.spawnQueue = [{ uid: 'held-spawn', type: 'bug', laneIndex: 0, at: 999 }];
+  game.state.hero.cooldown = 999;
+  const enemies = [100, 150].map((offset, index) => ({
+    uid: `ink-weak-${index}`,
+    type: 'bug', laneIndex: 2, travelled: 160 + index * 20,
+    x: game.state.hero.x, y: game.state.hero.y - offset, facing: -1,
+    hp: 100_000, maxHp: 100_000, speed: 0,
+    reward: TD_ENEMIES.bug.reward,
+    attackDamage: TD_ENEMIES.bug.attackDamage,
+    attackInterval: TD_ENEMIES.bug.attackInterval,
+    slowMultiplier: 1, slowTime: 0, poisonDps: 0, poisonTime: 0,
+    hitPulse: 0, attackCooldown: 999, blockedByTowerUid: null,
+  }));
+  game.state.enemies = enemies;
+  game.state.events = [];
+  game.state.effects = [];
+  assert.equal(activateTowerDefenseHeroSkill(game.state), true);
+  assert.ok(enemies.every(({ inkWeakTime }) => inkWeakTime > 0));
+  game.processEvents();
+  game.combatFeedback.length = 0;
+  game.state.projectiles.push(...enemies.map((target, index) => ({
+    uid: `ink-trigger-shot-${index}`,
+    sourceKind: 'tower',
+    type: 'goo',
+    effect: 'none',
+    targetUid: target.uid,
+    x: target.x,
+    y: target.y,
+    targetX: target.x,
+    targetY: target.y,
+    tracksTarget: false,
+    speed: 1,
+    damage: 1,
+    star: 1,
+    effectTier: 1,
+    age: 0,
+    maxAge: 1,
+  })));
+  updateTowerDefense(game.state, 0.01);
+  const emitted = game.processEvents();
+  const weakpointEvents = emitted.filter(({ type, phase }) => (
+    type === 'hero-skill-mechanic' && phase === 'weakpoint-trigger'
+  ));
+  assert.deepEqual(weakpointEvents.map(({ enemyUid }) => enemyUid).sort(),
+    enemies.map(({ uid }) => uid).sort());
+  const weakpointFeedback = game.combatFeedback.filter(({ mechanicPhase }) => (
+    mechanicPhase === 'weakpoint-trigger'
+  ));
+  assert.equal(weakpointFeedback.length, 2,
+    'per-enemy identities prevent same-frame weakpoint bursts from coalescing');
+  assert.equal(new Set(weakpointFeedback.map(({ dedupeKey }) => dedupeKey)).size, 2);
   game.dispose();
 });
 
@@ -2671,8 +3103,10 @@ test('seven-step spotlight tutorial teaches card categories, turret prep, moveme
   assert.equal(runtime.values.get(TD_STORAGE_KEY).tutorialSeen, true);
   assert.equal(runtime.values.get(TD_STORAGE_KEY).tutorialVersion, TD_TUTORIAL_VERSION);
   assert.ok(game.combatFeedback.some(({ kind }) => kind === 'skill-cast'));
-  assert.ok(game.combatFeedback.some(({ kind }) => kind === 'skill-step'),
-    'the taught skill keeps its normal staged battle feedback');
+  assert.ok(game.state.heroSkillActors.some(({ type }) => type === 'guard-counter'),
+    'the taught skill keeps its live actor instead of replaying a duplicate queued signature');
+  assert.equal(game.combatFeedback.some(({ kind }) => kind === 'skill-step'), false,
+    'the actor-owned opening phase is not duplicated in combat feedback');
   assert.ok(game.combatFlash.alpha <= 0.11,
     'tutorial completion is not obscured by an over-bright skill flash');
   game.dispose();

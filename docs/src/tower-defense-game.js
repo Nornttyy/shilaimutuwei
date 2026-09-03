@@ -31,7 +31,9 @@ import {
   HERO_TYPES,
   SQUAD_TYPES,
   TURRET_TYPES,
+  TD_CONTRACT_MAX_RANK,
   TD_ENEMIES,
+  TD_EQUIPMENT_SUMMON_COSTS,
   TD_MAX_STAR,
   TD_STAGE_BY_ID,
   TD_STAGES,
@@ -39,6 +41,7 @@ import {
   TD_VIEW,
   TOWER_TYPES,
   acknowledgeTowerDefenseTutorialCategory,
+  beginTowerDefenseDailyRun,
   beginTowerDefenseRun,
   canMergeCardIntoTower,
   canMergeTowers,
@@ -46,6 +49,8 @@ import {
   drawCostForState,
   drawTowerCard,
   fusionOrbitPoint,
+  heroExchangeCost,
+  heroRankUpCost,
   heroStatsForRank,
   mergeCardIntoTower,
   mergeTowers,
@@ -71,7 +76,19 @@ import {
   tutorialTargetForState,
   updateTowerDefense,
   summonTowerDefenseContracts,
+  summonTowerDefenseEquipment,
+  upgradeTowerDefenseHero,
+  exchangeTowerDefenseHero,
+  equipTowerDefenseHeroItem,
+  unequipTowerDefenseHeroItem,
+  chooseTowerDefenseSquadAbility,
 } from './tower-defense-core.js';
+import {
+  TD_EQUIPMENT_BY_ID,
+  TD_EQUIPMENT_SLOT_IDS,
+  TD_EQUIPMENT_SLOTS,
+} from './tower-defense-equipment.js';
+import { dailyChallengeForDay } from './tower-defense-challenges.js';
 
 const FONT = 'system-ui, -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif';
 const TAU = Math.PI * 2;
@@ -127,9 +144,10 @@ const COMMAND_DOCK = Object.freeze({
 
 const MENU_ACTIONS = Object.freeze({
   story: Object.freeze({ x: 48, y: 898, width: 624, height: 108 }),
-  endless: Object.freeze({ x: 48, y: 1026, width: 230, height: 98 }),
-  roster: Object.freeze({ x: 290, y: 1026, width: 178, height: 98 }),
-  summon: Object.freeze({ x: 480, y: 1026, width: 192, height: 98 }),
+  endless: Object.freeze({ x: 48, y: 1026, width: 150, height: 98 }),
+  daily: Object.freeze({ x: 204, y: 1026, width: 150, height: 98 }),
+  roster: Object.freeze({ x: 360, y: 1026, width: 150, height: 98 }),
+  summon: Object.freeze({ x: 516, y: 1026, width: 156, height: 98 }),
 });
 const AUDIO_TOGGLE_RECT = Object.freeze({ x: 658, y: 100, width: 46, height: 46 });
 const TUTORIAL_PANEL_RECT = Object.freeze({ x: 86, y: 86, width: 548, height: 82 });
@@ -151,6 +169,12 @@ const SUMMON_ONE_RECT = Object.freeze({ x: 54, y: 1018, width: 286, height: 104 
 const SUMMON_TEN_RECT = Object.freeze({ x: 380, y: 1018, width: 286, height: 104 });
 const SUMMON_RESULT_CLOSE_RECT = Object.freeze({ x: 210, y: 1158, width: 300, height: 72 });
 const SUMMON_SKIP_RECT = Object.freeze({ x: 570, y: 34, width: 118, height: 56 });
+const SUMMON_TABS = Object.freeze({
+  hero: Object.freeze({ x: 48, y: 132, width: 196, height: 48, label: '英雄' }),
+  army: Object.freeze({ x: 262, y: 132, width: 196, height: 48, label: '小兵与炮台' }),
+  equipment: Object.freeze({ x: 476, y: 132, width: 196, height: 48, label: '装备' }),
+});
+const HEADER_META_COIN_RECT = Object.freeze({ x: 530, y: 28, width: 168, height: 58 });
 const HERO_JOYSTICK = Object.freeze({
   x: 102, y: 1190, radius: 64,
   hit: Object.freeze({ x: 30, y: 1118, width: 144, height: 144 }),
@@ -348,6 +372,23 @@ const STAGE_SELECT_CARDS = Object.freeze(Array.from({ length: STAGE_SELECT_PAGE_
 const STAGE_SELECT_BACK = Object.freeze({ x: 22, y: 28, width: 104, height: 58 });
 const STAGE_SELECT_PREVIOUS = Object.freeze({ x: 222, y: 1140, width: 96, height: 58 });
 const STAGE_SELECT_NEXT = Object.freeze({ x: 402, y: 1140, width: 96, height: 58 });
+const STAGE_DIFFICULTY_RECTS = Object.freeze({
+  simple: Object.freeze({ x: 244, y: 104, width: 112, height: 40 }),
+  hard: Object.freeze({ x: 364, y: 104, width: 112, height: 40 }),
+});
+const ROSTER_RANK_RECT = Object.freeze({ x: 62, y: 1114, width: 210, height: 72 });
+const ROSTER_EQUIPMENT_RECTS = Object.freeze(TD_EQUIPMENT_SLOT_IDS.map((slotId, index) => Object.freeze({
+  slotId, x: 310 + index * 112, y: 838, width: 102, height: 88,
+})));
+const EQUIPMENT_PICKER_CLOSE_RECT = Object.freeze({ x: 572, y: 214, width: 76, height: 52 });
+const EQUIPMENT_PICKER_UNEQUIP_RECT = Object.freeze({ x: 72, y: 1032, width: 184, height: 64 });
+const EQUIPMENT_PICKER_PREVIOUS_RECT = Object.freeze({ x: 274, y: 1042, width: 64, height: 48 });
+const EQUIPMENT_PICKER_NEXT_RECT = Object.freeze({ x: 382, y: 1042, width: 64, height: 48 });
+const EQUIPMENT_PICKER_PAGE_SIZE = 6;
+const SQUAD_ABILITY_RECTS = Object.freeze([
+  Object.freeze({ x: 74, y: 528, width: 272, height: 254 }),
+  Object.freeze({ x: 374, y: 528, width: 272, height: 254 }),
+]);
 
 const COLORS = Object.freeze({
   ink: '#273844',
@@ -376,6 +417,44 @@ function rarityStyle(rarity) {
   const key = String(rarity || 'R').toUpperCase();
   const aliases = { COMMON: 'R', RARE: 'SR', EPIC: 'SSR', LEGENDARY: 'UR' };
   return RARITY_STYLE[aliases[key] || key] || RARITY_STYLE.R;
+}
+
+function localDayKey(value = new Date()) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (!Number.isFinite(date.getTime())) return '1970-01-01';
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function numericCost(value, key = 'metaCoins') {
+  if (value && typeof value === 'object') {
+    return Math.max(0, Math.floor(Number(value[key] ?? value.cost) || 0));
+  }
+  return Math.max(0, Math.floor(Number(value) || 0));
+}
+
+function equipmentDefinitionFor(item) {
+  return TD_EQUIPMENT_BY_ID[item?.definitionId] || null;
+}
+
+function normalizedEquipmentResults(value) {
+  const source = Array.isArray(value)
+    ? value : Array.isArray(value?.results) ? value.results : [];
+  return source.map((entry) => {
+    const item = entry?.item || entry;
+    const definition = equipmentDefinitionFor(item);
+    return {
+      ...entry,
+      ...item,
+      kind: 'equipment',
+      rarity: item?.rarity || definition?.rarity || entry?.rarity || 'R',
+      slot: item?.slot || definition?.slot,
+      iconKey: item?.iconKey || definition?.iconKey,
+      stats: item?.stats || definition?.stats || {},
+    };
+  });
 }
 
 function rosterHeroRect(index) {
@@ -1171,10 +1250,19 @@ export class TowerDefenseGame {
     this.hoverPoint = null;
     this.menuPage = 'main';
     this.stageSelectPage = 0;
+    this.stageDifficulty = 'simple';
     this.rosterInspectType = this.state.progress?.selectedHero || Object.keys(HERO_TYPES)[0] || 'shell';
     this.rosterPage = 0;
+    this.equipmentPicker = null;
+    this.summonTab = 'hero';
     this.summonResults = [];
     this.summonAnimation = null;
+    this.dayKey = typeof options.dayKey === 'string'
+      ? options.dayKey : localDayKey(options.dateNow?.() ?? new Date());
+    this.currentDailyChallenge = dailyChallengeForDay(
+      this.dayKey,
+      clamp(Math.floor(Number(this.state.progress?.unlockedStage) || 1), 1, TD_STAGES.length),
+    );
     const performanceClock = safeGlobal('performance');
     this.interactionNow = typeof options.now === 'function'
       ? options.now
@@ -2005,6 +2093,7 @@ export class TowerDefenseGame {
   onForeground() {
     this.backgrounded = false;
     this.lastTimestamp = 0;
+    this.refreshDailyChallenge();
     this.audio.onForeground(this.state.screen);
     this.render();
     this.scheduleFrame();
@@ -2266,9 +2355,43 @@ export class TowerDefenseGame {
     return Math.max(0, Math.floor(Number(this.state.progress?.summonCurrency) || 0));
   }
 
+  metaCoins() {
+    return Math.max(0, Math.floor(Number(this.state.progress?.metaCoins) || 0));
+  }
+
+  drawMetaCoinWallet(ctx, rect = HEADER_META_COIN_RECT) {
+    panel(ctx, rect, {
+      fill: 'rgba(255,245,204,0.94)', stroke: '#C68B2F', lineWidth: 2, radius: 20,
+    });
+    drawAssetOrFallback(ctx, this.assetStore, 'ui-meta-coin-v1', (asset) => {
+      ctx.drawImage(asset, rect.x + 8, rect.y + 8, 42, 42);
+    }, () => {});
+    label(ctx, this.metaCoins(), rect.x + rect.width - 12,
+      rect.y + rect.height / 2 + 1, {
+        size: 19, align: 'right', color: COLORS.ink, weight: 950,
+      });
+  }
+
+  equippedItem(heroId, slotId) {
+    const uid = this.state.progress?.equipmentLoadouts?.[heroId]?.[slotId];
+    return this.state.progress?.equipmentItems?.find((item) => item.uid === uid) || null;
+  }
+
+  refreshDailyChallenge() {
+    const nextDayKey = typeof this.options.dayKey === 'string'
+      ? this.options.dayKey : localDayKey(this.options.dateNow?.() ?? new Date());
+    this.dayKey = nextDayKey;
+    this.currentDailyChallenge = dailyChallengeForDay(
+      nextDayKey,
+      clamp(Math.floor(Number(this.state.progress?.unlockedStage) || 1), 1, TD_STAGES.length),
+    );
+    return this.currentDailyChallenge;
+  }
+
   tutorialAllows(hit) {
     if (hit?.action === 'toggle-audio') return true;
     if (hit?.action === 'skip-tutorial') return true;
+    if (this.state.pendingSquadFusion) return hit?.action === 'choose-squad-ability';
     if (this.state.screen === 'menu' && this.menuPage === 'summon' && this.summonAnimation) {
       return hit?.action === 'summon-animation-skip';
     }
@@ -2280,7 +2403,8 @@ export class TowerDefenseGame {
     if (!hit) return false;
     if (target.type === 'stage') {
       if (hit.action === 'open-stage-select' || hit.action === 'stage-select-back') return true;
-      return hit.action === 'stage' && hit.data.stageIndex === target.stageIndex;
+      return hit.action === 'stage' && hit.data.stageIndex === target.stageIndex
+        && hit.data.difficulty !== 'hard';
     }
     if (target.type === 'shop') {
       const offer = this.state.soldierShop?.[target.offerIndex || 0];
@@ -2631,8 +2755,16 @@ export class TowerDefenseGame {
         if (this.state.screen === 'menu') {
           this.menuPage = 'stage-select';
           this.stageSelectPage = 0;
+          if (this.state.tutorial.active) this.stageDifficulty = 'simple';
           this.selectedCardUid = null;
           this.state.selectedTowerUid = null;
+        }
+        break;
+      case 'select-stage-difficulty':
+        if (this.menuPage === 'stage-select'
+          && ['simple', 'hard'].includes(hit.data.difficulty)
+          && !(this.state.tutorial.active && hit.data.difficulty === 'hard')) {
+          this.stageDifficulty = hit.data.difficulty;
         }
         break;
       case 'stage-select-back':
@@ -2659,11 +2791,13 @@ export class TowerDefenseGame {
           this.rosterPage = Math.floor(
             Math.max(0, heroTypes.indexOf(this.rosterInspectType)) / ROSTER_PAGE_SIZE,
           );
+          this.equipmentPicker = null;
           this.selectedCardUid = null;
           this.state.selectedTowerUid = null;
         }
         break;
       case 'roster-back':
+        this.equipmentPicker = null;
         this.menuPage = 'main';
         break;
       case 'inspect-hero':
@@ -2690,6 +2824,13 @@ export class TowerDefenseGame {
           this.state.selectedTowerUid = null;
         }
         break;
+      case 'select-summon-tab':
+        if (this.menuPage === 'summon'
+          && !this.summonAnimation && !this.summonResults.length
+          && SUMMON_TABS[hit.data.summonTab]) {
+          this.summonTab = hit.data.summonTab;
+        }
+        break;
       case 'summon-back':
         this.menuPage = 'main';
         this.summonResults = [];
@@ -2700,10 +2841,17 @@ export class TowerDefenseGame {
       case 'summon-ten': {
         if (this.summonAnimation || this.summonResults.length) break;
         const count = hit.action === 'summon-ten' ? 10 : 1;
-        const results = summonTowerDefenseContracts(this.state, count);
+        const rawResults = this.summonTab === 'equipment'
+          ? summonTowerDefenseEquipment(this.state, count)
+          : summonTowerDefenseContracts(this.state, count, this.summonTab);
+        const results = this.summonTab === 'equipment'
+          ? normalizedEquipmentResults(rawResults)
+          : rawResults;
         if (Array.isArray(results) && results.length) {
           this.summonResults = [];
-          this.summonAnimation = { results: [...results], elapsed: 0 };
+          this.summonAnimation = {
+            results: [...results], elapsed: 0, pool: this.summonTab,
+          };
         }
         this.save();
         break;
@@ -2732,9 +2880,68 @@ export class TowerDefenseGame {
           this.save();
         }
         break;
+      case 'hero-rank-up':
+        if (this.menuPage === 'roster'
+          && upgradeTowerDefenseHero(this.state, hit.data.heroType)) {
+          this.processEvents();
+          this.save();
+        }
+        break;
+      case 'hero-exchange':
+        if (this.menuPage === 'roster'
+          && exchangeTowerDefenseHero(this.state, hit.data.heroType)) {
+          this.processEvents();
+          this.save();
+        }
+        break;
+      case 'open-equipment-picker':
+        if (this.menuPage === 'roster' && TD_EQUIPMENT_SLOT_IDS.includes(hit.data.slotId)) {
+          this.equipmentPicker = {
+            heroId: hit.data.heroId,
+            slotId: hit.data.slotId,
+            page: 0,
+          };
+        }
+        break;
+      case 'equipment-picker-close':
+        this.equipmentPicker = null;
+        break;
+      case 'equipment-picker-previous':
+        if (this.equipmentPicker) {
+          this.equipmentPicker.page = Math.max(0, this.equipmentPicker.page - 1);
+        }
+        break;
+      case 'equipment-picker-next':
+        if (this.equipmentPicker) this.equipmentPicker.page += 1;
+        break;
+      case 'equip-equipment-item':
+        if (this.equipmentPicker
+          && equipTowerDefenseHeroItem(
+            this.state,
+            this.equipmentPicker.heroId,
+            hit.data.itemUid,
+          )) {
+          this.equipmentPicker = null;
+          this.processEvents();
+          this.save();
+        }
+        break;
+      case 'unequip-equipment-slot':
+        if (this.equipmentPicker
+          && unequipTowerDefenseHeroItem(
+            this.state,
+            this.equipmentPicker.heroId,
+            this.equipmentPicker.slotId,
+          )) {
+          this.equipmentPicker = null;
+          this.processEvents();
+          this.save();
+        }
+        break;
       case 'stage':
         if (beginTowerDefenseRun(this.state, {
           mode: 'stage', stageId: hit.data.stageId,
+          difficulty: hit.data.difficulty || this.stageDifficulty,
         })) {
           this.menuPage = 'main';
           this.selectedPurchase = null;
@@ -2742,6 +2949,16 @@ export class TowerDefenseGame {
           this.eventCursor = 0;
         }
         break;
+      case 'daily-challenge': {
+        const challenge = this.refreshDailyChallenge();
+        if (beginTowerDefenseDailyRun(this.state, challenge.dayKey)) {
+          this.menuPage = 'main';
+          this.selectedPurchase = null;
+          this.selectedCardUid = null;
+          this.eventCursor = 0;
+        }
+        break;
+      }
       case 'endless':
         if (this.endlessUnlocked()) {
           beginTowerDefenseRun(this.state, {
@@ -2820,6 +3037,11 @@ export class TowerDefenseGame {
         activateTowerDefenseHeroSkill(this.state);
         this.processEvents();
         break;
+      case 'choose-squad-ability':
+        if (chooseTowerDefenseSquadAbility(this.state, hit.data.choiceId)) {
+          this.processEvents();
+        }
+        break;
       case 'battle-menu':
         this.resetHeroInput();
         returnToTowerDefenseMenu(this.state);
@@ -2844,7 +3066,9 @@ export class TowerDefenseGame {
       case 'next-stage': {
         const stage = stageForState(this.state);
         const next = TD_STAGES[stage.index];
-        if (next) beginTowerDefenseRun(this.state, { mode: 'stage', stageId: next.id });
+        if (next) beginTowerDefenseRun(this.state, {
+          mode: 'stage', stageId: next.id, difficulty: this.state.difficulty,
+        });
         else returnToTowerDefenseMenu(this.state);
         this.selectedPurchase = null;
         this.selectedCardUid = null;
@@ -3184,6 +3408,7 @@ export class TowerDefenseGame {
     label(ctx, '史莱姆守望团', TD_VIEW.width / 2, 112, {
       size: 46, color: COLORS.ink, weight: 950,
     });
+    this.drawMetaCoinWallet(ctx);
     const stageMarkerGap = TD_STAGES.length > 1
       ? Math.min(28, 238 / (TD_STAGES.length - 1)) : 0;
     const stageMarkerStart = TD_VIEW.width / 2
@@ -3280,7 +3505,7 @@ export class TowerDefenseGame {
     ctx.stroke();
     ctx.strokeStyle = 'rgba(67, 102, 91, 0.3)';
     ctx.lineWidth = 2;
-    [284, 474].forEach((separatorX) => {
+    [201, 357, 513].forEach((separatorX) => {
       ctx.beginPath();
       ctx.moveTo(separatorX, secondaryShelf.y + 18);
       ctx.lineTo(separatorX, secondaryShelf.y + secondaryShelf.height - 18);
@@ -3304,10 +3529,10 @@ export class TowerDefenseGame {
       ctx.stroke();
       ctx.restore();
     }
-    label(ctx, endlessUnlocked ? '∞  无尽模式' : '锁  无尽模式',
+    label(ctx, endlessUnlocked ? '∞ 无尽' : '锁 无尽',
       endlessRect.x + endlessRect.width / 2,
       endlessRect.y + endlessRect.height / 2 - (endlessUnlocked ? 0 : 8), {
-        size: endlessUnlocked ? 22 : 20,
+        size: endlessUnlocked ? 19 : 17,
         color: endlessUnlocked ? '#5B4EAA' : '#75817B',
         weight: 950,
       });
@@ -3318,6 +3543,22 @@ export class TowerDefenseGame {
         });
     }
     this.addHit('endless', endlessRect, 'endless', {}, endlessUnlocked);
+
+    const dailyRect = MENU_ACTIONS.daily;
+    const daily = this.refreshDailyChallenge();
+    const dailyClaimed = Boolean(this.state.progress?.dailyClaims?.includes?.(daily.dayKey)
+      || this.state.progress?.dailyClaims?.[daily.dayKey]);
+    label(ctx, dailyClaimed ? '✓ 每日' : '每日挑战',
+      dailyRect.x + dailyRect.width / 2, dailyRect.y + 33, {
+        size: 18, color: dailyClaimed ? COLORS.mintDeep : '#A15D35', weight: 950,
+      });
+    label(ctx, `${daily.stageIndex}关 · ${daily.modifier.name}`,
+      dailyRect.x + dailyRect.width / 2, dailyRect.y + 69, {
+        size: 12, color: COLORS.inkSoft, weight: 850,
+      });
+    this.addHit('daily-challenge', dailyRect, 'daily-challenge', {
+      dayKey: daily.dayKey,
+    });
 
     const rosterRect = MENU_ACTIONS.roster;
     const rosterHot = Boolean(this.hoverPoint && insideRect(this.hoverPoint, rosterRect));
@@ -3339,11 +3580,11 @@ export class TowerDefenseGame {
     }
     label(ctx, '英雄编队', rosterRect.x + rosterRect.width / 2,
       rosterRect.y + 34, {
-        size: 20, color: COLORS.ink, weight: 950,
+        size: 18, color: COLORS.ink, weight: 950,
       });
     label(ctx, `${selectedRarity.label} · ${selectedHero.name}`,
       rosterRect.x + rosterRect.width / 2, rosterRect.y + 70, {
-        size: 15, color: selectedRarity.deep, weight: 900,
+        size: 13, color: selectedRarity.deep, weight: 900,
       });
     this.addHit('open-roster', rosterRect, 'open-roster');
 
@@ -3366,14 +3607,14 @@ export class TowerDefenseGame {
         size: 18, color: COLORS.ink, weight: 950,
       });
     drawAssetOrFallback(ctx, this.assetStore, 'ui-soft-crystal', (asset) => {
-      ctx.drawImage(asset, summonRect.x + 32, summonRect.y + 57, 28, 28);
+      ctx.drawImage(asset, summonRect.x + 20, summonRect.y + 57, 25, 25);
     }, () => {
-      label(ctx, '◆', summonRect.x + 46, summonRect.y + 72, {
+      label(ctx, '◆', summonRect.x + 32, summonRect.y + 72, {
         size: 18, color: COLORS.crystal, weight: 950,
       });
     });
-    label(ctx, this.summonCurrency(), summonRect.x + 68, summonRect.y + 72, {
-      size: 17, align: 'left', color: COLORS.inkSoft, weight: 900,
+    label(ctx, this.summonCurrency(), summonRect.x + 52, summonRect.y + 72, {
+      size: 15, align: 'left', color: COLORS.inkSoft, weight: 900,
     });
     this.addHit('open-summon', summonRect, 'open-summon');
   }
@@ -3437,6 +3678,7 @@ export class TowerDefenseGame {
     label(ctx, '英雄编队', TD_VIEW.width / 2, 72, {
       size: 40, color: COLORS.ink, weight: 950,
     });
+    this.drawMetaCoinWallet(ctx);
     label(ctx, '已解锁英雄可查看数值与技能', TD_VIEW.width / 2, 116, {
       size: 17, color: COLORS.inkSoft, weight: 850,
     });
@@ -3546,9 +3788,15 @@ export class TowerDefenseGame {
       this.addHit(`hero-select-${inspectType}`, ROSTER_DEPLOY_RECT, 'select-hero', {
         heroType: inspectType,
       }, false);
-      label(ctx, `已拥有 ${ownedCount}/${heroTypes.length}`, 86, 1150, {
-        size: 16, align: 'left', color: '#6D7471', weight: 900,
+      const exchangeCost = numericCost(heroExchangeCost(inspectType), 'contractEssence');
+      const essence = Math.max(0, Math.floor(Number(this.state.progress?.contractEssence) || 0));
+      const canExchange = exchangeCost > 0 && essence >= exchangeCost;
+      button(ctx, ROSTER_RANK_RECT, `兑换 ${essence}/${exchangeCost}`, {
+        enabled: canExchange, fill: '#9A82E7', accent: '#5947A4', size: 18,
       });
+      this.addHit(`hero-exchange-${inspectType}`, ROSTER_RANK_RECT, 'hero-exchange', {
+        heroType: inspectType,
+      }, canExchange);
       return;
     }
 
@@ -3596,6 +3844,32 @@ export class TowerDefenseGame {
       });
     });
 
+    label(ctx, '装备', 292, 882, {
+      size: 15, align: 'right', color: detailSoft, weight: 900,
+    });
+    ROSTER_EQUIPMENT_RECTS.forEach((rect) => {
+      const slot = TD_EQUIPMENT_SLOTS[rect.slotId];
+      const equipped = this.equippedItem(inspectType, rect.slotId);
+      const equipmentDefinition = equipmentDefinitionFor(equipped);
+      const rarity = rarityStyle(equipped?.rarity || equipmentDefinition?.rarity);
+      panel(ctx, rect, {
+        fill: equipped ? rarity.fill : 'rgba(239,246,229,0.9)',
+        stroke: equipped ? rarity.color : '#A2B3A9',
+        lineWidth: equipped ? 3 : 2, radius: 17,
+      });
+      drawAssetOrFallback(ctx, this.assetStore,
+        equipped?.iconKey || equipmentDefinition?.iconKey || slot.iconKey, (asset) => {
+          ctx.globalAlpha *= equipped ? 1 : 0.36;
+          ctx.drawImage(asset, rect.x + 27, rect.y + 8, 48, 48);
+        }, () => {});
+      label(ctx, equipped ? equipped.rarity : slot.name.replace('徽记', ''),
+        rect.x + rect.width / 2, rect.y + 72, {
+          size: 12, color: equipped ? rarity.deep : COLORS.inkSoft, weight: 950,
+        });
+      this.addHit(`equipment-slot-${inspectType}-${rect.slotId}`, rect,
+        'open-equipment-picker', { heroId: inspectType, slotId: rect.slotId });
+    });
+
     const skillRect = { x: 64, y: 944, width: 592, height: 148 };
     panel(ctx, skillRect, {
       fill: inspectedOwned ? '#EEF8F0' : '#B8BCBA',
@@ -3618,6 +3892,24 @@ export class TowerDefenseGame {
       size: 14, color: inspectedOwned ? inspectedRarity.deep : detailSoft, weight: 850,
     });
 
+    const shards = Math.max(0, Math.floor(Number(
+      this.state.progress?.contractShards?.[inspectType],
+    ) || 0));
+    const rankRequirement = heroRankUpCost(inspectType, inspectedRank);
+    const rankCost = numericCost(rankRequirement);
+    const requiredShards = numericCost(rankRequirement, 'shards');
+    const canRankUp = inspectedRank < TD_CONTRACT_MAX_RANK
+      && requiredShards > 0 && shards >= requiredShards && this.metaCoins() >= rankCost;
+    const rankLabel = inspectedRank >= TD_CONTRACT_MAX_RANK
+      ? '已满阶'
+      : `升阶 ${shards}/${requiredShards} · 金币${rankCost}`;
+    button(ctx, ROSTER_RANK_RECT, rankLabel, {
+      enabled: canRankUp, fill: '#F0B84D', accent: '#9A5A23', size: 15,
+    });
+    this.addHit(`hero-rank-up-${inspectType}`, ROSTER_RANK_RECT, 'hero-rank-up', {
+      heroType: inspectType,
+    }, canRankUp);
+
     button(ctx, ROSTER_DEPLOY_RECT, !inspectedOwned ? '未解锁'
       : inspectedSelected ? '当前出战' : '设为出战', {
       enabled: inspectedOwned && !inspectedSelected,
@@ -3626,9 +3918,108 @@ export class TowerDefenseGame {
     this.addHit(`hero-select-${inspectType}`, ROSTER_DEPLOY_RECT, 'select-hero', {
       heroType: inspectType,
     }, inspectedOwned && !inspectedSelected);
-    label(ctx, `已拥有 ${ownedCount}/${heroTypes.length}`, 86, 1150, {
-      size: 16, align: 'left', color: detailSoft, weight: 900,
+    if (this.equipmentPicker) this.drawEquipmentPicker(ctx);
+  }
+
+  drawEquipmentPicker(ctx) {
+    const picker = this.equipmentPicker;
+    if (!picker) return;
+    const slot = TD_EQUIPMENT_SLOTS[picker.slotId];
+    const allItems = (this.state.progress?.equipmentItems || [])
+      .filter((item) => item.slot === picker.slotId);
+    const pageCount = Math.max(1, Math.ceil(allItems.length / EQUIPMENT_PICKER_PAGE_SIZE));
+    picker.page = clamp(Math.floor(Number(picker.page) || 0), 0, pageCount - 1);
+    const visibleItems = allItems.slice(
+      picker.page * EQUIPMENT_PICKER_PAGE_SIZE,
+      (picker.page + 1) * EQUIPMENT_PICKER_PAGE_SIZE,
+    );
+    const equipped = this.equippedItem(picker.heroId, picker.slotId);
+
+    this.hits = [];
+    ctx.save();
+    ctx.fillStyle = 'rgba(20,38,45,0.72)';
+    ctx.fillRect(0, 0, TD_VIEW.width, TD_VIEW.height);
+    ctx.restore();
+    const modal = { x: 42, y: 190, width: 636, height: 930 };
+    panel(ctx, modal, {
+      fill: '#FFF9E9', stroke: '#4E8D78', lineWidth: 5, radius: 32, shadow: true,
     });
+    label(ctx, `${slot?.name || '装备'} · ${HERO_TYPES[picker.heroId]?.name || ''}`,
+      72, 238, { size: 25, align: 'left', color: COLORS.ink, weight: 950 });
+    button(ctx, EQUIPMENT_PICKER_CLOSE_RECT, '×', {
+      fill: '#EEF1E8', color: COLORS.ink, accent: '#9EADA5', size: 25,
+    });
+    this.addHit('equipment-picker-close', EQUIPMENT_PICKER_CLOSE_RECT,
+      'equipment-picker-close');
+
+    if (!visibleItems.length) {
+      label(ctx, '还没有这类装备', TD_VIEW.width / 2, 624, {
+        size: 24, color: COLORS.inkSoft, weight: 900,
+      });
+    }
+    visibleItems.forEach((item, index) => {
+      const definition = equipmentDefinitionFor(item);
+      const rarity = rarityStyle(item.rarity || definition?.rarity);
+      const rect = {
+        x: 72 + (index % 2) * 300,
+        y: 292 + Math.floor(index / 2) * 224,
+        width: 276,
+        height: 196,
+      };
+      const selected = equipped?.uid === item.uid;
+      const holder = Object.entries(this.state.progress?.equipmentLoadouts || {})
+        .find(([, loadout]) => loadout?.[picker.slotId] === item.uid)?.[0];
+      panel(ctx, rect, {
+        fill: selected ? '#FFF1B9' : rarity.fill,
+        stroke: selected ? COLORS.gold : rarity.color,
+        lineWidth: selected ? 5 : 3, radius: 22, shadow: true,
+      });
+      drawAssetOrFallback(ctx, this.assetStore, item.iconKey || definition?.iconKey, (asset) => {
+        ctx.drawImage(asset, rect.x + 16, rect.y + 38, 86, 86);
+      }, () => {});
+      label(ctx, item.rarity || definition?.rarity || 'R', rect.x + 18, rect.y + 22, {
+        size: 15, align: 'left', color: rarity.deep, weight: 950,
+      });
+      label(ctx, item.name || definition?.name || slot?.name, rect.x + rect.width - 16,
+        rect.y + 24, { size: 15, align: 'right', color: COLORS.ink, weight: 950 });
+      const stats = item.stats || definition?.stats || {};
+      const statText = [
+        `攻+${((Number(stats.damagePct) || 0) / 100).toFixed(1)}%`,
+        `速+${((Number(stats.attackSpeedPct) || 0) / 100).toFixed(1)}%`,
+        `生+${((Number(stats.healthPct) || 0) / 100).toFixed(1)}%`,
+      ];
+      statText.forEach((text, statIndex) => label(ctx, text, rect.x + 116,
+        rect.y + 70 + statIndex * 29, {
+          size: 14, align: 'left', color: COLORS.inkSoft, weight: 850,
+        }));
+      label(ctx, selected ? '已装备' : holder ? `${HERO_TYPES[holder]?.name || holder}使用中` : '点击装备',
+        rect.x + rect.width / 2, rect.y + rect.height - 20, {
+          size: 13, color: selected ? '#9A6A21' : rarity.deep, weight: 900,
+        });
+      this.addHit(`equip-item-${item.uid}`, rect, 'equip-equipment-item', {
+        itemUid: item.uid,
+      }, !selected);
+    });
+
+    button(ctx, EQUIPMENT_PICKER_UNEQUIP_RECT, equipped ? '卸下当前装备' : '当前为空', {
+      enabled: Boolean(equipped), fill: '#E9A47E', accent: '#9B5840', size: 17,
+    });
+    this.addHit('equipment-picker-unequip', EQUIPMENT_PICKER_UNEQUIP_RECT,
+      'unequip-equipment-slot', {}, Boolean(equipped));
+    button(ctx, EQUIPMENT_PICKER_PREVIOUS_RECT, '‹', {
+      enabled: picker.page > 0, fill: '#F4F8ED', color: COLORS.ink, accent: '#81938A', size: 26,
+    });
+    button(ctx, EQUIPMENT_PICKER_NEXT_RECT, '›', {
+      enabled: picker.page < pageCount - 1,
+      fill: '#F4F8ED', color: COLORS.ink, accent: '#81938A', size: 26,
+    });
+    label(ctx, `${picker.page + 1}/${pageCount}`, 360, 1066, {
+      size: 15, color: COLORS.inkSoft, weight: 900,
+    });
+    this.addHit('equipment-picker-previous', EQUIPMENT_PICKER_PREVIOUS_RECT,
+      'equipment-picker-previous', {}, picker.page > 0);
+    this.addHit('equipment-picker-next', EQUIPMENT_PICKER_NEXT_RECT,
+      'equipment-picker-next', {}, picker.page < pageCount - 1);
   }
 
   drawSummonPage(ctx) {
@@ -3661,8 +4052,25 @@ export class TowerDefenseGame {
     label(ctx, '战团招募', TD_VIEW.width / 2, 70, {
       size: 40, color: COLORS.ink, weight: 950,
     });
-    label(ctx, '英雄 · 小队 · 炮塔  ·  R → UR', TD_VIEW.width / 2, 114, {
+    const summonSubtitle = this.summonTab === 'hero' ? '英雄契约 · R → UR'
+      : this.summonTab === 'army' ? '小兵与炮台 · R → SSR'
+        : '装备徽记 · 独立保底';
+    label(ctx, summonSubtitle, TD_VIEW.width / 2, 114, {
       size: 17, color: COLORS.inkSoft, weight: 850,
+    });
+
+    Object.entries(SUMMON_TABS).forEach(([id, tab]) => {
+      const active = this.summonTab === id;
+      panel(ctx, tab, {
+        fill: active ? '#FFF3BD' : 'rgba(245,250,238,0.92)',
+        stroke: active ? '#D89B2D' : '#8CA49A',
+        lineWidth: active ? 4 : 2, radius: 15, shadow: active,
+      });
+      label(ctx, tab.label, tab.x + tab.width / 2, tab.y + tab.height / 2 + 1, {
+        size: id === 'army' ? 16 : 18,
+        color: active ? '#754E1D' : COLORS.inkSoft, weight: 950,
+      });
+      this.addHit(`summon-tab-${id}`, tab, 'select-summon-tab', { summonTab: id });
     });
 
     panel(ctx, SUMMON_CURRENCY_RECT, {
@@ -3681,7 +4089,7 @@ export class TowerDefenseGame {
         size: 24, align: 'right', color: COLORS.ink, weight: 950,
       });
 
-    const chamber = { x: 52, y: 176, width: 616, height: 750 };
+    const chamber = { x: 52, y: 194, width: 616, height: 732 };
     ctx.save();
     ctx.fillStyle = 'rgba(22, 55, 67, 0.22)';
     ctx.strokeStyle = 'rgba(255,255,255,0.7)';
@@ -3701,12 +4109,16 @@ export class TowerDefenseGame {
     label(ctx, '稀有度概率', TD_VIEW.width / 2, 218, {
       size: 21, color: COLORS.white, weight: 950,
     });
-    const rarityRates = [
-      ['R', '60%'], ['SR', '27%'], ['SSR', '10%'], ['UR', '3%'],
-    ];
+    const rarityRates = this.summonTab === 'equipment'
+      ? [['R', '54%'], ['SR', '30%'], ['SSR', '13%'], ['UR', '3%']]
+      : this.summonTab === 'army'
+        ? [['R', '62%'], ['SR', '28%'], ['SSR', '10%']]
+        : [['R', '60%'], ['SR', '27%'], ['SSR', '10%'], ['UR', '3%']];
+    const rarityCardsWidth = rarityRates.length * 132 + (rarityRates.length - 1) * 16;
+    const rarityCardsX = (TD_VIEW.width - rarityCardsWidth) / 2;
     rarityRates.forEach(([rarityId, rate], index) => {
       const rarity = rarityStyle(rarityId);
-      const rect = { x: 72 + index * 148, y: 250, width: 132, height: 78 };
+      const rect = { x: rarityCardsX + index * 148, y: 250, width: 132, height: 78 };
       panel(ctx, rect, {
         fill: rarity.fill, stroke: rarity.color, lineWidth: 3, radius: 16,
       });
@@ -3730,12 +4142,20 @@ export class TowerDefenseGame {
       size: 30, color: '#F5FCFF', weight: 950,
     });
 
-    const pity = clamp(Math.floor(Number(this.state.progress?.summonPity) || 0), 0, 9);
+    const pity = clamp(Math.floor(Number(
+      this.summonTab === 'army'
+        ? this.state.progress?.armySummonPity
+        : this.state.progress?.summonPity,
+    ) || 0), 0, 9);
+    const equipmentBanner = this.state.progress?.equipmentBanner || {};
     const pityRect = { x: 108, y: 790, width: 504, height: 100 };
     panel(ctx, pityRect, {
       fill: 'rgba(245,250,255,0.9)', stroke: '#9A82E7', lineWidth: 3, radius: 22,
     });
-    label(ctx, `高稀有保底  ${pity}/10`, pityRect.x + 22, pityRect.y + 28, {
+    const pityTitle = this.summonTab === 'equipment'
+      ? `SR ${Math.max(0, Number(equipmentBanner.srPity) || 0)}/10  ·  SSR ${Math.max(0, Number(equipmentBanner.ssrPity) || 0)}/30  ·  UR ${Math.max(0, Number(equipmentBanner.urPity) || 0)}/80`
+      : `高稀有保底  ${pity}/10`;
+    label(ctx, pityTitle, pityRect.x + 22, pityRect.y + 28, {
       size: 18, align: 'left', color: '#5947A4', weight: 950,
     });
     const pityTrack = { x: pityRect.x + 22, y: pityRect.y + 51,
@@ -3743,55 +4163,71 @@ export class TowerDefenseGame {
     roundedPath(ctx, pityTrack.x, pityTrack.y, pityTrack.width, pityTrack.height, 5);
     ctx.fillStyle = '#D9D4EE';
     ctx.fill();
-    if (pity > 0) {
+    const visiblePity = this.summonTab === 'equipment'
+      ? clamp(Number(equipmentBanner.srPity) || 0, 0, 9) : pity;
+    if (visiblePity > 0) {
       roundedPath(ctx, pityTrack.x, pityTrack.y,
-        pityTrack.width * pity / 10, pityTrack.height, 5);
+        pityTrack.width * visiblePity / 10, pityTrack.height, 5);
       ctx.fillStyle = '#9A82E7';
       ctx.fill();
     }
-    label(ctx, `最多再 ${10 - pity} 次获得 SSR / UR`,
+    const pityHint = this.summonTab === 'equipment'
+      ? `最多再 ${80 - clamp(Number(equipmentBanner.urPity) || 0, 0, 79)} 次获得 UR`
+      : this.summonTab === 'hero'
+        ? `兑换碎片 ${Math.max(0, Math.floor(Number(this.state.progress?.contractEssence) || 0))} · 再 ${10 - pity} 次保底`
+        : `最多再 ${10 - pity} 次获得 SSR`;
+    if (this.summonTab === 'equipment') {
+      label(ctx, 'SR保底', pityRect.x + 22, pityRect.y + 80, {
+        size: 14, align: 'left', color: '#5947A4', weight: 900,
+      });
+    }
+    label(ctx, pityHint,
       pityRect.x + pityRect.width - 22, pityRect.y + 80, {
         size: 14, align: 'right', color: COLORS.inkSoft, weight: 850,
       });
 
     const currency = this.summonCurrency();
+    const oneCost = this.summonTab === 'equipment'
+      ? Number(TD_EQUIPMENT_SUMMON_COSTS?.[1]) || 120 : 100;
+    const tenCost = this.summonTab === 'equipment'
+      ? Number(TD_EQUIPMENT_SUMMON_COSTS?.[10]) || 1080 : 900;
     button(ctx, SUMMON_ONE_RECT, '', {
-      enabled: currency >= 100, fill: '#62CFA0', accent: '#277C62', size: 25,
+      enabled: currency >= oneCost, fill: '#62CFA0', accent: '#277C62', size: 25,
     });
     label(ctx, '招募 1次', SUMMON_ONE_RECT.x + SUMMON_ONE_RECT.width / 2,
       SUMMON_ONE_RECT.y + 31, {
-        size: 22, color: currency >= 100 ? COLORS.white : COLORS.disabled, weight: 950,
+        size: 22, color: currency >= oneCost ? COLORS.white : COLORS.disabled, weight: 950,
       });
     drawAssetOrFallback(ctx, this.assetStore, 'ui-soft-crystal', (asset) => {
-      ctx.globalAlpha *= currency >= 100 ? 0.95 : 0.35;
+      ctx.globalAlpha *= currency >= oneCost ? 0.95 : 0.35;
       ctx.drawImage(asset,
         SUMMON_ONE_RECT.x + SUMMON_ONE_RECT.width / 2 - 38,
         SUMMON_ONE_RECT.y + 53, 25, 25);
     }, () => {});
-    label(ctx, '100', SUMMON_ONE_RECT.x + SUMMON_ONE_RECT.width / 2 - 5,
+    label(ctx, String(oneCost), SUMMON_ONE_RECT.x + SUMMON_ONE_RECT.width / 2 - 5,
       SUMMON_ONE_RECT.y + 66, {
-      size: 15, align: 'left', color: currency >= 100 ? COLORS.ink : COLORS.disabled, weight: 900,
+      size: 15, align: 'left', color: currency >= oneCost ? COLORS.ink : COLORS.disabled, weight: 900,
     });
-    this.addHit('summon-one', SUMMON_ONE_RECT, 'summon-one', {}, currency >= 100);
+    this.addHit('summon-one', SUMMON_ONE_RECT, 'summon-one', {}, currency >= oneCost);
 
     button(ctx, SUMMON_TEN_RECT, '', {
-      enabled: currency >= 900, fill: '#8E7FE2', accent: '#51438F', size: 25,
+      enabled: currency >= tenCost, fill: '#8E7FE2', accent: '#51438F', size: 25,
     });
     label(ctx, '招募 10次', SUMMON_TEN_RECT.x + SUMMON_TEN_RECT.width / 2,
       SUMMON_TEN_RECT.y + 31, {
-        size: 22, color: currency >= 900 ? COLORS.white : COLORS.disabled, weight: 950,
+        size: 22, color: currency >= tenCost ? COLORS.white : COLORS.disabled, weight: 950,
       });
     drawAssetOrFallback(ctx, this.assetStore, 'ui-soft-crystal', (asset) => {
-      ctx.globalAlpha *= currency >= 900 ? 0.95 : 0.35;
+      ctx.globalAlpha *= currency >= tenCost ? 0.95 : 0.35;
       ctx.drawImage(asset,
         SUMMON_TEN_RECT.x + SUMMON_TEN_RECT.width / 2 - 38,
         SUMMON_TEN_RECT.y + 53, 25, 25);
     }, () => {});
-    label(ctx, '900', SUMMON_TEN_RECT.x + SUMMON_TEN_RECT.width / 2 - 5,
+    label(ctx, String(tenCost), SUMMON_TEN_RECT.x + SUMMON_TEN_RECT.width / 2 - 5,
       SUMMON_TEN_RECT.y + 66, {
-      size: 15, align: 'left', color: currency >= 900 ? COLORS.ink : COLORS.disabled, weight: 900,
+      size: 15, align: 'left', color: currency >= tenCost ? COLORS.ink : COLORS.disabled, weight: 900,
     });
-    this.addHit('summon-ten', SUMMON_TEN_RECT, 'summon-ten', {}, currency >= 900);
+    this.addHit('summon-ten', SUMMON_TEN_RECT, 'summon-ten', {}, currency >= tenCost);
 
     if (this.summonAnimation) this.drawSummonAnimation(ctx);
     else if (this.summonResults.length) this.drawSummonResults(ctx);
@@ -3887,6 +4323,7 @@ export class TowerDefenseGame {
   }
 
   recruitmentDefinition(result) {
+    if (result?.kind === 'equipment') return equipmentDefinitionFor(result) || result;
     if (result?.kind === 'squad') return SQUAD_TYPES[result.type] || null;
     if (result?.kind === 'turret') return TURRET_TYPES[result.type] || null;
     return HERO_TYPES[result?.type] || null;
@@ -3897,15 +4334,23 @@ export class TowerDefenseGame {
     const definition = this.recruitmentDefinition(result);
     if (!definition) return false;
 
+    if (kind === 'equipment') {
+      const size = single ? 210 : 64;
+      const centerY = single ? 125 : 19;
+      return drawAssetOrFallback(ctx, this.assetStore,
+        result.iconKey || definition.iconKey, (asset) => {
+          ctx.drawImage(asset, -size / 2, centerY - size / 2, size, size);
+        }, () => {});
+    }
+
     if (kind === 'squad') {
       const visual = SOLDIER_VISUALS[result.type];
       if (!visual) return false;
       const memberSize = single ? 86 : 30;
       const centerY = single ? 172 : 32;
       const spreadX = single ? 48 : 17;
-      const spreadY = single ? 32 : 12;
+      const spreadY = single ? 18 : 7;
       const positions = [
-        [-spreadX, -spreadY], [spreadX, -spreadY],
         [-spreadX, spreadY], [spreadX, spreadY],
       ];
       let rendered = false;
@@ -3982,7 +4427,10 @@ export class TowerDefenseGame {
     label(ctx, allowClose ? '招募结果' : '契约显现', TD_VIEW.width / 2, 104, {
       size: 38, color: '#F8FCFF', weight: 950,
     });
-    label(ctx, 'R  ·  SR  ·  SSR  ·  UR', TD_VIEW.width / 2, 146, {
+    const armyOnly = visibleResults.length > 0
+      && visibleResults.every(({ kind }) => kind === 'squad' || kind === 'turret');
+    label(ctx, armyOnly ? 'R  ·  SR  ·  SSR' : 'R  ·  SR  ·  SSR  ·  UR',
+      TD_VIEW.width / 2, 146, {
       size: 17, color: '#CFEAFF', weight: 900,
     });
 
@@ -4044,19 +4492,21 @@ export class TowerDefenseGame {
           size: single ? 28 : 16, align: 'right', color: COLORS.ink, weight: 950,
         });
       this.drawRecruitmentResultVisual(ctx, result, { single, index });
-      const converted = Math.max(0, Math.floor(Number(result.convertedCurrency) || 0));
+      const converted = Math.max(0, Math.floor(Number(result.convertedCoins) || 0));
       const rankUps = Math.max(0, Math.floor(Number(result.rankUps) || 0));
       const shards = Math.max(0, Math.floor(Number(result.shards) || 0));
-      const unlockedLabel = result.kind === 'squad'
+      const unlockedLabel = result.kind === 'equipment' ? '新装备'
+        : result.kind === 'squad'
         ? '新小队'
         : result.kind === 'turret' ? '新炮塔' : '新英雄';
-      const rewardText = result.unlocked
+      const rewardText = result.kind === 'equipment' ? '获得装备'
+        : result.unlocked
         ? unlockedLabel
-        : converted ? `◆ +${converted}` : rankUps ? `升阶 +${rankUps}` : `碎片 +${shards}`;
+        : converted ? `金币 +${converted}` : rankUps ? `升阶 +${rankUps}` : `碎片 +${shards}`;
       label(ctx, rewardText,
         0, localRect.y + localRect.height - (single ? 68 : 18), {
           size: single ? 23 : 13,
-          color: result.unlocked ? COLORS.mintDeep : converted ? COLORS.crystal : COLORS.ink,
+          color: result.unlocked ? COLORS.mintDeep : converted ? '#9A5A23' : COLORS.ink,
           weight: 950,
         });
       if (rankUps && !result.unlocked) {
@@ -4115,8 +4565,25 @@ export class TowerDefenseGame {
       });
     this.addHit('stage-select-back', STAGE_SELECT_BACK, 'stage-select-back');
 
-    label(ctx, '选择关卡', TD_VIEW.width / 2, 92, {
-      size: 40, color: COLORS.ink, weight: 950,
+    label(ctx, '选择关卡', TD_VIEW.width / 2, 70, {
+      size: 34, color: COLORS.ink, weight: 950,
+    });
+    this.drawMetaCoinWallet(ctx);
+    Object.entries(STAGE_DIFFICULTY_RECTS).forEach(([difficulty, rect]) => {
+      const active = this.stageDifficulty === difficulty;
+      const enabled = difficulty !== 'hard' || !this.state.tutorial.active;
+      panel(ctx, rect, {
+        fill: active ? difficulty === 'hard' ? '#F7C4B6' : '#DDF6CD' : '#F4F2E8',
+        stroke: active ? difficulty === 'hard' ? '#B95143' : '#4C9A61' : '#9BA8A1',
+        lineWidth: active ? 4 : 2, radius: 14,
+      });
+      label(ctx, difficulty === 'hard' ? '困难' : '简单',
+        rect.x + rect.width / 2, rect.y + rect.height / 2 + 1, {
+          size: 16, color: enabled ? COLORS.ink : COLORS.disabled, weight: 950,
+        });
+      this.addHit(`stage-difficulty-${difficulty}`, rect, 'select-stage-difficulty', {
+        difficulty,
+      }, enabled);
     });
 
     const pageCount = Math.max(1, Math.ceil(TD_STAGES.length / STAGE_SELECT_PAGE_SIZE));
@@ -4130,8 +4597,12 @@ export class TowerDefenseGame {
     visibleStages.forEach((stage, localIndex) => {
       const index = pageStart + localIndex;
       const rect = STAGE_SELECT_CARDS[localIndex];
-      const unlocked = stage.index <= this.state.progress.unlockedStage;
-      const cleared = this.state.progress.clearedStages.includes(stage.id);
+      const simpleUnlocked = stage.index <= this.state.progress.unlockedStage;
+      const simpleCleared = this.state.progress.clearedStages.includes(stage.id);
+      const hardCleared = this.state.progress?.hardClearedStages?.includes?.(stage.id) || false;
+      const unlocked = simpleUnlocked
+        && !(this.state.tutorial.active && this.stageDifficulty === 'hard');
+      const cleared = this.stageDifficulty === 'hard' ? hardCleared : simpleCleared;
       const hot = unlocked && Boolean(this.hoverPoint && insideRect(this.hoverPoint, rect));
       panel(ctx, rect, {
         fill: unlocked ? hot ? '#FFFDF0' : '#FFF8E6' : '#D2D8D4',
@@ -4183,7 +4654,7 @@ export class TowerDefenseGame {
       label(ctx, stage.name, infoCenterX, rect.y + 174, {
         size: 24, color: unlocked ? COLORS.ink : '#68746E', weight: 920,
       });
-      label(ctx, `${stage.waves.length}波`, infoCenterX, rect.y + 207, {
+      label(ctx, `${stage.waves.length}波 · ${this.stageDifficulty === 'hard' ? '困难' : '简单'}`, infoCenterX, rect.y + 207, {
         size: 15, color: unlocked ? COLORS.inkSoft : '#7A8580', weight: 780,
       });
       const statusRect = {
@@ -4207,6 +4678,7 @@ export class TowerDefenseGame {
       this.addHit(`select-stage-${stage.index}`, rect, 'stage', {
         stageId: stage.id,
         stageIndex: index,
+        difficulty: this.stageDifficulty,
       }, unlocked);
     });
 
@@ -4247,6 +4719,48 @@ export class TowerDefenseGame {
     this.drawHeroControls(ctx);
     this.drawDragPreview(ctx);
     this.drawLongPressIndicator(ctx);
+    if (this.state.pendingSquadFusion) this.drawSquadAbilityChoice(ctx);
+  }
+
+  drawSquadAbilityChoice(ctx) {
+    const pending = this.state.pendingSquadFusion;
+    if (!pending) return;
+    this.hits = [];
+    ctx.save();
+    ctx.fillStyle = 'rgba(18,36,43,0.76)';
+    ctx.fillRect(0, 0, TD_VIEW.width, TD_VIEW.height);
+    ctx.restore();
+    panel(ctx, { x: 42, y: 406, width: 636, height: 500 }, {
+      fill: '#FFF9E8', stroke: '#D39736', lineWidth: 5, radius: 34, shadow: true,
+    });
+    const squad = SQUAD_TYPES[pending.squadType];
+    label(ctx, `${squad?.name || '小队'} 融合`, TD_VIEW.width / 2, 462, {
+      size: 30, color: COLORS.ink, weight: 950,
+    });
+    label(ctx, '选择能力', TD_VIEW.width / 2, 500, {
+      size: 16, color: COLORS.inkSoft, weight: 850,
+    });
+    pending.options.slice(0, 2).forEach((option, index) => {
+      const rect = SQUAD_ABILITY_RECTS[index];
+      const accent = index ? '#8B78DA' : '#58BD8A';
+      panel(ctx, rect, {
+        fill: index ? '#F0EAFF' : '#E9FFF1', stroke: accent,
+        lineWidth: 4, radius: 26, shadow: true,
+      });
+      label(ctx, option.name, rect.x + rect.width / 2, rect.y + 62, {
+        size: 25, color: COLORS.ink, weight: 950,
+      });
+      drawWrappedLabel(ctx, option.description, rect.x + rect.width / 2,
+        rect.y + 130, rect.width - 54, {
+          maxLines: 3, lineHeight: 27, size: 17, color: COLORS.inkSoft, weight: 850,
+        });
+      label(ctx, '选择', rect.x + rect.width / 2, rect.y + rect.height - 34, {
+        size: 17, color: accent, weight: 950,
+      });
+      this.addHit(`squad-ability-${option.id}`, rect, 'choose-squad-ability', {
+        choiceId: option.id,
+      });
+    });
   }
 
   drawHeroControls(ctx) {
@@ -6871,7 +7385,10 @@ export class TowerDefenseGame {
     panel(ctx, COMMAND_DOCK.mode, {
       fill: 'rgba(235,244,225,0.9)', stroke: stage.accent, radius: 17,
     });
-    label(ctx, this.state.mode === 'endless' ? '无尽' : stage.name,
+    const modeLabel = this.state.mode === 'endless' ? '无尽'
+      : this.state.mode === 'daily' ? '每日'
+        : this.state.difficulty === 'hard' ? `困难·${stage.name}` : stage.name;
+    label(ctx, modeLabel,
       COMMAND_DOCK.mode.x + COMMAND_DOCK.mode.width - 12,
       COMMAND_DOCK.mode.y + COMMAND_DOCK.mode.height / 2 + 1, {
         size: 12, align: 'right', color: COLORS.ink, weight: 900,
@@ -6889,18 +7406,25 @@ export class TowerDefenseGame {
     const squadType = squadTypeFor(type);
     const visual = soldierVisualFor(type, squadType);
     const compact = rect.width < 100 || rect.height < 140;
-    const positions = compact ? [
-      { x: -21, y: -15, scale: 0.76 },
-      { x: 21, y: -15, scale: 0.76 },
-      { x: -22, y: 9, scale: 0.86 },
-      { x: 22, y: 9, scale: 0.86 },
-    ] : [
-      { x: -30, y: -20, scale: 0.84 },
-      { x: 30, y: -20, scale: 0.84 },
-      { x: -31, y: 11, scale: 0.96 },
-      { x: 31, y: 11, scale: 0.96 },
-    ];
-    positions.forEach((position, memberIndex) => {
+    const previewCount = Math.max(1, Math.floor(Number(
+      SQUAD_TYPES[squadType]?.deployMembers,
+    ) || 2));
+    const positions = previewCount <= 2
+      ? compact
+        ? [{ x: -22, y: 4, scale: 0.86 }, { x: 22, y: 4, scale: 0.86 }]
+        : [{ x: -30, y: 8, scale: 0.96 }, { x: 30, y: 8, scale: 0.96 }]
+      : compact ? [
+        { x: -21, y: -15, scale: 0.76 },
+        { x: 21, y: -15, scale: 0.76 },
+        { x: -22, y: 9, scale: 0.86 },
+        { x: 22, y: 9, scale: 0.86 },
+      ] : [
+        { x: -30, y: -20, scale: 0.84 },
+        { x: 30, y: -20, scale: 0.84 },
+        { x: -31, y: 11, scale: 0.96 },
+        { x: 31, y: 11, scale: 0.96 },
+      ];
+    positions.slice(0, previewCount).forEach((position, memberIndex) => {
       const key = `purchase:${squadType}:${memberIndex}`;
       const animation = this.characterAnimationSample(key, visual.ownerId);
       drawSoldier(ctx, rect.x + rect.width / 2 + position.x,
@@ -6993,6 +7517,9 @@ export class TowerDefenseGame {
         ? soldierVisualFor(entry.type, entry.type) : null;
       const turretVisual = entry.kind === 'turret' ? turretVisualFor(entry.type) : null;
       const cost = Math.max(0, Math.floor(Number(definition?.cost) || 0));
+      const rankRecord = entry.kind === 'squad'
+        ? this.state.progress?.squadRanks : this.state.progress?.turretRanks;
+      const rank = clamp(Math.floor(Number(rankRecord?.[entry.type]) || 1), 1, TD_CONTRACT_MAX_RANK);
       const shortName = soldierVisual?.shortName || entry.shortName || definition?.name || entry.id;
       const selected = this.selectedPurchase === entry.id;
       const enabled = preparation && this.state.currency >= cost;
@@ -7017,6 +7544,9 @@ export class TowerDefenseGame {
         ctx.globalAlpha *= enabled ? 0.95 : 0.4;
         ctx.drawImage(asset, rect.x + 10, rect.y + 26, 16, 16);
       }, () => {});
+      label(ctx, `${definition?.rarity || 'R'} · ${rank}阶`, rect.x + 30, rect.y + 35, {
+        size: 10, align: 'left', color: enabled ? accent : COLORS.disabled, weight: 950,
+      });
       label(ctx, cost, rect.x + rect.width - 10, rect.y + 35, {
         size: 12, align: 'right', color: enabled ? COLORS.ink : COLORS.disabled, weight: 950,
       });
@@ -7122,11 +7652,18 @@ export class TowerDefenseGame {
             size: 18, align: 'left', color: COLORS.ink, weight: 900,
           });
         const alive = clamp(Math.floor(Number(selectedTower.aliveMembers) || 0), 0, 4);
-        label(ctx, `${alive}/4  ·  长按移动`, COMMAND_DOCK.selection.x + 69,
+        const rank = clamp(
+          Math.floor(Number(selectedTower.rank) || 1), 1, TD_CONTRACT_MAX_RANK,
+        );
+        label(ctx, `${squadDefinition.rarity} · ${rank}阶 · ${alive}/4`,
+          COMMAND_DOCK.selection.x + 69,
           COMMAND_DOCK.selection.y + 49, {
             size: 13, align: 'left', color: visual.color, weight: 900,
           });
-        label(ctx, `${squadDefinition.glyph}  ·  自动追击`,
+        const fusionChoice = squadDefinition.fusionChoices?.find(
+          ({ id }) => id === selectedTower.fusionAbility,
+        );
+        label(ctx, fusionChoice ? fusionChoice.name : `${squadDefinition.glyph} · 长按移动`,
           COMMAND_DOCK.selection.x + COMMAND_DOCK.selection.width - 18,
           COMMAND_DOCK.selection.y + 91, {
             size: 14, align: 'right', color: COLORS.inkSoft, weight: 800,
@@ -7439,6 +7976,38 @@ export class TowerDefenseGame {
       label(ctx, `最高 ${this.state.progress.bestEndlessWave}`, TD_VIEW.width / 2, 778, {
         size: 20, color: COLORS.crystal, weight: 800,
       });
+    }
+
+    const rewards = this.state.resultRewards || {};
+    const rewardCoins = Math.max(0, Math.floor(Number(rewards.metaCoins) || 0));
+    const rewardCrystals = Math.max(0, Math.floor(Number(rewards.summonCurrency) || 0));
+    const rewardEquipment = Array.isArray(rewards.equipmentItems)
+      ? rewards.equipmentItems : Array.isArray(rewards.equipment) ? rewards.equipment : [];
+    const hasRewards = rewardCoins > 0 || rewardCrystals > 0 || rewardEquipment.length > 0;
+    if (hasRewards) {
+      const rewardRect = {
+        x: 100, y: this.state.mode === 'endless' ? 792 : 772, width: 520, height: 72,
+      };
+      panel(ctx, rewardRect, {
+        fill: '#FFF1C5', stroke: '#D49A38', lineWidth: 3, radius: 20,
+      });
+      const rewardParts = [];
+      if (rewardCoins > 0) rewardParts.push(`金币 +${rewardCoins}`);
+      if (rewardCrystals > 0) rewardParts.push(`晶体 +${rewardCrystals}`);
+      if (rewardEquipment.length > 0) rewardParts.push(`装备 +${rewardEquipment.length}`);
+      label(ctx, '获得', rewardRect.x + 22, rewardRect.y + 24, {
+        size: 15, align: 'left', color: '#916124', weight: 950,
+      });
+      label(ctx, rewardParts.join('  ·  '), rewardRect.x + rewardRect.width / 2,
+        rewardRect.y + 54, { size: 18, color: COLORS.ink, weight: 950 });
+      const firstEquipment = rewardEquipment[0];
+      const equipmentDefinition = equipmentDefinitionFor(firstEquipment);
+      if (firstEquipment) {
+        drawAssetOrFallback(ctx, this.assetStore,
+          firstEquipment.iconKey || equipmentDefinition?.iconKey, (asset) => {
+            ctx.drawImage(asset, rewardRect.x + rewardRect.width - 58, rewardRect.y + 10, 48, 48);
+          }, () => {});
+      }
     }
 
     const primaryRect = { x: 106, y: 874, width: 330, height: 92 };

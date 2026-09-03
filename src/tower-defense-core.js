@@ -6,6 +6,26 @@
  * WeChat and tests all execute the same rules.
  */
 
+import {
+  TD_EQUIPMENT_RARITIES,
+  TD_EQUIPMENT_RARITY_IDS,
+  TD_EQUIPMENT_SLOT_IDS,
+  aggregateTowerDefenseEquipmentStats,
+  drawTowerDefenseEquipment,
+  equipTowerDefenseItem,
+  grantTowerDefenseEquipment,
+  normalizeTowerDefenseEquipmentProgress,
+  unequipTowerDefenseItem,
+} from './tower-defense-equipment.js';
+import {
+  applyTowerDefenseDifficulty,
+  dailyChallengeForDay,
+  dailyMetaReward,
+  endlessMetaReward,
+  normalizeTowerDefenseDifficulty,
+  storyMetaReward,
+} from './tower-defense-challenges.js';
+
 const TAU = Math.PI * 2;
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const distance = (left, right) => Math.hypot(left.x - right.x, left.y - right.y);
@@ -315,13 +335,27 @@ export const TOWER_DRAW_WEIGHTS = Object.freeze([
 export const TD_CONTRACT_MAX_RANK = 10;
 export const TD_CONTRACT_SHARDS_PER_RANK = 6;
 export const TD_CONTRACT_START_CURRENCY = 900;
+export const TD_META_START_COINS = 1500;
 export const TD_CONTRACT_SUMMON_COSTS = Object.freeze({ 1: 100, 10: 900 });
+export const TD_EQUIPMENT_SUMMON_COSTS = Object.freeze({ 1: 120, 10: 1080 });
 export const TD_CONTRACT_RARITIES = Object.freeze({
-  R: Object.freeze({ id: 'R', weight: 60, shards: 1 }),
-  SR: Object.freeze({ id: 'SR', weight: 27, shards: 2 }),
-  SSR: Object.freeze({ id: 'SSR', weight: 10, shards: 4 }),
-  UR: Object.freeze({ id: 'UR', weight: 3, shards: 8 }),
+  R: Object.freeze({ id: 'R', weight: 60, shards: 3, essence: 3 }),
+  SR: Object.freeze({ id: 'SR', weight: 27, shards: 5, essence: 7 }),
+  SSR: Object.freeze({ id: 'SSR', weight: 10, shards: 8, essence: 18 }),
+  UR: Object.freeze({ id: 'UR', weight: 3, shards: 12, essence: 45 }),
 });
+
+export const TD_HERO_RARITY_SCALING = Object.freeze({
+  R: Object.freeze({ damage: 1, hp: 1, attackSpeed: 1 }),
+  SR: Object.freeze({ damage: 1.08, hp: 1.06, attackSpeed: 1.03 }),
+  SSR: Object.freeze({ damage: 1.17, hp: 1.12, attackSpeed: 1.06 }),
+  UR: Object.freeze({ damage: 1.28, hp: 1.18, attackSpeed: 1.1 }),
+});
+
+const TD_HERO_RANK_BASE_SHARDS = Object.freeze([6, 8, 10, 12, 15, 18, 22, 26, 32]);
+const TD_HERO_RANK_BASE_COINS = Object.freeze([300, 550, 850, 1200, 1700, 2300, 3000, 3900, 5000]);
+const TD_HERO_RANK_COST_SCALE = Object.freeze({ R: 1, SR: 1.2, SSR: 1.5, UR: 1.9 });
+const TD_HERO_EXCHANGE_COSTS = Object.freeze({ R: 80, SR: 140, SSR: 260, UR: 480 });
 
 const freezeHeroSkill = ({ steps, ...skill }) => Object.freeze({
   ...skill,
@@ -856,21 +890,35 @@ function skillEffectSummary(skill, steps) {
 const HERO_STATS_BY_TYPE_AND_RANK = new Map();
 
 /** One shared rank calculation for simulation, persistence-facing roster data, and UI. */
-export function heroStatsForRank(type, rank = 1) {
+export function heroStatsForRank(type, rank = 1, equipmentStats = null) {
   const definition = HERO_TYPES[type] || HERO_TYPES.shell;
   const resolvedRank = clamp(Math.floor(Number(rank) || 1), 1, TD_CONTRACT_MAX_RANK);
-  const cacheKey = `${definition.id}:${resolvedRank}`;
+  const equipment = Object.freeze({
+    damagePct: Math.max(0, Math.floor(Number(equipmentStats?.damagePct) || 0)),
+    attackSpeedPct: Math.max(0, Math.floor(Number(equipmentStats?.attackSpeedPct) || 0)),
+    healthPct: Math.max(0, Math.floor(Number(equipmentStats?.healthPct) || 0)),
+  });
+  const cacheKey = `${definition.id}:${resolvedRank}:${equipment.damagePct}:${equipment.attackSpeedPct}:${equipment.healthPct}`;
   const cached = HERO_STATS_BY_TYPE_AND_RANK.get(cacheKey);
   if (cached) return cached;
   const growth = definition.rankGrowth || {};
-  const multiplier = (key) => 1 + resolvedRank * Math.max(0, Number(growth[key]) || 0);
+  const rarity = TD_HERO_RARITY_SCALING[definition.rarity] || TD_HERO_RARITY_SCALING.R;
+  const growthMultiplier = (key) => (
+    1 + (resolvedRank - 1) * Math.max(0, Number(growth[key]) || 0)
+  );
+  const equipmentMultiplier = (value) => 1 + value / 10000;
   const multipliers = Object.freeze({
-    maxHp: multiplier('maxHp'),
-    attackDamage: multiplier('attackDamage'),
-    attackSpeed: multiplier('attackSpeed'),
-    skillDamage: multiplier('skillDamage'),
-    skillPoison: multiplier('skillPoison'),
-    skillShield: multiplier('skillShield'),
+    maxHp: growthMultiplier('maxHp') * rarity.hp * equipmentMultiplier(equipment.healthPct),
+    attackDamage: growthMultiplier('attackDamage') * rarity.damage
+      * equipmentMultiplier(equipment.damagePct),
+    attackSpeed: growthMultiplier('attackSpeed') * rarity.attackSpeed
+      * equipmentMultiplier(equipment.attackSpeedPct),
+    skillDamage: growthMultiplier('skillDamage') * rarity.damage
+      * equipmentMultiplier(equipment.damagePct),
+    skillPoison: growthMultiplier('skillPoison') * rarity.damage
+      * equipmentMultiplier(equipment.damagePct),
+    skillShield: growthMultiplier('skillShield') * rarity.hp
+      * equipmentMultiplier(equipment.healthPct),
   });
   const skillSteps = Object.freeze(definition.skill.steps.map((step) => (
     scaledSkillStep(step, multipliers)
@@ -886,66 +934,270 @@ export function heroStatsForRank(type, rank = 1) {
     skillSteps,
     skillEffect: skillEffectSummary(definition.skill, skillSteps),
     growthSummary: growth.summary || '升阶强化基础能力',
+    rarity: definition.rarity,
+    equipmentStats: equipment,
     multipliers,
   });
   HERO_STATS_BY_TYPE_AND_RANK.set(cacheKey, stats);
   return stats;
 }
 
+function heroStatsForProgress(progress, type, rank = null) {
+  const resolvedRank = rank ?? progress?.contractRanks?.[type] ?? 1;
+  return heroStatsForRank(
+    type,
+    resolvedRank,
+    aggregateTowerDefenseEquipmentStats(progress || {}, type),
+  );
+}
+
+const freezeSquadFusionChoices = (choices) => Object.freeze(choices.map((choice) => Object.freeze({
+  ...choice,
+  modifiers: Object.freeze({ ...(choice.modifiers || {}) }),
+})));
+
+export const SQUAD_RARITY_SCALING = Object.freeze({
+  R: Object.freeze({ damage: 1, hp: 1, effect: 1 }),
+  SR: Object.freeze({ damage: 1.28, hp: 1.18, effect: 1.25 }),
+  SSR: Object.freeze({ damage: 1.58, hp: 1.35, effect: 1.5 }),
+  UR: Object.freeze({ damage: 1.9, hp: 1.55, effect: 1.8 }),
+});
+
 export const SQUAD_TYPES = Object.freeze({
   melee: Object.freeze({
-    id: 'melee', ownerId: 'soldier-melee', name: '盾墩小队', rarity: 'R', glyph: '盾', cost: 100,
-    squadSize: 4, memberHp: 72, range: 70, interval: 0.62,
+    id: 'melee', ownerId: 'soldier-melee', name: '盾墩小队', rarity: 'R', glyph: '盾', cost: 50,
+    deployMembers: 2, maxMembers: 4, squadSize: 4,
+    memberHp: 72, range: 70, interval: 0.62,
     damagePerMember: 11, speed: 88, color: '#62D5A0',
     movementMode: 'contact', attackMode: 'melee-contact', effect: 'direct',
+    fusionChoices: freezeSquadFusionChoices([
+      {
+        id: 'shell-wall', name: '坚壳阵', description: '更耐打',
+        modifiers: { hpMultiplier: 1.55, damageTakenMultiplier: 0.8 },
+      },
+      {
+        id: 'gel-crash', name: '震胶击', description: '重击溅射',
+        modifiers: { damageMultiplier: 1.45, intervalMultiplier: 0.9,
+          splashRadius: 58, splashDamageScale: 0.52 },
+      },
+    ]),
   }),
   ranged: Object.freeze({
-    id: 'ranged', ownerId: 'soldier-ranged', name: '豆弩小队', rarity: 'R', glyph: '弩', cost: 150,
-    squadSize: 4, memberHp: 48, range: 265, interval: 0.92,
+    id: 'ranged', ownerId: 'soldier-ranged', name: '豆弩小队', rarity: 'R', glyph: '弩', cost: 75,
+    deployMembers: 2, maxMembers: 4, squadSize: 4,
+    memberHp: 48, range: 265, interval: 0.92,
     damagePerMember: 10, speed: 68, color: '#75CFF4',
     movementMode: 'keep-range', attackMode: 'ranged-volley', effect: 'direct',
     projectile: 'needle', projectileSpeed: 590,
+    fusionChoices: freezeSquadFusionChoices([
+      {
+        id: 'rapid-bow', name: '连弩', description: '大幅提速',
+        modifiers: { intervalMultiplier: 0.68 },
+      },
+      {
+        id: 'heavy-bean', name: '重豆', description: '强力单发',
+        modifiers: { damageMultiplier: 1.65, intervalMultiplier: 1.18 },
+      },
+    ]),
   }),
   charger: Object.freeze({
-    id: 'charger', ownerId: 'soldier-charger', name: '跳槌小队', rarity: 'R', glyph: '槌', cost: 125,
-    squadSize: 4, memberHp: 60, range: 72, interval: 0.52,
+    id: 'charger', ownerId: 'soldier-charger', name: '跳槌小队', rarity: 'R', glyph: '槌', cost: 65,
+    deployMembers: 2, maxMembers: 4, squadSize: 4,
+    memberHp: 60, range: 72, interval: 0.52,
     damagePerMember: 9, speed: 116, color: '#EF7188',
     movementMode: 'contact', attackMode: 'bounce-hammer', effect: 'direct',
+    fusionChoices: freezeSquadFusionChoices([
+      {
+        id: 'spring-rush', name: '连跳', description: '追击更快',
+        modifiers: { speedMultiplier: 1.45, intervalMultiplier: 0.78 },
+      },
+      {
+        id: 'heavy-hammer', name: '重槌', description: '重击溅射',
+        modifiers: { damageMultiplier: 1.7, intervalMultiplier: 1.18,
+          splashRadius: 54, splashDamageScale: 0.55 },
+      },
+    ]),
   }),
   leaf: Object.freeze({
-    id: 'leaf', ownerId: 'soldier-leaf', name: '叶旋小队', rarity: 'SR', glyph: '叶', cost: 165,
-    squadSize: 4, memberHp: 46, range: 240, interval: 1,
+    id: 'leaf', ownerId: 'soldier-leaf', name: '叶旋小队', rarity: 'SR', glyph: '叶', cost: 85,
+    deployMembers: 2, maxMembers: 4, squadSize: 4,
+    memberHp: 46, range: 240, interval: 1,
     damagePerMember: 11, speed: 72, color: '#8EDB70',
     movementMode: 'keep-range', attackMode: 'leaf-spinner', effect: 'poison',
     projectile: 'seed', projectileSpeed: 540, poisonDps: 4.5, poisonTime: 2.85,
+    fusionChoices: freezeSquadFusionChoices([
+      {
+        id: 'deep-poison', name: '毒藤', description: '毒伤更强',
+        modifiers: { poisonDamageMultiplier: 1.9, poisonTimeMultiplier: 1.25 },
+      },
+      {
+        id: 'double-leaf', name: '双叶', description: '每次双发',
+        modifiers: { projectileCount: 2, damageMultiplier: 0.72 },
+      },
+    ]),
   }),
   'drill-lancer': Object.freeze({
     id: 'drill-lancer', ownerId: 'soldier-drill-lancer', name: '钻枪小队',
-    rarity: 'SR', glyph: '钻', cost: 180,
-    squadSize: 4, memberHp: 66, range: 82, interval: 0.72,
+    rarity: 'SR', glyph: '钻', cost: 90,
+    deployMembers: 2, maxMembers: 4, squadSize: 4,
+    memberHp: 66, range: 82, interval: 0.72,
     damagePerMember: 16, speed: 106, color: '#E78B5C',
     movementMode: 'contact', attackMode: 'drill-lance', effect: 'pierce',
+    fusionChoices: freezeSquadFusionChoices([
+      {
+        id: 'breakthrough', name: '贯阵', description: '伤害距离提升',
+        modifiers: { damageMultiplier: 1.55, rangeMultiplier: 1.3 },
+      },
+      {
+        id: 'rapid-drill', name: '快钻', description: '高速连钻',
+        modifiers: { intervalMultiplier: 0.7, speedMultiplier: 1.25 },
+      },
+    ]),
   }),
   'spore-lobber': Object.freeze({
     id: 'spore-lobber', ownerId: 'soldier-spore-lobber', name: '孢投小队',
-    rarity: 'SR', glyph: '孢', cost: 185,
-    squadSize: 4, memberHp: 45, range: 280, interval: 1.08,
+    rarity: 'SR', glyph: '孢', cost: 95,
+    deployMembers: 2, maxMembers: 4, squadSize: 4,
+    memberHp: 45, range: 280, interval: 1.08,
     damagePerMember: 15, speed: 66, color: '#B58BD8',
     movementMode: 'keep-range', attackMode: 'spore-lob', effect: 'splash',
     projectile: 'berry', projectileSpeed: 470,
     splashRadius: 58, splashDamageScale: 0.55, areaAllLanes: true,
+    fusionChoices: freezeSquadFusionChoices([
+      {
+        id: 'wide-cloud', name: '菌云', description: '溅射更广',
+        modifiers: { splashRadiusMultiplier: 1.55, splashDamageScaleMultiplier: 1.2 },
+      },
+      {
+        id: 'double-spore', name: '双孢', description: '每次双发',
+        modifiers: { projectileCount: 2, damageMultiplier: 0.72 },
+      },
+    ]),
   }),
   'volt-orbiter': Object.freeze({
     id: 'volt-orbiter', ownerId: 'soldier-volt-orbiter', name: '电环小队',
-    rarity: 'SSR', glyph: '电', cost: 220,
-    squadSize: 4, memberHp: 44, range: 255, interval: 0.76,
+    rarity: 'SSR', glyph: '电', cost: 110,
+    deployMembers: 2, maxMembers: 4, squadSize: 4,
+    memberHp: 44, range: 255, interval: 0.76,
     damagePerMember: 13, speed: 76, color: '#F1D84F',
     movementMode: 'keep-range', attackMode: 'volt-orbit', effect: 'slow',
     projectile: 'needle', projectileSpeed: 700,
     slowMultiplier: 0.8, slowTime: 0.8, rewind: 2,
     chainTargets: 2, chainRadius: 112, chainPower: 0.64,
+    fusionChoices: freezeSquadFusionChoices([
+      {
+        id: 'chain-storm', name: '链电', description: '连锁更多',
+        modifiers: { chainTargetsBonus: 3, chainRadiusMultiplier: 1.25,
+          chainPowerMultiplier: 1.15 },
+      },
+      {
+        id: 'magnetic-lock', name: '磁滞', description: '强力缓速',
+        modifiers: { slowMultiplierScale: 0.72, slowTimeMultiplier: 1.6, rewindBonus: 6 },
+      },
+    ]),
   }),
 });
+
+const SQUAD_STATS_CACHE = new Map();
+
+/** One shared squad calculation for simulation, fusion, and UI-facing values. */
+export function squadStatsForRank(type, rank = 1, fusionAbility = null) {
+  const definition = SQUAD_TYPES[type];
+  if (!definition) return null;
+  const resolvedRank = clamp(Math.floor(Number(rank) || 1), 1, TD_CONTRACT_MAX_RANK);
+  const ability = definition.fusionChoices.find(({ id }) => id === fusionAbility) || null;
+  const cacheKey = `${type}:${resolvedRank}:${ability?.id || '-'}`;
+  if (SQUAD_STATS_CACHE.has(cacheKey)) return SQUAD_STATS_CACHE.get(cacheKey);
+  const rarity = SQUAD_RARITY_SCALING[definition.rarity] || SQUAD_RARITY_SCALING.R;
+  const modifiers = ability?.modifiers || {};
+  const rankPower = 1 + (resolvedRank - 1) * 0.035;
+  const rankAttackSpeed = 1 + (resolvedRank - 1) * 0.015;
+  const effectPower = rarity.effect * (1 + (resolvedRank - 1) * 0.025);
+  const multiplier = (key, fallback = 1) => Math.max(
+    0.05,
+    Number.isFinite(Number(modifiers[key])) ? Number(modifiers[key]) : fallback,
+  );
+  const baseSlow = clamp(Number(definition.slowMultiplier) || 1, 0.2, 1);
+  const stats = Object.freeze({
+    ...definition,
+    rank: resolvedRank,
+    fusionAbility: ability?.id || null,
+    fusionAbilityName: ability?.name || '',
+    rarityDamageMultiplier: rarity.damage,
+    rarityHpMultiplier: rarity.hp,
+    rankPower: scaleValue(rankPower),
+    memberHp: Math.max(1, Math.round(
+      definition.memberHp * rarity.hp * rankPower * multiplier('hpMultiplier'),
+    )),
+    damagePerMember: scaleValue(
+      definition.damagePerMember * rarity.damage * rankPower * multiplier('damageMultiplier'),
+    ),
+    interval: scaleValue(
+      definition.interval * multiplier('intervalMultiplier') / rankAttackSpeed,
+    ),
+    range: scaleValue(definition.range * multiplier('rangeMultiplier')),
+    speed: scaleValue(definition.speed * multiplier('speedMultiplier')),
+    damageTakenMultiplier: clamp(Number(modifiers.damageTakenMultiplier) || 1, 0.2, 2),
+    projectileCount: clamp(Math.floor(Number(modifiers.projectileCount) || 1), 1, 4),
+    splashRadius: scaleValue(
+      Math.max(0, Number(modifiers.splashRadius) || Number(definition.splashRadius) || 0)
+        * Math.sqrt(effectPower) * multiplier('splashRadiusMultiplier'),
+    ),
+    splashDamageScale: clamp(
+      (Number(modifiers.splashDamageScale) || Number(definition.splashDamageScale) || 0)
+        * multiplier('splashDamageScaleMultiplier'),
+      0,
+      1.5,
+    ),
+    pierceTargets: Math.max(
+      0,
+      Math.floor(Number(definition.pierceTargets) || 0)
+        + Math.floor(Number(modifiers.pierceTargetsBonus) || 0),
+    ),
+    pierceRadius: scaleValue(
+      (Number(definition.pierceRadius) || 0) * multiplier('pierceRadiusMultiplier'),
+    ),
+    pierceDamageScale: clamp(
+      (Number(definition.pierceDamageScale) || 0) * multiplier('pierceDamageScaleMultiplier'),
+      0,
+      1,
+    ),
+    poisonDps: scaleValue(
+      (Number(definition.poisonDps) || 0) * effectPower * multiplier('poisonDamageMultiplier'),
+    ),
+    poisonTime: scaleValue(
+      (Number(definition.poisonTime) || 0) * multiplier('poisonTimeMultiplier'),
+    ),
+    slowMultiplier: clamp(
+      (1 - (1 - baseSlow) * effectPower) * multiplier('slowMultiplierScale'),
+      0.2,
+      1,
+    ),
+    slowTime: scaleValue(
+      (Number(definition.slowTime) || 0) * effectPower * multiplier('slowTimeMultiplier'),
+    ),
+    rewind: scaleValue(
+      (Number(definition.rewind) || 0) * effectPower + (Number(modifiers.rewindBonus) || 0),
+    ),
+    chainTargets: Math.max(
+      0,
+      Math.floor(Number(definition.chainTargets) || 0)
+        + Math.floor(Number(modifiers.chainTargetsBonus) || 0),
+    ),
+    chainRadius: scaleValue(
+      (Number(definition.chainRadius) || 0)
+        * Math.sqrt(effectPower) * multiplier('chainRadiusMultiplier'),
+    ),
+    chainPower: clamp(
+      (Number(definition.chainPower) || 0)
+        * Math.sqrt(effectPower) * multiplier('chainPowerMultiplier'),
+      0,
+      1,
+    ),
+  });
+  SQUAD_STATS_CACHE.set(cacheKey, stats);
+  return stats;
+}
 
 const SQUAD_MEMBER_OFFSETS = Object.freeze([
   Object.freeze({ x: -24, y: -14 }),
@@ -953,6 +1205,29 @@ const SQUAD_MEMBER_OFFSETS = Object.freeze([
   Object.freeze({ x: -26, y: 14 }),
   Object.freeze({ x: 26, y: 14 }),
 ]);
+
+const SQUAD_PAIR_OFFSETS = Object.freeze([
+  Object.freeze({ x: -24, y: 5 }),
+  Object.freeze({ x: 24, y: 5 }),
+]);
+
+function squadCurrentMemberCount(tower, definition) {
+  const maximum = Math.max(1, Math.floor(Number(definition?.maxMembers) || 4));
+  const explicit = Math.floor(Number(tower?.squadSize));
+  if (Number.isFinite(explicit) && explicit > 0) return clamp(explicit, 1, maximum);
+  if (Array.isArray(tower?.members) && tower.members.length > 0) {
+    return clamp(tower.members.length, 1, maximum);
+  }
+  const legacyMaximum = Math.floor(Number(tower?.maxMembers));
+  if (Number.isFinite(legacyMaximum) && legacyMaximum > 0) {
+    return clamp(legacyMaximum, 1, maximum);
+  }
+  return clamp(Math.floor(Number(definition?.deployMembers) || 2), 1, maximum);
+}
+
+function squadMemberOffsets(count) {
+  return count <= 2 ? SQUAD_PAIR_OFFSETS : SQUAD_MEMBER_OFFSETS;
+}
 
 export const TURRET_TYPES = Object.freeze({
   'gel-mortar': Object.freeze({
@@ -1001,6 +1276,59 @@ export const TURRET_TYPES = Object.freeze({
     attackMode: 'thunder-prism-beam',
   }),
 });
+
+export const TURRET_RARITY_SCALING = Object.freeze({
+  R: Object.freeze({ damage: 1, range: 1, effect: 1 }),
+  SR: Object.freeze({ damage: 1.18, range: 1.04, effect: 1.15 }),
+  SSR: Object.freeze({ damage: 1.4, range: 1.08, effect: 1.3 }),
+  UR: Object.freeze({ damage: 1.7, range: 1.12, effect: 1.5 }),
+});
+
+const TURRET_STATS_CACHE = new Map();
+
+/** One shared turret calculation for recruitment rank, battle, and UI. */
+export function turretStatsForRank(type, rank = 1) {
+  const definition = TURRET_TYPES[type];
+  if (!definition) return null;
+  const resolvedRank = clamp(Math.floor(Number(rank) || 1), 1, TD_CONTRACT_MAX_RANK);
+  const cacheKey = `${type}:${resolvedRank}`;
+  if (TURRET_STATS_CACHE.has(cacheKey)) return TURRET_STATS_CACHE.get(cacheKey);
+  const rarity = TURRET_RARITY_SCALING[definition.rarity] || TURRET_RARITY_SCALING.R;
+  const rankPower = 1 + (resolvedRank - 1) * 0.045;
+  const attackSpeed = 1 + (resolvedRank - 1) * 0.018;
+  const effectPower = rarity.effect * (1 + (resolvedRank - 1) * 0.025);
+  const effectRoot = Math.sqrt(effectPower);
+  const baseSlow = clamp(Number(definition.slowMultiplier) || 1, 0.2, 1);
+  const pierceBonus = Number(definition.pierceTargets) > 0
+    ? Math.floor((resolvedRank - 1) / 4) : 0;
+  const chainBonus = Number(definition.chainTargets) > 0
+    ? Math.floor((resolvedRank - 1) / 5) : 0;
+  const stats = Object.freeze({
+    ...definition,
+    rank: resolvedRank,
+    damage: scaleValue(definition.damage * rarity.damage * rankPower),
+    range: scaleValue(definition.range * rarity.range * (1 + (resolvedRank - 1) * 0.006)),
+    interval: scaleValue(definition.interval / attackSpeed),
+    splashRadius: scaleValue((Number(definition.splashRadius) || 0) * effectRoot),
+    splashDamageScale: clamp(
+      (Number(definition.splashDamageScale) || 0) * effectRoot, 0, 1.5,
+    ),
+    pierceTargets: Math.max(0, Math.floor(Number(definition.pierceTargets) || 0) + pierceBonus),
+    pierceRadius: scaleValue((Number(definition.pierceRadius) || 0) * effectRoot),
+    pierceDamageScale: clamp(
+      (Number(definition.pierceDamageScale) || 0) * effectRoot, 0, 1,
+    ),
+    slowMultiplier: clamp(1 - (1 - baseSlow) * effectPower, 0.2, 1),
+    slowTime: scaleValue((Number(definition.slowTime) || 0) * effectRoot),
+    rewind: scaleValue((Number(definition.rewind) || 0) * effectRoot),
+    chainTargets: Math.max(0, Math.floor(Number(definition.chainTargets) || 0) + chainBonus),
+    chainRadius: scaleValue((Number(definition.chainRadius) || 0) * effectRoot),
+    chainPower: clamp((Number(definition.chainPower) || 0) * effectRoot, 0, 1),
+    knockback: scaleValue((Number(definition.knockback) || 0) * effectRoot),
+  });
+  TURRET_STATS_CACHE.set(cacheKey, stats);
+  return stats;
+}
 
 export const TD_ENEMIES = Object.freeze({
   bug: Object.freeze({
@@ -1060,6 +1388,11 @@ export const TD_RECRUITMENT_POOL = Object.freeze([
     id: `turret:${type}`, kind: 'turret', type, rarity: TURRET_TYPES[type].rarity,
   })),
 ]);
+
+export const TD_RECRUITMENT_POOLS = Object.freeze({
+  hero: Object.freeze(TD_RECRUITMENT_POOL.filter(({ kind }) => kind === 'hero')),
+  army: Object.freeze(TD_RECRUITMENT_POOL.filter(({ kind }) => kind !== 'hero')),
+});
 
 const freezePoints = (points) => Object.freeze(points.map((point) => Object.freeze(point)));
 const TD_LANE_X = Object.freeze([88, 224, 360, 496, 632]);
@@ -1408,43 +1741,67 @@ function contractRankRecord(source) {
 }
 
 const copyProgress = (source = {}) => {
-  const summonCurrency = Number.isFinite(Number(source.summonCurrency))
-    ? Math.max(0, Math.floor(Number(source.summonCurrency)))
+  const input = source && typeof source === 'object' && !Array.isArray(source) ? source : {};
+  const equipmentProgress = normalizeTowerDefenseEquipmentProgress(input);
+  const summonCurrency = Number.isFinite(Number(input.summonCurrency))
+    ? Math.max(0, Math.floor(Number(input.summonCurrency)))
     : TD_CONTRACT_START_CURRENCY;
-  const contractRanks = contractRankRecord(source.contractRanks);
-  const squadRanks = typedRankRecord(TD_SQUAD_TYPES, source.squadRanks, ['melee', 'ranged']);
-  const turretRanks = typedRankRecord(TD_TURRET_TYPES, source.turretRanks, ['gel-mortar']);
-  const requestedHero = TD_CONTRACT_TYPES.includes(source.selectedHero)
-    ? source.selectedHero
+  const contractRanks = contractRankRecord(input.contractRanks);
+  const squadRanks = typedRankRecord(TD_SQUAD_TYPES, input.squadRanks, ['melee', 'ranged']);
+  const turretRanks = typedRankRecord(TD_TURRET_TYPES, input.turretRanks, ['gel-mortar']);
+  const requestedHero = TD_CONTRACT_TYPES.includes(input.selectedHero)
+    ? input.selectedHero
     : 'shell';
   const selectedHero = contractRanks[requestedHero] > 0
     ? requestedHero
     : TD_CONTRACT_TYPES.find((type) => contractRanks[type] > 0) || 'shell';
   if (contractRanks[selectedHero] <= 0) contractRanks.shell = 1;
-  const requestedTutorialVersion = Math.floor(Number(source.tutorialVersion));
+  const requestedTutorialVersion = Math.floor(Number(input.tutorialVersion));
   const tutorialVersion = Number.isFinite(requestedTutorialVersion)
     ? Math.max(0, requestedTutorialVersion)
     : 0;
+  const clearedStages = [...new Set(Array.isArray(input.clearedStages) ? input.clearedStages : [])]
+    .filter((id) => TD_STAGE_BY_ID[id]);
+  const hardClearedStages = [...new Set(
+    Array.isArray(input.hardClearedStages) ? input.hardClearedStages : [],
+  )].filter((id) => TD_STAGE_BY_ID[id]);
+  const dailyClaims = [...new Set(Array.isArray(input.dailyClaims) ? input.dailyClaims : [])]
+    .filter((key) => /^\d{4}-\d{2}-\d{2}$/.test(String(key)))
+    .slice(-31);
+  const hasSavedCoins = Object.prototype.hasOwnProperty.call(input, 'metaCoins');
   return {
-    unlockedStage: clamp(Math.floor(Number(source.unlockedStage) || 1), 1, TD_STAGES.length),
-    clearedStages: [...new Set(Array.isArray(source.clearedStages) ? source.clearedStages : [])]
-      .filter((id) => TD_STAGE_BY_ID[id]),
-    bestEndlessWave: Math.max(0, Math.floor(Number(source.bestEndlessWave) || 0)),
-    tutorialSeen: tutorialVersion >= TD_TUTORIAL_VERSION || Boolean(source.tutorialSeen),
+    unlockedStage: clamp(Math.floor(Number(input.unlockedStage) || 1), 1, TD_STAGES.length),
+    clearedStages,
+    hardClearedStages,
+    dailyClaims,
+    bestEndlessWave: Math.max(0, Math.floor(Number(input.bestEndlessWave) || 0)),
+    tutorialSeen: tutorialVersion >= TD_TUTORIAL_VERSION || Boolean(input.tutorialSeen),
     tutorialVersion,
     summonCurrency,
-    summonPity: clamp(Math.floor(Number(source.summonPity) || 0), 0, 9),
-    summonRngState: (Number(source.summonRngState) >>> 0) || 0xC0A7A5,
-    contractShards: contractProgressRecord(source.contractShards, TD_CONTRACT_SHARDS_PER_RANK - 1),
+    metaCoins: hasSavedCoins
+      ? Math.max(0, Math.floor(Number(input.metaCoins) || 0))
+      : TD_META_START_COINS,
+    contractEssence: Math.max(0, Math.floor(Number(input.contractEssence) || 0)),
+    summonPity: clamp(Math.floor(Number(input.summonPity) || 0), 0, 9),
+    summonRngState: (Number(input.summonRngState) >>> 0) || 0xC0A7A5,
+    armySummonPity: clamp(Math.floor(Number(input.armySummonPity) || 0), 0, 9),
+    armySummonRngState: (Number(input.armySummonRngState) >>> 0) || 0xA341B9,
+    rewardRngState: (Number(input.rewardRngState) >>> 0) || 0xD41A7E,
+    contractShards: contractProgressRecord(input.contractShards, Number.MAX_SAFE_INTEGER),
     contractRanks,
     squadShards: typedProgressRecord(
-      TD_SQUAD_TYPES, source.squadShards, TD_CONTRACT_SHARDS_PER_RANK - 1,
+      TD_SQUAD_TYPES, input.squadShards, Number.MAX_SAFE_INTEGER,
     ),
     squadRanks,
     turretShards: typedProgressRecord(
-      TD_TURRET_TYPES, source.turretShards, TD_CONTRACT_SHARDS_PER_RANK - 1,
+      TD_TURRET_TYPES, input.turretShards, Number.MAX_SAFE_INTEGER,
     ),
     turretRanks,
+    equipmentEssence: equipmentProgress.equipmentEssence,
+    equipmentBanner: equipmentProgress.equipmentBanner,
+    equipmentSerial: equipmentProgress.equipmentSerial,
+    equipmentItems: equipmentProgress.equipmentItems,
+    equipmentLoadouts: equipmentProgress.equipmentLoadouts,
     selectedHero,
   };
 };
@@ -1454,12 +1811,16 @@ export function normalizeTowerDefenseProgress(source = {}) {
   return Object.freeze({
     ...progress,
     clearedStages: Object.freeze(progress.clearedStages),
+    hardClearedStages: Object.freeze(progress.hardClearedStages),
+    dailyClaims: Object.freeze(progress.dailyClaims),
     contractShards: Object.freeze(progress.contractShards),
     contractRanks: Object.freeze(progress.contractRanks),
     squadShards: Object.freeze(progress.squadShards),
     squadRanks: Object.freeze(progress.squadRanks),
     turretShards: Object.freeze(progress.turretShards),
     turretRanks: Object.freeze(progress.turretRanks),
+    equipmentItems: Object.freeze(progress.equipmentItems),
+    equipmentLoadouts: Object.freeze(progress.equipmentLoadouts),
   });
 }
 
@@ -1470,11 +1831,41 @@ function seededStep(state) {
   return value / 0x100000000;
 }
 
-function summonSeededStep(progress) {
-  let value = Number(progress.summonRngState) >>> 0;
-  value = (Math.imul(value || 0xC0A7A5, 1664525) + 1013904223) >>> 0;
-  progress.summonRngState = value;
+function summonSeededStep(progress, poolId = 'hero') {
+  const key = poolId === 'army' ? 'armySummonRngState' : 'summonRngState';
+  const fallback = poolId === 'army' ? 0xA341B9 : 0xC0A7A5;
+  let value = Number(progress[key]) >>> 0;
+  value = (Math.imul(value || fallback, 1664525) + 1013904223) >>> 0;
+  progress[key] = value;
   return value / 0x100000000;
+}
+
+function rewardSeededStep(progress) {
+  let value = Number(progress.rewardRngState) >>> 0;
+  value = (Math.imul(value || 0xD41A7E, 1664525) + 1013904223) >>> 0;
+  progress.rewardRngState = value;
+  return value / 0x100000000;
+}
+
+function rewardEquipmentDefinitionId(progress) {
+  const totalWeight = TD_EQUIPMENT_RARITY_IDS.reduce(
+    (total, rarityId) => total + TD_EQUIPMENT_RARITIES[rarityId].weight,
+    0,
+  );
+  let rarityCursor = rewardSeededStep(progress) * totalWeight;
+  let rarityId = TD_EQUIPMENT_RARITY_IDS.at(-1);
+  for (const candidate of TD_EQUIPMENT_RARITY_IDS) {
+    rarityCursor -= TD_EQUIPMENT_RARITIES[candidate].weight;
+    if (rarityCursor < 0) {
+      rarityId = candidate;
+      break;
+    }
+  }
+  const slotIndex = Math.min(
+    TD_EQUIPMENT_SLOT_IDS.length - 1,
+    Math.floor(rewardSeededStep(progress) * TD_EQUIPMENT_SLOT_IDS.length),
+  );
+  return `${TD_EQUIPMENT_SLOT_IDS[slotIndex]}-${rarityId.toLowerCase()}`;
 }
 
 function contractRankForState(state, type) {
@@ -1492,9 +1883,16 @@ function nextUid(state, prefix) {
 
 const TOWER_HP_STAR_MULTIPLIER = Object.freeze([0, 1, 1.65, 2.6, 4]);
 
-function maxHpForTower(type, star = 1, state = null) {
+function maxHpForTower(type, star = 1, state = null, tower = null) {
   const squad = SQUAD_TYPES[type];
-  if (squad) return squad.memberHp * squad.squadSize;
+  if (squad) {
+    const rank = Math.max(
+      1,
+      Math.floor(Number(tower?.rank ?? state?.progress?.squadRanks?.[type]) || 1),
+    );
+    const stats = squadStatsForRank(type, rank, tower?.fusionAbility);
+    return stats.memberHp * squadCurrentMemberCount(tower, squad);
+  }
   const definition = TOWER_TYPES[type] || TOWER_TYPES.shell;
   const level = clamp(Math.floor(Number(star) || 1), 1, TD_MAX_STAR);
   return Math.round(definition.maxHp * TOWER_HP_STAR_MULTIPLIER[level]);
@@ -1502,12 +1900,39 @@ function maxHpForTower(type, star = 1, state = null) {
 
 function ensureTowerHealth(tower, state = null) {
   if (!tower) return null;
-  const expectedMaxHp = maxHpForTower(tower.type, tower.star, state);
-  if (!(Number(tower.maxHp) > 0)) tower.maxHp = expectedMaxHp;
+  const squadType = tower.squadType || tower.type;
+  const squad = SQUAD_TYPES[squadType];
+  const expectedMaxHp = maxHpForTower(squad ? squadType : tower.type, tower.star, state, tower);
+  const previousMaxHp = Number(tower.maxHp);
+  const previousHp = Number(tower.hp);
+  if (squad) {
+    tower.maxHp = expectedMaxHp;
+    if (Number.isFinite(previousHp) && previousMaxHp > 0 && previousMaxHp !== expectedMaxHp) {
+      tower.hp = previousHp / previousMaxHp * expectedMaxHp;
+    }
+  } else if (!(previousMaxHp > 0)) tower.maxHp = expectedMaxHp;
   if (!Number.isFinite(Number(tower.hp))) tower.hp = tower.maxHp;
   tower.hp = clamp(Number(tower.hp) || 0, 0, tower.maxHp);
   tower.hitPulse = clamp(Number(tower.hitPulse) || 0, 0, 1);
   return tower;
+}
+
+export function heroRankUpCost(type, currentRank = 1) {
+  const definition = HERO_TYPES[type];
+  const rank = Math.floor(Number(currentRank) || 0);
+  if (!definition || rank < 1 || rank >= TD_CONTRACT_MAX_RANK) return null;
+  const rarityScale = TD_HERO_RANK_COST_SCALE[definition.rarity] || 1;
+  return Object.freeze({
+    fromRank: rank,
+    toRank: rank + 1,
+    shards: Math.max(1, Math.round(TD_HERO_RANK_BASE_SHARDS[rank - 1] * rarityScale)),
+    metaCoins: Math.max(1, Math.round(TD_HERO_RANK_BASE_COINS[rank - 1] * rarityScale)),
+  });
+}
+
+export function heroExchangeCost(type) {
+  const definition = HERO_TYPES[type];
+  return definition ? TD_HERO_EXCHANGE_COSTS[definition.rarity] || TD_HERO_EXCHANGE_COSTS.R : null;
 }
 
 function heroRosterForProgress(progress) {
@@ -1515,7 +1940,7 @@ function heroRosterForProgress(progress) {
     const definition = HERO_TYPES[type];
     const skill = definition.skill;
     const rank = progress.contractRanks[type];
-    const stats = heroStatsForRank(type, Math.max(1, rank));
+    const stats = heroStatsForProgress(progress, type, Math.max(1, rank));
     return {
       type,
       name: definition.name,
@@ -1532,6 +1957,10 @@ function heroRosterForProgress(progress) {
       damage: stats.damage,
       interval: stats.interval,
       attackSpeed: stats.attackSpeed,
+      equipmentStats: stats.equipmentStats,
+      equipmentLoadout: progress.equipmentLoadouts?.[type] || null,
+      rankUpCost: heroRankUpCost(type, rank),
+      exchangeCost: heroExchangeCost(type),
       rank,
       shards: progress.contractShards[type],
       owned: progress.contractRanks[type] > 0,
@@ -1546,6 +1975,8 @@ function emptyRunState(progress, seed) {
     screen: 'menu',
     mode: 'stage',
     stageId: 'stage-1',
+    difficulty: 'simple',
+    dailyChallenge: null,
     progress: copiedProgress,
     phase: 'prep',
     tutorial: {
@@ -1567,6 +1998,7 @@ function emptyRunState(progress, seed) {
     spawnQueue: [],
     hand: [],
     towers: [],
+    pendingSquadFusion: null,
     turrets: [],
     turretSlots: TD_TURRET_SLOTS['stage-1'],
     hero: null,
@@ -1583,6 +2015,7 @@ function emptyRunState(progress, seed) {
     coreMaxHp: 32,
     kills: 0,
     result: null,
+    resultRewards: null,
     selectedTowerUid: null,
     summonResults: [],
     events: [],
@@ -1602,14 +2035,20 @@ export function drawCostForState(state) {
   return Math.min(40, 20 + Math.floor(Math.max(0, state.drawCount) / 4) * 4);
 }
 
-function rollRecruitmentEntry(progress) {
-  const guaranteedHighRarity = progress.summonPity >= 9;
+function summonPityKey(poolId) {
+  return poolId === 'army' ? 'armySummonPity' : 'summonPity';
+}
+
+function rollRecruitmentEntry(progress, poolId = 'hero') {
+  const pool = TD_RECRUITMENT_POOLS[poolId] || TD_RECRUITMENT_POOLS.hero;
+  const pityKey = summonPityKey(poolId);
+  const guaranteedHighRarity = progress[pityKey] >= 9;
   const availableRarities = Object.values(TD_CONTRACT_RARITIES).filter(({ id }) => (
     (!guaranteedHighRarity || ['SSR', 'UR'].includes(id))
-    && TD_RECRUITMENT_POOL.some((entry) => entry.rarity === id)
+    && pool.some((entry) => entry.rarity === id)
   ));
   const totalWeight = availableRarities.reduce((total, rarity) => total + rarity.weight, 0);
-  let roll = summonSeededStep(progress) * totalWeight;
+  let roll = summonSeededStep(progress, poolId) * totalWeight;
   let selectedRarity = availableRarities.at(-1)?.id || 'R';
   for (const candidate of availableRarities) {
     roll -= candidate.weight;
@@ -1618,15 +2057,15 @@ function rollRecruitmentEntry(progress) {
       break;
     }
   }
-  const rarityPool = TD_RECRUITMENT_POOL.filter(({ rarity }) => rarity === selectedRarity);
+  const rarityPool = pool.filter(({ rarity }) => rarity === selectedRarity);
   const entryIndex = Math.min(
     rarityPool.length - 1,
-    Math.floor(summonSeededStep(progress) * rarityPool.length),
+    Math.floor(summonSeededStep(progress, poolId) * rarityPool.length),
   );
-  const entry = rarityPool[Math.max(0, entryIndex)] || TD_RECRUITMENT_POOL[0];
-  progress.summonPity = ['SSR', 'UR'].includes(selectedRarity)
+  const entry = rarityPool[Math.max(0, entryIndex)] || pool[0];
+  progress[pityKey] = ['SSR', 'UR'].includes(selectedRarity)
     ? 0
-    : Math.min(9, progress.summonPity + 1);
+    : Math.min(9, progress[pityKey] + 1);
   return entry;
 }
 
@@ -1644,9 +2083,10 @@ function recruitmentProgressRecords(progress, kind) {
  * Menu-only meta summon. The whole purchase is validated before any RNG or
  * currency mutation, making failed calls atomic and easy to persist safely.
  */
-export function summonTowerDefenseContracts(state, count = 1) {
+export function summonTowerDefenseContracts(state, count = 1, poolId = 'hero') {
   const summonCount = Number(count) === 10 ? 10 : Number(count) === 1 ? 1 : 0;
-  if (state?.screen !== 'menu' || !summonCount) return null;
+  const requestedPool = poolId === 'army' ? 'army' : poolId === 'hero' ? 'hero' : null;
+  if (state?.screen !== 'menu' || !summonCount || !requestedPool) return null;
   const cost = TD_CONTRACT_SUMMON_COSTS[summonCount];
   const progress = copyProgress(state.progress || {});
   if (progress.summonCurrency < cost) return null;
@@ -1654,28 +2094,32 @@ export function summonTowerDefenseContracts(state, count = 1) {
   progress.summonCurrency -= cost;
   const results = [];
   for (let index = 0; index < summonCount; index += 1) {
-    const entry = rollRecruitmentEntry(progress);
+    const entry = rollRecruitmentEntry(progress, requestedPool);
     const { id: collectibleId, kind, type, rarity } = entry;
     const records = recruitmentProgressRecords(progress, kind);
     const drawShards = TD_CONTRACT_RARITIES[rarity].shards;
+    const essence = TD_CONTRACT_RARITIES[rarity].essence;
     const rank = records.ranks[type];
     const unlocked = rank <= 0;
     const shards = unlocked ? 0 : drawShards;
     let storedShards = records.shards[type] + shards;
     let newRank = rank;
     if (unlocked) newRank = 1;
-    while (storedShards >= TD_CONTRACT_SHARDS_PER_RANK && newRank < TD_CONTRACT_MAX_RANK) {
-      storedShards -= TD_CONTRACT_SHARDS_PER_RANK;
-      newRank += 1;
+    if (kind !== 'hero') {
+      while (storedShards >= TD_CONTRACT_SHARDS_PER_RANK && newRank < TD_CONTRACT_MAX_RANK) {
+        storedShards -= TD_CONTRACT_SHARDS_PER_RANK;
+        newRank += 1;
+      }
     }
-    let convertedCurrency = 0;
+    let convertedCoins = 0;
     if (newRank >= TD_CONTRACT_MAX_RANK && storedShards > 0) {
-      convertedCurrency = storedShards * 12;
-      progress.summonCurrency += convertedCurrency;
+      convertedCoins = storedShards * (20 + (TD_CONTRACT_RARITIES[rarity].essence * 4));
+      progress.metaCoins += convertedCoins;
       storedShards = 0;
     }
     records.ranks[type] = newRank;
     records.shards[type] = storedShards;
+    progress.contractEssence += essence;
     results.push({
       collectibleId,
       kind,
@@ -1688,15 +2132,18 @@ export function summonTowerDefenseContracts(state, count = 1) {
       unlocked,
       rankUp: newRank > rank,
       rankUps: newRank - rank,
-      convertedCurrency,
+      convertedCoins,
+      convertedCurrency: 0,
+      essence,
     });
   }
-  state.progress = progress;
+  state.progress = copyProgress(progress);
   state.selectedHeroId = progress.selectedHero;
-  state.heroes = heroRosterForProgress(progress);
+  state.heroes = heroRosterForProgress(state.progress);
   state.summonResults = results;
   state.events.push({
     type: 'contract-summon',
+    pool: requestedPool,
     count: summonCount,
     cost,
     results: results.map(({ collectibleId, kind, type, rarity, shards, newRank }) => ({
@@ -1704,6 +2151,106 @@ export function summonTowerDefenseContracts(state, count = 1) {
     })),
   });
   return results;
+}
+
+function refreshTowerDefenseMetaState(state, progress, event = null) {
+  state.progress = copyProgress(progress);
+  state.selectedHeroId = state.progress.selectedHero;
+  state.heroes = heroRosterForProgress(state.progress);
+  if (event) state.events.push(event);
+  return state.progress;
+}
+
+export function upgradeTowerDefenseHero(state, type) {
+  if (state?.screen !== 'menu' || !HERO_TYPES[type]) return null;
+  const progress = copyProgress(state.progress || {});
+  const rank = progress.contractRanks[type];
+  const cost = heroRankUpCost(type, rank);
+  if (!cost || progress.contractShards[type] < cost.shards || progress.metaCoins < cost.metaCoins) {
+    return null;
+  }
+  progress.contractShards[type] -= cost.shards;
+  progress.metaCoins -= cost.metaCoins;
+  progress.contractRanks[type] = cost.toRank;
+  let convertedCoins = 0;
+  if (cost.toRank >= TD_CONTRACT_MAX_RANK && progress.contractShards[type] > 0) {
+    const rarity = HERO_TYPES[type].rarity;
+    const shardCoinValue = 20 + (TD_CONTRACT_RARITIES[rarity].essence * 4);
+    convertedCoins = progress.contractShards[type] * shardCoinValue;
+    progress.contractShards[type] = 0;
+    progress.metaCoins += convertedCoins;
+  }
+  refreshTowerDefenseMetaState(state, progress, {
+    type: 'hero-rank-up', heroType: type, rank: cost.toRank,
+    shards: cost.shards, metaCoins: cost.metaCoins, convertedCoins,
+  });
+  return Object.freeze({ heroType: type, rank: cost.toRank, cost, convertedCoins });
+}
+
+export function exchangeTowerDefenseHero(state, type) {
+  if (state?.screen !== 'menu' || !HERO_TYPES[type]) return null;
+  const progress = copyProgress(state.progress || {});
+  if (progress.contractRanks[type] > 0) return null;
+  const cost = heroExchangeCost(type);
+  if (!cost || progress.contractEssence < cost) return null;
+  progress.contractEssence -= cost;
+  progress.contractRanks[type] = 1;
+  refreshTowerDefenseMetaState(state, progress, {
+    type: 'hero-exchange', heroType: type, contractEssence: cost,
+  });
+  return Object.freeze({ heroType: type, rank: 1, cost });
+}
+
+export function summonTowerDefenseEquipment(state, count = 1) {
+  const summonCount = Number(count) === 10 ? 10 : Number(count) === 1 ? 1 : 0;
+  if (state?.screen !== 'menu' || !summonCount) return null;
+  const cost = TD_EQUIPMENT_SUMMON_COSTS[summonCount];
+  const progress = copyProgress(state.progress || {});
+  if (progress.summonCurrency < cost) return null;
+  progress.summonCurrency -= cost;
+  const drawn = drawTowerDefenseEquipment(progress, summonCount);
+  if (!drawn) return null;
+  refreshTowerDefenseMetaState(state, drawn.progress);
+  const results = drawn.items.map((item) => Object.freeze({
+    kind: 'equipment',
+    uid: item.uid,
+    definitionId: item.definitionId,
+    type: item.definitionId,
+    slot: item.slot,
+    rarity: item.rarity,
+    name: item.name,
+    iconKey: item.iconKey,
+    stats: item.stats,
+    unlocked: true,
+    shards: 0,
+  }));
+  state.summonResults = results;
+  state.events.push({
+    type: 'equipment-summon', count: summonCount, cost,
+    results: results.map(({ uid, definitionId, rarity }) => ({ uid, definitionId, rarity })),
+  });
+  return results;
+}
+
+export function equipTowerDefenseHeroItem(state, heroId, itemUid) {
+  if (state?.screen !== 'menu' || state.progress?.contractRanks?.[heroId] <= 0) return null;
+  const equipped = equipTowerDefenseItem(state.progress, heroId, itemUid);
+  if (!equipped) return null;
+  refreshTowerDefenseMetaState(state, equipped.progress, {
+    type: 'equipment-equip', heroType: heroId, itemUid, slot: equipped.slot,
+  });
+  return equipped;
+}
+
+export function unequipTowerDefenseHeroItem(state, heroId, slotId) {
+  if (state?.screen !== 'menu' || state.progress?.contractRanks?.[heroId] <= 0) return null;
+  const unequipped = unequipTowerDefenseItem(state.progress, heroId, slotId);
+  if (!unequipped) return null;
+  refreshTowerDefenseMetaState(state, unequipped.progress, {
+    type: 'equipment-unequip', heroType: heroId,
+    itemUid: unequipped.itemUid, slot: slotId,
+  });
+  return unequipped;
 }
 
 export function selectTowerDefenseHero(state, type) {
@@ -1718,7 +2265,7 @@ export function selectTowerDefenseHero(state, type) {
   return true;
 }
 
-function resetRun(state, { mode, stageId }) {
+function resetRun(state, { mode, stageId, difficulty = 'simple', dailyChallenge = null }) {
   const preservedProgress = copyProgress(state.progress);
   const preservedTutorial = { ...state.tutorial };
   const preservedRng = state.rngState;
@@ -1727,6 +2274,8 @@ function resetRun(state, { mode, stageId }) {
     screen: 'battle',
     mode,
     stageId,
+    difficulty: normalizeTowerDefenseDifficulty(difficulty),
+    dailyChallenge: mode === 'daily' ? dailyChallenge : null,
     tutorial: preservedTutorial.active
       ? {
         active: true, step: 'squad', forcedDraws: 0, enemySeen: false,
@@ -1742,14 +2291,37 @@ function resetRun(state, { mode, stageId }) {
   return state;
 }
 
-export function beginTowerDefenseRun(state, { mode = 'stage', stageId = 'stage-1' } = {}) {
-  const requestedMode = mode === 'endless' ? 'endless' : 'stage';
+export function beginTowerDefenseRun(
+  state,
+  { mode = 'stage', stageId = 'stage-1', difficulty = 'simple', dailyChallenge = null } = {},
+) {
+  const requestedMode = mode === 'endless' ? 'endless' : mode === 'daily' ? 'daily' : 'stage';
   const stage = TD_STAGE_BY_ID[stageId] || TD_STAGES[0];
   if (state.tutorial.active && (requestedMode !== 'stage' || stage.id !== 'stage-1')) return false;
   if (requestedMode === 'stage' && stage.index > state.progress.unlockedStage) return false;
-  resetRun(state, { mode: requestedMode, stageId: stage.id });
-  state.events.push({ type: 'run-start' });
+  const resolvedDifficulty = state.tutorial.active
+    ? 'simple'
+    : requestedMode === 'daily' ? 'hard' : normalizeTowerDefenseDifficulty(difficulty);
+  resetRun(state, {
+    mode: requestedMode,
+    stageId: stage.id,
+    difficulty: resolvedDifficulty,
+    dailyChallenge,
+  });
+  state.events.push({ type: 'run-start', mode: requestedMode, difficulty: resolvedDifficulty });
   return true;
+}
+
+export function beginTowerDefenseDailyRun(state, dayKey) {
+  if (state?.screen !== 'menu' || state.tutorial?.active) return false;
+  const challenge = dailyChallengeForDay(
+    dayKey,
+    clamp(Math.floor(Number(state.progress?.unlockedStage) || 1), 1, TD_STAGES.length),
+  );
+  const stage = TD_STAGES[challenge.stageIndex - 1] || TD_STAGES[0];
+  return beginTowerDefenseRun(state, {
+    mode: 'daily', stageId: stage.id, difficulty: 'hard', dailyChallenge: challenge,
+  });
 }
 
 function createHeroForState(state) {
@@ -1758,7 +2330,7 @@ function createHeroForState(state) {
     : 'shell';
   const definition = HERO_TYPES[selected] || HERO_TYPES.shell;
   const rank = contractRankForState(state, selected);
-  const stats = heroStatsForRank(selected, rank);
+  const stats = heroStatsForProgress(state.progress, selected, rank);
   const maxHp = stats.maxHp;
   const x = stageForState(state).lanes[Math.floor(TD_LANE_COUNT / 2)].x;
   const y = 820;
@@ -1793,9 +2365,10 @@ function createHeroForState(state) {
   };
 }
 
-/** Directly purchases and deploys one four-member squad during preparation. */
+/** Directly purchases and deploys one two-member squad during preparation. */
 export function buyTowerDefenseSquad(state, squadType, padIndex) {
   if (state?.screen !== 'battle' || state.result || state.phase !== 'prep') return null;
+  if (state.pendingSquadFusion) return null;
   if (state.tutorial.active && state.tutorial.step !== 'squad') return null;
   const definition = SQUAD_TYPES[squadType];
   const stage = stageForState(state);
@@ -1813,7 +2386,9 @@ export function buyTowerDefenseSquad(state, squadType, padIndex) {
   if (squadRank <= 0) return null;
   if (state.currency < definition.cost) return null;
 
-  const maxHp = definition.memberHp * definition.squadSize;
+  const squadSize = definition.deployMembers;
+  const stats = squadStatsForRank(squadType, squadRank);
+  const maxHp = stats.memberHp * squadSize;
   const squad = {
     uid: nextUid(state, 'squad'),
     kind: 'soldier',
@@ -1821,10 +2396,12 @@ export function buyTowerDefenseSquad(state, squadType, padIndex) {
     squadType,
     rank: squadRank,
     star: 1,
-    squadSize: definition.squadSize,
-    maxMembers: definition.squadSize,
-    aliveMembers: definition.squadSize,
-    memberHp: definition.memberHp,
+    fusionTier: 0,
+    fusionAbility: null,
+    squadSize,
+    maxMembers: definition.maxMembers,
+    aliveMembers: squadSize,
+    memberHp: stats.memberHp,
     padIndex: index,
     hp: maxHp,
     maxHp,
@@ -1839,12 +2416,12 @@ export function buyTowerDefenseSquad(state, squadType, padIndex) {
     deployX: pad.x,
     deployY: pad.y,
     laneIndex: pad.laneIndex,
-    moveSpeed: definition.speed,
+    moveSpeed: stats.speed,
     moving: false,
     downed: false,
     members: [],
   };
-  syncSquadMembers(squad, definition, { reset: true });
+  syncSquadMembers(squad, definition, { reset: true, stats });
   state.currency -= definition.cost;
   state.towers.push(squad);
   state.effects.push({
@@ -1853,7 +2430,7 @@ export function buyTowerDefenseSquad(state, squadType, padIndex) {
   });
   state.events.push({
     type: 'squad-buy', squadUid: squad.uid, squadType,
-    padIndex: index, cost: definition.cost, squadSize: definition.squadSize,
+    padIndex: index, cost: definition.cost, squadSize, maxMembers: definition.maxMembers,
   });
   state.events.push({
     type: 'place', towerUid: squad.uid, towerType: squadType, padIndex: index,
@@ -1881,12 +2458,153 @@ export function placeTowerFromHand() {
   return null;
 }
 
-export function canMergeTowers() {
-  return false;
+function squadDefinitionForTower(tower) {
+  if (!tower || tower.kind !== 'soldier') return null;
+  return SQUAD_TYPES[tower.squadType || tower.type] || null;
 }
 
-export function mergeTowers() {
-  return null;
+export function canMergeTowers(source, target) {
+  if (!source || !target || source === target || source.uid === target.uid) return false;
+  const sourceDefinition = squadDefinitionForTower(source);
+  const targetDefinition = squadDefinitionForTower(target);
+  if (!sourceDefinition || sourceDefinition !== targetDefinition) return false;
+  if (source.fusionAbility || target.fusionAbility) return false;
+  const sourceCount = squadCurrentMemberCount(source, sourceDefinition);
+  const targetCount = squadCurrentMemberCount(target, targetDefinition);
+  return sourceCount === targetCount && (sourceCount === 2 || sourceCount === 4);
+}
+
+function reseatSquadMembers(tower, members, stats) {
+  const count = squadCurrentMemberCount(tower, SQUAD_TYPES[tower.squadType || tower.type]);
+  const offsets = squadMemberOffsets(count);
+  const baseX = Number(tower.deployX) || Number(tower.x) || 0;
+  const baseY = Number(tower.deployY) || Number(tower.y) || 0;
+  tower.members = members.slice(0, count).map((source, memberIndex) => {
+    const offset = offsets[memberIndex];
+    const previousMaxHp = Math.max(1, Number(source.maxHp) || Number(source.hp) || stats.memberHp);
+    const hpRatio = clamp((Number(source.hp) || 0) / previousMaxHp, 0, 1);
+    return {
+      ...source,
+      memberIndex,
+      x: baseX + offset.x,
+      y: baseY + offset.y,
+      deployX: baseX + offset.x,
+      deployY: baseY + offset.y,
+      hp: stats.memberHp * hpRatio,
+      maxHp: stats.memberHp,
+      alive: hpRatio > 0,
+      downed: hpRatio <= 0,
+      targetId: null,
+      moving: false,
+      aimAngle: 0,
+      attackPulse: 0,
+      hitPulse: 0,
+    };
+  });
+  tower.memberHp = stats.memberHp;
+  tower.moveSpeed = stats.speed;
+  tower.maxHp = stats.memberHp * count;
+  tower.hp = tower.members.reduce((total, member) => total + member.hp, 0);
+  tower.aliveMembers = tower.members.filter(({ alive, hp }) => alive && hp > 0).length;
+  tower.downed = tower.aliveMembers === 0;
+  tower.targetUid = null;
+  tower.moving = false;
+  return tower;
+}
+
+function emitSquadFusion(state, source, target, abilityId = null) {
+  state.effects.push({
+    uid: nextUid(state, 'fx'), type: 'merge', age: 0, duration: 0.72,
+    x: target.deployX, y: target.deployY,
+  });
+  state.events.push({
+    type: 'merge', towerUid: target.uid, sourceUid: source.uid,
+    towerType: target.type, squadType: target.squadType,
+    squadSize: target.squadSize, fusionTier: target.fusionTier,
+    fusionAbility: abilityId,
+  });
+}
+
+export function mergeTowers(state, sourceUid, targetUid) {
+  if (
+    state?.screen !== 'battle' || state.result || state.phase !== 'prep'
+    || state.waveActive || state.tutorial?.active || state.pendingSquadFusion
+  ) return null;
+  const source = state.towers.find(({ uid }) => uid === sourceUid);
+  const target = state.towers.find(({ uid }) => uid === targetUid);
+  if (!canMergeTowers(source, target)) return null;
+  const definition = squadDefinitionForTower(target);
+  const count = squadCurrentMemberCount(target, definition);
+  if (count === 4) {
+    state.pendingSquadFusion = {
+      sourceUid: source.uid,
+      targetUid: target.uid,
+      squadType: definition.id,
+      options: definition.fusionChoices.map(({ id, name, description }) => ({
+        id, name, description,
+      })),
+    };
+    state.selectedTowerUid = target.uid;
+    state.events.push({
+      type: 'squad-fusion-choice', sourceUid: source.uid, targetUid: target.uid,
+      squadType: definition.id,
+      optionIds: state.pendingSquadFusion.options.map(({ id }) => id),
+    });
+    return target;
+  }
+
+  const sourceStats = squadStatsForRank(definition.id, source.rank, source.fusionAbility);
+  const targetStats = squadStatsForRank(definition.id, target.rank, target.fusionAbility);
+  syncSquadMembers(source, definition, { stats: sourceStats });
+  syncSquadMembers(target, definition, { stats: targetStats });
+  const combined = [...target.members, ...source.members];
+  target.rank = Math.max(Number(target.rank) || 1, Number(source.rank) || 1);
+  target.squadSize = definition.maxMembers;
+  target.maxMembers = definition.maxMembers;
+  target.fusionTier = 1;
+  target.fusionAbility = null;
+  const mergedStats = squadStatsForRank(definition.id, target.rank);
+  reseatSquadMembers(target, combined, mergedStats);
+  state.towers = state.towers.filter(({ uid }) => uid !== source.uid);
+  state.selectedTowerUid = target.uid;
+  emitSquadFusion(state, source, target);
+  return target;
+}
+
+export function chooseTowerDefenseSquadAbility(state, choiceId) {
+  const pending = state?.pendingSquadFusion;
+  if (
+    state?.screen !== 'battle' || state.result || state.phase !== 'prep'
+    || state.waveActive || !pending
+  ) return null;
+  const source = state.towers.find(({ uid }) => uid === pending.sourceUid);
+  const target = state.towers.find(({ uid }) => uid === pending.targetUid);
+  const definition = SQUAD_TYPES[pending.squadType];
+  const choice = definition?.fusionChoices.find(({ id }) => id === choiceId);
+  if (!source || !target || !choice || !canMergeTowers(source, target)) return null;
+  if (
+    squadCurrentMemberCount(source, definition) !== definition.maxMembers
+    || squadCurrentMemberCount(target, definition) !== definition.maxMembers
+  ) return null;
+
+  const previousStats = squadStatsForRank(definition.id, target.rank, target.fusionAbility);
+  syncSquadMembers(target, definition, { stats: previousStats });
+  target.rank = Math.max(Number(target.rank) || 1, Number(source.rank) || 1);
+  target.fusionTier = 2;
+  target.fusionAbility = choice.id;
+  target.squadSize = definition.maxMembers;
+  target.maxMembers = definition.maxMembers;
+  const upgradedStats = squadStatsForRank(definition.id, target.rank, choice.id);
+  reseatSquadMembers(target, target.members, upgradedStats);
+  state.towers = state.towers.filter(({ uid }) => uid !== source.uid);
+  state.pendingSquadFusion = null;
+  state.selectedTowerUid = target.uid;
+  emitSquadFusion(state, source, target, choice.id);
+  state.events.push({
+    type: 'squad-ability-selected', towerUid: target.uid, squadType: definition.id,
+    abilityId: choice.id, abilityName: choice.name,
+  });
+  return target;
 }
 
 export function canMergeCardIntoTower() {
@@ -1905,7 +2623,7 @@ export function reclaimTowerToHand() {
 export function moveTowerToPad(state, towerUid, padIndex) {
   if (
     state.screen !== 'battle' || state.result || state.phase !== 'prep'
-    || state.tutorial.active
+    || state.tutorial.active || state.pendingSquadFusion
   ) return null;
   const stage = stageForState(state);
   const targetPadIndex = Math.floor(Number(padIndex));
@@ -1924,8 +2642,10 @@ export function moveTowerToPad(state, towerUid, padIndex) {
   tower.deployX = pad.x;
   tower.deployY = pad.y;
   tower.laneIndex = pad.laneIndex;
-  syncSquadMembers(tower, SQUAD_TYPES[tower.squadType || tower.type] || SQUAD_TYPES.ranged, {
+  const squadDefinition = SQUAD_TYPES[tower.squadType || tower.type] || SQUAD_TYPES.ranged;
+  syncSquadMembers(tower, squadDefinition, {
     reset: true,
+    stats: squadStatsForRank(squadDefinition.id, tower.rank, tower.fusionAbility),
   });
   state.effects.push({
     uid: nextUid(state, 'fx'), type: 'move-out', age: 0, duration: 0.4,
@@ -1945,6 +2665,7 @@ export function moveTowerToPad(state, towerUid, padIndex) {
 
 export function buildTowerDefenseTurret(state, slotIndex, type = 'gel-mortar') {
   if (state?.screen !== 'battle' || state.result || state.phase !== 'prep') return null;
+  if (state.pendingSquadFusion) return null;
   const tutorialBuild = state.tutorial.active && state.tutorial.step === 'turret';
   if (state.tutorial.active && !tutorialBuild) return null;
   const definition = TURRET_TYPES[type];
@@ -2271,7 +2992,7 @@ function executeHeroSkillStep(state, queuedStep) {
   if (!hero || hero.hp <= 0 || hero.uid !== queuedStep.heroUid) return [];
   const definition = HERO_TYPES[queuedStep.heroType] || HERO_TYPES.shell;
   const skill = definition.skill;
-  const stats = heroStatsForRank(queuedStep.heroType, hero.rank);
+  const stats = heroStatsForProgress(state.progress, queuedStep.heroType, hero.rank);
   const step = stats.skillSteps[queuedStep.stepIndex];
   if (!step) return [];
   const origin = { x: queuedStep.originX, y: queuedStep.originY };
@@ -2403,7 +3124,7 @@ export function activateTowerDefenseHeroSkill(state) {
   activationEvent.targetUids = firstTargets;
   activationEvent.damage = Math.max(
     0,
-    estimatedSkillStepDamage(heroStatsForRank(hero.type, hero.rank).skillSteps[0]),
+    estimatedSkillStepDamage(heroStatsForProgress(state.progress, hero.type, hero.rank).skillSteps[0]),
   );
   if (completesTutorial) {
     state.tutorial.step = 'done';
@@ -2541,11 +3262,11 @@ function queueForWave(state, waveNumber) {
 export function startNextTowerDefenseWave(state) {
   if (
     state.screen !== 'battle' || state.result || state.waveActive
-    || state.phase !== 'prep'
+    || state.phase !== 'prep' || state.pendingSquadFusion
   ) return false;
   if (state.tutorial.active && state.tutorial.step !== 'start') return false;
   const stage = stageForState(state);
-  if (state.mode === 'stage' && state.wave >= stage.waves.length) return false;
+  if (state.mode !== 'endless' && state.wave >= stage.waves.length) return false;
   state.wave += 1;
   state.waveActive = true;
   state.phase = 'combat';
@@ -2557,6 +3278,7 @@ export function startNextTowerDefenseWave(state) {
   state.heroSkillQueue = [];
   state.heroSkillActors = [];
   for (const soldier of state.towers) {
+    const squadDefinition = SQUAD_TYPES[soldier.squadType || soldier.type] || SQUAD_TYPES.ranged;
     soldier.x = Number.isFinite(Number(soldier.deployX))
       ? soldier.deployX : stage.pads[soldier.padIndex]?.x;
     soldier.y = Number.isFinite(Number(soldier.deployY))
@@ -2564,8 +3286,15 @@ export function startNextTowerDefenseWave(state) {
     soldier.moving = false;
     syncSquadMembers(
       soldier,
-      SQUAD_TYPES[soldier.squadType || soldier.type] || SQUAD_TYPES.ranged,
-      { reset: true },
+      squadDefinition,
+      {
+        reset: true,
+        stats: squadStatsForRank(
+          squadDefinition.id,
+          soldier.rank,
+          soldier.fusionAbility,
+        ),
+      },
     );
   }
   if (state.hero) {
@@ -2599,8 +3328,21 @@ export function stageScaleForWave(stageIndex, waveNumber) {
 }
 
 function enemyScaleForState(state) {
-  if (state.mode === 'endless') return endlessScaleForWave(state.wave);
-  return stageScaleForWave(stageForState(state).index, state.wave);
+  const base = state.mode === 'endless'
+    ? endlessScaleForWave(state.wave)
+    : stageScaleForWave(stageForState(state).index, state.wave);
+  const scaled = applyTowerDefenseDifficulty({
+    ...base,
+    attack: Math.min(2.2, Math.sqrt(Math.max(1, Number(base.hp) || 1))),
+  }, state.difficulty);
+  const modifier = state.mode === 'daily' ? state.dailyChallenge?.modifier : null;
+  if (!modifier) return scaled;
+  return Object.freeze({
+    hp: scaleValue(scaled.hp * (Number(modifier.hp) || 1)),
+    speed: scaleValue(scaled.speed * (Number(modifier.speed) || 1)),
+    attack: scaleValue(scaled.attack * (Number(modifier.attack) || 1)),
+    reward: scaled.reward,
+  });
 }
 
 function normalizedLaneIndex(stage, laneIndex, x = null) {
@@ -2634,7 +3376,7 @@ function spawnEnemy(state, type, laneIndex = 0) {
     maxHp,
     speed: definition.speed * scale.speed,
     reward: Math.max(1, Math.round(definition.reward * scale.reward)),
-    attackDamage: Math.max(1, Math.round(definition.attackDamage * Math.min(2.2, Math.sqrt(scale.hp)))),
+    attackDamage: Math.max(1, Math.round(definition.attackDamage * scale.attack)),
     attackInterval: definition.attackInterval,
     slowMultiplier: 1,
     slowTime: 0,
@@ -3073,29 +3815,45 @@ function updateHeroSkillActors(state, dt) {
   state.heroSkillActors = state.heroSkillActors.filter(({ done }) => !done);
 }
 
-function syncSquadMembers(tower, definition, { reset = false } = {}) {
+function syncSquadMembers(tower, definition, { reset = false, stats = null } = {}) {
+  const resolvedStats = stats || squadStatsForRank(
+    definition.id,
+    Math.max(1, Math.floor(Number(tower.rank) || 1)),
+    tower.fusionAbility,
+  );
+  const count = squadCurrentMemberCount(tower, definition);
+  const offsets = squadMemberOffsets(count);
+  const memberMaxHp = resolvedStats.memberHp;
+  const squadMaxHp = memberMaxHp * count;
   const baseX = Number.isFinite(Number(tower.deployX))
     ? Number(tower.deployX) : Number(tower.x) || 0;
   const baseY = Number.isFinite(Number(tower.deployY))
     ? Number(tower.deployY) : Number(tower.y) || 0;
   const aggregateHp = clamp(
-    Number.isFinite(Number(tower.hp)) ? Number(tower.hp) : definition.memberHp * definition.squadSize,
+    Number.isFinite(Number(tower.hp)) ? Number(tower.hp) : squadMaxHp,
     0,
-    definition.memberHp * definition.squadSize,
+    squadMaxHp,
   );
   const previousMembers = Array.isArray(tower.members) ? tower.members : [];
-  const hadCompleteMemberState = previousMembers.length === definition.squadSize
+  const hadCompleteMemberState = previousMembers.length === count
     && previousMembers.every((member) => Number.isFinite(Number(member?.hp)));
-  tower.members = SQUAD_MEMBER_OFFSETS.slice(0, definition.squadSize).map(
+  tower.members = offsets.slice(0, count).map(
     (offset, memberIndex) => {
       const source = previousMembers.find((member) => member?.memberIndex === memberIndex)
         || previousMembers[memberIndex] || {};
       const deployX = baseX + offset.x;
       const deployY = baseY + offset.y;
+      const previousMemberMaxHp = Math.max(
+        1,
+        Number(source.maxHp) || Number(tower.memberHp) || memberMaxHp,
+      );
+      const scaledMemberHp = Number.isFinite(Number(source.hp))
+        ? Number(source.hp) / previousMemberMaxHp * memberMaxHp
+        : memberMaxHp;
       const hp = clamp(
-        Number.isFinite(Number(source.hp)) ? Number(source.hp) : definition.memberHp,
+        scaledMemberHp,
         0,
-        definition.memberHp,
+        memberMaxHp,
       );
       return {
         ...source,
@@ -3111,7 +3869,7 @@ function syncSquadMembers(tower, definition, { reset = false } = {}) {
           ? Math.max(0, Number(source.attackCooldown))
           : Math.max(0, Number(tower.cooldown) || 0.12) + memberIndex * 0.035,
         hp,
-        maxHp: definition.memberHp,
+        maxHp: memberMaxHp,
         alive: source.alive !== false && hp > 0,
         moving: Boolean(source.moving),
         downed: source.downed === true || hp <= 0,
@@ -3123,13 +3881,13 @@ function syncSquadMembers(tower, definition, { reset = false } = {}) {
   );
   if (reset) {
     tower.members.forEach((member, memberIndex) => {
-      const offset = SQUAD_MEMBER_OFFSETS[memberIndex];
+      const offset = offsets[memberIndex];
       member.x = baseX + offset.x;
       member.y = baseY + offset.y;
       member.deployX = baseX + offset.x;
       member.deployY = baseY + offset.y;
-      member.hp = definition.memberHp;
-      member.maxHp = definition.memberHp;
+      member.hp = memberMaxHp;
+      member.maxHp = memberMaxHp;
       member.alive = true;
       member.downed = false;
       member.targetId = null;
@@ -3146,7 +3904,7 @@ function syncSquadMembers(tower, definition, { reset = false } = {}) {
     if (!hadCompleteMemberState || Math.abs(memberHpTotal - aggregateHp) > 0.01) {
       let remaining = aggregateHp;
       tower.members.forEach((member) => {
-        member.hp = Math.min(definition.memberHp, remaining);
+        member.hp = Math.min(memberMaxHp, remaining);
         remaining -= member.hp;
         member.alive = member.hp > 0;
         member.downed = !member.alive;
@@ -3157,6 +3915,11 @@ function syncSquadMembers(tower, definition, { reset = false } = {}) {
       });
     }
   }
+  tower.squadSize = count;
+  tower.maxMembers = definition.maxMembers;
+  tower.memberHp = memberMaxHp;
+  tower.moveSpeed = resolvedStats.speed;
+  tower.maxHp = squadMaxHp;
   tower.hp = tower.members.reduce((sum, member) => sum + Math.max(0, member.hp), 0);
   tower.aliveMembers = tower.members.filter((member) => member.alive && member.hp > 0).length;
   tower.downed = tower.aliveMembers === 0;
@@ -3168,51 +3931,71 @@ function contactDistanceForEnemy(enemy) {
   return 38 + definition.size * 0.18;
 }
 
-function fireSquadMember(state, tower, member, target, definition) {
+function fireSquadMember(state, tower, member, target, definition, stats) {
   const projectiles = [];
   if (definition.movementMode === 'contact') {
-    damageEnemy(state, target, definition.damagePerMember);
+    damageEnemy(state, target, stats.damagePerMember);
+    if (stats.splashRadius > 0 && stats.splashDamageScale > 0) {
+      for (const enemy of nearbyEffectTargets(
+        state,
+        target,
+        stats.splashRadius,
+        Infinity,
+        Boolean(stats.areaAllLanes),
+      )) {
+        damageEnemy(state, enemy, stats.damagePerMember * stats.splashDamageScale);
+      }
+    }
     state.effects.push({
       uid: nextUid(state, 'fx'), type: 'hit', age: 0, duration: 0.36,
       x: target.x, y: target.y - 18,
     });
   } else {
-    const projectile = {
-      uid: nextUid(state, 'shot'), type: definition.projectile, effect: definition.effect || 'direct',
-      sourceKind: 'squad', squadType: definition.id, towerType: definition.id,
-      star: 1, effectTier: 1, attackMode: definition.attackMode,
-      patternProjectileCount: 1, volleyIndex: member.memberIndex, volleyCount: 1,
-      secondary: false, damageScale: 1 / definition.squadSize,
-      targetUid: target.uid, x: member.x, y: member.y - 24,
-      targetX: target.x, targetY: target.y - 18,
-      speed: definition.projectileSpeed, damage: definition.damagePerMember, age: 0,
-      splashRadius: definition.splashRadius,
-      splashDamageScale: definition.splashDamageScale,
-      areaAllLanes: definition.areaAllLanes,
-      pierceTargets: definition.pierceTargets,
-      pierceRadius: definition.pierceRadius,
-      pierceDamageScale: definition.pierceDamageScale,
-      slowMultiplier: definition.slowMultiplier,
-      slowTime: definition.slowTime,
-      rewind: definition.rewind,
-      chainTargets: definition.chainTargets,
-      chainRadius: definition.chainRadius,
-      chainPower: definition.chainPower,
-      poisonDps: definition.poisonDps,
-      poisonTime: definition.poisonTime,
-    };
-    projectiles.push(projectile);
-    state.projectiles.push(projectile);
+    for (let projectileIndex = 0; projectileIndex < stats.projectileCount; projectileIndex += 1) {
+      const projectile = {
+        uid: nextUid(state, 'shot'), type: definition.projectile, effect: definition.effect || 'direct',
+        sourceKind: 'squad', squadType: definition.id, towerType: definition.id,
+        star: 1, effectTier: (Number(tower.fusionTier) || 0) + 1,
+        attackMode: definition.attackMode,
+        patternProjectileCount: stats.projectileCount,
+        volleyIndex: projectileIndex,
+        volleyCount: stats.projectileCount,
+        secondary: projectileIndex > 0,
+        damageScale: 1 / Math.max(1, tower.squadSize),
+        targetUid: target.uid, x: member.x, y: member.y - 24,
+        targetX: target.x, targetY: target.y - 18,
+        speed: definition.projectileSpeed, damage: stats.damagePerMember, age: 0,
+        splashRadius: stats.splashRadius,
+        splashDamageScale: stats.splashDamageScale,
+        areaAllLanes: stats.areaAllLanes,
+        pierceTargets: stats.pierceTargets,
+        pierceRadius: stats.pierceRadius,
+        pierceDamageScale: stats.pierceDamageScale,
+        slowMultiplier: stats.slowMultiplier,
+        slowTime: stats.slowTime,
+        rewind: stats.rewind,
+        chainTargets: stats.chainTargets,
+        chainRadius: stats.chainRadius,
+        chainPower: stats.chainPower,
+        poisonDps: stats.poisonDps,
+        poisonTime: stats.poisonTime,
+      };
+      projectiles.push(projectile);
+      state.projectiles.push(projectile);
+    }
   }
   member.attackPulse = 1;
   tower.attackPulse = 1;
   state.events.push({
     type: 'shot', towerUid: tower.uid, soldierUid: member.uid,
     memberIndex: member.memberIndex, towerType: definition.id, squadType: definition.id,
-    aliveMembers: tower.aliveMembers, star: 1, effectTier: 1,
+    aliveMembers: tower.aliveMembers, star: 1,
+    effectTier: (Number(tower.fusionTier) || 0) + 1,
     attackMode: definition.attackMode, projectileCount: projectiles.length,
-    patternProjectileCount: 1, projectileUids: projectiles.map(({ uid }) => uid),
-    targetUid: target.uid, targetUids: [target.uid], damage: definition.damagePerMember,
+    patternProjectileCount: stats.projectileCount,
+    projectileUids: projectiles.map(({ uid }) => uid),
+    targetUid: target.uid, targetUids: [target.uid],
+    damage: stats.damagePerMember * Math.max(1, stats.projectileCount),
   });
 }
 
@@ -3220,10 +4003,8 @@ function updateTowers(state, dt) {
   for (const tower of state.towers) {
     ensureTowerHealth(tower, state);
     const definition = SQUAD_TYPES[tower.squadType || tower.type] || SQUAD_TYPES.ranged;
-    tower.squadSize = definition.squadSize;
-    tower.maxMembers = definition.squadSize;
-    tower.memberHp = definition.memberHp;
-    const members = syncSquadMembers(tower, definition);
+    const stats = squadStatsForRank(definition.id, tower.rank, tower.fusionAbility);
+    const members = syncSquadMembers(tower, definition, { stats });
     for (const member of members) {
       member.attackPulse = Math.max(0, member.attackPulse - dt * 5.5);
       member.hitPulse = Math.max(0, member.hitPulse - dt * 6);
@@ -3265,19 +4046,19 @@ function updateTowers(state, dt) {
       if (Math.abs(dx) > 1) member.facing = dx < 0 ? -1 : 1;
       const preferredGap = definition.movementMode === 'contact'
         ? contactDistanceForEnemy(target)
-        : definition.range * 0.82;
+        : stats.range * 0.82;
       if (separation > preferredGap && separation > 0.001) {
         const travel = Math.min(
           separation - preferredGap,
-          (Number(tower.moveSpeed) || definition.speed) * dt,
+          stats.speed * dt,
         );
         member.x = clamp(member.x + dx / separation * travel, TD_HERO_BOUNDS.minX, TD_HERO_BOUNDS.maxX);
         member.y = clamp(member.y + dy / separation * travel, TD_HERO_BOUNDS.minY, TD_HERO_BOUNDS.maxY);
         member.moving = travel > 0;
       }
-      if (member.attackCooldown <= 0 && distance(member, target) <= definition.range) {
-        fireSquadMember(state, tower, member, target, definition);
-        member.attackCooldown = definition.interval;
+      if (member.attackCooldown <= 0 && distance(member, target) <= stats.range) {
+        fireSquadMember(state, tower, member, target, definition, stats);
+        member.attackCooldown = stats.interval;
       }
     }
     const alive = members.filter(({ alive }) => alive);
@@ -3312,7 +4093,7 @@ function targetForHero(state, hero, range) {
 
 function fireHero(state, hero, target) {
   const definition = HERO_TYPES[hero.type] || HERO_TYPES.shell;
-  const stats = heroStatsForRank(hero.type, hero.rank);
+  const stats = heroStatsForProgress(state.progress, hero.type, hero.rank);
   const evolution = towerAttackEvolution(hero.type, 1);
   const {
     projectileCount: patternProjectileCount,
@@ -3366,7 +4147,7 @@ function updateHero(state, dt) {
   }
   if (hero.hp <= 0) return;
   const definition = HERO_TYPES[hero.type] || HERO_TYPES.shell;
-  const stats = heroStatsForRank(hero.type, hero.rank);
+  const stats = heroStatsForProgress(state.progress, hero.type, hero.rank);
   hero.cooldown -= dt;
   hero.skillCooldown = Math.max(0, hero.skillCooldown - dt);
   hero.attackPulse = Math.max(0, hero.attackPulse - dt * 5.5);
@@ -3394,7 +4175,8 @@ function updateHero(state, dt) {
 
 function updateTurrets(state, dt) {
   for (const turret of state.turrets) {
-    const definition = TURRET_TYPES[turret.type] || TURRET_TYPES['gel-mortar'];
+    const definition = turretStatsForRank(turret.type, turret.rank)
+      || turretStatsForRank('gel-mortar', 1);
     turret.cooldown -= dt;
     turret.attackPulse = Math.max(0, turret.attackPulse - dt * 5.5);
     if (turret.cooldown > 0) continue;
@@ -3542,11 +4324,12 @@ function damageHero(state, enemy, hero, amount) {
 
 function damageTower(state, enemy, tower, amount, memberIndex = null) {
   ensureTowerHealth(tower, state);
-  const damage = Math.max(0, Number(amount) || 0);
+  const definition = SQUAD_TYPES[tower.squadType || tower.type] || SQUAD_TYPES.ranged;
+  const stats = squadStatsForRank(definition.id, tower.rank, tower.fusionAbility);
+  const damage = Math.max(0, Number(amount) || 0) * stats.damageTakenMultiplier;
   if (tower.hp <= 0 || damage <= 0) return false;
   const pad = towerPosition(state, tower);
-  const definition = SQUAD_TYPES[tower.squadType || tower.type] || SQUAD_TYPES.ranged;
-  const members = syncSquadMembers(tower, definition);
+  const members = syncSquadMembers(tower, definition, { stats });
   const previousAliveMembers = members.filter((candidate) => (
     candidate.alive && candidate.hp > 0
   )).length;
@@ -3600,7 +4383,7 @@ function damageTower(state, enemy, tower, amount, memberIndex = null) {
       facing: member?.facing === -1 ? -1 : 1,
       lostMembers: previousAliveMembers - tower.aliveMembers,
       aliveMembers: tower.aliveMembers,
-      maxMembers: definition.squadSize,
+      maxMembers: tower.squadSize,
     });
   }
   state.effects.push({
@@ -3848,6 +4631,55 @@ function updateEnemies(state, dt) {
   state.enemies = state.enemies.filter((enemy) => enemy.hp > 0 && !enemy.leaked);
 }
 
+function emptyMetaReward() {
+  return {
+    metaCoins: 0,
+    summonCurrency: 0,
+    equipmentRolls: 0,
+    guaranteedEquipment: 0,
+    equipmentChance: 0,
+  };
+}
+
+function grantTowerDefenseMetaReward(state, rawReward) {
+  const reward = { ...emptyMetaReward(), ...(rawReward || {}) };
+  let progress = copyProgress(state.progress || {});
+  const metaCoins = Math.max(0, Math.floor(Number(reward.metaCoins) || 0));
+  const summonCurrency = Math.max(0, Math.floor(Number(reward.summonCurrency) || 0));
+  progress.metaCoins += metaCoins;
+  progress.summonCurrency += summonCurrency;
+  const rolls = clamp(Math.floor(Number(reward.equipmentRolls) || 0), 0, 10);
+  const guaranteed = clamp(Math.floor(Number(reward.guaranteedEquipment) || 0), 0, rolls);
+  const chance = clamp(Number(reward.equipmentChance) || 0, 0, 1);
+  const equipmentItems = [];
+  for (let index = 0; index < rolls; index += 1) {
+    const awarded = index < guaranteed || rewardSeededStep(progress) < chance;
+    if (!awarded) continue;
+    const definitionId = rewardEquipmentDefinitionId(progress);
+    const granted = grantTowerDefenseEquipment(progress, definitionId);
+    if (!granted?.items?.length) continue;
+    progress = { ...copyProgress(granted.progress) };
+    const item = granted.items[0];
+    equipmentItems.push(Object.freeze({
+      uid: item.uid,
+      definitionId: item.definitionId,
+      slot: item.slot,
+      rarity: item.rarity,
+      name: item.name,
+      iconKey: item.iconKey,
+      stats: item.stats,
+    }));
+  }
+  state.progress = copyProgress(progress);
+  state.selectedHeroId = state.progress.selectedHero;
+  state.heroes = heroRosterForProgress(state.progress);
+  return Object.freeze({
+    metaCoins,
+    summonCurrency,
+    equipmentItems: Object.freeze(equipmentItems),
+  });
+}
+
 function finishRun(state, result) {
   state.result = result;
   state.waveActive = false;
@@ -3856,10 +4688,19 @@ function finishRun(state, result) {
   state.projectiles = [];
   state.heroSkillQueue = [];
   state.heroSkillActors = [];
+  state.pendingSquadFusion = null;
   state.screen = 'result';
-  if (result === 'victory') {
+  let firstClear = false;
+  if (result === 'victory' && state.mode === 'stage') {
     const stage = stageForState(state);
+    const clearList = state.difficulty === 'hard'
+      ? state.progress.hardClearedStages
+      : state.progress.clearedStages;
+    firstClear = !clearList.includes(stage.id);
     if (!state.progress.clearedStages.includes(stage.id)) state.progress.clearedStages.push(stage.id);
+    if (state.difficulty === 'hard' && !state.progress.hardClearedStages.includes(stage.id)) {
+      state.progress.hardClearedStages.push(stage.id);
+    }
     state.progress.unlockedStage = Math.max(
       state.progress.unlockedStage,
       Math.min(TD_STAGES.length, stage.index + 1),
@@ -3868,22 +4709,27 @@ function finishRun(state, result) {
   if (state.mode === 'endless') {
     state.progress.bestEndlessWave = Math.max(state.progress.bestEndlessWave, state.wave);
   }
-  const summonReward = state.mode === 'endless'
-    ? Math.min(300, 35 + Math.max(0, state.wave) * 8)
-    : result === 'victory' ? 120 + stageForState(state).index * 30 : 0;
-  if (summonReward > 0) {
-    state.progress.summonCurrency = Math.max(
-      0,
-      Math.floor(Number(state.progress.summonCurrency) || 0) + summonReward,
-    );
-    state.events.push({
-      type: 'summon-currency-reward',
-      amount: summonReward,
-      total: state.progress.summonCurrency,
-      mode: state.mode,
-      wave: state.wave,
-    });
+  let reward = emptyMetaReward();
+  if (state.mode === 'endless') {
+    reward = endlessMetaReward(state.wave);
+  } else if (result === 'victory' && state.mode === 'daily') {
+    const challenge = state.dailyChallenge || dailyChallengeForDay('1970-01-01', TD_STAGES.length);
+    const alreadyClaimed = state.progress.dailyClaims.includes(challenge.dayKey);
+    reward = dailyMetaReward(challenge, alreadyClaimed);
+    if (!alreadyClaimed) state.progress.dailyClaims.push(challenge.dayKey);
+  } else if (result === 'victory') {
+    reward = storyMetaReward(stageForState(state).index, state.difficulty, firstClear);
   }
+  state.resultRewards = grantTowerDefenseMetaReward(state, reward);
+  state.events.push({
+    type: 'meta-reward',
+    mode: state.mode,
+    difficulty: state.difficulty,
+    firstClear,
+    metaCoins: state.resultRewards.metaCoins,
+    summonCurrency: state.resultRewards.summonCurrency,
+    equipmentCount: state.resultRewards.equipmentItems.length,
+  });
   state.events.push({ type: 'run-end', result });
 }
 
@@ -3896,15 +4742,22 @@ function completeWave(state) {
   for (const tower of state.towers) {
     ensureTowerHealth(tower, state);
     const squadDefinition = SQUAD_TYPES[tower.squadType || tower.type] || SQUAD_TYPES.ranged;
-    tower.hp = tower.maxHp;
-    tower.aliveMembers = squadDefinition.squadSize;
+    const stats = squadStatsForRank(
+      squadDefinition.id,
+      tower.rank,
+      tower.fusionAbility,
+    );
+    const squadSize = squadCurrentMemberCount(tower, squadDefinition);
+    tower.hp = stats.memberHp * squadSize;
+    tower.maxHp = tower.hp;
+    tower.aliveMembers = squadSize;
     tower.downed = false;
     const pad = stageForState(state).pads[tower.padIndex];
     tower.x = Number.isFinite(Number(tower.deployX)) ? tower.deployX : pad.x;
     tower.y = Number.isFinite(Number(tower.deployY)) ? tower.deployY : pad.y;
     tower.moving = false;
     tower.cooldown = Math.min(Number(tower.cooldown) || 0, 0.12);
-    syncSquadMembers(tower, squadDefinition, { reset: true });
+    syncSquadMembers(tower, squadDefinition, { reset: true, stats });
   }
   if (state.hero) {
     state.hero.hp = state.hero.hp <= 0
@@ -3924,7 +4777,7 @@ function completeWave(state) {
   state.heroSkillActors = [];
   state.projectiles = [];
   state.events.push({ type: 'wave-clear', wave: state.wave });
-  if (state.mode === 'stage' && state.wave >= stageForState(state).waves.length) {
+  if (state.mode !== 'endless' && state.wave >= stageForState(state).waves.length) {
     finishRun(state, 'victory');
   }
 }
@@ -3993,6 +4846,7 @@ export function skipTowerDefenseBreak(state) {
 export function returnToTowerDefenseMenu(state) {
   state.screen = 'menu';
   state.result = null;
+  state.resultRewards = null;
   state.waveActive = false;
   state.phase = 'prep';
   state.enemies = [];
@@ -4000,6 +4854,7 @@ export function returnToTowerDefenseMenu(state) {
   state.heroSkillQueue = [];
   state.heroSkillActors = [];
   state.effects = [];
+  state.pendingSquadFusion = null;
   state.selectedTowerUid = null;
   state.selectedHeroId = state.progress.selectedHero;
   state.heroes = heroRosterForProgress(state.progress);
@@ -4010,7 +4865,12 @@ export function returnToTowerDefenseMenu(state) {
 }
 
 export function replayTowerDefenseRun(state) {
-  return beginTowerDefenseRun(state, { mode: state.mode, stageId: state.stageId });
+  return beginTowerDefenseRun(state, {
+    mode: state.mode,
+    stageId: state.stageId,
+    difficulty: state.difficulty,
+    dailyChallenge: state.dailyChallenge,
+  });
 }
 
 export function towerByPad(state, padIndex) {
@@ -4065,7 +4925,13 @@ export function serializeTowerDefenseProgress(state) {
 
 export function towerRange(state, tower) {
   const squadDefinition = SQUAD_TYPES[tower.squadType || tower.type];
-  if (squadDefinition) return squadDefinition.range;
+  if (squadDefinition) {
+    return squadStatsForRank(
+      squadDefinition.id,
+      tower.rank ?? state?.progress?.squadRanks?.[squadDefinition.id],
+      tower.fusionAbility,
+    ).range;
+  }
   const definition = TOWER_TYPES[tower.type];
   return definition.range * (1 + (tower.star - 1) * 0.035);
 }

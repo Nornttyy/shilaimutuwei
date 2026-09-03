@@ -132,9 +132,9 @@ test('the browser shell loads formal loading and rotation art without JavaScript
   assert.doesNotMatch(css, /@media \(orientation:\s*portrait\)/);
 });
 
-test('the project asset whitelist covers all 218 canonical nested PNG paths', () => {
+test('the project asset whitelist covers all 222 canonical nested PNG paths', () => {
   const paths = collectDeclaredAssetPaths(PROJECT_ASSET_SPEC);
-  assert.equal(paths.length, 218);
+  assert.equal(paths.length, 222);
   assert.equal(new Set(paths).size, paths.length);
   assert.equal(paths.every((assetPath) => (
     /^assets\/generated\/[a-z][a-z0-9-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*\.png$/.test(assetPath)

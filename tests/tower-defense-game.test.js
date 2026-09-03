@@ -262,7 +262,7 @@ test('constructs and renders its first menu frame without DOM globals', () => {
   assert.equal(canvas.height, 1280);
   assert.ok(game.hits.some(({ id }) => id === 'start-story'));
   assert.deepEqual(game.hits.map(({ id }) => id), [
-    'start-story', 'endless', 'open-roster', 'open-summon', 'audio-toggle',
+    'start-story', 'endless', 'daily-challenge', 'open-roster', 'open-summon', 'audio-toggle',
   ]);
   assert.ok(canvas.context.calls.some(([kind, text]) => (
     kind === 'fillText' && text === '史莱姆守望团'
@@ -428,7 +428,8 @@ test('summoning and hero formation are separate portrait menu flows', () => {
   canvas.context.calls.length = 0;
   game.render();
   assert.deepEqual(game.hits.map(({ id }) => id), [
-    'summon-back', 'summon-one', 'summon-ten', 'audio-toggle',
+    'summon-back', 'summon-tab-hero', 'summon-tab-army', 'summon-tab-equipment',
+    'summon-one', 'summon-ten', 'audio-toggle',
   ]);
   assert.equal(game.hits.some(({ id }) => id.startsWith('hero-select-')), false,
     'the summon page cannot switch the active hero');
@@ -436,10 +437,10 @@ test('summoning and hero formation are separate portrait menu flows', () => {
     .filter(([kind]) => kind === 'fillText')
     .map(([, text]) => text);
   assert.ok(summonLabels.includes('战团招募'));
-  assert.ok(summonLabels.includes('英雄 · 小队 · 炮塔  ·  R → UR'));
+  assert.ok(summonLabels.includes('英雄契约 · R → UR'));
   assert.ok(summonLabels.includes('稀有度概率'));
   assert.ok(summonLabels.includes('高稀有保底  0/10'));
-  assert.ok(summonLabels.includes('最多再 10 次获得 SSR / UR'));
+  assert.ok(summonLabels.some((text) => text.includes('再 10 次保底')));
   for (const rarity of ['R', 'SR', 'SSR', 'UR']) assert.ok(summonLabels.includes(rarity));
 
   const summonOnePoint = hitCenter(game, 'summon-one');
@@ -825,7 +826,9 @@ test('expanded heroes, squads, turrets, and enemies request only their own produ
       kind: 'squad', type, rarity: SQUAD_TYPES[type].rarity,
     });
     assert.deepEqual([...new Set(assets.requests)], [assetKey],
-      `${type} recruitment uses only its four authored atlas instances`);
+      `${type} recruitment uses only its authored atlas`);
+    assert.equal(assets.requests.length, 2,
+      `${type} recruitment preview matches the initial two-member squad`);
   }
 
   for (const [type, assetKey] of Object.entries(turretAtlases)) {
@@ -2315,7 +2318,7 @@ test('story opens stage selection with lock, clear, selectable, and back states'
   game.render();
 
   assert.deepEqual(game.hits.map(({ id }) => id), [
-    'start-story', 'endless', 'open-roster', 'open-summon', 'audio-toggle',
+    'start-story', 'endless', 'daily-challenge', 'open-roster', 'open-summon', 'audio-toggle',
   ]);
   const storyHit = game.hits.find(({ id }) => id === 'start-story');
   assert.equal(storyHit.action, 'open-stage-select');
@@ -2329,6 +2332,7 @@ test('story opens stage selection with lock, clear, selectable, and back states'
   const stagePageSize = 6;
   assert.deepEqual(game.hits.map(({ id }) => id), [
     'stage-select-back',
+    'stage-difficulty-simple', 'stage-difficulty-hard',
     ...TD_STAGES.slice(0, stagePageSize).map(({ index }) => `select-stage-${index}`),
     'stage-select-previous', 'stage-select-next',
     'audio-toggle',
@@ -2384,7 +2388,7 @@ test('story opens stage selection with lock, clear, selectable, and back states'
   assert.equal(game.menuPage, 'main');
   game.render();
   assert.deepEqual(game.hits.map(({ id }) => id), [
-    'start-story', 'endless', 'open-roster', 'open-summon', 'audio-toggle',
+    'start-story', 'endless', 'daily-challenge', 'open-roster', 'open-summon', 'audio-toggle',
   ]);
 
   click(game, canvas, hitCenter(game, 'start-story'));
@@ -2457,9 +2461,9 @@ test('seven-step spotlight tutorial teaches card categories, turret prep, moveme
   assert.equal(game.state.tutorial.step, 'category');
   assert.equal(game.state.towers.length, 1);
   assert.equal(game.state.towers[0].squadType, 'melee');
-  assert.equal(game.state.towers[0].squadSize, 4);
-  assert.equal(game.state.towers[0].aliveMembers, 4);
-  assert.equal(game.state.currency, 400);
+  assert.equal(game.state.towers[0].squadSize, SQUAD_TYPES.melee.deployMembers);
+  assert.equal(game.state.towers[0].aliveMembers, SQUAD_TYPES.melee.deployMembers);
+  assert.equal(game.state.currency, 500 - SQUAD_TYPES.melee.cost);
 
   game.render();
   assert.ok(canvas.context.calls.some(([kind, text]) => kind === 'fillText' && text === '3/7'));
@@ -2503,7 +2507,8 @@ test('seven-step spotlight tutorial teaches card categories, turret prep, moveme
   assert.equal(game.state.turrets[0].type, 'gel-mortar');
   assert.equal(game.state.turrets[0].slotIndex, 0);
   assert.equal(game.state.tutorial.step, 'start');
-  assert.equal(game.state.currency, 225);
+  assert.equal(game.state.currency,
+    500 - SQUAD_TYPES.melee.cost - TURRET_TYPES['gel-mortar'].cost);
 
   game.render();
   assert.ok(canvas.context.calls.some(([kind, text]) => kind === 'fillText' && text === '5/7'));
@@ -2700,7 +2705,7 @@ test('battle dock purchases squads and a fixed turret, moves squads in prep, the
   game.render();
   click(game, canvas, hitCenter(game, 'pad-0'));
   assert.equal(game.selectedPurchase, null);
-  assert.equal(game.state.currency, 400);
+  assert.equal(game.state.currency, 500 - SQUAD_TYPES.melee.cost);
   assert.equal(game.state.towers.length, 1);
   const melee = game.state.towers[0];
   assert.deepEqual({
@@ -2709,7 +2714,9 @@ test('battle dock purchases squads and a fixed turret, moves squads in prep, the
     squadSize: melee.squadSize,
     aliveMembers: melee.aliveMembers,
   }, {
-    kind: 'soldier', squadType: 'melee', squadSize: 4, aliveMembers: 4,
+    kind: 'soldier', squadType: 'melee',
+    squadSize: SQUAD_TYPES.melee.deployMembers,
+    aliveMembers: SQUAD_TYPES.melee.deployMembers,
   });
 
   game.render();
@@ -2772,9 +2779,10 @@ test('battle dock purchases squads and a fixed turret, moves squads in prep, the
   click(game, canvas, hitCenter(game, 'purchase-ranged'));
   game.render();
   click(game, canvas, hitCenter(game, 'pad-0'));
-  assert.equal(game.state.currency, 250);
+  assert.equal(game.state.currency,
+    500 - SQUAD_TYPES.melee.cost - SQUAD_TYPES.ranged.cost);
   assert.equal(game.state.towers[1].squadType, 'ranged');
-  assert.equal(game.state.towers[1].aliveMembers, 4);
+  assert.equal(game.state.towers[1].aliveMembers, SQUAD_TYPES.ranged.deployMembers);
 
   game.render();
   const ranged = game.state.towers[1];
@@ -2798,7 +2806,9 @@ test('battle dock purchases squads and a fixed turret, moves squads in prep, the
   assert.equal(turretHit.enabled, true);
   click(game, canvas, hitCenter(game, slotId));
   assert.equal(game.selectedPurchase, null);
-  assert.equal(game.state.currency, 75);
+  assert.equal(game.state.currency,
+    500 - SQUAD_TYPES.melee.cost - SQUAD_TYPES.ranged.cost
+      - TURRET_TYPES['gel-mortar'].cost);
   assert.equal(game.state.turrets.length, 1);
   assert.equal(game.state.turrets[0].type, 'gel-mortar');
   assert.equal(game.state.turrets[0].slotIndex, 0);
@@ -2982,10 +2992,12 @@ test('categorized purchase track swipes wide cards and buys every squad and turr
 
   assert.deepEqual(game.state.towers.map(({ squadType }) => squadType), ['charger', 'leaf']);
   for (const squad of game.state.towers) {
-    assert.equal(squad.members.length, 4);
-    assert.equal(new Set(squad.members.map(({ uid }) => uid)).size, 4);
-    assert.equal(new Set(squad.members.map(({ x, y }) => `${x}:${y}`)).size, 4,
-      `${squad.squadType} keeps four independent member coordinates`);
+    assert.equal(squad.members.length, SQUAD_TYPES[squad.squadType].deployMembers);
+    assert.equal(new Set(squad.members.map(({ uid }) => uid)).size,
+      SQUAD_TYPES[squad.squadType].deployMembers);
+    assert.equal(new Set(squad.members.map(({ x, y }) => `${x}:${y}`)).size,
+      SQUAD_TYPES[squad.squadType].deployMembers,
+      `${squad.squadType} keeps independent member coordinates`);
   }
 
   game.render();
@@ -3173,7 +3185,7 @@ test('portrait battle keeps deployment cards below the fortress and supports dir
   drag(game, canvas, hitCenter(game, 'purchase-melee'), hitCenter(game, 'pad-0'));
   assert.equal(game.state.towers.length, 1);
   assert.equal(game.state.towers[0].squadType, 'melee');
-  assert.equal(game.state.currency, 400);
+  assert.equal(game.state.currency, 500 - SQUAD_TYPES.melee.cost);
 
   game.render();
   click(game, canvas, hitCenter(game, 'purchase-category-turret'));
@@ -3181,7 +3193,8 @@ test('portrait battle keeps deployment cards below the fortress and supports dir
   drag(game, canvas, hitCenter(game, 'purchase-turret'), hitCenter(game, slotId));
   assert.equal(game.state.turrets.length, 1);
   assert.equal(game.state.turrets[0].type, 'gel-mortar');
-  assert.equal(game.state.currency, 225);
+  assert.equal(game.state.currency,
+    500 - SQUAD_TYPES.melee.cost - TURRET_TYPES['gel-mortar'].cost);
 
   assets.requests.length = 0;
   game.render();
@@ -3267,9 +3280,9 @@ test('portrait deployment cards use all four formal nine-layer soldier atlases',
 
   assert.ok(assets.requests.includes('ui-card-frame-deploy'));
   assert.equal(rigPreviewCount, 4,
-    'all four squad cards each render one four-member skeletal preview');
-  assert.deepEqual(previewAssetRequests.map((requests) => requests.length), [4, 4, 4, 4],
-    'each purchase-card preview resolves four independent layered soldiers');
+    'all four squad cards each render one two-member skeletal preview');
+  assert.deepEqual(previewAssetRequests.map((requests) => requests.length), [2, 2, 2, 2],
+    'each purchase-card preview matches the two soldiers received on initial deployment');
   assert.deepEqual(previewAssetRequests.map((requests) => [...new Set(requests)]), [
     ['soldier-shield-dun-atlas-v1'],
     ['soldier-bean-bow-atlas-v1'],
@@ -3428,4 +3441,156 @@ test('dispose is idempotent, saves, cancels animation, and removes pointer liste
   }
   assert.ok(runtime.writes.some(({ key }) => key === TD_STORAGE_KEY));
   assert.doesNotThrow(() => game.dispose());
+});
+
+test('recruitment tabs keep hero, army, and equipment pools separate', () => {
+  const canvas = createCanvas();
+  const game = new TowerDefenseGame(canvas, {
+    runtime: createRuntime({ tutorialSeen: true, summonCurrency: 120 }),
+    pixelRatio: 1,
+    seed: 17,
+  });
+  game.render();
+  click(game, canvas, hitCenter(game, 'open-summon'));
+  game.render();
+  click(game, canvas, hitCenter(game, 'summon-tab-army'));
+  canvas.context.calls.length = 0;
+  game.render();
+  const armyLabels = canvas.context.calls
+    .filter(([kind]) => kind === 'fillText').map(([, text]) => text);
+  assert.ok(armyLabels.includes('小兵与炮台 · R → SSR'));
+  assert.ok(armyLabels.includes('62%'));
+  assert.ok(armyLabels.includes('28%'));
+  assert.ok(armyLabels.includes('10%'));
+
+  click(game, canvas, hitCenter(game, 'summon-tab-equipment'));
+  game.render();
+
+  assert.equal(game.summonTab, 'equipment');
+  assert.equal(game.hits.find(({ id }) => id === 'summon-one').enabled, true);
+  assert.equal(game.hits.find(({ id }) => id === 'summon-ten').enabled, false);
+  const labels = canvas.context.calls.filter(([kind]) => kind === 'fillText').map(([, text]) => text);
+  assert.ok(labels.includes('120'));
+  assert.ok(labels.includes('1080'));
+
+  click(game, canvas, hitCenter(game, 'summon-one'));
+  assert.equal(game.state.progress.summonCurrency, 0);
+  assert.equal(game.summonAnimation.results.length, 1);
+  assert.equal(game.summonAnimation.results[0].kind, 'equipment');
+  assert.ok(game.summonAnimation.results[0].iconKey);
+  game.dispose();
+});
+
+test('stage difficulty and daily challenge start the requested run mode', () => {
+  const canvas = createCanvas();
+  const game = new TowerDefenseGame(canvas, {
+    runtime: createRuntime({
+      tutorialSeen: true,
+      unlockedStage: 2,
+      clearedStages: ['stage-1'],
+    }),
+    pixelRatio: 1,
+    dayKey: '2026-09-03',
+  });
+  game.render();
+  click(game, canvas, hitCenter(game, 'start-story'));
+  game.render();
+  click(game, canvas, hitCenter(game, 'stage-difficulty-hard'));
+  game.render();
+  click(game, canvas, hitCenter(game, 'select-stage-1'));
+  assert.equal(game.state.screen, 'battle');
+  assert.equal(game.state.difficulty, 'hard');
+
+  game.activateHit({ action: 'battle-menu', data: {} });
+  game.render();
+  click(game, canvas, hitCenter(game, 'daily-challenge'));
+  assert.equal(game.state.screen, 'battle');
+  assert.equal(game.state.mode, 'daily');
+  assert.equal(game.state.difficulty, 'hard');
+  assert.ok(game.state.dailyChallenge.stageIndex <= 2,
+    'daily challenge is bounded by the player unlocked stage range');
+  game.dispose();
+});
+
+test('hero roster equips inventory and exposes rank-up controls', () => {
+  const canvas = createCanvas();
+  const game = new TowerDefenseGame(canvas, {
+    runtime: createRuntime({
+      tutorialSeen: true,
+      metaCoins: 99999,
+      contractShards: { shell: 999 },
+      equipmentItems: [{ uid: 'eq-shell-damage', definitionId: 'damage-r' }],
+    }),
+    pixelRatio: 1,
+  });
+  game.render();
+  click(game, canvas, hitCenter(game, 'open-roster'));
+  game.render();
+  assert.equal(game.hits.find(({ id }) => id === 'hero-rank-up-shell').enabled, true);
+  const beforeRank = game.state.progress.contractRanks.shell;
+  const beforeCoins = game.state.progress.metaCoins;
+  const beforeShards = game.state.progress.contractShards.shell;
+  click(game, canvas, hitCenter(game, 'hero-rank-up-shell'));
+  assert.equal(game.state.progress.contractRanks.shell, beforeRank + 1);
+  assert.ok(game.state.progress.metaCoins < beforeCoins);
+  assert.ok(game.state.progress.contractShards.shell < beforeShards);
+  game.render();
+  click(game, canvas, hitCenter(game, 'equipment-slot-shell-damage'));
+  game.render();
+  assert.deepEqual(game.hits.map(({ id }) => id), [
+    'equipment-picker-close', 'equip-item-eq-shell-damage',
+    'equipment-picker-unequip', 'equipment-picker-previous', 'equipment-picker-next',
+    'audio-toggle',
+  ]);
+  click(game, canvas, hitCenter(game, 'equip-item-eq-shell-damage'));
+  assert.equal(game.state.progress.equipmentLoadouts.shell.damage, 'eq-shell-damage');
+  game.dispose();
+});
+
+test('result rewards and squad fusion choice are visible, blocking overlays', () => {
+  const canvas = createCanvas();
+  const game = new TowerDefenseGame(canvas, {
+    runtime: createRuntime({ tutorialSeen: true }), pixelRatio: 1,
+  });
+  game.state.screen = 'result';
+  game.state.result = 'victory';
+  game.state.resultRewards = {
+    metaCoins: 80,
+    summonCurrency: 12,
+    equipmentItems: [{ uid: 'reward-eq', definitionId: 'speed-sr' }],
+  };
+  game.render();
+  const resultLabels = canvas.context.calls
+    .filter(([kind]) => kind === 'fillText').map(([, text]) => text);
+  assert.ok(resultLabels.includes('获得'));
+  assert.ok(resultLabels.includes('金币 +80  ·  晶体 +12  ·  装备 +1'));
+
+  canvas.context.calls.length = 0;
+  game.drawSummonResults(canvas.context, {
+    results: [{
+      kind: 'hero', type: 'shell', rarity: 'R', unlocked: false,
+      rankUps: 0, shards: 3, convertedCoins: 96,
+    }],
+    allowClose: false,
+  });
+  const conversionLabels = canvas.context.calls
+    .filter(([kind]) => kind === 'fillText').map(([, text]) => text);
+  assert.ok(conversionLabels.includes('金币 +96'));
+  assert.equal(conversionLabels.includes('碎片 +3'), false);
+
+  game.state.screen = 'battle';
+  game.state.phase = 'prep';
+  game.state.waveActive = false;
+  game.state.pendingSquadFusion = {
+    squadType: 'melee', sourceUid: 'source', targetUid: 'target',
+    options: [
+      { id: 'choice-a', name: '爆发', description: '范围伤害提高' },
+      { id: 'choice-b', name: '追击', description: '攻速与追击增强' },
+    ],
+  };
+  game.render();
+  assert.deepEqual(game.hits.map(({ id }) => id), [
+    'squad-ability-choice-a', 'squad-ability-choice-b', 'audio-toggle',
+  ]);
+  game.dispose();
 });

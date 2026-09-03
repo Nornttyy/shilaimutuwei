@@ -152,6 +152,18 @@ const DISTINCT_EQUIPMENT_ASSETS = Object.freeze([
   'equipment-world-tree-heart-v1',
 ]);
 
+const FORMAL_UI_ATLASES = Object.freeze([
+  Object.freeze({
+    id: 'ui-menu-actions-atlas-v1', width: 1254, height: 836, maxBytes: 1100000,
+  }),
+  Object.freeze({
+    id: 'ui-battle-hud-atlas-v1', width: 1024, height: 1536, maxBytes: 1600000,
+  }),
+  Object.freeze({
+    id: 'ui-summon-ritual-atlas-v1', width: 1024, height: 1024, maxBytes: 900000,
+  }),
+]);
+
 test('the workspace asset manifest strictly validates every finished PNG', async () => {
   const result = await verifyAssets({ cwd: PROJECT_ROOT, allowMissingSpec: false });
   assert.equal(result.ok, true, formatErrors(result));
@@ -203,6 +215,45 @@ test('nine new equipment definitions use distinct formal 512px RGBA art everywhe
     assert.ok(ASSET_PATHS[definition.iconKey],
       `${definition.id} iconKey ${definition.iconKey} resolves to formal art`);
   }
+});
+
+test('menu, battle HUD, and summon ritual use three formal critical RGBA atlases', async () => {
+  const contents = [];
+  for (const expected of FORMAL_UI_ATLASES) {
+    const asset = PROJECT_ASSET_SPEC.assets.find(({ id }) => id === expected.id);
+    const expectedPath = `assets/generated/ui/${expected.id}.png`;
+    assert.ok(asset, `${expected.id} has an asset-spec contract`);
+    assert.equal(asset.category, 'ui', expected.id);
+    assert.equal(asset.path, expectedPath, expected.id);
+    assert.deepEqual(asset.recommendedCanvas,
+      { width: expected.width, height: expected.height }, expected.id);
+    assert.equal(asset.width, expected.width, expected.id);
+    assert.equal(asset.height, expected.height, expected.id);
+    assert.equal(asset.transparent, true, expected.id);
+    assert.equal(asset.priority, 'P0', expected.id);
+    assert.equal(asset.maxBytes, expected.maxBytes, expected.id);
+    assert.match(asset.brief, /壳壳.*高饱和软胶/, expected.id);
+    assert.match(asset.brief, /无.*写实纹理/, expected.id);
+
+    const png = await readFile(path.join(PROJECT_ROOT, expectedPath));
+    const metadata = parsePng(png);
+    assert.equal(metadata.width, expected.width, expected.id);
+    assert.equal(metadata.height, expected.height, expected.id);
+    assert.equal(metadata.colorTypeName, 'RGBA', expected.id);
+    assert.equal(metadata.hasAlphaChannel, true, expected.id);
+    assert.ok(png.length <= expected.maxBytes, expected.id);
+    contents.push(png.toString('base64'));
+
+    assert.equal(ALL_RUNTIME_ASSET_KEYS.includes(expected.id), true, expected.id);
+    assert.equal(TOWER_DEFENSE_ASSET_KEYS.includes(expected.id), true, expected.id);
+    assert.equal(CRITICAL_STARTUP_ASSET_KEYS.includes(expected.id), true, expected.id);
+    assert.equal(WECHAT_CRITICAL_ASSET_KEYS.includes(expected.id), true, expected.id);
+    assert.ok(new URL(ASSET_PATHS[expected.id]).pathname.endsWith(`/${expectedPath}`), expected.id);
+    assert.equal(new URL(ASSET_PATHS[expected.id]).searchParams.get('v'), ASSET_CACHE_VERSION,
+      expected.id);
+  }
+  assert.equal(new Set(contents).size, FORMAL_UI_ATLASES.length,
+    'each UI surface owns distinct authored art');
 });
 
 test('the 28-piece battle expansion uses unique formal RGBA PNGs and strict startup paths', async () => {

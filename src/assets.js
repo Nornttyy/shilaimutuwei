@@ -6,7 +6,7 @@
  * useful to platform builds and isolated tests.
  */
 
-export const ASSET_CACHE_VERSION = 'shell-vivid-20260903-v28';
+export const ASSET_CACHE_VERSION = 'shell-vivid-20260904-v29';
 
 const generatedAssetUrl = (relativePath) => {
   const url = new URL(`../assets/generated/${relativePath}`, import.meta.url);
@@ -83,6 +83,9 @@ export const CRITICAL_STARTUP_ASSET_KEYS = Object.freeze([
   'turret-spore-bomber-atlas-v1',
   'turret-thunder-prism-atlas-v1',
   'ui-meta-coin',
+  'ui-menu-actions-atlas-v1',
+  'ui-battle-hud-atlas-v1',
+  'ui-summon-ritual-atlas-v1',
   'equipment-damage-charm',
   'equipment-speed-charm',
   'equipment-health-charm',
@@ -306,6 +309,9 @@ export const TOWER_DEFENSE_ASSET_KEYS = Object.freeze([
   'turret-spore-bomber-atlas-v1',
   'turret-thunder-prism-atlas-v1',
   'ui-meta-coin',
+  'ui-menu-actions-atlas-v1',
+  'ui-battle-hud-atlas-v1',
+  'ui-summon-ritual-atlas-v1',
   'equipment-damage-charm',
   'equipment-speed-charm',
   'equipment-health-charm',
@@ -471,6 +477,9 @@ const DECLARED_ASSET_PATHS = {
   'turret-spore-bomber-atlas-v1': generatedAssetUrl('turret/turret-spore-bomber-atlas-v1.png'),
   'turret-thunder-prism-atlas-v1': generatedAssetUrl('turret/turret-thunder-prism-atlas-v1.png'),
   'ui-meta-coin': generatedAssetUrl('ui/ui-meta-coin-v1.png'),
+  'ui-menu-actions-atlas-v1': generatedAssetUrl('ui/ui-menu-actions-atlas-v1.png'),
+  'ui-battle-hud-atlas-v1': generatedAssetUrl('ui/ui-battle-hud-atlas-v1.png'),
+  'ui-summon-ritual-atlas-v1': generatedAssetUrl('ui/ui-summon-ritual-atlas-v1.png'),
   'equipment-damage-charm': generatedAssetUrl('equipment/equipment-damage-charm-v1.png'),
   'equipment-speed-charm': generatedAssetUrl('equipment/equipment-speed-charm-v1.png'),
   'equipment-health-charm': generatedAssetUrl('equipment/equipment-health-charm-v1.png'),

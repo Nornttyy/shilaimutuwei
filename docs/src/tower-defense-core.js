@@ -2669,7 +2669,7 @@ export function buyTowerDefenseSquadFusion(state, squadType, targetUid) {
   if (
     state?.screen !== 'battle' || state.result || state.phase !== 'prep'
     || state.waveActive || state.tutorial?.active || state.pendingSquadFusion
-    || state.pendingBattleUpgrade
+    || state.pendingBattleUpgrade || !Array.isArray(state.towers)
   ) return null;
   const definition = SQUAD_TYPES[squadType];
   const target = state.towers.find(({ uid }) => uid === targetUid);
@@ -2875,8 +2875,31 @@ export function mergeCardIntoTower() {
   return null;
 }
 
-export function reclaimTowerToHand() {
-  return null;
+export function reclaimTowerToHand(state, towerUid) {
+  if (
+    state?.screen !== 'battle' || state.result || state.phase !== 'prep'
+    || state.waveActive || state.tutorial?.active || state.pendingSquadFusion
+    || state.pendingBattleUpgrade
+  ) return null;
+  const index = state.towers.findIndex(({ uid }) => uid === towerUid);
+  const squad = state.towers[index];
+  const definition = squadDefinitionForTower(squad);
+  if (index < 0 || !definition) return null;
+
+  const paidSquads = Number(squad.fusionTier) > 0 ? 2 : 1;
+  const refund = Math.floor(definition.cost * paidSquads * 0.75);
+  state.towers.splice(index, 1);
+  state.currency += refund;
+  if (state.selectedTowerUid === squad.uid) state.selectedTowerUid = null;
+  state.effects.push({
+    uid: nextUid(state, 'fx'), type: 'reclaim', age: 0, duration: 0.52,
+    x: squad.x, y: squad.y,
+  });
+  state.events.push({
+    type: 'reclaim', towerUid: squad.uid, towerType: squad.type,
+    squadType: definition.id, padIndex: squad.padIndex, refund,
+  });
+  return { ...squad, refund };
 }
 
 /** Moves one placed tower to a valid empty pad, preserving identity, star and aim. */

@@ -43,6 +43,7 @@ function createContext() {
     createRadialGradient: gradient,
     measureText: (text) => ({ width: String(text).length * 12 }),
     drawImage: (...args) => calls.push(['drawImage', ...args]),
+    fillRect: (...args) => calls.push(['fillRect', ...args]),
     fillText: (text, x, y) => calls.push(['fillText', text, x, y]),
     moveTo: (...args) => calls.push(['moveTo', ...args]),
     lineTo: (...args) => calls.push(['lineTo', ...args]),
@@ -178,11 +179,19 @@ function createAssetStore(availableKeys = []) {
         const reinforcementAtlas = key === 'effect-reinforcement-projectiles-atlas-v1';
         const dynamicEffectAtlas = key === 'effect-dynamic-components-v1';
         const skillSignatureAtlas = key === 'effect-skill-signatures-atlas-v1';
+        const menuUiAtlas = key === 'ui-menu-actions-atlas-v1';
+        const battleHudAtlas = key === 'ui-battle-hud-atlas-v1';
+        const summonRitualAtlas = key === 'ui-summon-ritual-atlas-v1';
         const width = reinforcementAtlas ? 1536
           : dynamicEffectAtlas || skillSignatureAtlas ? 1254
+          : menuUiAtlas ? 1254
+          : battleHudAtlas || summonRitualAtlas ? 1024
           : layeredTurret ? 1536 : heroSkillFace ? 836 : formalAtlas ? 1254 : 768;
         const height = reinforcementAtlas ? 1024
           : dynamicEffectAtlas || skillSignatureAtlas ? 1254
+          : menuUiAtlas ? 836
+          : battleHudAtlas ? 1536
+          : summonRitualAtlas ? 1024
           : layeredTurret ? 768 : heroSkillFace ? 418 : key.startsWith('turret-') ? 723 : width;
         drawAsset?.({ key, kind: key, width, height, naturalWidth: width, naturalHeight: height });
         return true;
@@ -288,6 +297,7 @@ test('formal asset and rig stores can be replaced and are used during rendering'
     'fortress-slime-core',
     'effect-damage-cracks-overlay',
     'ui-meta-coin',
+    'ui-menu-actions-atlas-v1',
   ];
   const assets = createAssetStore(menuAssets);
   const rigs = createRigStore();
@@ -303,9 +313,13 @@ test('formal asset and rig stores can be replaced and are used during rendering'
     'the ready formal menu backdrop needs no fallback scene');
   assert.ok(assets.requests.includes('fortress-slime-core'));
   assert.ok(assets.requests.includes('ui-meta-coin'));
+  assert.ok(assets.requests.includes('ui-menu-actions-atlas-v1'));
   assert.ok(canvas.context.calls.some(([kind, asset]) => (
     kind === 'drawImage' && asset?.kind === 'ui-meta-coin'
   )), 'the formal coin icon is visible beside the meta-currency amount');
+  assert.ok(canvas.context.calls.some(([kind, asset]) => (
+    kind === 'drawImage' && asset?.kind === 'ui-menu-actions-atlas-v1'
+  )), 'the core-only main menu uses the formal action emblem atlas');
   for (const key of [
     'rift-entry-portal', 'tile-build-light', 'tile-build-dark',
     'tile-route-open', 'turret-gel-mount',
@@ -428,8 +442,16 @@ test('all eleven atlas heroes play a distinct skill face while legacy heroes sta
 test('summoning and hero formation are separate portrait menu flows', () => {
   const canvas = createCanvas();
   const runtime = createRuntime({ tutorialSeen: true, summonCurrency: 1000 });
+  const summonAssets = createAssetStore([
+    'background-menu-portrait-v1',
+    'ui-summon-ritual-atlas-v1',
+    'ui-menu-actions-atlas-v1',
+    'ui-soft-crystal',
+    'ui-card-frame-common',
+  ]);
   const game = new TowerDefenseGame(canvas, {
     runtime,
+    assetStore: summonAssets,
     pixelRatio: 1,
     seed: 0xC0A7A5,
   });
@@ -454,8 +476,11 @@ test('summoning and hero formation are separate portrait menu flows', () => {
   assert.ok(summonLabels.includes('高稀有保底  0/10'));
   assert.ok(summonLabels.some((text) => text.includes('再 10 次保底')));
   for (const rarity of ['R', 'SR', 'SSR', 'UR']) assert.ok(summonLabels.includes(rarity));
+  assert.ok(summonAssets.requests.includes('ui-summon-ritual-atlas-v1'),
+    'the idle recruitment chamber is assembled from the formal ritual atlas');
 
   const summonOnePoint = hitCenter(game, 'summon-one');
+  summonAssets.requests.length = 0;
   click(game, canvas, summonOnePoint);
   assert.equal(game.state.progress.summonCurrency, 900);
   assert.equal(game.summonResults.length, 0);
@@ -468,6 +493,8 @@ test('summoning and hero formation are separate portrait menu flows', () => {
   assert.ok(canvas.context.calls.some(([kind, text]) => (
     kind === 'fillText' && text === '能量汇聚'
   )), 'the first ceremony stage gathers energy');
+  assert.ok(summonAssets.requests.includes('ui-summon-ritual-atlas-v1'),
+    'the animated ceremony independently rotates formal ritual layers');
   click(game, canvas, hitCenter(game, 'summon-animation-skip'));
   assert.equal(game.summonAnimation, null);
   assert.equal(game.summonResults.length, 1);
@@ -478,6 +505,7 @@ test('summoning and hero formation are separate portrait menu flows', () => {
 
   game.render();
   assert.equal(game.hits.find(({ id }) => id === 'summon-ten').enabled, true);
+  summonAssets.requests.length = 0;
   click(game, canvas, hitCenter(game, 'summon-ten'));
   assert.equal(game.state.progress.summonCurrency, 0);
   assert.equal(game.summonAnimation.results.length, 10);
@@ -488,6 +516,8 @@ test('summoning and hero formation are separate portrait menu flows', () => {
   assert.ok(canvas.context.calls.some(([kind, text]) => (
     kind === 'fillText' && text === '契约裂隙开启'
   )), 'the second ceremony stage opens the rift and flips a card');
+  assert.ok(summonAssets.requests.includes('ui-menu-actions-atlas-v1'),
+    'the animated contract card uses the formal recruitment emblem');
 
   for (let index = 0; index < 16; index += 1) game.updateCharacterAnimations(0.05);
   canvas.context.calls.length = 0;
@@ -3194,7 +3224,7 @@ test('battle dock purchases squads and a fixed turret, moves squads in prep, the
     pixelRatio: 1,
     now: () => interactionTime,
   });
-  const assets = createAssetStore();
+  const assets = createAssetStore(['ui-battle-hud-atlas-v1']);
   game.setAssetStore(assets);
 
   game.render();
@@ -3228,6 +3258,10 @@ test('battle dock purchases squads and a fixed turret, moves squads in prep, the
   assert.equal(game.hits.find(({ id }) => id === 'hero-skill').enabled, false);
   assert.ok(assets.requests.includes('ui-gel-energy'));
   assert.ok(assets.requests.includes('ui-card-frame-deploy'));
+  assert.ok(assets.requests.includes('ui-battle-hud-atlas-v1'));
+  assert.ok(canvas.context.calls.some(([kind, asset]) => (
+    kind === 'drawImage' && asset?.kind === 'ui-battle-hud-atlas-v1'
+  )), 'the battle command dock uses the formal HUD atlas');
   assert.equal(assets.requests.includes('ui-card-melee-squad'), false);
   assert.equal(assets.requests.includes('ui-card-ranged-squad'), false);
   assert.equal(assets.requests.includes('ui-card-frame-common'), false);
@@ -3331,7 +3365,10 @@ test('battle dock purchases squads and a fixed turret, moves squads in prep, the
   game.render();
   click(game, canvas, hitCenter(game, 'purchase-turret'));
   assert.equal(game.selectedPurchase, 'turret');
+  assets.requests.length = 0;
   game.render();
+  assert.ok(assets.requests.includes('turret-gel-mount'),
+    'selecting a turret card reveals its fixed placement pads');
   const slotId = game.state.turretSlots[0].id;
   const turretHit = game.hits.find(({ id }) => id === slotId);
   assert.equal(turretHit.action, 'build-turret');
@@ -3376,6 +3413,79 @@ test('battle dock purchases squads and a fixed turret, moves squads in prep, the
   }));
   assert.equal(game.state.hero.moveX, 0);
   assert.equal(game.state.hero.moveY, 0);
+  game.dispose();
+});
+
+test('reclaim well replaces start only after a tower long-press is armed', () => {
+  const canvas = createCanvas();
+  let interactionTime = 0;
+  const game = new TowerDefenseGame(canvas, {
+    runtime: createRuntime({ tutorialSeen: true }),
+    pixelRatio: 1,
+    now: () => interactionTime,
+  });
+  game.state.screen = 'battle';
+  game.state.stageId = 'stage-1';
+  game.state.phase = 'prep';
+  game.state.waveActive = false;
+  game.state.result = null;
+  game.state.currency = 1000;
+  game.state.tutorial.active = false;
+  game.render();
+
+  assert.equal(game.hits.find(({ id }) => id === 'reclaim'), undefined,
+    'ordinary preparation exposes no invisible reclaim target');
+  assert.ok(game.hits.find(({ id }) => id === 'battle-menu').width >= 64,
+    'the top back control keeps a readable portrait touch target');
+  click(game, canvas, hitCenter(game, 'purchase-melee'));
+  game.render();
+  click(game, canvas, hitCenter(game, 'pad-0'));
+  game.render();
+
+  const squad = game.state.towers[0];
+  let reclaimCalls = 0;
+  game.reclaimTower = (towerUid) => {
+    reclaimCalls += 1;
+    assert.equal(towerUid, squad.uid);
+    return true;
+  };
+
+  const quickStart = hitCenter(game, `tower-${squad.uid}`);
+  const inactiveReclaimPoint = hitCenter(game, 'start-wave');
+  canvas.dispatch('pointerdown', pointerEvent(game, canvas, quickStart));
+  canvas.dispatch('pointermove', pointerEvent(game, canvas, inactiveReclaimPoint));
+  canvas.dispatch('pointerup', pointerEvent(game, canvas, inactiveReclaimPoint));
+  assert.equal(reclaimCalls, 0,
+    'dragging over the start area before the hold threshold cannot reclaim a unit');
+
+  game.render();
+  const heldStart = hitCenter(game, `tower-${squad.uid}`);
+  canvas.dispatch('pointerdown', pointerEvent(game, canvas, heldStart));
+  interactionTime = 460;
+  canvas.context.calls.length = 0;
+  game.render();
+  const reclaimHit = game.hits.find(({ id }) => id === 'reclaim');
+  assert.equal(reclaimHit.enabled, true);
+  assert.equal(game.hits.find(({ id }) => id === 'start-wave').enabled, false,
+    'the start action is disabled while its space is serving as the reclaim well');
+  assert.ok(canvas.context.calls.some(([kind, text]) => (
+    kind === 'fillText' && text === '拖到这里收回'
+  )), 'the armed reclaim target is visibly labelled');
+
+  const reclaimPoint = hitCenter(game, 'reclaim');
+  canvas.dispatch('pointermove', pointerEvent(game, canvas, reclaimPoint));
+  canvas.context.calls.length = 0;
+  game.render();
+  assert.ok(canvas.context.calls.some(([kind, text]) => (
+    kind === 'fillText' && text === '松手收回'
+  )), 'the reclaim well confirms when the dragged unit is over it');
+  canvas.dispatch('pointerup', pointerEvent(game, canvas, reclaimPoint));
+  assert.equal(reclaimCalls, 1);
+
+  game.render();
+  assert.equal(game.hits.find(({ id }) => id === 'reclaim'), undefined);
+  assert.equal(game.hits.find(({ id }) => id === 'start-wave').enabled, true,
+    'the normal start action returns after the drag ends');
   game.dispose();
 });
 
@@ -3693,6 +3803,9 @@ test('portrait battle keeps deployment cards below the fortress and supports dir
   assert.equal(game.shouldShowDeploymentGrid(), false);
   assert.equal(deploymentSegments.length, 0,
     'the white deployment grid stays hidden during ordinary preparation');
+  assert.equal(canvas.context.calls.some(([kind, strokeStyle, lineWidth]) => (
+    kind === 'stroke' && strokeStyle === '#FFFFFF' && lineWidth === 1.25
+  )), false, 'lane gateway lines stay hidden until a placement interaction needs them');
 
   game.drag = { kind: 'purchase', purchaseType: 'melee', gesture: 'deploy' };
   assert.equal(game.shouldShowDeploymentGrid(), true,
@@ -3757,7 +3870,8 @@ test('portrait battle keeps deployment cards below the fortress and supports dir
   assert.ok(turretSlot.y > 850 && turretSlot.y + turretSlot.height < 1020,
     'turret construction sits directly above the lower fortress');
   assert.ok(assets.requests.includes('fortress-slime-core'));
-  assert.ok(assets.requests.includes('turret-gel-mount'));
+  assert.equal(assets.requests.includes('turret-gel-mount'), false,
+    'empty turret pads stay hidden until a turret card or tutorial asks for placement');
   assert.equal(assets.requests.includes('turret-gel-mortar'), false,
     'off-category turret cards are not drawn behind the squad track');
   assert.ok(assets.requests.includes('background-battle-portrait-v1'));
@@ -3777,6 +3891,8 @@ test('portrait battle keeps deployment cards below the fortress and supports dir
   assert.equal(game.shouldShowDeploymentGrid(), false);
   assert.equal(deploymentSegments.length, 0,
     'fixed-slot turret selection does not reveal the ground grid');
+  assert.equal(assets.requests.includes('turret-gel-mount'), false,
+    'opening the turret category alone does not clutter the field with placement pads');
   assert.ok(assets.requests.includes('turret-gel-mortar'));
   const turretPurchaseHits = [
     'purchase-turret', 'purchase-bubble-coil', 'purchase-crystal-repeater',
@@ -3825,6 +3941,12 @@ test('portrait battle keeps deployment cards below the fortress and supports dir
   assert.ok(joystick.enabled && joystick.y >= 1096);
   assert.ok(skill.enabled && skill.y >= 1096);
   assert.equal(game.hits.find(({ id }) => id === 'purchase-melee').enabled, false);
+  assert.equal(canvas.context.calls.some(([kind, strokeStyle, lineWidth]) => (
+    kind === 'stroke' && strokeStyle === '#FFFFFF' && lineWidth === 1.25
+  )), false, 'combat does not restore deployment-grid or lane gateway lines');
+  assert.equal(canvas.context.calls.some(([kind, x, y, width, height]) => (
+    kind === 'fillRect' && x === 0 && y === 1088 && width === 720 && height === 192
+  )), false, 'combat keeps the center of the lower battlefield clear of a full-width dark band');
   assert.ok(assets.requests.includes('ui-hero-joystick-base'));
   assert.ok(assets.requests.includes('ui-hero-joystick-knob'));
   assert.ok(assets.requests.includes('ui-hero-control-ring'));

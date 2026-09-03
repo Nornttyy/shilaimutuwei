@@ -3791,6 +3791,54 @@
       "transparent": true,
       "priority": "P0",
       "maxBytes": 650000
+    },
+    {
+      "id": "ui-menu-actions-atlas-v1",
+      "category": "ui",
+      "sourceId": "tower-defense:ui:menu-actions-atlas",
+      "filename": "ui-menu-actions-atlas-v1.png",
+      "path": "assets/generated/ui/ui-menu-actions-atlas-v1.png",
+      "recommendedCanvas": { "width": 1254, "height": 836 },
+      "width": 1254,
+      "height": 836,
+      "runtimeDisplaySize": "3×2主菜单动作图集，每格418×418；入口徽章约48至92逻辑像素",
+      "view": "正视透明图集；从左到右、从上到下依次为闯关箭头、无尽符号、每日太阳、四人编队盾、招募晶芽、锁定图标",
+      "brief": "主菜单正式动作图集：参考壳壳的鲜艳高饱和软胶画风，六枚入口图标拥有独立轮廓和明确功能剪影；粗深蓝描边、两至三档大色块、奶油白高光，透明底。无文字、角色、背景、写实纹理、噪点或临时贴图。",
+      "transparent": true,
+      "priority": "P0",
+      "maxBytes": 1100000
+    },
+    {
+      "id": "ui-battle-hud-atlas-v1",
+      "category": "ui",
+      "sourceId": "tower-defense:ui:battle-hud-atlas",
+      "filename": "ui-battle-hud-atlas-v1.png",
+      "path": "assets/generated/ui/ui-battle-hud-atlas-v1.png",
+      "recommendedCanvas": { "width": 1024, "height": 1536 },
+      "width": 1024,
+      "height": 1536,
+      "runtimeDisplaySize": "2×3战斗HUD图集，每格512×512；状态框与功能徽章按局内安全区缩放",
+      "view": "正视透明图集；从左到右、从上到下依次为资源胶囊框、首领生命框、波次飘带、四人小队盾、炮台盾、加速按钮",
+      "brief": "战斗HUD正式图集：参考壳壳的鲜艳高饱和软胶画风，六个组件分别服务资源、首领生命、波次、小队、炮台和加速状态；粗深蓝描边、两至三档大色块、奶油白高光，内部留出程序文字与数值安全区，透明底。无烘焙文字、角色、背景、写实纹理、噪点或临时贴图。",
+      "transparent": true,
+      "priority": "P0",
+      "maxBytes": 1600000
+    },
+    {
+      "id": "ui-summon-ritual-atlas-v1",
+      "category": "ui",
+      "sourceId": "tower-defense:ui:summon-ritual-atlas",
+      "filename": "ui-summon-ritual-atlas-v1.png",
+      "path": "assets/generated/ui/ui-summon-ritual-atlas-v1.png",
+      "recommendedCanvas": { "width": 1024, "height": 1024 },
+      "width": 1024,
+      "height": 1024,
+      "runtimeDisplaySize": "2×2招募仪式图集，每格512×512；仪式中心约240至390逻辑像素",
+      "view": "正视透明图集；从左到右、从上到下依次为四色蓄能环、旋转契约环、晶体召唤台、八向彩色爆发光芒",
+      "brief": "招募仪式正式动态图层图集：参考壳壳的鲜艳高饱和软胶画风，四色蓄能、旋转契约、晶台升起和彩光揭示四个阶段轮廓互不换皮；粗深蓝描边、两至三档大色块、奶油白高光，透明底。无文字、角色、背景、写实纹理、噪点或临时贴图。",
+      "transparent": true,
+      "priority": "P0",
+      "maxBytes": 900000
     }
   ]
 }

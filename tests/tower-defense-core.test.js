@@ -402,6 +402,34 @@ test('direct squad purchase is prep-only, correctly priced, one-cell, and atomic
   assert.deepEqual(state, combat);
 });
 
+test('a placed slime squad can be reclaimed during preparation for a bounded refund', () => {
+  const state = createBattleState();
+  const squad = buyTowerDefenseSquad(state, 'melee', 0);
+  assert.ok(squad);
+  assert.equal(state.currency, 440);
+
+  const reclaimed = reclaimTowerToHand(state, squad.uid);
+  assert.equal(reclaimed.uid, squad.uid);
+  assert.equal(reclaimed.refund, 45);
+  assert.equal(state.currency, 485);
+  assert.equal(state.towers.length, 0);
+  assert.ok(state.effects.some(({ type }) => type === 'reclaim'));
+  assert.ok(state.events.some(({ type, towerUid, refund }) => (
+    type === 'reclaim' && towerUid === squad.uid && refund === 45
+  )));
+
+  const afterReclaim = clone(state);
+  assert.equal(reclaimTowerToHand(state, squad.uid), null);
+  assert.deepEqual(state, afterReclaim, 'a stale reclaim cannot pay twice');
+
+  const combatSquad = buyTowerDefenseSquad(state, 'melee', 0);
+  assert.ok(combatSquad);
+  assert.equal(startNextTowerDefenseWave(state), true);
+  const combat = clone(state);
+  assert.equal(reclaimTowerToHand(state, combatSquad.uid), null);
+  assert.deepEqual(state, combat, 'combat never permits reclaiming a squad');
+});
+
 test('squad rarity, rank, and all fourteen fusion choices change shared combat stats', () => {
   assert.deepEqual(SQUAD_RARITY_SCALING, {
     R: { damage: 1, hp: 1, effect: 1 },

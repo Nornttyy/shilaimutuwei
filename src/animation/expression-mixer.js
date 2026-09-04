@@ -8,6 +8,37 @@ export const MAX_EXPRESSION_TRANSITION_DURATION = 0.16;
 const DEFAULT_BLINK_INTERVAL = 3.2;
 const DEFAULT_BLINK_HOLD = 0.18;
 const EPSILON = 1e-10;
+const VALIDATED_FROZEN_EXPRESSION_SPECS = new WeakSet();
+
+function isDeepFrozenData(value, seen = new WeakSet()) {
+  if (
+    value == null
+    || (typeof value !== 'object' && typeof value !== 'function')
+  ) return true;
+  if (seen.has(value)) return true;
+
+  try {
+    if (!Object.isFrozen(value)) return false;
+    const prototype = Object.getPrototypeOf(value);
+    if (
+      prototype !== Object.prototype
+      && prototype !== Array.prototype
+      && prototype !== null
+    ) return false;
+
+    seen.add(value);
+    for (const key of Reflect.ownKeys(value)) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      // Accessors can still return mutable data, so only cache plain frozen data.
+      if (!descriptor || !Object.hasOwn(descriptor, 'value')) return false;
+      if (!isDeepFrozenData(descriptor.value, seen)) return false;
+    }
+    return true;
+  } catch {
+    // Unsupported exotic objects retain the original validate-on-use behavior.
+    return false;
+  }
+}
 
 function assertFiniteNumber(value, label) {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
@@ -43,6 +74,8 @@ function assertExpressionSpec(spec) {
   if (!spec || typeof spec !== 'object') {
     throw new TypeError('expression spec must be an object.');
   }
+  if (VALIDATED_FROZEN_EXPRESSION_SPECS.has(spec)) return;
+
   if (!spec.states || typeof spec.states !== 'object' || Array.isArray(spec.states)) {
     throw new TypeError('expression spec must contain a states object.');
   }
@@ -66,6 +99,8 @@ function assertExpressionSpec(spec) {
       }
     }
   }
+
+  if (isDeepFrozenData(spec)) VALIDATED_FROZEN_EXPRESSION_SPECS.add(spec);
 }
 
 function assertState(spec, state, label = 'targetState') {

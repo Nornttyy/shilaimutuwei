@@ -29,7 +29,31 @@ import {
 const TAU = Math.PI * 2;
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const distance = (left, right) => Math.hypot(left.x - right.x, left.y - right.y);
+const squaredDistance = (left, right) => {
+  const dx = left.x - right.x;
+  const dy = left.y - right.y;
+  return dx * dx + dy * dy;
+};
 const scaleValue = (value) => Math.round(value * 1000) / 1000;
+
+function compactInPlace(items, keep) {
+  let writeIndex = 0;
+  for (let readIndex = 0; readIndex < items.length; readIndex += 1) {
+    const item = items[readIndex];
+    if (!keep(item)) continue;
+    items[writeIndex] = item;
+    writeIndex += 1;
+  }
+  items.length = writeIndex;
+  return items;
+}
+
+const isActiveProjectile = (projectile) => (
+  !projectile.done && projectile.age < Math.max(0.1, Number(projectile.maxAge) || 2.4)
+);
+const isActiveHeroSkillActor = (actor) => !actor.done;
+const isLivingEnemy = (enemy) => enemy.hp > 0 && !enemy.leaked;
+const isActiveEffect = (effect) => effect.age < effect.duration;
 
 /** Portrait gameplay coordinates shared by web and WeChat renderers. */
 export const TD_VIEW = Object.freeze({ width: 720, height: 1280 });
@@ -3981,7 +4005,9 @@ export function activateTowerDefenseHeroSkill(state) {
   return true;
 }
 
-export function pathMetrics(points) {
+const FROZEN_PATH_METRICS = new WeakMap();
+
+function calculatePathMetrics(points) {
   const segments = [];
   let total = 0;
   for (let index = 1; index < points.length; index += 1) {
@@ -3994,10 +4020,32 @@ export function pathMetrics(points) {
   return { segments, total };
 }
 
+function pathMetricsForRuntime(points) {
+  let metrics = FROZEN_PATH_METRICS.get(points);
+  if (metrics) return metrics;
+  if (!Object.isFrozen(points) || !points.every((point) => Object.isFrozen(point))) {
+    return calculatePathMetrics(points);
+  }
+  metrics = calculatePathMetrics(points);
+  FROZEN_PATH_METRICS.set(points, metrics);
+  return metrics;
+}
+
+export function pathMetrics(points) {
+  // Keep the public helper's fresh-result contract for callers that inspect or
+  // edit its return value. Runtime callers cache only authored, frozen paths.
+  return calculatePathMetrics(points);
+}
+
 export function pointOnPath(points, travelled) {
-  const metrics = pathMetrics(points);
+  const metrics = pathMetricsForRuntime(points);
   const value = clamp(Number(travelled) || 0, 0, metrics.total);
-  const segment = metrics.segments.find((entry) => value <= entry.to) || metrics.segments.at(-1);
+  let segment = metrics.segments.at(-1);
+  for (let index = 0; index < metrics.segments.length; index += 1) {
+    if (value > metrics.segments[index].to) continue;
+    segment = metrics.segments[index];
+    break;
+  }
   if (!segment) return { ...points[0], angle: 0 };
   const ratio = segment.length > 0 ? (value - segment.from) / segment.length : 0;
   return {
@@ -4009,8 +4057,11 @@ export function pointOnPath(points, travelled) {
 
 /** Nearest point on a polyline, including its route-distance coordinate. */
 function projectPointToPath(points, actor) {
-  const metrics = pathMetrics(points);
-  let best = null;
+  const metrics = pathMetricsForRuntime(points);
+  let bestDistanceSquared = Number.POSITIVE_INFINITY;
+  let bestX = 0;
+  let bestY = 0;
+  let bestTravelled = 0;
   for (const segment of metrics.segments) {
     const dx = segment.end.x - segment.start.x;
     const dy = segment.end.y - segment.start.y;
@@ -4018,25 +4069,32 @@ function projectPointToPath(points, actor) {
     const ratio = lengthSquared > 0
       ? clamp(((actor.x - segment.start.x) * dx + (actor.y - segment.start.y) * dy) / lengthSquared, 0, 1)
       : 0;
-    const point = {
-      x: segment.start.x + dx * ratio,
-      y: segment.start.y + dy * ratio,
-    };
-    const transverseDistance = distance(actor, point);
-    if (!best || transverseDistance < best.distance) {
-      best = {
-        ...point,
-        distance: transverseDistance,
-        travelled: segment.from + segment.length * ratio,
-      };
+    const x = segment.start.x + dx * ratio;
+    const y = segment.start.y + dy * ratio;
+    const actorDx = actor.x - x;
+    const actorDy = actor.y - y;
+    const distanceSquared = actorDx * actorDx + actorDy * actorDy;
+    if (distanceSquared < bestDistanceSquared) {
+      bestDistanceSquared = distanceSquared;
+      bestX = x;
+      bestY = y;
+      bestTravelled = segment.from + segment.length * ratio;
     }
   }
-  return best || { ...points[0], distance: distance(actor, points[0]), travelled: 0 };
+  if (bestDistanceSquared < Number.POSITIVE_INFINITY) {
+    return {
+      x: bestX,
+      y: bestY,
+      distance: Math.sqrt(bestDistanceSquared),
+      travelled: bestTravelled,
+    };
+  }
+  return { ...points[0], distance: distance(actor, points[0]), travelled: 0 };
 }
 
 /** Returns route distance at a vertical contact line on a monotonic portrait path. */
 function travelledAtPathY(points, y) {
-  const metrics = pathMetrics(points);
+  const metrics = pathMetricsForRuntime(points);
   const targetY = Number(y);
   if (!Number.isFinite(targetY) || !metrics.segments.length) return 0;
   if (targetY <= points[0].y) return 0;
@@ -4392,7 +4450,7 @@ function setEnemyTravelled(state, enemy, travelled) {
   const stage = stageForState(state);
   const laneIndex = laneIndexForEnemy(state, enemy);
   const lane = stage.lanes[laneIndex];
-  const pathLength = pathMetrics(lane.path).total;
+  const pathLength = pathMetricsForRuntime(lane.path).total;
   enemy.travelled = clamp(Number(travelled) || 0, 0, pathLength);
   const point = pointOnPath(lane.path, enemy.travelled);
   enemy.x = point.x;
@@ -4648,9 +4706,18 @@ function applyGroundSplashImpact(state, projectile) {
 }
 
 function updateProjectiles(state, dt) {
+  let enemiesByUid = null;
+  if (state.projectiles.length > 4) {
+    enemiesByUid = new Map();
+    for (const enemy of state.enemies) {
+      if (enemy.hp > 0) enemiesByUid.set(enemy.uid, enemy);
+    }
+  }
   for (const projectile of state.projectiles) {
     projectile.age += dt;
-    const target = state.enemies.find((enemy) => enemy.uid === projectile.targetUid && enemy.hp > 0);
+    const target = enemiesByUid
+      ? enemiesByUid.get(projectile.targetUid)
+      : state.enemies.find((enemy) => enemy.uid === projectile.targetUid && enemy.hp > 0);
     if (target && projectile.tracksTarget !== false) {
       projectile.targetX = target.x;
       projectile.targetY = target.y - 18;
@@ -4670,9 +4737,7 @@ function updateProjectiles(state, dt) {
       projectile.y += dy / remaining * travel;
     }
   }
-  state.projectiles = state.projectiles.filter((projectile) => (
-    !projectile.done && projectile.age < Math.max(0.1, Number(projectile.maxAge) || 2.4)
-  ));
+  compactInPlace(state.projectiles, isActiveProjectile);
 }
 
 function pointToSegmentMetrics(point, start, end) {
@@ -5328,7 +5393,7 @@ function updateHeroSkillActors(state, dt) {
       actor.done = true;
     }
   }
-  state.heroSkillActors = state.heroSkillActors.filter(({ done }) => !done);
+  compactInPlace(state.heroSkillActors, isActiveHeroSkillActor);
 }
 
 function syncSquadMembers(tower, definition, { reset = false, stats = null } = {}) {
@@ -5353,6 +5418,58 @@ function syncSquadMembers(tower, definition, { reset = false, stats = null } = {
   const previousMembers = Array.isArray(tower.members) ? tower.members : [];
   const hadCompleteMemberState = previousMembers.length === count
     && previousMembers.every((member) => Number.isFinite(Number(member?.hp)));
+  if (!reset && hadCompleteMemberState) {
+    let memberHpTotal = 0;
+    let aliveMembers = 0;
+    let reusable = typeof tower.squadSize === 'number'
+      && tower.squadSize === count
+      && typeof tower.maxMembers === 'number'
+      && tower.maxMembers === Number(definition.maxMembers)
+      && typeof tower.memberHp === 'number'
+      && typeof tower.maxHp === 'number'
+      && typeof tower.moveSpeed === 'number'
+      && Math.abs(Number(tower.memberHp) - memberMaxHp) <= 0.001
+      && Math.abs(Number(tower.maxHp) - squadMaxHp) <= 0.001
+      && Math.abs(Number(tower.moveSpeed) - resolvedStats.speed) <= 0.001;
+    for (let memberIndex = 0; reusable && memberIndex < count; memberIndex += 1) {
+      const member = previousMembers[memberIndex];
+      const offset = offsets[memberIndex];
+      const hp = Number(member.hp);
+      reusable = member.memberIndex === memberIndex
+        && Boolean(member.uid)
+        && typeof member.hp === 'number'
+        && Number.isFinite(member.hp)
+        && typeof member.x === 'number'
+        && Number.isFinite(member.x)
+        && typeof member.y === 'number'
+        && Number.isFinite(member.y)
+        && typeof member.deployX === 'number'
+        && typeof member.deployY === 'number'
+        && typeof member.attackCooldown === 'number'
+        && Number.isFinite(member.attackCooldown)
+        && typeof member.aimAngle === 'number'
+        && Number.isFinite(member.aimAngle)
+        && typeof member.attackPulse === 'number'
+        && Number.isFinite(member.attackPulse)
+        && typeof member.hitPulse === 'number'
+        && Number.isFinite(member.hitPulse)
+        && (member.facing === -1 || member.facing === 1)
+        && typeof member.maxHp === 'number'
+        && Math.abs(Number(member.maxHp) - memberMaxHp) <= 0.001
+        && Math.abs(Number(member.deployX) - (baseX + offset.x)) <= 0.001
+        && Math.abs(Number(member.deployY) - (baseY + offset.y)) <= 0.001
+        && member.alive === (hp > 0)
+        && member.downed === (hp <= 0);
+      memberHpTotal += Math.max(0, hp);
+      if (member.alive && hp > 0) aliveMembers += 1;
+    }
+    if (reusable && Math.abs(memberHpTotal - aggregateHp) <= 0.01) {
+      tower.hp = memberHpTotal;
+      tower.aliveMembers = aliveMembers;
+      tower.downed = aliveMembers === 0;
+      return previousMembers;
+    }
+  }
   tower.members = offsets.slice(0, count).map(
     (offset, memberIndex) => {
       const source = previousMembers.find((member) => member?.memberIndex === memberIndex)
@@ -5516,6 +5633,13 @@ function fireSquadMember(state, tower, member, target, definition, stats) {
 }
 
 function updateTowers(state, dt) {
+  const liveEnemies = [];
+  const liveEnemiesByUid = new Map();
+  for (const enemy of state.enemies) {
+    if (enemy.hp <= 0) continue;
+    liveEnemies.push(enemy);
+    liveEnemiesByUid.set(enemy.uid, enemy);
+  }
   for (const tower of state.towers) {
     ensureTowerHealth(tower, state);
     const definition = SQUAD_TYPES[tower.squadType || tower.type] || SQUAD_TYPES.ranged;
@@ -5525,39 +5649,60 @@ function updateTowers(state, dt) {
     );
     const members = syncSquadMembers(tower, definition, { stats });
     tower.disabledTime = Math.max(0, (Number(tower.disabledTime) || 0) - dt);
+    let decayedAttackPulse = 0;
+    let decayedHitPulse = 0;
     for (const member of members) {
       member.attackPulse = Math.max(0, member.attackPulse - dt * 5.5);
       member.hitPulse = Math.max(0, member.hitPulse - dt * 6);
+      decayedAttackPulse = Math.max(decayedAttackPulse, member.attackPulse);
+      decayedHitPulse = Math.max(decayedHitPulse, member.hitPulse);
     }
-    tower.attackPulse = Math.max(0, ...members.map(({ attackPulse }) => attackPulse));
-    tower.hitPulse = Math.max(0, ...members.map(({ hitPulse }) => hitPulse));
+    tower.attackPulse = decayedAttackPulse;
+    tower.hitPulse = decayedHitPulse;
     if (tower.hp <= 0 || tower.disabledTime > 0) {
       tower.moving = false;
       continue;
     }
-    const liveEnemies = state.enemies.filter((enemy) => enemy.hp > 0);
     const targetLoads = new Map();
-    for (const member of members.filter(({ alive }) => alive)) {
-      const locked = liveEnemies.find(({ uid }) => uid === member.targetId);
+    for (const member of members) {
+      if (!member.alive) continue;
+      const locked = liveEnemiesByUid.get(member.targetId);
       if (locked) targetLoads.set(locked.uid, (targetLoads.get(locked.uid) || 0) + 1);
       else member.targetId = null;
     }
-    for (const member of members.filter(({ alive }) => alive)) {
+    for (const member of members) {
+      if (!member.alive) continue;
       member.attackCooldown = Math.max(0, member.attackCooldown - dt);
       member.moving = false;
-      let target = liveEnemies.find(({ uid }) => uid === member.targetId && member.hp > 0);
+      let target = member.hp > 0 ? liveEnemiesByUid.get(member.targetId) : null;
       if (target?.hp <= 0) {
         targetLoads.set(target.uid, Math.max(0, (targetLoads.get(target.uid) || 1) - 1));
         member.targetId = null;
         target = null;
       }
-      const availableEnemies = liveEnemies.filter((enemy) => enemy.hp > 0);
-      if (!target && availableEnemies.length) {
-        target = [...availableEnemies].sort((left, right) => {
-          const loadDelta = (targetLoads.get(left.uid) || 0) - (targetLoads.get(right.uid) || 0);
-          return loadDelta || distance(member, left) - distance(member, right)
-            || String(left.uid).localeCompare(String(right.uid));
-        })[0];
+      if (!target && liveEnemies.length) {
+        let bestLoad = Number.POSITIVE_INFINITY;
+        let bestDistanceSquared = Number.POSITIVE_INFINITY;
+        let bestUid = '';
+        for (const enemy of liveEnemies) {
+          if (enemy.hp <= 0) continue;
+          const load = targetLoads.get(enemy.uid) || 0;
+          const candidateDistanceSquared = squaredDistance(member, enemy);
+          const uid = String(enemy.uid);
+          if (
+            load < bestLoad
+            || (load === bestLoad && candidateDistanceSquared < bestDistanceSquared)
+            || (load === bestLoad && candidateDistanceSquared === bestDistanceSquared
+              && uid.localeCompare(bestUid) < 0)
+          ) {
+            target = enemy;
+            bestLoad = load;
+            bestDistanceSquared = candidateDistanceSquared;
+            bestUid = uid;
+          }
+        }
+      }
+      if (target) {
         member.targetId = target.uid;
         targetLoads.set(target.uid, (targetLoads.get(target.uid) || 0) + 1);
       }
@@ -5579,37 +5724,55 @@ function updateTowers(state, dt) {
         member.y = clamp(member.y + dy / separation * travel, TD_HERO_BOUNDS.minY, TD_HERO_BOUNDS.maxY);
         member.moving = travel > 0;
       }
-      if (member.attackCooldown <= 0 && distance(member, target) <= stats.range) {
+      if (member.attackCooldown <= 0
+        && squaredDistance(member, target) <= stats.range * stats.range) {
         fireSquadMember(state, tower, member, target, definition, stats);
         member.attackCooldown = stats.interval;
       }
     }
-    const alive = members.filter(({ alive }) => alive);
-    tower.targetUid = alive[0]?.targetId || null;
-    tower.facing = alive[0]?.facing || tower.facing || 1;
-    tower.aimAngle = alive[0]?.aimAngle || 0;
-    tower.moving = alive.some(({ moving }) => moving);
-    tower.cooldown = alive.length
-      ? Math.min(...alive.map(({ attackCooldown }) => attackCooldown))
-      : 0;
-    tower.attackPulse = Math.max(0, ...alive.map(({ attackPulse }) => attackPulse));
-    tower.hitPulse = Math.max(0, ...alive.map(({ hitPulse }) => hitPulse));
-    if (alive.length) {
-      tower.x = alive.reduce((sum, member) => sum + member.x, 0) / alive.length;
-      tower.y = alive.reduce((sum, member) => sum + member.y, 0) / alive.length;
+    let firstAliveMember = null;
+    let aliveCount = 0;
+    let moving = false;
+    let cooldown = Number.POSITIVE_INFINITY;
+    let attackPulse = 0;
+    let hitPulse = 0;
+    let xTotal = 0;
+    let yTotal = 0;
+    for (const member of members) {
+      if (!member.alive) continue;
+      if (!firstAliveMember) firstAliveMember = member;
+      aliveCount += 1;
+      if (member.moving) moving = true;
+      cooldown = Math.min(cooldown, member.attackCooldown);
+      attackPulse = Math.max(attackPulse, member.attackPulse);
+      hitPulse = Math.max(hitPulse, member.hitPulse);
+      xTotal += member.x;
+      yTotal += member.y;
+    }
+    tower.targetUid = firstAliveMember?.targetId || null;
+    tower.facing = firstAliveMember?.facing || tower.facing || 1;
+    tower.aimAngle = firstAliveMember?.aimAngle || 0;
+    tower.moving = moving;
+    tower.cooldown = Number.isFinite(cooldown) ? cooldown : 0;
+    tower.attackPulse = attackPulse;
+    tower.hitPulse = hitPulse;
+    if (aliveCount) {
+      tower.x = xTotal / aliveCount;
+      tower.y = yTotal / aliveCount;
     }
   }
 }
 
 function targetForHero(state, hero, range) {
   let best = null;
-  let bestDistance = Number.POSITIVE_INFINITY;
+  let bestDistanceSquared = Number.POSITIVE_INFINITY;
+  const rangeSquared = range * range;
   for (const enemy of state.enemies) {
     if (enemy.hp <= 0) continue;
-    const targetDistance = distance(hero, enemy);
-    if (targetDistance > range || targetDistance >= bestDistance) continue;
+    const targetDistanceSquared = squaredDistance(hero, enemy);
+    if (targetDistanceSquared > rangeSquared || targetDistanceSquared >= bestDistanceSquared) continue;
     best = enemy;
-    bestDistance = targetDistance;
+    bestDistanceSquared = targetDistanceSquared;
   }
   return best;
 }
@@ -5718,9 +5881,12 @@ function updateTurrets(state, dt) {
     turret.attackPulse = Math.max(0, turret.attackPulse - dt * 5.5);
     if (turret.disabledTime > 0) continue;
     if (turret.cooldown > 0) continue;
-    const target = state.enemies
-      .filter((enemy) => enemy.hp > 0 && distance(turret, enemy) <= definition.range)
-      .sort((left, right) => right.travelled - left.travelled)[0];
+    const rangeSquared = definition.range * definition.range;
+    let target = null;
+    for (const enemy of state.enemies) {
+      if (enemy.hp <= 0 || squaredDistance(turret, enemy) > rangeSquared) continue;
+      if (!target || enemy.travelled > target.travelled) target = enemy;
+    }
     if (!target) {
       turret.cooldown = Math.min(0.14, turret.cooldown + 0.08);
       continue;
@@ -5768,38 +5934,61 @@ function updateTurrets(state, dt) {
   }
 }
 
-function towerContactTravel(state, enemy, tower) {
-  const stage = stageForState(state);
-  const lane = stage.lanes[laneIndexForEnemy(state, enemy)];
+function blockingProjection(context, laneIndex, actor) {
+  let projections = context.projections.get(actor);
+  if (!projections) {
+    projections = [];
+    context.projections.set(actor, projections);
+  }
+  let projection = projections[laneIndex];
+  if (!projection) {
+    projection = projectPointToPath(context.stage.lanes[laneIndex].path, actor);
+    projections[laneIndex] = projection;
+  }
+  return projection;
+}
+
+function towerContactTravel(state, enemy, tower, context = null) {
+  const stage = context?.stage || stageForState(state);
+  const laneIndex = laneIndexForEnemy(state, enemy);
+  const lane = stage.lanes[laneIndex];
   const contactOffset = contactDistanceForEnemy(enemy);
-  const members = Array.isArray(tower.members)
-    ? tower.members.filter((member) => member.alive && member.hp > 0)
-    : [towerPosition(state, tower)].filter(Boolean);
+  const members = Array.isArray(tower.members) ? tower.members : null;
+  const fallbackPosition = members ? null : towerPosition(state, tower);
+  const memberCount = members?.length || (fallbackPosition ? 1 : 0);
   let best = null;
-  members.forEach((member, filteredMemberIndex) => {
-    const projection = projectPointToPath(lane.path, member);
-    const touching = distance(member, enemy) <= contactOffset + 1;
-    if (!touching && projection.distance > 46) return;
-    if (!touching && projection.travelled < enemy.travelled) return;
+  let filteredMemberIndex = 0;
+  for (let sourceIndex = 0; sourceIndex < memberCount; sourceIndex += 1) {
+    const member = members ? members[sourceIndex] : fallbackPosition;
+    if (members && (!member.alive || member.hp <= 0)) continue;
+    const currentFilteredIndex = filteredMemberIndex;
+    filteredMemberIndex += 1;
+    const projection = context
+      ? blockingProjection(context, laneIndex, member)
+      : projectPointToPath(lane.path, member);
+    const touchingDistance = contactOffset + 1;
+    const touching = squaredDistance(member, enemy) <= touchingDistance * touchingDistance;
+    if (!touching && projection.distance > 46) continue;
+    if (!touching && projection.travelled < enemy.travelled) continue;
     const travelled = touching
       ? enemy.travelled
       : Math.max(0, projection.travelled - contactOffset);
-    if (travelled < enemy.travelled - 0.01) return;
+    if (travelled < enemy.travelled - 0.01) continue;
     const memberIndex = Number.isInteger(member.memberIndex)
-      ? member.memberIndex : filteredMemberIndex;
+      ? member.memberIndex : currentFilteredIndex;
     if (!best || travelled < best.travelled) best = { travelled, memberIndex };
-  });
+  }
   return best;
 }
 
-function nextBlockingTower(state, enemy) {
+function nextBlockingTower(state, enemy, context = null) {
   let best = null;
   let bestTravelled = Number.POSITIVE_INFINITY;
   let bestMemberIndex = null;
   for (const tower of state.towers) {
     ensureTowerHealth(tower, state);
     if (tower.hp <= 0) continue;
-    const contact = towerContactTravel(state, enemy, tower);
+    const contact = towerContactTravel(state, enemy, tower, context);
     if (!contact || contact.travelled < enemy.travelled - 0.01) continue;
     if (contact.travelled < bestTravelled) {
       best = tower;
@@ -5809,11 +5998,13 @@ function nextBlockingTower(state, enemy) {
   }
   const hero = state.hero;
   if (hero?.hp > 0) {
-    const stage = stageForState(state);
+    const stage = context?.stage || stageForState(state);
     const laneIndex = laneIndexForEnemy(state, enemy);
     const lane = stage.lanes[laneIndex];
     const enemyDefinition = TD_ENEMIES[enemy.type] || TD_ENEMIES.bug;
-    const projection = projectPointToPath(lane.path, hero);
+    const projection = context
+      ? blockingProjection(context, laneIndex, hero)
+      : projectPointToPath(lane.path, hero);
     if (projection.distance <= 42) {
       const contactOffset = 36 + enemyDefinition.size * 0.18;
       const heroTravelled = Math.max(0, projection.travelled - contactOffset);
@@ -5974,7 +6165,31 @@ function damageTower(state, enemy, tower, amount, memberIndex = null) {
 function rangedTargetForEnemy(state, enemy, attackRange) {
   const range = Math.max(0, Number(attackRange) || 0);
   if (range <= 0) return null;
-  const candidates = [];
+  const rangeSquared = range * range;
+  let bestTower = null;
+  let bestMemberIndex = null;
+  let bestTargetUid = null;
+  let bestX = 0;
+  let bestY = 0;
+  let bestDistanceSquared = Number.POSITIVE_INFINITY;
+  const consider = (tower, memberIndex, targetUid, x, y) => {
+    const dx = enemy.x - x;
+    const dy = enemy.y - y;
+    const candidateDistanceSquared = dx * dx + dy * dy;
+    if (candidateDistanceSquared > rangeSquared) return;
+    const uid = String(targetUid);
+    if (
+      candidateDistanceSquared > bestDistanceSquared
+      || (candidateDistanceSquared === bestDistanceSquared
+        && bestTargetUid != null && uid.localeCompare(String(bestTargetUid)) >= 0)
+    ) return;
+    bestTower = tower;
+    bestMemberIndex = memberIndex;
+    bestTargetUid = targetUid;
+    bestX = x;
+    bestY = y;
+    bestDistanceSquared = candidateDistanceSquared;
+  };
   for (const tower of state.towers) {
     ensureTowerHealth(tower, state);
     if (tower.hp <= 0) continue;
@@ -5982,35 +6197,20 @@ function rangedTargetForEnemy(state, enemy, attackRange) {
     const members = syncSquadMembers(tower, definition);
     for (const member of members) {
       if (!member.alive || member.hp <= 0) continue;
-      const targetDistance = distance(enemy, member);
-      if (targetDistance > range) continue;
-      candidates.push({
-        tower,
-        memberIndex: member.memberIndex,
-        targetUid: member.uid,
-        x: member.x,
-        y: member.y,
-        distance: targetDistance,
-      });
+      consider(tower, member.memberIndex, member.uid, member.x, member.y);
     }
   }
   if (state.hero?.hp > 0) {
-    const targetDistance = distance(enemy, state.hero);
-    if (targetDistance <= range) {
-      candidates.push({
-        tower: state.hero,
-        memberIndex: null,
-        targetUid: state.hero.uid,
-        x: state.hero.x,
-        y: state.hero.y,
-        distance: targetDistance,
-      });
-    }
+    consider(state.hero, null, state.hero.uid, state.hero.x, state.hero.y);
   }
-  return candidates.sort((left, right) => (
-    left.distance - right.distance
-    || String(left.targetUid).localeCompare(String(right.targetUid))
-  ))[0] || null;
+  return bestTower ? {
+    tower: bestTower,
+    memberIndex: bestMemberIndex,
+    targetUid: bestTargetUid,
+    x: bestX,
+    y: bestY,
+    distance: Math.sqrt(bestDistanceSquared),
+  } : null;
 }
 
 function damageEnemyTarget(state, enemy, target, damage) {
@@ -6169,7 +6369,7 @@ function shellRushGeometry(state, enemy, definition) {
   const stage = stageForState(state);
   const laneIndex = laneIndexForEnemy(state, enemy);
   const lane = stage.lanes[laneIndex];
-  const pathLength = pathMetrics(lane.path).total;
+  const pathLength = pathMetricsForRuntime(lane.path).total;
   const originTravelled = clamp(Number(enemy.travelled) || 0, 0, pathLength);
   const targetTravelled = clamp(
     originTravelled + Math.max(1, Number(definition.bossSkillDashDistance) || 80),
@@ -6344,12 +6544,13 @@ function updateBossSkill(state, enemy, definition, dt) {
 
 function updateEnemies(state, dt) {
   const stage = stageForState(state);
+  const blockingContext = { stage, projections: new WeakMap() };
   for (const enemy of state.enemies) {
     if (enemy.hp <= 0) continue;
     const definition = TD_ENEMIES[enemy.type] || TD_ENEMIES.bug;
     const laneIndex = laneIndexForEnemy(state, enemy);
     const lane = stage.lanes[laneIndex];
-    const pathLength = pathMetrics(lane.path).total;
+    const pathLength = pathMetricsForRuntime(lane.path).total;
     enemy.hitPulse = Math.max(0, enemy.hitPulse - dt * 6);
     if (enemy.poisonTime > 0) {
       enemy.poisonTime -= dt;
@@ -6402,7 +6603,7 @@ function updateEnemies(state, dt) {
       setEnemyTravelled(state, enemy, nextTravelled);
       continue;
     }
-    const blocker = nextBlockingTower(state, enemy);
+    const blocker = nextBlockingTower(state, enemy, blockingContext);
     if (!blocker || nextTravelled < blocker.travelled) {
       updateEnemyRangedAttack(state, enemy, definition, dt);
     }
@@ -6445,7 +6646,7 @@ function updateEnemies(state, dt) {
       state.events.push({ type: 'core-hit', damage: definition.coreDamage });
     }
   }
-  state.enemies = state.enemies.filter((enemy) => enemy.hp > 0 && !enemy.leaked);
+  compactInPlace(state.enemies, isLivingEnemy);
 }
 
 function emptyMetaReward() {
@@ -6614,7 +6815,7 @@ function updateEffects(state, dt) {
     effect.phase = clamp(effect.age / effect.duration, 0, 1);
     if (effect.type === 'summon') effect.y -= dt * 18;
   }
-  state.effects = state.effects.filter((effect) => effect.age < effect.duration);
+  compactInPlace(state.effects, isActiveEffect);
 }
 
 export function updateTowerDefense(state, dt) {
@@ -6650,7 +6851,7 @@ export function updateTowerDefense(state, dt) {
   updateTurrets(state, delta);
   updateTrackedBossWarnings(state);
   updateProjectiles(state, delta);
-  state.enemies = state.enemies.filter((enemy) => enemy.hp > 0 && !enemy.leaked);
+  compactInPlace(state.enemies, isLivingEnemy);
   if (state.coreHp <= 0) {
     finishRun(state, 'defeat');
   } else if (!state.spawnQueue.length && !state.enemies.length) {

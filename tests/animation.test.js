@@ -790,6 +790,64 @@ test('boss charge can run as a hold base and freezes at the charged pose', () =>
   assert.deepEqual(controller.drainEvents(), []);
 });
 
+test('reuses normalization only for deeply frozen clip configurations', () => {
+  let sourceReads = 0;
+  const frozenClips = new Proxy(SHELL_CLIPS, {
+    get(target, property, receiver) {
+      if (typeof property === 'string' && Object.hasOwn(target, property)) sourceReads += 1;
+      return Reflect.get(target, property, receiver);
+    },
+  });
+
+  const first = new AnimationController(frozenClips, {
+    base: 'idle',
+    transitionDuration: 0,
+  });
+  const readsAfterFirstNormalization = sourceReads;
+  assert.ok(readsAfterFirstNormalization > 0);
+
+  const second = new AnimationController(frozenClips, {
+    base: 'idle',
+    transitionDuration: 0,
+  });
+  assert.equal(sourceReads, readsAfterFirstNormalization);
+
+  first.update(0.35);
+  assert.notDeepEqual(first.sample(), second.sample(), 'playback state remains per controller');
+});
+
+test('mutable and shallow-frozen clip configurations are normalized on every construction', () => {
+  const mutable = { idle: constantClip(2) };
+  const firstMutable = new AnimationController(mutable, {
+    base: 'idle',
+    transitionDuration: 0,
+  });
+  mutable.idle.tracks.root.x = 7;
+  const secondMutable = new AnimationController(mutable, {
+    base: 'idle',
+    transitionDuration: 0,
+  });
+  assert.equal(firstMutable.sample().root.x, 2);
+  assert.equal(secondMutable.sample().root.x, 7);
+
+  mutable.idle.tracks.root.unsupported = 1;
+  assert.throws(() => new AnimationController(mutable), /unsupported property/);
+
+  const nestedClip = constantClip(3);
+  const shallowFrozen = Object.freeze({ idle: nestedClip });
+  const firstShallow = new AnimationController(shallowFrozen, {
+    base: 'idle',
+    transitionDuration: 0,
+  });
+  nestedClip.tracks.root.x = 8;
+  const secondShallow = new AnimationController(shallowFrozen, {
+    base: 'idle',
+    transitionDuration: 0,
+  });
+  assert.equal(firstShallow.sample().root.x, 3);
+  assert.equal(secondShallow.sample().root.x, 8);
+});
+
 test('samples complete relative transforms with linear and shortest-angle interpolation', () => {
   const degrees = (value) => value * Math.PI / 180;
   const clips = {

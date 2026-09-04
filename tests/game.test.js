@@ -2475,6 +2475,48 @@ test('formal PNG particles receive small composable Canvas impact accents', () =
   }
 });
 
+test('particle scalar motion dispatch preserves every generated asset transform', () => {
+  const progress = 0.37;
+  const size = 40;
+  const x = 120;
+  const y = 180;
+  const rotation = 0.23;
+  const pulse = Math.sin(progress * Math.PI);
+  const cases = {
+    goo: ['effect-particle-goo-drop', pulse * size * 0.18, progress * size * 0.32,
+      1 - progress * 0.16, 1 + progress * 0.55, progress * 0.28],
+    spark: ['effect-particle-impact-spark', progress * size * 0.12, -progress * size * 0.18,
+      0.55 + pulse * 0.65, 0.55 + pulse * 0.65, progress * 1.4],
+    ring: ['effect-particle-expanding-ring', 0, -progress * size * 0.08,
+      0.3 + progress * 0.7, 0.3 + progress * 0.7, progress * 0.18],
+    leaf: ['effect-particle-healing-leaf', Math.sin(progress * Math.PI * 2) * size * 0.32,
+      -progress * size * 0.95, 0.78 + pulse * 0.3, 0.72 + pulse * 0.28, progress * 2.2],
+    bubble: ['effect-particle-bubble', pulse * size * 0.18, -progress * size * 1.25,
+      0.78 + progress * 0.28, 0.78 + progress * 0.36, progress * 0.45],
+    dust: ['effect-particle-dust-puff', progress * size * 0.12, progress * size * 0.18,
+      0.4 + progress * 0.75, 0.44 + progress * 0.56, -progress * 0.12],
+  };
+  const store = createReadyAssetStore(Object.values(cases).map(([assetKey]) => assetKey));
+
+  for (const [type, [assetKey, motionX, motionY, scaleX, scaleY, motionRotation]] of Object.entries(cases)) {
+    const recording = createDynamicEffectRecordingContext();
+    drawParticle(recording.ctx, x, y, size, type, {
+      assetStore: store,
+      progress,
+      rotation,
+    });
+    assert.equal(store.requests.at(-1), assetKey, `${type} keeps its generated asset mapping`);
+    assert.deepEqual(recording.calls.find(([method]) => method === 'translate'),
+      ['translate', x + motionX, y + motionY], `${type} keeps its motion offset`);
+    assert.deepEqual(recording.calls.find(([method]) => method === 'rotate'),
+      ['rotate', rotation + motionRotation], `${type} keeps its rotation`);
+    assert.deepEqual(recording.calls.find(([method]) => method === 'scale'),
+      ['scale', scaleX, scaleY], `${type} keeps its non-uniform scale`);
+    assert.equal(recording.calls.filter(([method]) => method === 'drawImage').length, 1,
+      `${type} still draws its PNG exactly once`);
+  }
+});
+
 test('game routes world, UI, projectile, status, and particle slots through the PNG store', () => {
   const keys = [
     'terrain-ground-detail-a', 'terrain-soft-gel-node-a', 'terrain-dew-honey-node-a',

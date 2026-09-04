@@ -157,6 +157,27 @@ function resolveProjectiles(state, maxTicks = 100) {
   }
 }
 
+test('path helpers cache only deeply frozen authored paths', () => {
+  const authored = TD_STAGES[0].lanes[0].path;
+  const firstMetrics = pathMetrics(authored);
+  const secondMetrics = pathMetrics(authored);
+  assert.notEqual(firstMetrics, secondMetrics, 'the public metrics result remains independently mutable');
+  firstMetrics.total = -1;
+  assert.ok(pathMetrics(authored).total > 0);
+
+  const mutablePoints = [{ x: 0, y: 0 }, { x: 100, y: 0 }];
+  assert.equal(pointOnPath(mutablePoints, 150).x, 100);
+  mutablePoints[1].x = 200;
+  assert.equal(pointOnPath(mutablePoints, 150).x, 150,
+    'a mutable path is recalculated after its geometry changes');
+
+  const shallowFrozen = Object.freeze([{ x: 0, y: 0 }, { x: 100, y: 0 }]);
+  assert.equal(pathMetrics(shallowFrozen).total, 100);
+  shallowFrozen[1].x = 200;
+  assert.equal(pathMetrics(shallowFrozen).total, 200,
+    'freezing only the array never opts mutable point objects into the runtime cache');
+});
+
 test('old progress migrates to the exact starter collection and one active R hero', () => {
   assert.deepEqual(Object.fromEntries(Object.entries(HERO_TYPES).map(([type, hero]) => (
     [type, { name: hero.name, rarity: hero.rarity }]

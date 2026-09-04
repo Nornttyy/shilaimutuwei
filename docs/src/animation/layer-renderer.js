@@ -18,6 +18,101 @@ const CANVAS_METHODS = Object.freeze([
 
 const EXPRESSION_SURFACE_CACHE = new Map();
 const MAX_EXPRESSION_SURFACE_EDGE = 2048;
+const STATIC_PREPARATION_CACHE = new WeakMap();
+const VERIFIED_DEEP_FROZEN_DATA = new WeakSet();
+const VERIFIED_DEEP_FROZEN_STRUCTURE = new WeakSet();
+
+function isDeepFrozenData(value, seen = new WeakSet()) {
+  if (
+    value == null
+    || (typeof value !== 'object' && typeof value !== 'function')
+  ) return true;
+  if (VERIFIED_DEEP_FROZEN_DATA.has(value) || seen.has(value)) return true;
+
+  try {
+    if (!Object.isFrozen(value)) return false;
+    const prototype = Object.getPrototypeOf(value);
+    if (
+      prototype !== Object.prototype
+      && prototype !== Array.prototype
+      && prototype !== null
+    ) return false;
+
+    seen.add(value);
+    for (const key of Reflect.ownKeys(value)) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      // A frozen accessor may still return changing data, so it cannot be a
+      // structural cache input even when the containing object is frozen.
+      if (!descriptor || !Object.hasOwn(descriptor, 'value')) return false;
+      if (!isDeepFrozenData(descriptor.value, seen)) return false;
+    }
+    VERIFIED_DEEP_FROZEN_DATA.add(value);
+    return true;
+  } catch {
+    // Proxies and host objects that cannot be inspected retain prepare-on-use
+    // behaviour instead of weakening validation or cache correctness.
+    return false;
+  }
+}
+
+function isDeepFrozenStructure(value, seen = new WeakSet()) {
+  if (
+    value == null
+    || (typeof value !== 'object' && typeof value !== 'function')
+  ) return true;
+  if (VERIFIED_DEEP_FROZEN_STRUCTURE.has(value) || seen.has(value)) return true;
+
+  try {
+    if (!Object.isFrozen(value)) return false;
+    const prototype = Object.getPrototypeOf(value);
+    if (
+      prototype !== Object.prototype
+      && prototype !== Array.prototype
+      && prototype !== null
+    ) return false;
+
+    seen.add(value);
+    for (const key of Reflect.ownKeys(value)) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (!descriptor || !Object.hasOwn(descriptor, 'value')) return false;
+      // Decoded CanvasImageSource values are live host objects. They are not
+      // structural preparation data and are resolved again by materialize on
+      // every draw; only their frozen data-property container is trusted.
+      if (key === 'image' || key === 'asset') continue;
+      if (!isDeepFrozenStructure(descriptor.value, seen)) return false;
+    }
+    VERIFIED_DEEP_FROZEN_STRUCTURE.add(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function stableExpressionInput(expression) {
+  return expression == null
+    || typeof expression === 'string'
+    || isDeepFrozenData(expression);
+}
+
+function canCachePreparation(rig, entry, expression) {
+  return isDeepFrozenData(rig)
+    && isDeepFrozenStructure(entry)
+    && stableExpressionInput(expression);
+}
+
+function preparedPartsCacheBucket(rig, entry) {
+  let byEntry = STATIC_PREPARATION_CACHE.get(rig);
+  if (!byEntry) {
+    byEntry = new WeakMap();
+    STATIC_PREPARATION_CACHE.set(rig, byEntry);
+  }
+  let bucket = byEntry.get(entry);
+  if (!bucket) {
+    bucket = [];
+    byEntry.set(entry, bucket);
+  }
+  return bucket;
+}
 
 function finiteOr(value, fallback) {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
@@ -344,6 +439,118 @@ function prepareParts(rig, entry, images, expression) {
   return drawable;
 }
 
+function prepareStaticParts(rig, entry, expression) {
+  const slots = expressionSlotsFor(rig, expression);
+  const sourceParts = partsFromEntry(entry);
+  const parts = [];
+  for (let index = 0; index < sourceParts.length; index += 1) {
+    const part = sourceParts[index];
+    if (!part || typeof part !== 'object') {
+      throw new TypeError(`manifestEntry.parts[${index}] must be an object.`);
+    }
+    const label = `manifestEntry.parts[${index}]`;
+    const chain = boneChainFor(rig, part.bone, label);
+    const variants = variantWeightsFor(part, slots).map(({ name: variantName, weight }) => {
+      const descriptor = descriptorForVariant(part, variantName);
+      const isBase = descriptor === part;
+      const suffix = isBase ? '' : `.variants.${variantName}`;
+      return Object.freeze({
+        descriptor,
+        isBase,
+        variantName,
+        rect: Object.freeze(bindRectFor(descriptor, index, suffix)),
+        sourceRect: sourceRectFor(descriptor, index, suffix),
+        alpha: (isBase ? 1 : clampAlpha(descriptor.alpha)) * weight,
+      });
+    });
+    for (const variant of variants) {
+      if (variant.sourceRect) Object.freeze(variant.sourceRect);
+    }
+    Object.freeze(variants);
+    for (const link of chain) Object.freeze(link);
+    Object.freeze(chain);
+    parts.push(Object.freeze({
+      index,
+      part,
+      chain,
+      z: zForPart(part, rig),
+      alpha: clampAlpha(part.alpha),
+      variants,
+    }));
+  }
+  parts.sort((left, right) => left.z - right.z || left.index - right.index);
+  return Object.freeze(parts);
+}
+
+function materializeStaticParts(staticParts, images) {
+  const parts = [];
+  for (const staticPart of staticParts) {
+    const variants = [];
+    for (const prepared of staticPart.variants) {
+      const image = prepared.isBase
+        ? imageForPart(staticPart.part, images)
+        : imageForVariant(
+          staticPart.part,
+          prepared.variantName,
+          prepared.descriptor,
+          images,
+        );
+      const candidate = {
+        sequence: variants.length,
+        image,
+        rect: prepared.rect,
+        sourceRect: prepared.sourceRect,
+        alpha: prepared.alpha,
+        visualKey: visualKey(prepared.descriptor, image),
+      };
+      const duplicate = variants.find((existing) => sameVisual(
+        existing.visualKey,
+        candidate.visualKey,
+      ));
+      if (duplicate) duplicate.alpha += candidate.alpha;
+      else variants.push(candidate);
+    }
+    if (
+      staticPart.part.required !== false
+      && variants.some(({ image }) => image == null)
+    ) return null;
+
+    let writeIndex = 0;
+    for (const variant of variants) {
+      if (variant.image == null) continue;
+      variants[writeIndex] = variant;
+      writeIndex += 1;
+    }
+    variants.length = writeIndex;
+    if (writeIndex > 0) parts.push({
+      index: staticPart.index,
+      part: staticPart.part,
+      chain: staticPart.chain,
+      z: staticPart.z,
+      alpha: staticPart.alpha,
+      variants,
+    });
+  }
+  return parts;
+}
+
+function preparedPartsFor(rig, entry, images, expression) {
+  if (!canCachePreparation(rig, entry, expression)) {
+    return prepareParts(rig, entry, images, expression);
+  }
+
+  const bucket = preparedPartsCacheBucket(rig, entry);
+  let cached = bucket.find((candidate) => candidate.expression === expression);
+  if (!cached) {
+    cached = Object.freeze({ expression, parts: prepareStaticParts(rig, entry, expression) });
+    bucket.push(cached);
+  }
+  // Images are intentionally resolved on every call. Loader maps and decoded
+  // host images need not be frozen, and their readiness must never be hidden
+  // by a cache of pose-independent rig metadata.
+  return materializeStaticParts(cached.parts, images);
+}
+
 function applyBoneTransform(ctx, pose, { name, bone }) {
   const pivot = bone.pivot ?? IDENTITY_TRANSFORM;
   const transform = pose?.[name] ?? IDENTITY_TRANSFORM;
@@ -516,19 +723,19 @@ function prepareExpressionBlend(ctx, prepared) {
   return { surface, rect: geometry.rect };
 }
 
-function drawPreparedPart(ctx, pose, prepared) {
+function drawPreparedPart(ctx, pose, prepared, blend = null) {
   ctx.save();
   try {
     for (const bone of prepared.chain) applyBoneTransform(ctx, pose, bone);
     ctx.globalAlpha *= clampAlpha(prepared.alpha);
-    if (prepared.blend) {
-      const { x, y, width, height } = prepared.blend.rect;
+    if (blend) {
+      const { x, y, width, height } = blend.rect;
       ctx.drawImage(
-        prepared.blend.surface.canvas,
+        blend.surface.canvas,
         0,
         0,
-        prepared.blend.surface.width,
-        prepared.blend.surface.height,
+        blend.surface.width,
+        blend.surface.height,
         x,
         y,
         width,
@@ -568,19 +775,24 @@ export function renderLayeredRig(
 ) {
   assertCanvasContext(ctx);
   assertRig(rig);
-  const parts = prepareParts(rig, manifestEntry, decodedImages, expression);
+  const parts = preparedPartsFor(rig, manifestEntry, decodedImages, expression);
   if (parts == null || parts.length === 0) return false;
 
   // Allocate and fill every required expression surface before touching the
   // caller's canvas, preserving the renderer's atomic fallback contract.
-  for (const part of parts) {
+  let blends = null;
+  for (let index = 0; index < parts.length; index += 1) {
+    const part = parts[index];
     if (part.variants.length < 2) continue;
     const blend = prepareExpressionBlend(ctx, part);
     if (!blend) return false;
-    part.blend = blend;
+    if (!blends) blends = new Array(parts.length).fill(null);
+    blends[index] = blend;
   }
 
-  for (const part of parts) drawPreparedPart(ctx, pose, part);
+  for (let index = 0; index < parts.length; index += 1) {
+    drawPreparedPart(ctx, pose, parts[index], blends?.[index]);
+  }
   return true;
 }
 

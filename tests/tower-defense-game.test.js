@@ -2402,6 +2402,42 @@ test('moving heroes and squads use their move clips instead of sliding in idle',
   game.dispose();
 });
 
+test('combat animation updates skip hidden shop previews and unused squad controllers', () => {
+  const canvas = createCanvas();
+  const game = new TowerDefenseGame(canvas, {
+    runtime: createRuntime({ tutorialSeen: true }),
+    pixelRatio: 1,
+  });
+  game.state.screen = 'battle';
+  game.state.phase = 'combat';
+  game.state.waveActive = true;
+  game.state.tutorial.active = false;
+  game.state.hand = [];
+  game.state.enemies = [];
+  game.state.towers = [{
+    uid: 'performance-squad', kind: 'soldier', type: 'melee', squadType: 'melee',
+    aliveMembers: 4, star: 1, padIndex: 0, x: 88, y: 270, moving: false,
+  }];
+
+  game.updateCharacterAnimations(1 / 60);
+  game.render(1 / 60);
+
+  assert.equal(
+    [...game.characterAnimations.keys()].some((key) => key.startsWith('purchase:')),
+    false,
+    'invisible purchase previews do not consume animation work during a wave',
+  );
+  assert.equal(game.characterAnimations.has('tower:performance-squad'), false,
+    'the squad renderer uses only its four member controllers');
+  assert.equal(
+    [...game.characterAnimations.keys()].filter((key) => (
+      key.startsWith('squad:performance-squad:')
+    )).length,
+    4,
+  );
+  game.dispose();
+});
+
 test('presentation smoothing covers actors, shots, waves, turret aim, and facing without changing combat state', () => {
   const canvas = createCanvas();
   const game = new TowerDefenseGame(canvas, {

@@ -9,6 +9,7 @@ import {
   resolveExpressionState,
 } from '../src/animation/expression-mixer.js';
 import { AnimationController } from '../src/animation/controller.js';
+import { EXPRESSION_SPEC } from '../src/animation/rigs.js';
 
 const OWNER = 'survivor-bubble-float';
 
@@ -65,6 +66,75 @@ test('uses owner and current time for deterministic staggered blinking', () => {
       ownerId: OWNER,
       currentTime: index * 0.01,
     })),
+  );
+});
+
+test('caches validation for a deeply frozen expression specification', () => {
+  let slotReads = 0;
+  const frozenSpec = new Proxy(EXPRESSION_SPEC, {
+    get(target, property, receiver) {
+      if (property === 'slots') slotReads += 1;
+      return Reflect.get(target, property, receiver);
+    },
+  });
+
+  const context = {
+    ownerId: OWNER,
+    currentTime: 0,
+    targetState: 'normal',
+    spec: frozenSpec,
+    autoBlink: false,
+  };
+  assert.equal(resolveExpressionState(context), 'normal');
+  const readsAfterFirstValidation = slotReads;
+  assert.ok(readsAfterFirstValidation > 0);
+
+  assert.equal(resolveExpressionState(context), 'normal');
+  assert.equal(slotReads, readsAfterFirstValidation);
+});
+
+test('mutable and shallow-frozen expression specifications are always revalidated', () => {
+  const createMutableSpec = () => ({
+    defaultState: 'normal',
+    slots: {
+      eyes: { bone: 'eyes', variants: ['normal', 'hurt'] },
+    },
+    states: {
+      normal: { eyes: 'normal' },
+      hurt: { eyes: 'hurt' },
+    },
+    clipStates: { hurt: 'hurt' },
+  });
+  const contextFor = (spec) => ({
+    ownerId: OWNER,
+    currentTime: 0,
+    spec,
+    autoBlink: false,
+  });
+
+  const mutable = createMutableSpec();
+  const mutableMixer = new ExpressionMixer({
+    ownerId: OWNER,
+    spec: mutable,
+    autoBlink: false,
+  });
+  assert.equal(resolveExpressionState(contextFor(mutable)), 'normal');
+  mutable.states.normal.eyes = 'missing';
+  assert.throws(
+    () => resolveExpressionState(contextFor(mutable)),
+    /must name a declared variant/,
+  );
+  assert.throws(
+    () => mutableMixer.setContext({ currentTime: 0 }),
+    /must name a declared variant/,
+  );
+
+  const shallowFrozen = Object.freeze(createMutableSpec());
+  assert.equal(resolveExpressionState(contextFor(shallowFrozen)), 'normal');
+  shallowFrozen.states.normal.eyes = 'missing';
+  assert.throws(
+    () => resolveExpressionState(contextFor(shallowFrozen)),
+    /must name a declared variant/,
   );
 });
 

@@ -295,7 +295,11 @@ test('placed squads draw four fixed-size independent members without star scalin
     /const hasIndependentMembers = Array\.isArray\(squad\.members\);/,
   );
   assert.match(squadRenderer, /squad\.members\.filter\(\(member\) => \(/);
-  assert.match(squadRenderer, /4:\s*\[[\s\S]*?\],\n\s*\};/);
+  assert.match(squadRenderer, /SQUAD_MEMBER_FORMATIONS\[/);
+  assert.match(
+    TOWER_DEFENSE_SOURCE,
+    /const SQUAD_MEMBER_FORMATIONS = Object\.freeze\(\{[\s\S]*?4:\s*Object\.freeze\(\[/,
+  );
   assert.match(TOWER_DEFENSE_SOURCE, /const SQUAD_MEMBER_RENDER_SIZE = 52;/);
   assert.match(
     squadRenderer,

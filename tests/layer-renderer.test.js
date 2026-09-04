@@ -178,6 +178,181 @@ function part(id, bone, z, bindRect, overrides = {}) {
   return { id, bone, z, required: true, bindRect, ...overrides };
 }
 
+function deepFreezeData(value) {
+  if (value && typeof value === 'object' && !Object.isFrozen(value)) {
+    for (const nested of Object.values(value)) deepFreezeData(nested);
+    Object.freeze(value);
+  }
+  return value;
+}
+
+test('caches only static preparation while applying a fresh pose every draw', () => {
+  let boneLookups = 0;
+  const bones = new Proxy(TEST_RIG.bones, {
+    get(target, property, receiver) {
+      boneLookups += 1;
+      return Reflect.get(target, property, receiver);
+    },
+  });
+  const rig = Object.freeze({ id: 'cached-rig', root: 'root', bones });
+  const entry = deepFreezeData(manifest([
+    part('body', 'body', 0, { x: -20, y: -30, width: 40, height: 34 }),
+  ]));
+  const images = { body: { id: 'cached-body-first' } };
+  const ctx = createContext();
+
+  assert.equal(renderLayeredRig(ctx, rig, {}, entry, images), true);
+  const firstPreparationLookups = boneLookups;
+  assert.ok(firstPreparationLookups > 0);
+
+  images.body = { id: 'cached-body-second' };
+  ctx.calls.length = 0;
+  assert.equal(renderLayeredRig(ctx, rig, { root: { x: 7, y: -3 } }, entry, images), true);
+  assert.equal(boneLookups, firstPreparationLookups,
+    'the recursively frozen rig and manifest reuse their sorted bone-chain preparation');
+  assert.deepEqual(ctx.calls.filter(([name]) => name === 'translate').slice(0, 2), [
+    ['translate', 7, -3],
+    ['translate', 0, 0],
+  ], 'the cached structure still consumes the current frame pose');
+  assert.equal(ctx.calls.find(([name]) => name === 'drawImage')[1], 'cached-body-second',
+    'decoded images remain live inputs instead of becoming static cache data');
+
+  delete images.body;
+  ctx.calls.length = 0;
+  assert.equal(renderLayeredRig(ctx, rig, {}, entry, images), false);
+  assert.deepEqual(ctx.calls, [],
+    'a cached structure still checks current image readiness before touching the canvas');
+});
+
+test('a formal 1254 atlas manifest caches structure without freezing its host image', () => {
+  let boneLookups = 0;
+  const bones = new Proxy(EXPRESSION_RIG.bones, {
+    get(target, property, receiver) {
+      boneLookups += 1;
+      return Reflect.get(target, property, receiver);
+    },
+  });
+  const rig = Object.freeze({ ...EXPRESSION_RIG, id: 'formal-1254', bones });
+  const atlas = { id: 'formal-atlas-first', naturalWidth: 1254, naturalHeight: 1254 };
+  const bindRect = Object.freeze({ x: -60, y: -120, width: 120, height: 120 });
+  const sourceRect = (index) => Object.freeze({
+    x: (index % 3) * 418,
+    y: Math.floor(index / 3) * 418,
+    width: 418,
+    height: 418,
+  });
+  const atlasPart = (id, bone, index, z, variants = null) => Object.freeze({
+    id,
+    bone,
+    z,
+    required: true,
+    image: atlas,
+    sourceRect: sourceRect(index),
+    bindRect,
+    ...(variants ? { variants: Object.freeze(variants) } : {}),
+  });
+  const faceVariants = (normalIndex, attackIndex, hurtIndex) => Object.freeze({
+    normal: Object.freeze({ image: atlas, sourceRect: sourceRect(normalIndex), bindRect }),
+    attack: Object.freeze({ image: atlas, sourceRect: sourceRect(attackIndex), bindRect }),
+    hurt: Object.freeze({ image: atlas, sourceRect: sourceRect(hurtIndex), bindRect }),
+  });
+  const entry = Object.freeze({
+    rigId: rig.id,
+    canonicalFacing: 1,
+    parts: Object.freeze([
+      atlasPart('body', 'body', 0, 0),
+      atlasPart('headgear', 'body', 1, 10),
+      atlasPart('equipment', 'body', 2, 40),
+      atlasPart('eyes', 'face', 3, 30, faceVariants(3, 5, 7)),
+      atlasPart('mouth', 'face', 4, 31, faceVariants(4, 6, 8)),
+    ]),
+  });
+  const ctx = createContext();
+
+  assert.equal(renderLayeredRig(ctx, rig, {}, entry, null, 'normal'), true);
+  const firstPreparationLookups = boneLookups;
+  assert.ok(firstPreparationLookups > 0);
+  assert.equal(ctx.calls.filter(([name]) => name === 'drawImage').length, 5);
+
+  atlas.id = 'formal-atlas-second';
+  ctx.calls.length = 0;
+  assert.equal(renderLayeredRig(ctx, rig, { body: { y: 4 } }, entry, null, 'normal'), true);
+  assert.equal(boneLookups, firstPreparationLookups,
+    'the frozen 3x3 atlas structure reuses its bone chains and z sort');
+  assert.deepEqual(
+    ctx.calls.filter(([name]) => name === 'drawImage').map((call) => call[1]),
+    Array(5).fill('formal-atlas-second'),
+    'the mutable host atlas is resolved afresh and is never cached as static data',
+  );
+});
+
+test('mutable, shallow-frozen, and accessor-backed manifests are never cached', () => {
+  const image = Object.freeze({ id: 'mutable-body' });
+  const bindRect = { x: -20, y: -30, width: 40, height: 34 };
+  const shallowEntry = Object.freeze({
+    rigId: 'test-rig',
+    parts: Object.freeze([part('body', 'body', 0, bindRect, { image })]),
+  });
+  const shallowCtx = createContext();
+  assert.equal(renderLayeredRig(shallowCtx, TEST_RIG, {}, shallowEntry), true);
+  bindRect.x = 11;
+  shallowCtx.calls.length = 0;
+  assert.equal(renderLayeredRig(shallowCtx, TEST_RIG, {}, shallowEntry), true);
+  assert.equal(
+    shallowCtx.calls.find(([name]) => name === 'drawImage')[2],
+    11,
+    'a nested mutation remains visible after a shallow freeze',
+  );
+
+  let accessorRect = Object.freeze({ x: -8, y: -9, width: 16, height: 12 });
+  const accessorPart = {
+    id: 'body', bone: 'body', z: 0, required: true, image,
+  };
+  Object.defineProperty(accessorPart, 'bindRect', {
+    enumerable: true,
+    get: () => accessorRect,
+  });
+  Object.freeze(accessorPart);
+  const accessorEntry = Object.freeze({
+    rigId: 'test-rig',
+    parts: Object.freeze([accessorPart]),
+  });
+  const accessorCtx = createContext();
+  assert.equal(renderLayeredRig(accessorCtx, TEST_RIG, {}, accessorEntry), true);
+  accessorRect = Object.freeze({ x: 13, y: -9, width: 16, height: 12 });
+  accessorCtx.calls.length = 0;
+  assert.equal(renderLayeredRig(accessorCtx, TEST_RIG, {}, accessorEntry), true);
+  assert.equal(
+    accessorCtx.calls.find(([name]) => name === 'drawImage')[2],
+    13,
+    'a frozen accessor remains prepare-on-use because its value can change',
+  );
+});
+
+test('a shallow-frozen expression keeps live cross-fade weights', () => {
+  const ctx = createContext({ expressionSurfaceFactory: createRecordingExpressionSurface });
+  const normal = Object.freeze({ id: 'stable-normal', width: 36, height: 15 });
+  const attack = Object.freeze({ id: 'stable-attack', width: 36, height: 15 });
+  const bindRect = deepFreezeData({ x: -18, y: -51, width: 36, height: 15 });
+  const entry = deepFreezeData(manifest([
+    part('eyes', 'face', 10, bindRect, {
+      image: normal,
+      variants: { attack: { image: attack, bindRect } },
+    }),
+  ]));
+  const weights = { from: 0.25, to: 0.75 };
+  const expression = Object.freeze({
+    slots: { eyes: { from: 'normal', to: 'attack', weights } },
+  });
+
+  assert.equal(renderLayeredRig(ctx, EXPRESSION_RIG, {}, entry, null, expression), true);
+  weights.from = 0.8;
+  weights.to = 0.2;
+  assert.equal(renderLayeredRig(ctx, EXPRESSION_RIG, {}, entry, null, expression), true);
+  const surfaceDraws = ctx.surfaces[0].calls.filter(([name]) => name === 'drawImage');
+  assert.deepEqual(surfaceDraws.slice(-2).map((call) => call.at(-2)), [0.8, 0.2]);
+});
+
 test('draws independent logical bindRects in stable z order', () => {
   const ctx = createContext();
   const images = {

@@ -1335,12 +1335,18 @@ function soldierRigAssetFor(atlas, assetKey = '') {
     rigId: SOLDIER_RIG.id,
     canonicalFacing: 1,
     parts: Object.freeze([
-      { ...soldierAtlasPart('body', 'body', SOLDIER_LAYER_INDEX.body,
-        profile.parts.body, SOLDIER_BIND_RECT), image: atlas },
-      { ...soldierAtlasPart('headgear', 'headgear', SOLDIER_LAYER_INDEX.headgear,
-        profile.parts.headgear, SOLDIER_BIND_RECT), image: atlas },
-      { ...soldierAtlasPart('equipment', 'equipment', SOLDIER_LAYER_INDEX.equipment,
-        profile.parts.equipment, SOLDIER_BIND_RECT), image: atlas },
+      Object.freeze({
+        ...soldierAtlasPart('body', 'body', SOLDIER_LAYER_INDEX.body,
+          profile.parts.body, SOLDIER_BIND_RECT), image: atlas,
+      }),
+      Object.freeze({
+        ...soldierAtlasPart('headgear', 'headgear', SOLDIER_LAYER_INDEX.headgear,
+          profile.parts.headgear, SOLDIER_BIND_RECT), image: atlas,
+      }),
+      Object.freeze({
+        ...soldierAtlasPart('equipment', 'equipment', SOLDIER_LAYER_INDEX.equipment,
+          profile.parts.equipment, SOLDIER_BIND_RECT), image: atlas,
+      }),
       Object.freeze({
         id: 'eyes', bone: 'eyes', z: profile.parts.eyes, required: true, image: atlas,
         variants: Object.freeze({
@@ -1388,21 +1394,21 @@ function heroAtlasRigAssetFor(atlas, skillFaceAtlas, assetKey = '') {
     rigId: HERO_ATLAS_RIG.id,
     canonicalFacing: 1,
     parts: Object.freeze([
-      {
+      Object.freeze({
         ...soldierAtlasPart('body', 'body', SOLDIER_LAYER_INDEX.body,
           profile.parts.body, SOLDIER_BIND_RECT),
         image: atlas,
-      },
-      {
+      }),
+      Object.freeze({
         ...soldierAtlasPart('headgear', 'headgear', SOLDIER_LAYER_INDEX.headgear,
           profile.parts.headgear, SOLDIER_BIND_RECT),
         image: atlas,
-      },
-      {
+      }),
+      Object.freeze({
         ...soldierAtlasPart('equipment', 'equipment', SOLDIER_LAYER_INDEX.equipment,
           profile.parts.equipment, SOLDIER_BIND_RECT),
         image: atlas,
-      },
+      }),
       Object.freeze({
         id: 'eyes', bone: 'eyes', z: profile.parts.eyes, required: true, image: atlas,
         variants: Object.freeze({
@@ -1425,6 +1431,61 @@ function heroAtlasRigAssetFor(atlas, skillFaceAtlas, assetKey = '') {
   });
   HERO_ATLAS_CACHE.set(atlas, { skillFaceAtlas, assetKey, rigAsset });
   return rigAsset;
+}
+
+function hasOnlyOwnData(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) return false;
+  return Reflect.ownKeys(value).every((key) => {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    return descriptor != null && Object.hasOwn(descriptor, 'value');
+  });
+}
+
+function stableExpressionForRig(rig, expression) {
+  if (!expression || typeof expression !== 'object' || Array.isArray(expression)) {
+    return expression;
+  }
+  if (!hasOnlyOwnData(expression)) return expression;
+  if (typeof expression.from !== 'string' || expression.from !== expression.to) {
+    return expression;
+  }
+  if (expression.mix !== 1 || expression.pending != null) return expression;
+  const state = rig.expression?.states?.[expression.from];
+  const slots = expression.slots;
+  if (!state || !hasOnlyOwnData(slots)) return expression;
+  const stateEntries = Object.entries(state);
+  if (Reflect.ownKeys(slots).length !== stateEntries.length) return expression;
+  for (const [slotName, variant] of stateEntries) {
+    const selection = slots[slotName];
+    if (
+      !hasOnlyOwnData(selection)
+      || !Object.hasOwn(selection, 'from')
+      || !Object.hasOwn(selection, 'to')
+      || !Object.hasOwn(selection, 'weights')
+      || Object.hasOwn(selection, 'variant')
+      || !hasOnlyOwnData(selection.weights)
+    ) return expression;
+    const fromWeight = selection.weights.from;
+    const toWeight = selection.weights.to;
+    if (
+      !Object.hasOwn(selection.weights, 'from')
+      || !Object.hasOwn(selection.weights, 'to')
+      || selection.from !== variant
+      || selection.to !== variant
+      || typeof fromWeight !== 'number'
+      || typeof toWeight !== 'number'
+      || !Number.isFinite(fromWeight)
+      || !Number.isFinite(toWeight)
+      || fromWeight < 0
+      || fromWeight > 1
+      || toWeight < 0
+      || toWeight > 1
+      || Math.abs(fromWeight + toWeight - 1) > 1e-6
+    ) return expression;
+  }
+  return expression.from;
 }
 
 function soldierAnimationSample(options, clips = SOLDIER_CLIPS) {
@@ -1509,6 +1570,7 @@ export function drawAtlasCharacter(ctx, x, y, size, options = {}) {
       }
       const rig = heroAtlas ? HERO_ATLAS_RIG : SOLDIER_RIG;
       const sample = soldierAnimationSample(options, heroAtlas ? HERO_ATLAS_CLIPS : SOLDIER_CLIPS);
+      const expression = stableExpressionForRig(rig, sample.expression);
       ctx.save();
       try {
         ctx.globalAlpha *= options.disabled ? 0.48 : clamp(options.alpha ?? 1);
@@ -1521,7 +1583,7 @@ export function drawAtlasCharacter(ctx, x, y, size, options = {}) {
           heroAtlas
             ? heroAtlasRigAssetFor(atlas, skillFaceAtlas, assetKey)
             : soldierRigAssetFor(atlas, assetKey),
-          sample.expression,
+          expression,
         );
       } finally {
         ctx.restore();
@@ -3165,14 +3227,20 @@ const EFFECT_ACCENT_COLORS = Object.freeze({
   acid: Object.freeze(['#C58AE8', '#F3D7FF']),
 });
 
-function effectAccentColors(type, options) {
-  const defaults = EFFECT_ACCENT_COLORS[type] || EFFECT_ACCENT_COLORS.spark;
-  return [options.accent || defaults[0], options.highlight || defaults[1]];
-}
+const PARTICLE_ASSET_BY_TYPE = Object.freeze({
+  goo: 'effect-particle-goo-drop',
+  spark: 'effect-particle-impact-spark',
+  ring: 'effect-particle-expanding-ring',
+  leaf: 'effect-particle-healing-leaf',
+  bubble: 'effect-particle-bubble',
+  dust: 'effect-particle-dust-puff',
+});
 
 function drawGeneratedProjectileTrail(ctx, size, type, progress, options) {
   if (options.trail === false) return;
-  const [accent, highlight] = effectAccentColors(type, options);
+  const defaults = EFFECT_ACCENT_COLORS[type] || EFFECT_ACCENT_COLORS.spark;
+  const accent = options.accent || defaults[0];
+  const highlight = options.highlight || defaults[1];
   const shimmer = 0.82 + Math.sin(progress * TAU * 2) * 0.12;
   const length = size * (0.72 + progress * 0.5);
   const bend = Math.sin(progress * TAU) * size * 0.13;
@@ -3206,7 +3274,9 @@ function drawGeneratedProjectileTrail(ctx, size, type, progress, options) {
 
 function drawGeneratedParticleAccents(ctx, size, type, progress, options) {
   if (options.accents === false) return;
-  const [accent, highlight] = effectAccentColors(type, options);
+  const defaults = EFFECT_ACCENT_COLORS[type] || EFFECT_ACCENT_COLORS.spark;
+  const accent = options.accent || defaults[0];
+  const highlight = options.highlight || defaults[1];
   const expand = 0.55 + progress * 0.65;
   ctx.save();
   ctx.globalAlpha *= clamp(options.accentAlpha ?? 0.62) * (1 - progress * 0.42);
@@ -3413,67 +3483,70 @@ export function drawProjectile(ctx, xOrProjectile, y, size, typeOrOptions = 'goo
  * It deliberately manages no lifetime or position; the game loop stays in control.
  */
 export function drawParticle(ctx, x, y, size, typeOrOptions = 'goo', maybeOptions = {}) {
-  const [typeRaw, options] = resolveVariant(typeOrOptions, maybeOptions, 'goo');
-  const type = ['goo', 'spark', 'ring', 'leaf', 'bubble', 'dust'].includes(typeRaw) ? typeRaw : 'goo';
-  const assetKey = {
-    goo: 'effect-particle-goo-drop',
-    spark: 'effect-particle-impact-spark',
-    ring: 'effect-particle-expanding-ring',
-    leaf: 'effect-particle-healing-leaf',
-    bubble: 'effect-particle-bubble',
-    dust: 'effect-particle-dust-puff',
-  }[type];
+  const options = typeof typeOrOptions === 'string'
+    ? maybeOptions || {}
+    : typeOrOptions || {};
+  const typeRaw = typeof typeOrOptions === 'string'
+    ? typeOrOptions
+    : options.variant || options.type || 'goo';
+  const type = Object.hasOwn(PARTICLE_ASSET_BY_TYPE, typeRaw) ? typeRaw : 'goo';
+  const assetKey = PARTICLE_ASSET_BY_TYPE[type];
   const progress = clamp(options.progress ?? 0);
   const renderedAsset = drawAssetOrFallback(ctx, options.assetStore, assetKey, (asset) => {
     const pulse = Math.sin(progress * Math.PI);
-    const motion = {
-      goo: {
-        x: Math.sin(progress * Math.PI) * size * 0.18,
-        y: progress * size * 0.32,
-        scaleX: 1 - progress * 0.16,
-        scaleY: 1 + progress * 0.55,
-        rotation: progress * 0.28,
-      },
-      spark: {
-        x: progress * size * 0.12,
-        y: -progress * size * 0.18,
-        scaleX: 0.55 + pulse * 0.65,
-        scaleY: 0.55 + pulse * 0.65,
-        rotation: progress * 1.4,
-      },
-      ring: {
-        x: 0,
-        y: -progress * size * 0.08,
-        scaleX: 0.3 + progress * 0.7,
-        scaleY: 0.3 + progress * 0.7,
-        rotation: progress * 0.18,
-      },
-      leaf: {
-        x: Math.sin(progress * Math.PI * 2) * size * 0.32,
-        y: -progress * size * 0.95,
-        scaleX: 0.78 + pulse * 0.3,
-        scaleY: 0.72 + pulse * 0.28,
-        rotation: progress * 2.2,
-      },
-      bubble: {
-        x: Math.sin(progress * Math.PI) * size * 0.18,
-        y: -progress * size * 1.25,
-        scaleX: 0.78 + progress * 0.28,
-        scaleY: 0.78 + progress * 0.36,
-        rotation: progress * 0.45,
-      },
-      dust: {
-        x: progress * size * 0.12,
-        y: progress * size * 0.18,
-        scaleX: 0.4 + progress * 0.75,
-        scaleY: 0.44 + progress * 0.56,
-        rotation: -progress * 0.12,
-      },
-    }[type];
+    let motionX;
+    let motionY;
+    let scaleX;
+    let scaleY;
+    let motionRotation;
+    switch (type) {
+      case 'spark':
+        motionX = progress * size * 0.12;
+        motionY = -progress * size * 0.18;
+        scaleX = 0.55 + pulse * 0.65;
+        scaleY = 0.55 + pulse * 0.65;
+        motionRotation = progress * 1.4;
+        break;
+      case 'ring':
+        motionX = 0;
+        motionY = -progress * size * 0.08;
+        scaleX = 0.3 + progress * 0.7;
+        scaleY = 0.3 + progress * 0.7;
+        motionRotation = progress * 0.18;
+        break;
+      case 'leaf':
+        motionX = Math.sin(progress * Math.PI * 2) * size * 0.32;
+        motionY = -progress * size * 0.95;
+        scaleX = 0.78 + pulse * 0.3;
+        scaleY = 0.72 + pulse * 0.28;
+        motionRotation = progress * 2.2;
+        break;
+      case 'bubble':
+        motionX = pulse * size * 0.18;
+        motionY = -progress * size * 1.25;
+        scaleX = 0.78 + progress * 0.28;
+        scaleY = 0.78 + progress * 0.36;
+        motionRotation = progress * 0.45;
+        break;
+      case 'dust':
+        motionX = progress * size * 0.12;
+        motionY = progress * size * 0.18;
+        scaleX = 0.4 + progress * 0.75;
+        scaleY = 0.44 + progress * 0.56;
+        motionRotation = -progress * 0.12;
+        break;
+      default:
+        motionX = pulse * size * 0.18;
+        motionY = progress * size * 0.32;
+        scaleX = 1 - progress * 0.16;
+        scaleY = 1 + progress * 0.55;
+        motionRotation = progress * 0.28;
+        break;
+    }
     ctx.globalAlpha *= clamp(options.alpha ?? (1 - progress));
-    ctx.translate(x + motion.x, y + motion.y);
-    ctx.rotate(safeNumber(options.rotation, 0) + motion.rotation);
-    ctx.scale(motion.scaleX, motion.scaleY);
+    ctx.translate(x + motionX, y + motionY);
+    ctx.rotate(safeNumber(options.rotation, 0) + motionRotation);
+    ctx.scale(scaleX, scaleY);
     const width = size * (type === 'ring' || type === 'dust' ? 2 : 1.35);
     const height = size * (type === 'ring' || type === 'dust' ? 1 : 1.35);
     ctx.drawImage(asset, -width / 2, -height / 2, width, height);

@@ -584,6 +584,57 @@ test('drawSoldier uses one shared atlas-space bind pose and flips facing once', 
   }
 });
 
+test('formal 1254 atlas draws reuse frozen preparation for a settled expression sample', async () => {
+  const previousCanvas = globalThis.OffscreenCanvas;
+  const nativeSort = Array.prototype.sort;
+  let sortCalls = 0;
+  globalThis.OffscreenCanvas = class {
+    constructor(width, height) {
+      this.width = width;
+      this.height = height;
+      this.context = contextFor(this);
+    }
+    getContext() { return this.context; }
+  };
+  Array.prototype.sort = function observedSort(...args) {
+    sortCalls += 1;
+    return nativeSort.apply(this, args);
+  };
+  try {
+    const { drawSoldier } = await import(`../src/draw.js?cache=${Date.now()}`);
+    const atlas = { id: 'formal-cache-atlas', width: 1254, height: 1254 };
+    const expressionSample = {
+      from: 'normal',
+      to: 'normal',
+      mix: 1,
+      pending: null,
+      slots: {
+        eyes: { from: 'normal', to: 'normal', weights: { from: 1, to: 0 } },
+        mouth: { from: 'normal', to: 'normal', weights: { from: 1, to: 0 } },
+      },
+    };
+    const options = {
+      assetStore: readyStore(atlas, []),
+      assetKey: 'soldier-ranged-atlas',
+      squadType: 'ranged',
+      pose: { root: { y: -1 } },
+      expressionSample,
+    };
+
+    assert.equal(drawSoldier(contextFor(), 0, 0, 80, options), true);
+    const firstDrawSorts = sortCalls;
+    assert.ok(firstDrawSorts > 0, 'the first draw prepares and sorts the five atlas layers');
+    options.pose = { root: { y: 3 } };
+    assert.equal(drawSoldier(contextFor(), 0, 0, 80, options), true);
+    assert.equal(sortCalls, firstDrawSorts,
+      'the next pose reuses formal-atlas structure without sorting the layers again');
+  } finally {
+    Array.prototype.sort = nativeSort;
+    if (previousCanvas === undefined) delete globalThis.OffscreenCanvas;
+    else globalThis.OffscreenCanvas = previousCanvas;
+  }
+});
+
 test('atlas profile scale and baseline apply through the shared battle and preview renderer', async () => {
   const previous = globalThis.OffscreenCanvas;
   globalThis.OffscreenCanvas = class {

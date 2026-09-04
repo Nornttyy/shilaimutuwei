@@ -19,6 +19,37 @@ const IDENTITY_TRANSFORM = Object.freeze({
 const PLAYBACK_MODES = new Set(['loop', 'once', 'hold']);
 const TAU = Math.PI * 2;
 const EPSILON = 1e-10;
+const NORMALIZED_FROZEN_CLIPS = new WeakMap();
+
+function isDeepFrozenData(value, seen = new WeakSet()) {
+  if (
+    value == null
+    || (typeof value !== 'object' && typeof value !== 'function')
+  ) return true;
+  if (seen.has(value)) return true;
+
+  try {
+    if (!Object.isFrozen(value)) return false;
+    const prototype = Object.getPrototypeOf(value);
+    if (
+      prototype !== Object.prototype
+      && prototype !== Array.prototype
+      && prototype !== null
+    ) return false;
+
+    seen.add(value);
+    for (const key of Reflect.ownKeys(value)) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      // Accessors can still return mutable data, so only cache plain frozen data.
+      if (!descriptor || !Object.hasOwn(descriptor, 'value')) return false;
+      if (!isDeepFrozenData(descriptor.value, seen)) return false;
+    }
+    return true;
+  } catch {
+    // Unsupported exotic objects retain the original normalize-on-use behavior.
+    return false;
+  }
+}
 
 function assertFiniteNumber(value, label) {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
@@ -127,9 +158,16 @@ function normalizeClips(clips) {
   if (!clips || typeof clips !== 'object' || Array.isArray(clips)) {
     throw new TypeError('clips must be an object keyed by clip name.');
   }
+  const cached = NORMALIZED_FROZEN_CLIPS.get(clips);
+  if (cached) return cached;
+
   const entries = Object.entries(clips);
   if (entries.length === 0) throw new RangeError('clips must contain at least one clip.');
-  return new Map(entries.map(([name, clip]) => [name, normalizeClip(name, clip)]));
+  const normalized = new Map(
+    entries.map(([name, clip]) => [name, normalizeClip(name, clip)]),
+  );
+  if (isDeepFrozenData(clips)) NORMALIZED_FROZEN_CLIPS.set(clips, normalized);
+  return normalized;
 }
 
 function createPlayback(name) {

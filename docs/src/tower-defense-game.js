@@ -115,6 +115,28 @@ const FALLBACK_LANE_X = Object.freeze([88, 224, 360, 496, 632]);
 const DEPLOY_GRID_ROWS = Object.freeze([270, 360, 450, 540, 630, 720, 810]);
 const DEPLOY_CELL_SIZE = Object.freeze({ width: 136, height: 90 });
 const DEPLOY_HIGHLIGHT_SIZE = Object.freeze({ width: 120, height: 80 });
+const SQUAD_MEMBER_FORMATIONS = Object.freeze({
+  1: Object.freeze([Object.freeze({ offsetX: 0, offsetY: 6, scale: 1 })]),
+  2: Object.freeze([
+    Object.freeze({ offsetX: -24, offsetY: 5, scale: 1 }),
+    Object.freeze({ offsetX: 24, offsetY: 5, scale: 1 }),
+  ]),
+  3: Object.freeze([
+    Object.freeze({ offsetX: 0, offsetY: -19, scale: 0.92 }),
+    Object.freeze({ offsetX: -26, offsetY: 9, scale: 1 }),
+    Object.freeze({ offsetX: 26, offsetY: 9, scale: 1 }),
+  ]),
+  4: Object.freeze([
+    Object.freeze({ offsetX: -25, offsetY: -20, scale: 0.92 }),
+    Object.freeze({ offsetX: 25, offsetY: -20, scale: 0.92 }),
+    Object.freeze({ offsetX: -28, offsetY: 12, scale: 1 }),
+    Object.freeze({ offsetX: 28, offsetY: 12, scale: 1 }),
+  ]),
+});
+const EMPTY_FORMATION = Object.freeze([]);
+const LANE_DESCRIPTORS_BY_LIST = new WeakMap();
+const SORTED_PADS_BY_LIST = new WeakMap();
+const VERIFIED_FROZEN_LAYOUTS = new WeakSet();
 
 const COMMAND_DOCK = Object.freeze({
   back: Object.freeze({ x: 8, y: 14, width: 64, height: 68 }),
@@ -966,16 +988,21 @@ const VISUAL_MOTION_PROFILES = Object.freeze({
   projectile: Object.freeze({ responseSeconds: 0.018, maxLag: 8, snapDistance: 96 }),
   wave: Object.freeze({ responseSeconds: 0.025, maxLag: 10, snapDistance: 120 }),
 });
+const ACTOR_VISUAL_OPTIONS = Object.freeze({ profile: 'actor' });
+const PROJECTILE_VISUAL_OPTIONS = Object.freeze({ profile: 'projectile' });
 const VISUAL_AIM_RESPONSE_SECONDS = 0.065;
 const VISUAL_FACING_CONFIRM_SECONDS = 0.055;
 const VISUAL_CACHE_GRACE_FRAMES = 2;
 const shortestAngleDelta = (from, to) => Math.atan2(Math.sin(to - from), Math.cos(to - from));
-const finiteNumber = (...values) => {
-  const value = values.find((candidate) => (
-    candidate !== null && candidate !== '' && Number.isFinite(Number(candidate))
-  ));
-  return value == null ? 0 : Number(value);
-};
+function finiteNumber() {
+  for (let index = 0; index < arguments.length; index += 1) {
+    const candidate = arguments[index];
+    if (candidate !== null && candidate !== '' && Number.isFinite(Number(candidate))) {
+      return Number(candidate);
+    }
+  }
+  return 0;
+}
 const skillProgress = (effect) => clamp(
   finiteNumber(effect?.phase, finiteNumber(effect?.age, effect?.elapsed)
     / Math.max(0.001, finiteNumber(effect?.duration, effect?.maxAge, 1))),
@@ -1079,11 +1106,37 @@ const squadMemberAnimationKey = (squad, member, fallbackIndex = 0) => {
   return `squad:${squad.uid}:${memberIdentity}`;
 };
 
+function isDeepFrozenLayout(value, seen = new WeakSet()) {
+  if (value == null || typeof value !== 'object') return true;
+  if (VERIFIED_FROZEN_LAYOUTS.has(value) || seen.has(value)) return true;
+  if (!Object.isFrozen(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== Array.prototype && prototype !== null) {
+    return false;
+  }
+  seen.add(value);
+  for (const key of Reflect.ownKeys(value)) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !Object.hasOwn(descriptor, 'value')) return false;
+    if (!isDeepFrozenLayout(descriptor.value, seen)) return false;
+  }
+  VERIFIED_FROZEN_LAYOUTS.add(value);
+  return true;
+}
+
 function laneDescriptors(stage) {
-  const lanes = Array.isArray(stage?.lanes) && stage.lanes.length
-    ? stage.lanes.slice(0, 5)
+  const authoredLanes = Array.isArray(stage?.lanes) && stage.lanes.length
+    ? stage.lanes
+    : null;
+  const cacheable = authoredLanes != null && isDeepFrozenLayout(authoredLanes);
+  if (cacheable) {
+    const cached = LANE_DESCRIPTORS_BY_LIST.get(authoredLanes);
+    if (cached) return cached;
+  }
+  const lanes = authoredLanes
+    ? authoredLanes.slice(0, 5)
     : FALLBACK_LANE_X.map((x, laneIndex) => ({ x, laneIndex }));
-  return FALLBACK_LANE_X.map((fallbackX, laneIndex) => {
+  const descriptors = FALLBACK_LANE_X.map((fallbackX, laneIndex) => {
     const lane = lanes[laneIndex] || {};
     const x = Number.isFinite(Number(lane?.x)) ? Number(lane.x) : fallbackX;
     const providedPath = Array.isArray(lane?.path)
@@ -1094,6 +1147,22 @@ function laneDescriptors(stage) {
       : [{ x, y: 132 }, { x, y: 1002 }];
     return { ...lane, laneIndex, x, points };
   });
+  if (cacheable) LANE_DESCRIPTORS_BY_LIST.set(authoredLanes, descriptors);
+  return descriptors;
+}
+
+function sortedPadEntries(stage) {
+  const pads = Array.isArray(stage?.pads) ? stage.pads : EMPTY_FORMATION;
+  const cacheable = isDeepFrozenLayout(pads);
+  if (cacheable) {
+    const cached = SORTED_PADS_BY_LIST.get(pads);
+    if (cached) return cached;
+  }
+  const entries = pads
+    .map((pad, padIndex) => ({ pad, padIndex }))
+    .sort((left, right) => left.pad.y - right.pad.y || left.pad.x - right.pad.x);
+  if (cacheable) SORTED_PADS_BY_LIST.set(pads, entries);
+  return entries;
 }
 
 function waveUnitCount(wave) {
@@ -1404,6 +1473,29 @@ export class TowerDefenseGame {
     this.cssWidth = TD_VIEW.width;
     this.cssHeight = TD_VIEW.height;
     this.hits = [];
+    this.lockedCombatDockHits = [
+      ...Object.values(PURCHASE_CATEGORIES).map(({ id: purchaseCategory }) => Object.freeze({
+        id: `purchase-category-${purchaseCategory}`,
+        ...COMMAND_DOCK.purchaseTabs[purchaseCategory],
+        action: 'select-purchase-category',
+        data: Object.freeze({ purchaseCategory }),
+        enabled: false,
+      })),
+      ...PURCHASE_ITEMS.map(({ id: purchaseType }) => Object.freeze({
+        id: `purchase-${purchaseType}`,
+        ...COMMAND_DOCK.purchaseTrack,
+        action: 'select-purchase',
+        data: Object.freeze({ purchaseType }),
+        enabled: false,
+      })),
+      Object.freeze({
+        id: 'start-wave',
+        ...COMMAND_DOCK.start,
+        action: 'start-wave',
+        data: Object.freeze({}),
+        enabled: false,
+      }),
+    ];
     this.drag = null;
     this.keysDown = new Set();
     this.joystick = { active: false, x: 0, y: 0 };
@@ -1447,6 +1539,10 @@ export class TowerDefenseGame {
     this.combatFlash = null;
     this.directionalShake = { x: 0, y: 0 };
     this.knownEnemyUids = new Set();
+    this.enemyUidScratch = new Set();
+    this.enemyRenderQueue = [];
+    this.renderTowerByPad = new Map();
+    this.renderTowerByPadActive = false;
     this.killChain = { count: 0, lastAt: -Infinity };
     this.visualMotion = new Map();
     this.visualAimState = new Map();
@@ -2182,7 +2278,8 @@ export class TowerDefenseGame {
   }
 
   captureEnemyEntranceFeedback() {
-    const liveUids = new Set();
+    const liveUids = this.enemyUidScratch;
+    liveUids.clear();
     for (const enemy of this.state.enemies || []) {
       liveUids.add(enemy.uid);
       if (this.knownEnemyUids.has(enemy.uid) || !TD_ENEMIES[enemy.type]?.boss) continue;
@@ -2195,6 +2292,7 @@ export class TowerDefenseGame {
       this.addCombatFlash('#CDB8FF', 0.18, 0.32);
       this.addDirectionalShake(0, 1, 4.2);
     }
+    this.enemyUidScratch = this.knownEnemyUids;
     this.knownEnemyUids = liveUids;
   }
 
@@ -2275,10 +2373,12 @@ export class TowerDefenseGame {
         const definition = TOWER_TYPES[offer.type];
         if (definition) advance(`offer:${offer.uid}`, definition.ownerId, 'idle');
       }
-      for (const definition of Object.values(SOLDIER_VISUALS)) {
-        const { id: type } = definition;
-        for (let memberIndex = 0; memberIndex < 4; memberIndex += 1) {
-          advance(`purchase:${type}:${memberIndex}`, definition.ownerId, 'idle');
+      if (this.isPreparation()) {
+        for (const definition of Object.values(SOLDIER_VISUALS)) {
+          const { id: type } = definition;
+          for (let memberIndex = 0; memberIndex < 4; memberIndex += 1) {
+            advance(`purchase:${type}:${memberIndex}`, definition.ownerId, 'idle');
+          }
         }
       }
       for (const actor of this.defeatedActors) {
@@ -3593,7 +3693,7 @@ export class TowerDefenseGame {
       entry.updatedFrame = this.visualFrameSerial;
     }
     entry.lastSeenFrame = this.visualFrameSerial;
-    return { x: entry.x, y: entry.y };
+    return entry;
   }
 
   visualAim(key, angle, options = {}) {
@@ -3686,10 +3786,11 @@ export class TowerDefenseGame {
         initialY = y - dy / remaining * travelled;
       }
     }
+    if (initialX == null && initialY == null) {
+      return this.visualPoint(key, projectile?.x, projectile?.y, PROJECTILE_VISUAL_OPTIONS);
+    }
     return this.visualPoint(key, projectile?.x, projectile?.y, {
-      profile: 'projectile',
-      initialX,
-      initialY,
+      profile: 'projectile', initialX, initialY,
     });
   }
 
@@ -3698,7 +3799,7 @@ export class TowerDefenseGame {
     const ctx = this.ctx;
     this.audio.syncScreen(this.state.screen);
     this.updateLongPressState();
-    this.hits = [];
+    this.hits.length = 0;
     this.resetTransform();
     ctx.save();
     ctx.fillStyle = '#D9EEE2';
@@ -4304,7 +4405,7 @@ export class TowerDefenseGame {
     );
     const equipped = this.equippedItem(picker.heroId, picker.slotId);
 
-    this.hits = [];
+    this.hits.length = 0;
     ctx.save();
     ctx.fillStyle = 'rgba(20,38,45,0.72)';
     ctx.fillRect(0, 0, TD_VIEW.width, TD_VIEW.height);
@@ -4646,7 +4747,7 @@ export class TowerDefenseGame {
       return;
     }
 
-    this.hits = [];
+    this.hits.length = 0;
     ctx.save();
     const veil = ctx.createRadialGradient(360, 610, 70, 360, 610, 760);
     veil.addColorStop(0, 'rgba(35, 92, 108, 0.78)');
@@ -4850,7 +4951,7 @@ export class TowerDefenseGame {
     allowClose = true,
   } = {}) {
     const visibleResults = results.slice(0, 10);
-    this.hits = [];
+    this.hits.length = 0;
     ctx.save();
     const veil = ctx.createLinearGradient(0, 0, 0, TD_VIEW.height);
     veil.addColorStop(0, 'rgba(19, 37, 58, 0.96)');
@@ -5168,7 +5269,7 @@ export class TowerDefenseGame {
   drawSquadAbilityChoice(ctx) {
     const pending = this.state.pendingSquadFusion;
     if (!pending) return;
-    this.hits = [];
+    this.hits.length = 0;
     ctx.save();
     ctx.fillStyle = 'rgba(18,36,43,0.76)';
     ctx.fillRect(0, 0, TD_VIEW.width, TD_VIEW.height);
@@ -5209,7 +5310,7 @@ export class TowerDefenseGame {
   drawBattleUpgradeChoice(ctx) {
     const pending = this.state.pendingBattleUpgrade;
     if (!pending) return;
-    this.hits = [];
+    this.hits.length = 0;
     ctx.save();
     ctx.fillStyle = 'rgba(13,29,38,0.84)';
     ctx.fillRect(0, 0, TD_VIEW.width, TD_VIEW.height);
@@ -5489,7 +5590,7 @@ export class TowerDefenseGame {
     const heroBase = Math.hypot(Number(hero.moveX) || 0, Number(hero.moveY) || 0) > 0.01
       ? 'move' : 'idle';
     const animation = this.characterAnimationSample(key, definition.ownerId, heroBase);
-    const point = this.visualPoint(key, hero.x, hero.y, { profile: 'actor' });
+    const point = this.visualPoint(key, hero.x, hero.y, ACTOR_VISUAL_OPTIONS);
     const facing = this.visualFacing(key, hero.facing, {
       active: heroBase === 'move'
         || Number(hero.attackPulse) > 0.01
@@ -5650,11 +5751,13 @@ export class TowerDefenseGame {
   drawBattlefield(ctx, stage) {
     this.resetSkillRenderBudget();
     this.resetFeedbackRenderBudget();
-    ctx.fillStyle = '#B8DEC8';
-    ctx.fillRect(0, 0, TD_VIEW.width, TD_VIEW.height);
     drawAssetOrFallback(ctx, this.assetStore, 'background-battle-portrait-v1', (asset) => {
       drawCoverImage(ctx, asset);
-    }, () => this.drawBackdrop(ctx, stage.id));
+    }, () => {
+      ctx.fillStyle = '#B8DEC8';
+      ctx.fillRect(0, 0, TD_VIEW.width, TD_VIEW.height);
+      this.drawBackdrop(ctx, stage.id);
+    });
     ctx.save();
     const fieldWash = ctx.createLinearGradient(0, BATTLE_FIELD.top, 0, BATTLE_FIELD.bottom);
     fieldWash.addColorStop(0, 'rgba(244,255,239,0.22)');
@@ -5714,17 +5817,34 @@ export class TowerDefenseGame {
       }
     }
 
-    stage.pads
-      .map((pad, padIndex) => ({ pad, padIndex }))
-      .sort((left, right) => left.pad.y - right.pad.y || left.pad.x - right.pad.x)
-      .forEach(({ pad, padIndex }) => this.drawPad(ctx, pad, padIndex));
-    [...this.state.enemies]
-      .sort((left, right) => (
-        this.visualPoint(`enemy:${left.uid}`, left.x, left.y, { profile: 'actor' }).y
-          - this.visualPoint(`enemy:${right.uid}`, right.x, right.y, { profile: 'actor' }).y
-        || left.travelled - right.travelled
-      ))
-      .forEach((enemy) => this.drawEnemy(ctx, enemy));
+    this.renderTowerByPad.clear();
+    for (const tower of this.state.towers) {
+      if (!this.renderTowerByPad.has(tower.padIndex)) {
+        this.renderTowerByPad.set(tower.padIndex, tower);
+      }
+    }
+    this.renderTowerByPadActive = true;
+    try {
+      for (const { pad, padIndex } of sortedPadEntries(stage)) this.drawPad(ctx, pad, padIndex);
+    } finally {
+      this.renderTowerByPadActive = false;
+    }
+    let queueLength = 0;
+    for (const enemy of this.state.enemies) {
+      const entry = this.enemyRenderQueue[queueLength] || {};
+      entry.enemy = enemy;
+      entry.point = this.visualPoint(
+        `enemy:${enemy.uid}`, enemy.x, enemy.y, ACTOR_VISUAL_OPTIONS,
+      );
+      this.enemyRenderQueue[queueLength] = entry;
+      queueLength += 1;
+    }
+    this.enemyRenderQueue.length = queueLength;
+    this.enemyRenderQueue.sort((left, right) => (
+      left.point.y - right.point.y
+      || left.enemy.travelled - right.enemy.travelled
+    ));
+    for (const entry of this.enemyRenderQueue) this.drawEnemy(ctx, entry.enemy, entry.point);
     this.drawBattleHero(ctx);
     this.drawDefeatedTowers(ctx);
     this.drawDefeatedActors(ctx);
@@ -5829,29 +5949,15 @@ export class TowerDefenseGame {
   drawSquadMembers(ctx, squad, x, y, { anchorIndependentMembers = false } = {}) {
     const squadType = squadTypeFor(squad.type, squad.squadType || squad.unitType);
     const visual = soldierVisualFor(squad.type, squadType);
-    const formations = {
-      1: [{ x: 0, y: 6, scale: 1 }],
-      2: [{ x: -24, y: 5, scale: 1 }, { x: 24, y: 5, scale: 1 }],
-      3: [
-        { x: 0, y: -19, scale: 0.92 },
-        { x: -26, y: 9, scale: 1 },
-        { x: 26, y: 9, scale: 1 },
-      ],
-      4: [
-        { x: -25, y: -20, scale: 0.92 },
-        { x: 25, y: -20, scale: 0.92 },
-        { x: -28, y: 12, scale: 1 },
-        { x: 28, y: 12, scale: 1 },
-      ],
-    };
     const hasIndependentMembers = Array.isArray(squad.members);
     const members = hasIndependentMembers
       ? squad.members.filter((member) => (
         member && member.alive !== false
         && (!Number.isFinite(Number(member.hp)) || Number(member.hp) > 0)
       ))
-      : (formations[clamp(Math.floor(Number(squad.aliveMembers) || 0), 0, 4)] || [])
-        .map((position) => ({ offsetX: position.x, offsetY: position.y, scale: position.scale }));
+      : SQUAD_MEMBER_FORMATIONS[
+        clamp(Math.floor(Number(squad.aliveMembers) || 0), 0, 4)
+      ] || EMPTY_FORMATION;
     const deployX = Number.isFinite(Number(squad.deployX))
       ? Number(squad.deployX) : Number(squad.x);
     const deployY = Number.isFinite(Number(squad.deployY))
@@ -5883,7 +5989,7 @@ export class TowerDefenseGame {
       );
       const point = anchorIndependentMembers
         ? { x: memberX, y: memberY }
-        : this.visualPoint(`unit:${memberKey}`, memberX, memberY, { profile: 'actor' });
+        : this.visualPoint(`unit:${memberKey}`, memberX, memberY, ACTOR_VISUAL_OPTIONS);
       const facing = anchorIndependentMembers
         ? ((member.facing ?? squad.facing) === -1 ? -1 : 1)
         : this.visualFacing(`unit:${memberKey}`, member.facing ?? squad.facing, {
@@ -5904,7 +6010,9 @@ export class TowerDefenseGame {
   }
 
   drawPad(ctx, pad, padIndex) {
-    const tower = towerByPad(this.state, padIndex);
+    const tower = this.renderTowerByPadActive
+      ? this.renderTowerByPad.get(padIndex)
+      : towerByPad(this.state, padIndex);
     const preparation = this.isPreparation();
     const placementVisible = this.shouldShowDeploymentGrid();
     const target = tutorialTargetForState(this.state);
@@ -5994,13 +6102,13 @@ export class TowerDefenseGame {
     const drawX = this.state.waveActive && Number.isFinite(tower.x) ? tower.x : pad.x;
     const drawY = this.state.waveActive && Number.isFinite(tower.y) ? tower.y : pad.y;
     const selected = tower.uid === this.state.selectedTowerUid;
-    const animation = this.characterAnimationSample(
-      `tower:${tower.uid}`,
-      definition.ownerId,
-    );
     if (isSquad) {
       this.drawSquadMembers(ctx, tower, drawX, drawY);
     } else {
+      const animation = this.characterAnimationSample(
+        `tower:${tower.uid}`,
+        definition.ownerId,
+      );
       this.drawFriendlyCharacter(ctx, drawX, drawY + 6, 76, tower.type, {
         time: this.state.time,
         phase: padIndex * 0.41,
@@ -6089,12 +6197,13 @@ export class TowerDefenseGame {
     }
   }
 
-  drawEnemy(ctx, enemy) {
+  drawEnemy(ctx, enemy, renderedPoint = null) {
     const definition = TD_ENEMIES[enemy.type] || TD_ENEMIES.bug;
     const type = MONSTER_DRAW_TYPE[enemy.type] || 'bug';
     const atlasAssetKey = ENEMY_ATLAS_ASSET_BY_TYPE[enemy.type];
     const key = `enemy:${enemy.uid}`;
-    const point = this.visualPoint(key, enemy.x, enemy.y, { profile: 'actor' });
+    const point = renderedPoint
+      || this.visualPoint(key, enemy.x, enemy.y, ACTOR_VISUAL_OPTIONS);
     const animation = this.characterAnimationSample(
       key,
       definition.ownerId,
@@ -8471,16 +8580,20 @@ export class TowerDefenseGame {
       finiteNumber(projectile.targetY) - finiteNumber(projectile.y),
       finiteNumber(projectile.targetX) - finiteNumber(projectile.x),
     ), { responseSeconds: 0.03 });
-    const visualProjectile = { ...projectile, x: point.x, y: point.y };
     if (isHeroSkillProjectile(projectile)) {
-      this.drawSkillProjectile(ctx, visualProjectile, angle);
+      this.drawSkillProjectile(ctx, { ...projectile, x: point.x, y: point.y }, angle);
       return;
     }
     if (this.drawDistinctFriendlyProjectile(ctx, projectile, point, angle,
       clamp(Math.floor(projectile.star || 1), 1, TD_MAX_STAR))) return;
     const reinforcementStyle = reinforcementProjectileStyleFor(projectile);
     if (reinforcementStyle) {
-      this.drawReinforcementProjectile(ctx, visualProjectile, angle, reinforcementStyle);
+      this.drawReinforcementProjectile(
+        ctx,
+        { ...projectile, x: point.x, y: point.y },
+        angle,
+        reinforcementStyle,
+      );
       return;
     }
     const star = clamp(Math.floor(projectile.star || 1), 1, TD_MAX_STAR);
@@ -9079,16 +9192,7 @@ export class TowerDefenseGame {
   drawDirectPurchaseDock(ctx, stage) {
     const preparation = this.isPreparation();
     if (!preparation) {
-      Object.values(PURCHASE_CATEGORIES).forEach(({ id: purchaseCategory }) => {
-        this.addHit(`purchase-category-${purchaseCategory}`,
-          COMMAND_DOCK.purchaseTabs[purchaseCategory],
-          'select-purchase-category', { purchaseCategory }, false);
-      });
-      PURCHASE_ITEMS.forEach(({ id: purchaseType }) => {
-        this.addHit(`purchase-${purchaseType}`, COMMAND_DOCK.purchaseTrack,
-          'select-purchase', { purchaseType }, false);
-      });
-      this.addHit('start-wave', COMMAND_DOCK.start, 'start-wave', {}, false);
+      for (const hit of this.lockedCombatDockHits) this.hits.push(hit);
       return;
     }
 

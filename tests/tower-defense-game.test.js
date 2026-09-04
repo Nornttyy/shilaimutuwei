@@ -3262,6 +3262,22 @@ test('battle dock purchases squads and a fixed turret, moves squads in prep, the
   assert.ok(canvas.context.calls.some(([kind, asset]) => (
     kind === 'drawImage' && asset?.kind === 'ui-battle-hud-atlas-v1'
   )), 'the battle command dock uses the formal HUD atlas');
+  const startHit = game.hits.find(({ id }) => id === 'start-wave');
+  assert.equal(startHit.width, 196,
+    'the start control keeps its full right-hand command hit area');
+  const startSprite = canvas.context.calls.find(([
+    kind, asset, sourceX, sourceY,
+  ]) => (
+    kind === 'drawImage'
+      && asset?.kind === 'ui-battle-hud-atlas-v1'
+      && sourceX === 512
+      && sourceY === 1024
+  ));
+  assert.ok(startSprite?.[8] >= 236 && startSprite?.[9] >= 181,
+    'the start emblem compensates for transparent atlas margins instead of appearing narrow');
+  assert.equal(canvas.context.calls.some(([kind, text]) => (
+    kind === 'fillText' && text === '开战'
+  )), false, 'the pictorial start control does not repeat an 开战 caption');
   assert.equal(assets.requests.includes('ui-card-melee-squad'), false);
   assert.equal(assets.requests.includes('ui-card-ranged-squad'), false);
   assert.equal(assets.requests.includes('ui-card-frame-common'), false);

@@ -9293,15 +9293,9 @@ export class TowerDefenseGame {
     const startCenterX = COMMAND_DOCK.start.x + COMMAND_DOCK.start.width / 2;
     const startCenterY = COMMAND_DOCK.start.y + COMMAND_DOCK.start.height / 2;
     this.drawUiAtlasSprite(ctx, BATTLE_HUD_ATLAS, BATTLE_HUD_ATLAS.start,
-      startCenterX, startCenterY, 168, 168, {
+      startCenterX, startCenterY, 236, 181, {
         alpha: legacyCanStart ? 1 : 0.4,
         scale: legacyCanStart ? 1 + Math.sin(this.state.time * 3.2) * 0.018 : 1,
-      });
-    label(ctx, preparation ? '开战' : `第${this.state.wave}波`,
-      startCenterX, startCenterY + 48, {
-        size: 22,
-        color: legacyCanStart ? '#713515' : '#65706D',
-        weight: 950,
       });
     if (preparation) label(ctx, String(this.state.wave + 1), startCenterX, startCenterY - 45, {
       size: 14, color: legacyCanStart ? '#713515' : '#65706D', weight: 950,

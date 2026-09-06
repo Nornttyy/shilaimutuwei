@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#17242b" />
+    <meta name="description" content="冰晶花园：肩后视角花园防卫战。" />
+    <title>冰晶花园 · 防卫战</title>
+    <link rel="stylesheet" href="./shooter.css" />
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "./src/vendor/three/three.module.min.js"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <main id="shooterApp" aria-label="冰晶花园第三人称防卫战">
+      <canvas id="shooterCanvas" aria-label="花园战场"></canvas>
+
+      <section id="loadingScreen" class="screen loading-screen" aria-live="polite">
+        <div class="frost-card loading-card">
+          <span class="card-tab" aria-hidden="true">防区 // 01</span>
+          <div class="loading-crystal" aria-hidden="true">
+            <i></i><i></i><i></i><i></i><i></i><i></i>
+          </div>
+          <p class="eyebrow">冰晶防卫队</p>
+          <h1>冰晶花园</h1>
+          <div class="loading-status">
+            <p id="loadingLabel">正在部署花园防线</p>
+            <strong id="loadingPercent">0%</strong>
+          </div>
+          <div class="loading-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+            <span id="loadingFill"></span>
+          </div>
+          <button id="loadingRetry" type="button" hidden>重新加载</button>
+        </div>
+      </section>
+
+      <section id="startScreen" class="screen start-screen" hidden>
+        <div class="start-copy">
+          <span class="menu-stamp" aria-hidden="true">任务 01</span>
+          <p class="eyebrow">花园防卫</p>
+          <h1>冰晶花园</h1>
+          <p class="start-mission">冻结入侵者。守住花园。</p>
+          <button id="startButton" class="primary-button" type="button">
+            <span>进入战场</span>
+            <small>点击锁定视角</small>
+          </button>
+          <div class="control-strip" aria-label="操作说明">
+            <span><kbd>WASD</kbd> 移动</span>
+            <span><kbd>鼠标</kbd> 瞄准</span>
+            <span><kbd>左键</kbd> 射击</span>
+            <span><kbd>R</kbd> 装填</span>
+            <span><kbd>Shift</kbd> 冲刺</span>
+          </div>
+        </div>
+      </section>
+
+      <section id="hud" class="hud" hidden aria-label="战斗界面">
+        <div class="hud-top">
+          <div class="objective-panel glass-panel">
+            <div class="objective-copy">
+              <span class="panel-kicker">花园防线</span>
+              <strong id="objectiveLabel">击退入侵者</strong>
+            </div>
+            <small id="objectiveCount">0 / 8</small>
+            <div class="objective-progress"><i id="objectiveFill"></i></div>
+          </div>
+          <button id="pauseButton" class="icon-button" type="button" aria-label="暂停">Ⅱ</button>
+        </div>
+
+        <div class="player-panel glass-panel">
+          <div class="player-crest" aria-hidden="true"><i></i></div>
+          <div class="player-vitals">
+            <div class="vitals-row">
+              <span class="player-identity"><small>防卫者</small><strong>冰晶射手</strong></span>
+              <span class="health-number"><em>HP</em><b id="healthText">100</b></span>
+            </div>
+            <div class="health-track"><i id="healthFill"></i></div>
+            <small id="statusText">状态良好</small>
+          </div>
+        </div>
+
+        <div id="damageVignette" class="damage-vignette" aria-hidden="true"></div>
+        <div id="crosshair" class="crosshair" aria-hidden="true">
+          <i class="crosshair-top"></i><i class="crosshair-right"></i>
+          <i class="crosshair-bottom"></i><i class="crosshair-left"></i>
+          <b></b>
+        </div>
+        <div id="hitMarker" class="hit-marker" aria-hidden="true"><i></i><i></i></div>
+
+        <div class="combat-tray">
+          <div class="ammo-panel glass-panel">
+            <span class="ammo-orb" aria-hidden="true"></span>
+            <span class="ammo-copy"><small>弹仓</small><strong id="ammoText">12</strong></span>
+            <small class="ammo-capacity">/ 12</small>
+          </div>
+          <div class="ability-panel glass-panel" aria-label="战术操作">
+            <div class="ability-slot is-ready" data-ability="freeze">
+              <span class="ability-icon freeze-icon" aria-hidden="true"></span>
+              <kbd>Q</kbd><small>冰封</small>
+            </div>
+            <div class="ability-slot is-ready" data-ability="burst">
+              <span class="ability-icon burst-icon" aria-hidden="true"></span>
+              <kbd>E</kbd><small>碎晶</small>
+            </div>
+            <div class="ability-slot utility-slot is-ready" aria-label="装填">
+              <span class="ability-icon reload-icon" aria-hidden="true"></span>
+              <kbd>R</kbd><small>装填</small>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="pauseScreen" class="screen pause-screen" hidden>
+        <div class="frost-card compact-card">
+          <span class="card-tab" aria-hidden="true">防区 // 暂停</span>
+          <p class="eyebrow">战场暂停</p>
+          <h2>战斗暂停</h2>
+          <button id="resumeButton" class="primary-button" type="button">继续</button>
+          <a class="secondary-button" href="./">返回主基地</a>
+        </div>
+      </section>
+
+      <section id="resultScreen" class="screen result-screen" hidden>
+        <div class="frost-card result-card">
+          <span class="card-tab" aria-hidden="true">防区 // 战报</span>
+          <p id="resultKicker" class="eyebrow">防线稳固</p>
+          <h2 id="resultTitle">花园守住了！</h2>
+          <p id="resultSummary">击退 8 名入侵者</p>
+          <button id="restartButton" class="primary-button" type="button">再来一次</button>
+          <a class="secondary-button" href="./">返回主基地</a>
+        </div>
+      </section>
+
+      <div id="toast" class="toast" hidden></div>
+      <noscript><p class="no-script">请启用 JavaScript 后再开始。</p></noscript>
+    </main>
+    <script type="module" src="./src/shooter/main.js"></script>
+  </body>
+</html>

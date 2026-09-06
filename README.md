@@ -4,6 +4,20 @@
 
 在线版：<https://nornttyy.github.io/shilaimutuwei/>
 
+第三人称 3D 试玩：<https://nornttyy.github.io/shilaimutuwei/shooter.html>
+
+## 3D 试玩
+
+`shooter.html` 是与原塔防入口隔离的横屏第三人称防卫战：使用最新导出的寒冰植物模型，支持 WASD 移动、鼠标瞄准、连续射击、装填、两项冰系技能、敌人追击、胜负和暂停。玩家与敌人均使用 GLB 骨骼动画；花园场景、敌人和冰弹均来自带材质的正式 GLB，不使用运行时方块代替可见素材。
+
+本地运行后打开 `http://localhost:8080/shooter.html`。3D 素材可重建并校验：
+
+```bash
+npm run build:shooter-assets
+npm run validate:shooter-assets
+npm run test:shooter
+```
+
 ## 玩法
 
 - 20 个顺序解锁的关卡，每关最多 7 波；全部通关后开放无尽模式。
@@ -56,7 +70,7 @@ npm run test:playable
 
 ## 正式素材
 
-`assets/asset-spec.json` 当前声明 231 张正式游戏 PNG；`assets/rig-parts.json` 另引用 8 张角色主图集和 8 张表情图集。构建会检查路径、尺寸、透明通道和体积，缺失或不合格时不会覆盖上一次成功产物。
+`assets/asset-spec.json` 当前声明正式游戏 PNG；`assets/rig-parts.json` 另引用 8 张角色主图集和 8 张表情图集；`assets/3d-manifest.json` 单独声明第三人称试玩所需的 GLB。构建会检查路径、尺寸、透明通道、GLB 头和体积，缺失或不合格时不会覆盖上一次成功产物。
 
 塔防使用 15 名正式英雄、7 种四人史莱姆小队、6 座正式炮台、8 类敌人、核心、传送门、区域地表、卡框、独立弹丸与动态粒子。英雄技能分三阶段执行，并组合正式绘制组件与连续 Canvas 运动，不是单张图片淡出。新手教程手势位于：
 
@@ -76,7 +90,7 @@ assets/generated/ui/ui-tutorial-hand.png
 npm run build:docs
 ```
 
-`docs/` 只包含网页入口、运行模块、两份素材清单以及清单引用的正式 PNG；旧预览、候选图和校对图不会进入发布包。仓库使用 `main /docs` 发布。
+`docs/` 只包含网页入口、运行模块、正式素材清单，以及清单引用的 PNG、音频和 GLB；旧预览、候选图、校对图和 Blender 源文件不会进入发布包。仓库使用 `main /docs` 发布。
 
 ## 微信小游戏
 

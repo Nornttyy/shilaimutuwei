@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "assets": [
+    {
+      "id": "ice-peashooter",
+      "kind": "character",
+      "path": "assets/generated/3d/shooter/ice-peashooter.glb"
+    },
+    {
+      "id": "garden-arena",
+      "kind": "arena",
+      "path": "assets/generated/3d/shooter/garden-arena.glb"
+    },
+    {
+      "id": "garden-ghoul",
+      "kind": "enemy",
+      "path": "assets/generated/3d/shooter/garden-ghoul.glb"
+    },
+    {
+      "id": "ice-pea-projectile",
+      "kind": "projectile",
+      "path": "assets/generated/3d/shooter/ice-pea-projectile.glb"
+    }
+  ]
+}

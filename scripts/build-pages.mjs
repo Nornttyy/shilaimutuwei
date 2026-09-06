@@ -19,7 +19,9 @@ import { parsePng, verifyAssets } from './verify-assets.mjs';
 export const RIG_MANIFEST_PATH = 'assets/rig-parts.json';
 export const ASSET_SPEC_PATH = 'assets/asset-spec.json';
 export const AUDIO_MANIFEST_PATH = 'assets/audio/manifest.json';
+export const SHOOTER_MANIFEST_PATH = 'assets/3d-manifest.json';
 export const PUBLISH_ENTRIES = Object.freeze(['index.html', 'styles.css', 'src']);
+export const SHOOTER_PUBLISH_ENTRIES = Object.freeze(['shooter.html', 'shooter.css']);
 export const LOCAL_OUTPUT_DIRECTORY = '_site';
 export const DOCS_OUTPUT_DIRECTORY = 'docs';
 
@@ -32,6 +34,19 @@ const DECLARED_ASSET_PATTERN =
   /^assets\/generated\/([a-z][a-z0-9-]*)\/([A-Za-z0-9][A-Za-z0-9_.-]*\.png)$/;
 const DECLARED_AUDIO_PATTERN =
   /^assets\/audio\/([a-z][a-z0-9-]*\.(?:m4a|wav))$/;
+const DECLARED_GLB_PATTERN =
+  /^assets\/generated\/3d\/(?:[a-z0-9][a-z0-9.-]*\/)*[a-z0-9][a-z0-9.-]*\.glb$/;
+const KEBAB_CASE_ID_PATTERN = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
+const FORBIDDEN_GLB_DERIVATIVE_PATTERN =
+  /(?:^|[-_.])(preview|review|source|blend|backup|draft|candidates?)(?:[-_.]|$)/i;
+export const SHOOTER_ASSET_KINDS = Object.freeze([
+  'character',
+  'enemy',
+  'arena',
+  'projectile',
+  'prop',
+  'ui',
+]);
 const FORBIDDEN_DERIVATIVE_PATTERN =
   /(?:^|[-_.])(source|alpha|preview|review|legacy|candidates?)(?:[-_.]|$)/i;
 const VERSIONED_ATLAS_PATHS = Object.freeze({
@@ -147,6 +162,58 @@ export function collectDeclaredAudioPaths(manifest) {
       throw new TypeError(`Audio asset "${label}" SFX must use PCM WAV.`);
     }
   }
+  return [...paths].sort();
+}
+
+export function collectDeclared3dAssetPaths(manifest) {
+  if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) {
+    throw new TypeError('3D asset manifest must be a JSON object.');
+  }
+  if (manifest.schemaVersion !== 1) {
+    throw new TypeError('3D asset manifest schemaVersion must be 1.');
+  }
+  if (!Array.isArray(manifest.assets) || manifest.assets.length === 0) {
+    throw new TypeError('3D asset manifest must contain a non-empty "assets" array.');
+  }
+
+  const allowedKinds = new Set(SHOOTER_ASSET_KINDS);
+  const ids = new Set();
+  const paths = new Set();
+  for (const [index, asset] of manifest.assets.entries()) {
+    const label = asset?.id ?? `assets[${index}]`;
+    if (typeof asset?.id !== 'string' || !KEBAB_CASE_ID_PATTERN.test(asset.id)) {
+      throw new TypeError(`3D asset ${label} must declare a kebab-case id.`);
+    }
+    if (ids.has(asset.id)) {
+      throw new TypeError(`3D asset manifest contains duplicate id: ${asset.id}`);
+    }
+    ids.add(asset.id);
+
+    if (!allowedKinds.has(asset.kind)) {
+      throw new TypeError(
+        `3D asset "${label}" kind must be one of: ${SHOOTER_ASSET_KINDS.join(', ')}.`,
+      );
+    }
+
+    const assetPath = asset.path;
+    const fileName = typeof assetPath === 'string' ? path.posix.basename(assetPath) : '';
+    if (
+      typeof assetPath !== 'string'
+      || !DECLARED_GLB_PATTERN.test(assetPath)
+      || path.posix.normalize(assetPath) !== assetPath
+      || path.posix.isAbsolute(assetPath)
+      || FORBIDDEN_GLB_DERIVATIVE_PATTERN.test(fileName)
+    ) {
+      throw new TypeError(
+        `3D asset "${label}" must reference a runtime .glb below assets/generated/3d/.`,
+      );
+    }
+    if (paths.has(assetPath)) {
+      throw new TypeError(`3D asset manifest cannot publish one GLB path twice: ${assetPath}`);
+    }
+    paths.add(assetPath);
+  }
+
   return [...paths].sort();
 }
 
@@ -313,6 +380,30 @@ export async function readAudioManifest(projectRoot, { optional = true } = {}) {
   return parsed;
 }
 
+export async function read3dManifest(projectRoot, { optional = true } = {}) {
+  const manifestFile = path.join(projectRoot, SHOOTER_MANIFEST_PATH);
+  let source;
+  try {
+    source = await readFile(manifestFile, 'utf8');
+  } catch (error) {
+    if (optional && error?.code === 'ENOENT') return null;
+    throw new Error(`Cannot read 3D asset manifest at ${SHOOTER_MANIFEST_PATH}: ${error.message}`);
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(source);
+  } catch (error) {
+    throw new Error(`Invalid JSON in ${SHOOTER_MANIFEST_PATH}: ${error.message}`);
+  }
+  try {
+    collectDeclared3dAssetPaths(parsed);
+  } catch (error) {
+    throw new Error(`Invalid 3D asset contract in ${SHOOTER_MANIFEST_PATH}: ${error.message}`);
+  }
+  return parsed;
+}
+
 async function assertPngImagesExist(projectRoot, imagePaths, kind) {
   const missing = [];
   const invalid = [];
@@ -391,6 +482,14 @@ export async function listAudioFiles(directory) {
     .sort();
 }
 
+export async function listGlbFiles(directory) {
+  const entries = await readdir(directory, { recursive: true });
+  return entries
+    .map((entry) => entry.split(path.sep).join('/'))
+    .filter((entry) => entry.toLowerCase().endsWith('.glb'))
+    .sort();
+}
+
 export async function assertAudioAssetsExist(projectRoot, audioPaths) {
   const problems = [];
   await Promise.all(audioPaths.map(async (audioPath) => {
@@ -421,9 +520,62 @@ export async function assertAudioAssetsExist(projectRoot, audioPaths) {
   }
 }
 
+export async function assertGlbAssetsExist(projectRoot, glbPaths) {
+  const problems = [];
+  await Promise.all(glbPaths.map(async (glbPath) => {
+    const filename = path.join(projectRoot, ...glbPath.split('/'));
+    try {
+      const info = await lstat(filename);
+      if (!info.isFile()) {
+        problems.push(`${glbPath} is not a regular file`);
+        return;
+      }
+      if (info.size < 12) {
+        problems.push(`${glbPath} is shorter than the 12-byte GLB header`);
+        return;
+      }
+      const contents = await readFile(filename);
+      if (contents.toString('ascii', 0, 4) !== 'glTF') {
+        problems.push(`${glbPath} has invalid GLB magic`);
+        return;
+      }
+      const version = contents.readUInt32LE(4);
+      if (version !== 2) {
+        problems.push(`${glbPath} declares unsupported GLB version ${version}`);
+        return;
+      }
+      const declaredByteLength = contents.readUInt32LE(8);
+      if (declaredByteLength !== contents.length) {
+        problems.push(
+          `${glbPath} declares byteLength ${declaredByteLength}, actual size is ${contents.length}`,
+        );
+      }
+    } catch (error) {
+      if (error?.code === 'ENOENT') problems.push(`${glbPath} is missing`);
+      else throw error;
+    }
+  }));
+  if (problems.length) {
+    throw new Error(
+      `Cannot build GitHub Pages: ${problems.length} GLB asset(s) failed validation:\n`
+      + problems.sort().map((problem) => `  - ${problem}`).join('\n'),
+    );
+  }
+}
+
 function pathIsInside(parentDirectory, candidatePath) {
   const relative = path.relative(parentDirectory, candidatePath);
   return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative));
+}
+
+async function pathExists(candidatePath) {
+  try {
+    await lstat(candidatePath);
+    return true;
+  } catch (error) {
+    if (error?.code === 'ENOENT') return false;
+    throw error;
+  }
 }
 
 function collectRelativeModuleSpecifiers(source) {
@@ -462,25 +614,32 @@ async function assertPublishedFile(outputDirectory, sourceFile, specifier, probl
  */
 export async function verifyPublishedModules(outputDirectory) {
   const root = path.resolve(outputDirectory);
-  const indexPath = path.join(root, 'index.html');
-  const indexSource = await readFile(indexPath, 'utf8');
+  const htmlEntries = ['index.html'];
+  if (await pathExists(path.join(root, 'shooter.html'))) htmlEntries.push('shooter.html');
   const moduleEntrypoints = [];
-  for (const [tag] of indexSource.matchAll(/<script\b[^>]*>/gi)) {
-    if (!/\btype\s*=\s*['"]module['"]/i.test(tag)) continue;
-    const sourceMatch = /\bsrc\s*=\s*['"]([^'"]+)['"]/i.exec(tag);
-    if (sourceMatch) moduleEntrypoints.push(sourceMatch[1]);
-  }
-  if (moduleEntrypoints.length === 0) {
-    throw new Error('Pages output index.html must declare a module script with a relative src.');
-  }
-
   const problems = [];
-  for (const entrypoint of moduleEntrypoints) {
-    if (!entrypoint.startsWith('.')) {
-      problems.push(`index.html module entry must be relative: ${entrypoint}`);
-      continue;
+  for (const htmlEntry of htmlEntries) {
+    const htmlPath = path.join(root, htmlEntry);
+    const htmlSource = await readFile(htmlPath, 'utf8');
+    const pageEntrypoints = [];
+    for (const [tag] of htmlSource.matchAll(/<script\b[^>]*>/gi)) {
+      if (!/\btype\s*=\s*['"]module['"]/i.test(tag)) continue;
+      const sourceMatch = /\bsrc\s*=\s*['"]([^'"]+)['"]/i.exec(tag);
+      if (sourceMatch) pageEntrypoints.push(sourceMatch[1]);
     }
-    await assertPublishedFile(root, indexPath, entrypoint, problems);
+    if (pageEntrypoints.length === 0) {
+      throw new Error(
+        `Pages output ${htmlEntry} must declare a module script with a relative src.`,
+      );
+    }
+    moduleEntrypoints.push(...pageEntrypoints);
+    for (const entrypoint of pageEntrypoints) {
+      if (!entrypoint.startsWith('.')) {
+        problems.push(`${htmlEntry} module entry must be relative: ${entrypoint}`);
+        continue;
+      }
+      await assertPublishedFile(root, htmlPath, entrypoint, problems);
+    }
   }
 
   const sourceDirectory = path.join(root, 'src');
@@ -519,6 +678,9 @@ export async function verifyPagesOutput(
     assetPaths: expectedAssetPaths,
     rigImagePaths: expectedRigImagePaths,
     audioPaths: expectedAudioPaths = [],
+    shooterManifestPath: expectedShooterManifestPath = null,
+    shooterAssetPaths: expectedShooterAssetPaths = [],
+    shooterPublishEntries: expectedShooterPublishEntries = [],
   },
 ) {
   await verifyPublishedModules(outputDirectory);
@@ -566,6 +728,61 @@ export async function verifyPagesOutput(
     );
     await assertAudioAssetsExist(outputDirectory, expectedAudioPaths);
   }
+
+  const outputGlbs = await listGlbFiles(outputDirectory);
+  assertSamePaths(
+    outputGlbs,
+    expectedShooterAssetPaths,
+    'Pages output GLB files must exactly equal the 3D asset manifest reference set.',
+  );
+  if (expectedShooterManifestPath) {
+    for (const entry of expectedShooterPublishEntries) {
+      const information = await lstat(path.join(outputDirectory, entry));
+      if (!information.isFile()) {
+        throw new Error(`Pages output shooter entry is not a regular file: ${entry}`);
+      }
+    }
+    const copied3dManifest = await read3dManifest(outputDirectory, { optional: false });
+    assertSamePaths(
+      collectDeclared3dAssetPaths(copied3dManifest),
+      expectedShooterAssetPaths,
+      'The copied 3D asset manifest does not match the source 3D asset manifest.',
+    );
+    await assertGlbAssetsExist(outputDirectory, expectedShooterAssetPaths);
+  }
+}
+
+async function readShooterBuildConfiguration(projectRoot) {
+  const requiredPaths = [...SHOOTER_PUBLISH_ENTRIES, SHOOTER_MANIFEST_PATH];
+  const presence = await Promise.all(requiredPaths.map(async (relativePath) => ({
+    relativePath,
+    present: await pathExists(path.join(projectRoot, ...relativePath.split('/'))),
+  })));
+  if (presence.every(({ present }) => !present)) {
+    return Object.freeze({ enabled: false, manifest: null, assetPaths: [] });
+  }
+
+  const missing = presence.filter(({ present }) => !present).map(({ relativePath }) => relativePath);
+  if (missing.length > 0) {
+    throw new Error(
+      'Cannot build GitHub Pages: the shooter route is incomplete; '
+      + `missing required file(s): ${missing.join(', ')}`,
+    );
+  }
+  for (const relativePath of SHOOTER_PUBLISH_ENTRIES) {
+    const information = await lstat(path.join(projectRoot, relativePath));
+    if (!information.isFile()) {
+      throw new Error(
+        `Cannot build GitHub Pages: shooter publish entry is not a regular file: ${relativePath}`,
+      );
+    }
+  }
+  const manifest = await read3dManifest(projectRoot, { optional: false });
+  return Object.freeze({
+    enabled: true,
+    manifest,
+    assetPaths: collectDeclared3dAssetPaths(manifest),
+  });
 }
 
 export async function buildPages({ projectRoot, outputDirectory } = {}) {
@@ -580,6 +797,7 @@ export async function buildPages({ projectRoot, outputDirectory } = {}) {
   const imagePaths = [...new Set([...assetPaths, ...rigImagePaths])].sort();
   const audioManifest = await readAudioManifest(root);
   const audioPaths = audioManifest ? collectDeclaredAudioPaths(audioManifest) : [];
+  const shooter = await readShooterBuildConfiguration(root);
 
   for (const entry of PUBLISH_ENTRIES) {
     try {
@@ -592,6 +810,7 @@ export async function buildPages({ projectRoot, outputDirectory } = {}) {
   await assertDeclaredAssetsExist(root, assetPaths);
   await assertRigImagesExist(root, rigImagePaths);
   await assertAudioAssetsExist(root, audioPaths);
+  await assertGlbAssetsExist(root, shooter.assetPaths);
 
   const stagingDirectory = await mkdtemp(path.join(root, '.pages-build-'));
   try {
@@ -600,18 +819,34 @@ export async function buildPages({ projectRoot, outputDirectory } = {}) {
         recursive: true,
       });
     }
+    if (shooter.enabled) {
+      for (const entry of SHOOTER_PUBLISH_ENTRIES) {
+        await copyProjectFile(root, stagingDirectory, entry);
+      }
+    }
 
     await copyProjectFile(root, stagingDirectory, ASSET_SPEC_PATH);
     await copyProjectFile(root, stagingDirectory, RIG_MANIFEST_PATH);
     if (audioManifest) await copyProjectFile(root, stagingDirectory, AUDIO_MANIFEST_PATH);
+    if (shooter.enabled) await copyProjectFile(root, stagingDirectory, SHOOTER_MANIFEST_PATH);
     for (const assetPath of imagePaths) {
       await copyProjectFile(root, stagingDirectory, assetPath);
     }
     for (const audioPath of audioPaths) {
       await copyProjectFile(root, stagingDirectory, audioPath);
     }
+    for (const glbPath of shooter.assetPaths) {
+      await copyProjectFile(root, stagingDirectory, glbPath);
+    }
 
-    await verifyPagesOutput(stagingDirectory, { assetPaths, rigImagePaths, audioPaths });
+    await verifyPagesOutput(stagingDirectory, {
+      assetPaths,
+      rigImagePaths,
+      audioPaths,
+      shooterManifestPath: shooter.enabled ? SHOOTER_MANIFEST_PATH : null,
+      shooterAssetPaths: shooter.assetPaths,
+      shooterPublishEntries: shooter.enabled ? SHOOTER_PUBLISH_ENTRIES : [],
+    });
     await rm(target, { recursive: true, force: true });
     await rename(stagingDirectory, target);
   } catch (error) {
@@ -628,6 +863,9 @@ export async function buildPages({ projectRoot, outputDirectory } = {}) {
     imagePaths,
     audioManifestPath: audioManifest ? AUDIO_MANIFEST_PATH : null,
     audioPaths,
+    shooterManifestPath: shooter.enabled ? SHOOTER_MANIFEST_PATH : null,
+    shooterAssetPaths: shooter.assetPaths,
+    shooterPublishEntries: shooter.enabled ? [...SHOOTER_PUBLISH_ENTRIES] : [],
   };
 }
 
@@ -690,8 +928,9 @@ if (isDirectRun) {
     const result = await buildPages({ projectRoot, outputDirectory });
     console.log(
       `GitHub Pages site built at ${result.outputDirectory} `
-      + `with ${result.imagePaths.length} manifest-listed PNG files `
-      + `and ${result.audioPaths.length} audio files.`,
+      + `with ${result.imagePaths.length} manifest-listed PNG files, `
+      + `${result.audioPaths.length} audio files, `
+      + `and ${result.shooterAssetPaths.length} shooter GLB files.`,
     );
   } catch (error) {
     console.error(error instanceof Error ? error.message : error);

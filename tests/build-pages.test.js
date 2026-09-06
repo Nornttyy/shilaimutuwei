@@ -16,12 +16,17 @@ import { fileURLToPath } from 'node:url';
 import {
   ASSET_SPEC_PATH,
   AUDIO_MANIFEST_PATH,
+  assertGlbAssetsExist,
   buildPages,
+  collectDeclared3dAssetPaths,
   collectDeclaredAssetPaths,
   collectDeclaredAudioPaths,
   collectRigImagePaths,
+  listGlbFiles,
   listImageFiles,
   RIG_MANIFEST_PATH,
+  SHOOTER_MANIFEST_PATH,
+  SHOOTER_PUBLISH_ENTRIES,
   verifyPublishedModules,
   verifyPagesOutput,
 } from '../scripts/build-pages.mjs';
@@ -49,6 +54,30 @@ const RUNTIME_IMAGE_PATHS = Object.freeze([
   ...ATLAS_PATHS,
   EXPRESSION_PATH,
 ].sort());
+const SHOOTER_ASSETS = Object.freeze([
+  Object.freeze({
+    id: 'ice-peashooter',
+    kind: 'character',
+    path: 'assets/generated/3d/shooter/ice-peashooter.glb',
+  }),
+  Object.freeze({
+    id: 'garden-arena',
+    kind: 'arena',
+    path: 'assets/generated/3d/shooter/garden-arena.glb',
+  }),
+  Object.freeze({
+    id: 'garden-ghoul',
+    kind: 'enemy',
+    path: 'assets/generated/3d/shooter/garden-ghoul.glb',
+  }),
+  Object.freeze({
+    id: 'ice-pea-projectile',
+    kind: 'projectile',
+    path: 'assets/generated/3d/shooter/ice-pea-projectile.glb',
+  }),
+]);
+const SHOOTER_GLB_PATHS = Object.freeze(SHOOTER_ASSETS.map(({ path: assetPath }) => assetPath).sort());
+const MINIMAL_GLB = createGlbHeader();
 
 const PROJECT_MANIFEST = JSON.parse(await readFile(
   new URL('../assets/rig-parts.json', import.meta.url),
@@ -60,6 +89,10 @@ const PROJECT_ASSET_SPEC = JSON.parse(await readFile(
 ));
 const PROJECT_AUDIO_MANIFEST = JSON.parse(await readFile(
   new URL('../assets/audio/manifest.json', import.meta.url),
+  'utf8',
+));
+const PROJECT_3D_MANIFEST = JSON.parse(await readFile(
+  new URL('../assets/3d-manifest.json', import.meta.url),
   'utf8',
 ));
 const PROJECT_ROOT = fileURLToPath(new URL('../', import.meta.url));
@@ -148,6 +181,59 @@ test('the project audio whitelist contains two BGM loops and fourteen formal eff
   assert.equal(PROJECT_AUDIO_MANIFEST.assets.filter(({ kind }) => kind === 'sfx').length, 14);
   assert.equal(paths.every((assetPath) => /^assets\/audio\/[a-z0-9-]+\.(?:m4a|wav)$/.test(assetPath)), true);
   assert.equal(AUDIO_MANIFEST_PATH, 'assets/audio/manifest.json');
+});
+
+test('the shooter 3D manifest declares the four runtime GLBs with stable roles', () => {
+  assert.deepEqual(PROJECT_3D_MANIFEST, {
+    schemaVersion: 1,
+    assets: SHOOTER_ASSETS,
+  });
+  assert.deepEqual(collectDeclared3dAssetPaths(PROJECT_3D_MANIFEST), SHOOTER_GLB_PATHS);
+  assert.equal(SHOOTER_MANIFEST_PATH, 'assets/3d-manifest.json');
+  assert.deepEqual(SHOOTER_PUBLISH_ENTRIES, ['shooter.html', 'shooter.css']);
+});
+
+test('the shooter 3D manifest rejects unsafe, duplicate, and non-runtime entries', () => {
+  const invalidCases = [
+    [
+      (manifest) => { manifest.schemaVersion = 2; },
+      /schemaVersion must be 1/,
+    ],
+    [
+      (manifest) => { manifest.assets[0].id = 'Ice Peashooter'; },
+      /kebab-case id/,
+    ],
+    [
+      (manifest) => { manifest.assets[0].kind = 'camera'; },
+      /kind must be one of/,
+    ],
+    [
+      (manifest) => { manifest.assets[0].path = '../ice-peashooter.glb'; },
+      /runtime \.glb below assets\/generated\/3d/,
+    ],
+    [
+      (manifest) => { manifest.assets[0].path = 'assets/generated/3d/shooter/ice-peashooter.blend'; },
+      /runtime \.glb below assets\/generated\/3d/,
+    ],
+    [
+      (manifest) => { manifest.assets[0].path = 'assets/generated/3d/shooter/ice-peashooter-preview.glb'; },
+      /runtime \.glb below assets\/generated\/3d/,
+    ],
+    [
+      (manifest) => { manifest.assets[1].id = manifest.assets[0].id; },
+      /duplicate id/,
+    ],
+    [
+      (manifest) => { manifest.assets[1].path = manifest.assets[0].path; },
+      /publish one GLB path twice/,
+    ],
+  ];
+
+  for (const [mutate, expectedError] of invalidCases) {
+    const manifest = createShooterManifest();
+    mutate(manifest);
+    assert.throws(() => collectDeclared3dAssetPaths(manifest), expectedError);
+  }
 });
 
 test('the project whitelist includes every terrain, expedition, and resource PNG contract', () => {
@@ -262,6 +348,106 @@ test('docs build is a trackable whitelist package with the same contents', async
       DECLARED_ASSET_PATHS,
     );
   });
+});
+
+test('Pages build publishes the complete shooter route and only manifest-listed GLBs', async () => {
+  await withFixture(async (root) => {
+    await addShooterFixture(root);
+    await writeFile(
+      path.join(root, 'assets', 'generated', '3d', 'shooter', 'unused-preview.glb'),
+      MINIMAL_GLB,
+    );
+
+    const result = await buildPages({
+      projectRoot: root,
+      outputDirectory: path.join(root, '_site'),
+    });
+
+    assert.equal(result.shooterManifestPath, SHOOTER_MANIFEST_PATH);
+    assert.deepEqual(result.shooterPublishEntries, SHOOTER_PUBLISH_ENTRIES);
+    assert.deepEqual(result.shooterAssetPaths, SHOOTER_GLB_PATHS);
+    assert.deepEqual(await listGlbFiles(result.outputDirectory), SHOOTER_GLB_PATHS);
+    assert.deepEqual(
+      JSON.parse(await readFile(path.join(result.outputDirectory, SHOOTER_MANIFEST_PATH), 'utf8')),
+      createShooterManifest(),
+    );
+    for (const entry of SHOOTER_PUBLISH_ENTRIES) {
+      assert.equal(
+        await readFile(path.join(result.outputDirectory, entry), 'utf8'),
+        await readFile(path.join(root, entry), 'utf8'),
+      );
+    }
+    for (const glbPath of SHOOTER_GLB_PATHS) {
+      assert.deepEqual(
+        await readFile(path.join(result.outputDirectory, ...glbPath.split('/'))),
+        MINIMAL_GLB,
+      );
+    }
+    await assertMissing(
+      path.join(result.outputDirectory, 'assets', 'generated', '3d', 'shooter', 'unused-preview.glb'),
+    );
+    const moduleReport = await verifyPublishedModules(result.outputDirectory);
+    assert.deepEqual(moduleReport.entrypoints, ['./src/main.js', './src/shooter/main.js']);
+  });
+});
+
+test('a partial shooter route is rejected without replacing an existing build', async () => {
+  await withFixture(async (root) => {
+    await writeFile(
+      path.join(root, 'shooter.html'),
+      '<script type="module" src="./src/shooter/main.js"></script>',
+    );
+    await mkdir(path.join(root, '_site'), { recursive: true });
+    await writeFile(path.join(root, '_site', 'keep.txt'), 'previous good build');
+
+    await assert.rejects(
+      buildPages({ projectRoot: root, outputDirectory: path.join(root, '_site') }),
+      (error) => {
+        assert.match(error.message, /shooter route is incomplete/);
+        assert.match(error.message, /shooter\.css/);
+        assert.match(error.message, /assets\/3d-manifest\.json/);
+        return true;
+      },
+    );
+    assert.equal(
+      await readFile(path.join(root, '_site', 'keep.txt'), 'utf8'),
+      'previous good build',
+    );
+  });
+});
+
+test('GLB validation enforces magic, version, and declared byteLength', async () => {
+  const cases = [
+    {
+      expectedError: /invalid GLB magic/,
+      contents: createGlbHeader({ magic: 'nope' }),
+    },
+    {
+      expectedError: /unsupported GLB version 1/,
+      contents: createGlbHeader({ version: 1 }),
+    },
+    {
+      expectedError: /declares byteLength 99, actual size is 12/,
+      contents: createGlbHeader({ declaredByteLength: 99 }),
+    },
+  ];
+
+  for (const { contents, expectedError } of cases) {
+    await withFixture(async (root) => {
+      await addShooterFixture(root);
+      const [invalidPath] = SHOOTER_GLB_PATHS;
+      await writeFile(path.join(root, ...invalidPath.split('/')), contents);
+      await assert.rejects(
+        assertGlbAssetsExist(root, SHOOTER_GLB_PATHS),
+        (error) => {
+          assert.match(error.message, /GLB asset\(s\) failed validation/);
+          assert.match(error.message, new RegExp(escapeRegExp(invalidPath)));
+          assert.match(error.message, expectedError);
+          return true;
+        },
+      );
+    });
+  }
 });
 
 test('Pages build copies every declared terrain, expedition, and resource gameplay PNG', async () => {
@@ -755,6 +941,47 @@ function createManifest() {
       },
     },
   };
+}
+
+function createShooterManifest() {
+  return {
+    schemaVersion: 1,
+    assets: SHOOTER_ASSETS.map((asset) => ({ ...asset })),
+  };
+}
+
+function createGlbHeader({
+  magic = 'glTF',
+  version = 2,
+  declaredByteLength = 12,
+} = {}) {
+  const contents = Buffer.alloc(12);
+  contents.write(magic, 0, 4, 'ascii');
+  contents.writeUInt32LE(version, 4);
+  contents.writeUInt32LE(declaredByteLength, 8);
+  return contents;
+}
+
+async function addShooterFixture(root) {
+  await mkdir(path.join(root, 'src', 'shooter'), { recursive: true });
+  await writeFile(
+    path.join(root, 'shooter.html'),
+    [
+      '<link rel="stylesheet" href="./shooter.css">',
+      '<script type="module" src="./src/shooter/main.js"></script>',
+    ].join(''),
+  );
+  await writeFile(path.join(root, 'shooter.css'), 'canvas { display: block; }\n');
+  await writeFile(
+    path.join(root, 'src', 'shooter', 'main.js'),
+    "import '../main.js';\nexport const shooterReady = true;\n",
+  );
+  await writeJson(root, SHOOTER_MANIFEST_PATH, createShooterManifest());
+  await Promise.all(SHOOTER_GLB_PATHS.map(async (glbPath) => {
+    const destination = path.join(root, ...glbPath.split('/'));
+    await mkdir(path.dirname(destination), { recursive: true });
+    await writeFile(destination, MINIMAL_GLB);
+  }));
 }
 
 async function withFixture(callback) {

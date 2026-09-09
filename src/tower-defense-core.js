@@ -81,6 +81,64 @@ export const TD_ENDLESS_SCALE_CAPS = Object.freeze({
   reward: 3,
   bossCount: 2,
 });
+export const TD_FOCUS_COMMAND = Object.freeze({
+  maxCharges: 2,
+  duration: 4,
+  rechargeTime: 20,
+  damageMultiplier: 1.12,
+});
+export const TD_SKILL_AIM_SNAP_RADIUS = 110;
+const TD_FOCUS_CORE_EMERGENCY_DISTANCE = 160;
+
+function freshFocusCommand() {
+  return {
+    charges: TD_FOCUS_COMMAND.maxCharges,
+    recharge: 0,
+    targetUid: null,
+    remaining: 0,
+    used: false,
+  };
+}
+
+function ensureFocusCommand(state) {
+  if (!state.focusCommand || typeof state.focusCommand !== 'object') {
+    state.focusCommand = freshFocusCommand();
+  }
+  const command = state.focusCommand;
+  command.charges = clamp(
+    Math.floor(Number(command.charges) || 0),
+    0,
+    TD_FOCUS_COMMAND.maxCharges,
+  );
+  command.recharge = clamp(
+    Number(command.recharge) || 0,
+    0,
+    TD_FOCUS_COMMAND.rechargeTime,
+  );
+  command.remaining = Math.max(0, Number(command.remaining) || 0);
+  command.targetUid = typeof command.targetUid === 'string' ? command.targetUid : null;
+  command.used = command.used === true;
+  return command;
+}
+
+function focusedEnemyForState(state) {
+  const command = ensureFocusCommand(state);
+  if (!command.targetUid || command.remaining <= 0) return null;
+  return state.enemies.find((enemy) => (
+    enemy.uid === command.targetUid && enemy.hp > 0 && !enemy.leaked
+  )) || null;
+}
+
+function clearFocusTarget(command) {
+  command.targetUid = null;
+  command.remaining = 0;
+  return command;
+}
+
+function prepareFocusCommandForWave(state) {
+  const command = ensureFocusCommand(state);
+  return clearFocusTarget(command);
+}
 
 const freezeBattleUpgrade = (upgrade) => Object.freeze({
   maxRank: 3,
@@ -2211,6 +2269,7 @@ function emptyRunState(progress, seed) {
     pendingBattleUpgrade: null,
     battleUpgradeRanks: {},
     battleUpgradeHistory: [],
+    focusCommand: freshFocusCommand(),
     turrets: [],
     turretSlots: TD_TURRET_SLOTS['stage-1'],
     hero: null,
@@ -3066,6 +3125,41 @@ export function setTowerDefenseHeroMovement(state, dx, dy) {
   return state.hero;
 }
 
+/**
+ * Spends one regenerating command charge to make eligible friendly attackers
+ * prioritise one threat for a short window. The command is intentionally a
+ * direct battlefield action rather than another permanent toolbar mode.
+ */
+export function issueTowerDefenseFocusCommand(state, enemyUid) {
+  if (
+    state?.screen !== 'battle' || state.result || state.phase !== 'combat'
+    || !state.waveActive || state.pendingSquadFusion || state.pendingBattleUpgrade
+    || state.tutorial?.active
+  ) return false;
+  const command = ensureFocusCommand(state);
+  const target = state.enemies.find((enemy) => (
+    enemy.uid === enemyUid && enemy.hp > 0 && !enemy.leaked
+  ));
+  if (
+    !target || command.charges <= 0
+    || (command.targetUid === target.uid && command.remaining > 0)
+  ) return false;
+  command.charges -= 1;
+  command.used = true;
+  command.targetUid = target.uid;
+  command.remaining = TD_FOCUS_COMMAND.duration;
+  state.events.push({
+    type: 'focus-command',
+    enemyUid: target.uid,
+    enemyType: target.type,
+    x: target.x,
+    y: target.y,
+    charges: command.charges,
+    duration: TD_FOCUS_COMMAND.duration,
+  });
+  return target;
+}
+
 function heroSkillTargetsInCircle(state, center, radius, maxTargets = Infinity) {
   const boundedRadius = Math.max(0, Number(radius) || 0);
   const requestedLimit = Math.floor(Number(maxTargets));
@@ -3082,9 +3176,34 @@ function heroSkillTargetsInCircle(state, center, radius, maxTargets = Infinity) 
     .slice(0, limit);
 }
 
-function heroSkillAimTarget(state, hero, skill) {
+function heroSkillAimTarget(state, hero, skill, aimPoint = null) {
   if (skill.targeting === 'self') return null;
   const castRange = Math.max(0, Number(skill.radius) || 0);
+  if (Number.isFinite(Number(aimPoint?.x)) && Number.isFinite(Number(aimPoint?.y))) {
+    const dx = Number(aimPoint.x) - hero.x;
+    const dy = Number(aimPoint.y) - hero.y;
+    const aimDistance = Math.hypot(dx, dy);
+    const scale = aimDistance > castRange && aimDistance > 0
+      ? castRange / aimDistance : 1;
+    const desired = aimDistance > 0.001
+      ? { x: hero.x + dx * scale, y: hero.y + dy * scale }
+      : { x: hero.x, y: hero.y - Math.min(1, castRange) };
+    if (skill.targeting === 'direction') {
+      return { uid: null, x: desired.x, y: desired.y, travelled: 0 };
+    }
+    const candidates = state.enemies.filter((enemy) => (
+      enemy.hp > 0
+      && distance(hero, enemy) <= castRange
+      && distance(desired, enemy) <= TD_SKILL_AIM_SNAP_RADIUS
+    ));
+    if (!candidates.length) return null;
+    const target = [...candidates].sort((left, right) => (
+      distance(desired, left) - distance(desired, right)
+      || right.travelled - left.travelled
+      || String(left.uid).localeCompare(String(right.uid))
+    ))[0];
+    return target;
+  }
   const candidates = state.enemies.filter((enemy) => (
     enemy.hp > 0 && distance(hero, enemy) <= castRange
   ));
@@ -3919,7 +4038,7 @@ function updateHeroSkillQueue(state, dt) {
   return due.map((entry) => executeHeroSkillStep(state, entry));
 }
 
-export function activateTowerDefenseHeroSkill(state) {
+export function activateTowerDefenseHeroSkill(state, aimPoint = null) {
   if (
     state?.screen !== 'battle' || state.result || state.phase !== 'combat'
     || !state.waveActive || !state.hero || state.hero.hp <= 0
@@ -3938,7 +4057,7 @@ export function activateTowerDefenseHeroSkill(state) {
   const definition = HERO_TYPES[hero.type] || HERO_TYPES.shell;
   const skill = definition.skill;
   if (!skill?.steps?.length) return false;
-  const aimTarget = heroSkillAimTarget(state, hero, skill)
+  const aimTarget = heroSkillAimTarget(state, hero, skill, aimPoint)
     || (skill.targeting !== 'self' ? tutorialTrainingEnemy : null);
   if (skill.targeting !== 'self' && !aimTarget) return false;
   const aimX = aimTarget?.x ?? hero.x;
@@ -4163,6 +4282,52 @@ function queueForWave(state, waveNumber) {
   return queue;
 }
 
+function enemyIntelThreat(type) {
+  const definition = TD_ENEMIES[type] || TD_ENEMIES.bug;
+  const durability = definition.hp / Math.max(0.4, 1 - (Number(definition.armorReduction) || 0));
+  const breachPressure = 1 + definition.coreDamage * 0.34;
+  const combatPressure = 1 + definition.attackDamage / 120 + definition.speed / 180;
+  const bossPressure = definition.boss ? 1.35 : 1;
+  return scaleValue(durability / 100 * breachPressure * combatPressure * bossPressure);
+}
+
+/** Read-only lane pressure used by the preparation HUD before a wave starts. */
+export function towerDefenseNextWaveIntel(state) {
+  if (!state || state.result || state.waveActive) return null;
+  const wave = Math.max(0, Math.floor(Number(state.wave) || 0)) + 1;
+  const stage = stageForState(state);
+  if (state.mode !== 'endless' && wave > stage.waves.length) return null;
+  const queue = queueForWave(state, wave);
+  const laneBuckets = Array.from({ length: TD_LANE_COUNT }, (_, laneIndex) => ({
+    laneIndex,
+    count: 0,
+    threat: 0,
+    typeCounts: new Map(),
+  }));
+  for (const spawn of queue) {
+    const lane = laneBuckets[spawn.laneIndex];
+    if (!lane) continue;
+    lane.count += 1;
+    lane.threat += enemyIntelThreat(spawn.type);
+    lane.typeCounts.set(spawn.type, (lane.typeCounts.get(spawn.type) || 0) + 1);
+  }
+  const lanes = laneBuckets.map(({ laneIndex, count, threat, typeCounts }) => Object.freeze({
+    laneIndex,
+    count,
+    threat: scaleValue(threat),
+    enemyTypes: Object.freeze([...typeCounts.entries()]
+      .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+      .map(([type]) => type)),
+  }));
+  return Object.freeze({
+    wave,
+    total: queue.length,
+    threat: scaleValue(lanes.reduce((total, lane) => total + lane.threat, 0)),
+    lanes: Object.freeze(lanes),
+    enemyTypes: Object.freeze([...new Set(queue.map(({ type }) => type))]),
+  });
+}
+
 function battleUpgradeOptions(state) {
   const ranks = state.battleUpgradeRanks || {};
   const candidates = TD_BATTLE_UPGRADES.filter((upgrade) => (
@@ -4290,6 +4455,7 @@ export function startNextTowerDefenseWave(state) {
   state.waveEnemyResolved = 0;
   state.heroSkillQueue = [];
   state.heroSkillActors = [];
+  prepareFocusCommandForWave(state);
   for (const soldier of state.towers) {
     const squadDefinition = SQUAD_TYPES[soldier.squadType || soldier.type] || SQUAD_TYPES.ranged;
     soldier.x = Number.isFinite(Number(soldier.deployX))
@@ -4474,7 +4640,11 @@ function damageEnemy(state, enemy, amount, { emitHit = true, sourceSkill = null 
     && Number(enemy.bossSkillWarningTime) > 0
     ? clamp(Number(definition.shellGuardDamageMultiplier) || 1, 0.1, 1)
     : 1;
-  const damage = incomingDamage * (1 - armorReduction) * guardMultiplier;
+  const focusCommand = ensureFocusCommand(state);
+  const focusMultiplier = focusCommand.targetUid === enemy.uid
+    && focusCommand.remaining > 0
+    ? TD_FOCUS_COMMAND.damageMultiplier : 1;
+  const damage = incomingDamage * (1 - armorReduction) * guardMultiplier * focusMultiplier;
   if (damage <= 0) return false;
   if (triggersInkWeakpoint) {
     state.events.push({
@@ -4507,6 +4677,7 @@ function damageEnemy(state, enemy, amount, { emitHit = true, sourceSkill = null 
       sourceSkill,
       armorReduction,
       guardMultiplier,
+      focusMultiplier,
     });
   }
   if (
@@ -4542,6 +4713,18 @@ function damageEnemy(state, enemy, amount, { emitHit = true, sourceSkill = null 
     y: enemy.y,
     facing: enemy.facing,
   });
+  if (focusMultiplier > 1) {
+    focusCommand.targetUid = null;
+    focusCommand.remaining = 0;
+    state.events.push({
+      type: 'focus-command-complete',
+      enemyUid: enemy.uid,
+      enemyType: enemy.type,
+      x: enemy.x,
+      y: enemy.y,
+      charges: focusCommand.charges,
+    });
+  }
   return true;
 }
 
@@ -5632,14 +5815,47 @@ function fireSquadMember(state, tower, member, target, definition, stats) {
   });
 }
 
+function squadTargetScore(
+  member,
+  enemy,
+  homeLaneIndex,
+  enemyLaneIndex,
+  routeRemaining,
+  assignedCount = 0,
+) {
+  // Keeping a defended lane intact is the normal priority. This deliberately
+  // outweighs four-member load spreading, while the larger core-emergency
+  // bonus below can still pull every member across lanes when the run is at risk.
+  const sameLaneBonus = homeLaneIndex != null && enemyLaneIndex === homeLaneIndex ? 2400 : 0;
+  const emergencyBonus = routeRemaining <= TD_FOCUS_CORE_EMERGENCY_DISTANCE
+    ? 5000 + (TD_FOCUS_CORE_EMERGENCY_DISTANCE - routeRemaining) * 4
+    : 0;
+  return (Number(enemy.travelled) || 0)
+    + sameLaneBonus
+    + emergencyBonus
+    - distance(member, enemy) * 0.25
+    - Math.max(0, assignedCount) * 180;
+}
+
 function updateTowers(state, dt) {
   const liveEnemies = [];
   const liveEnemiesByUid = new Map();
+  const enemyLaneByUid = new Map();
+  const enemyRouteRemainingByUid = new Map();
+  const stage = stageForState(state);
   for (const enemy of state.enemies) {
     if (enemy.hp <= 0) continue;
+    const laneIndex = laneIndexForEnemy(state, enemy);
+    const pathLength = pathMetricsForRuntime(stage.lanes[laneIndex].path).total;
     liveEnemies.push(enemy);
     liveEnemiesByUid.set(enemy.uid, enemy);
+    enemyLaneByUid.set(enemy.uid, laneIndex);
+    enemyRouteRemainingByUid.set(
+      enemy.uid,
+      Math.max(0, pathLength - Math.max(0, Number(enemy.travelled) || 0)),
+    );
   }
+  const focusedEnemy = focusedEnemyForState(state);
   for (const tower of state.towers) {
     ensureTowerHealth(tower, state);
     const definition = SQUAD_TYPES[tower.squadType || tower.type] || SQUAD_TYPES.ranged;
@@ -5664,6 +5880,13 @@ function updateTowers(state, dt) {
       continue;
     }
     const targetLoads = new Map();
+    const homeLaneIndex = Number.isFinite(Number(tower.laneIndex))
+      ? Math.floor(Number(tower.laneIndex)) : null;
+    const homeLaneEnemies = homeLaneIndex == null
+      ? liveEnemies
+      : liveEnemies.filter((enemy) => (
+        enemyLaneByUid.get(enemy.uid) === homeLaneIndex
+      ));
     for (const member of members) {
       if (!member.alive) continue;
       const locked = liveEnemiesByUid.get(member.targetId);
@@ -5674,32 +5897,67 @@ function updateTowers(state, dt) {
       if (!member.alive) continue;
       member.attackCooldown = Math.max(0, member.attackCooldown - dt);
       member.moving = false;
-      let target = member.hp > 0 ? liveEnemiesByUid.get(member.targetId) : null;
-      if (target?.hp <= 0) {
-        targetLoads.set(target.uid, Math.max(0, (targetLoads.get(target.uid) || 1) - 1));
+      const locked = member.hp > 0 ? liveEnemiesByUid.get(member.targetId) : null;
+      if (locked) {
+        targetLoads.set(locked.uid, Math.max(0, (targetLoads.get(locked.uid) || 1) - 1));
+      } else {
         member.targetId = null;
-        target = null;
       }
-      if (!target && liveEnemies.length) {
-        let bestLoad = Number.POSITIVE_INFINITY;
-        let bestDistanceSquared = Number.POSITIVE_INFINITY;
-        let bestUid = '';
+      const focusedLaneIndex = focusedEnemy
+        ? enemyLaneByUid.get(focusedEnemy.uid) : null;
+      const focusIsLocal = focusedEnemy
+        ? squaredDistance(member, focusedEnemy) <= stats.range * stats.range : false;
+      const focusIsSameLane = focusedEnemy && homeLaneIndex != null
+        && focusedLaneIndex === homeLaneIndex;
+      const focusIsAdjacentToEmptyLane = focusedEnemy && homeLaneIndex != null
+        && homeLaneEnemies.length === 0
+        && Math.abs(focusedLaneIndex - homeLaneIndex) === 1;
+      const focusIsCoreEmergency = focusedEnemy
+        && enemyRouteRemainingByUid.get(focusedEnemy.uid) <= TD_FOCUS_CORE_EMERGENCY_DISTANCE;
+      const followsFocus = focusedEnemy && (
+        homeLaneIndex == null || focusIsSameLane || focusIsCoreEmergency
+        || (homeLaneEnemies.length === 0 && (focusIsLocal || focusIsAdjacentToEmptyLane))
+      );
+      let target = followsFocus ? focusedEnemy : locked;
+      let best = null;
+      let bestScore = Number.NEGATIVE_INFINITY;
+      let bestUid = '';
+      if (!followsFocus) {
         for (const enemy of liveEnemies) {
           if (enemy.hp <= 0) continue;
-          const load = targetLoads.get(enemy.uid) || 0;
-          const candidateDistanceSquared = squaredDistance(member, enemy);
           const uid = String(enemy.uid);
-          if (
-            load < bestLoad
-            || (load === bestLoad && candidateDistanceSquared < bestDistanceSquared)
-            || (load === bestLoad && candidateDistanceSquared === bestDistanceSquared
-              && uid.localeCompare(bestUid) < 0)
-          ) {
-            target = enemy;
-            bestLoad = load;
-            bestDistanceSquared = candidateDistanceSquared;
+          const score = squadTargetScore(
+            member,
+            enemy,
+            homeLaneIndex,
+            enemyLaneByUid.get(enemy.uid),
+            enemyRouteRemainingByUid.get(enemy.uid),
+            targetLoads.get(enemy.uid) || 0,
+          );
+          if (score > bestScore || (score === bestScore && uid.localeCompare(bestUid) < 0)) {
+            best = enemy;
+            bestScore = score;
             bestUid = uid;
           }
+        }
+        if (target && best && target !== best) {
+          const targetScore = squadTargetScore(
+            member,
+            target,
+            homeLaneIndex,
+            enemyLaneByUid.get(target.uid),
+            enemyRouteRemainingByUid.get(target.uid),
+            targetLoads.get(target.uid) || 0,
+          );
+          const bestIsEmergency = enemyRouteRemainingByUid.get(best.uid)
+            <= TD_FOCUS_CORE_EMERGENCY_DISTANCE;
+          const targetIsEmergency = enemyRouteRemainingByUid.get(target.uid)
+            <= TD_FOCUS_CORE_EMERGENCY_DISTANCE;
+          if ((bestIsEmergency && !targetIsEmergency) || bestScore > targetScore + 120) {
+            target = best;
+          }
+        } else if (!target) {
+          target = best;
         }
       }
       if (target) {
@@ -5764,6 +6022,10 @@ function updateTowers(state, dt) {
 }
 
 function targetForHero(state, hero, range) {
+  const focusedEnemy = focusedEnemyForState(state);
+  if (focusedEnemy && squaredDistance(hero, focusedEnemy) <= range * range) {
+    return focusedEnemy;
+  }
   let best = null;
   let bestDistanceSquared = Number.POSITIVE_INFINITY;
   const rangeSquared = range * range;
@@ -5882,8 +6144,11 @@ function updateTurrets(state, dt) {
     if (turret.disabledTime > 0) continue;
     if (turret.cooldown > 0) continue;
     const rangeSquared = definition.range * definition.range;
-    let target = null;
+    const focusedEnemy = focusedEnemyForState(state);
+    let target = focusedEnemy && squaredDistance(turret, focusedEnemy) <= rangeSquared
+      ? focusedEnemy : null;
     for (const enemy of state.enemies) {
+      if (focusedEnemy && target === focusedEnemy) break;
       if (enemy.hp <= 0 || squaredDistance(turret, enemy) > rangeSquared) continue;
       if (!target || enemy.travelled > target.travelled) target = enemy;
     }
@@ -6799,6 +7064,7 @@ function completeWave(state) {
   for (const turret of state.turrets) turret.disabledTime = 0;
   state.heroSkillQueue = [];
   state.heroSkillActors = [];
+  prepareFocusCommandForWave(state);
   state.projectiles = [];
   state.events.push({ type: 'wave-clear', wave: state.wave });
   const stageComplete = state.mode !== 'endless'
@@ -6818,6 +7084,37 @@ function updateEffects(state, dt) {
   compactInPlace(state.effects, isActiveEffect);
 }
 
+function updateFocusCommand(state, dt) {
+  const command = ensureFocusCommand(state);
+  if (command.charges >= TD_FOCUS_COMMAND.maxCharges) {
+    command.recharge = 0;
+  } else {
+    command.recharge += dt;
+    while (
+      command.charges < TD_FOCUS_COMMAND.maxCharges
+      && command.recharge >= TD_FOCUS_COMMAND.rechargeTime
+    ) {
+      command.recharge -= TD_FOCUS_COMMAND.rechargeTime;
+      command.charges += 1;
+      state.events.push({ type: 'focus-charge', charges: command.charges });
+    }
+    if (command.charges >= TD_FOCUS_COMMAND.maxCharges) command.recharge = 0;
+  }
+  if (!command.targetUid) return;
+  const target = focusedEnemyForState(state);
+  command.remaining = Math.max(0, command.remaining - dt);
+  if (target && command.remaining > 0) return;
+  const enemyUid = command.targetUid;
+  command.targetUid = null;
+  command.remaining = 0;
+  for (const tower of state.towers) {
+    for (const member of tower.members || []) {
+      if (member.targetId === enemyUid) member.targetId = null;
+    }
+  }
+  state.events.push({ type: 'focus-command-end', enemyUid });
+}
+
 export function updateTowerDefense(state, dt) {
   const delta = clamp(Number(dt) || 0, 0, 0.05);
   if (state.screen !== 'battle' || state.result) {
@@ -6834,6 +7131,7 @@ export function updateTowerDefense(state, dt) {
   if (!state.waveActive) {
     return state;
   }
+  updateFocusCommand(state, delta);
   // The first combat wave waits for an explicit joystick gesture. This keeps
   // the requested control in focus and prevents auto-combat from finishing the
   // lesson while the player is still reading its one-line prompt.
@@ -6890,6 +7188,7 @@ export function returnToTowerDefenseMenu(state) {
   state.pendingBattleUpgrade = null;
   state.battleUpgradeRanks = {};
   state.battleUpgradeHistory = [];
+  state.focusCommand = freshFocusCommand();
   state.selectedTowerUid = null;
   state.selectedHeroId = state.progress.selectedHero;
   state.heroes = heroRosterForProgress(state.progress);

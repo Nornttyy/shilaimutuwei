@@ -36,7 +36,9 @@ import {
   TD_CONTRACT_MAX_RANK,
   TD_ENEMIES,
   TD_EQUIPMENT_SUMMON_COSTS,
+  TD_FOCUS_COMMAND,
   TD_MAX_STAR,
+  TD_SKILL_AIM_SNAP_RADIUS,
   TD_STAGE_BY_ID,
   TD_STAGES,
   TD_STORAGE_KEY,
@@ -86,6 +88,8 @@ import {
   unequipTowerDefenseHeroItem,
   chooseTowerDefenseSquadAbility,
   chooseTowerDefenseBattleUpgrade,
+  issueTowerDefenseFocusCommand,
+  towerDefenseNextWaveIntel,
 } from './tower-defense-core.js';
 import {
   TD_EQUIPMENT_BY_ID,
@@ -100,6 +104,8 @@ const TAU = Math.PI * 2;
 const MAX_DPR = 2;
 const PAD_RADIUS = 38;
 const DRAG_THRESHOLD = 12;
+const SKILL_DRAG_THRESHOLD = 28;
+const SKILL_INVALID_COLOR = '#FF6573';
 const LONG_PRESS_MOVE_MS = 450;
 const LONG_PRESS_DRIFT = 18;
 const SQUAD_MEMBER_RENDER_SIZE = 52;
@@ -233,6 +239,7 @@ const HERO_JOYSTICK = Object.freeze({
   hit: Object.freeze({ x: 30, y: 1118, width: 144, height: 144 }),
 });
 const HERO_SKILL_RECT = Object.freeze({ x: 578, y: 1132, width: 116, height: 116 });
+const TACTICAL_STATUS_RECT = Object.freeze({ x: 18, y: 100, width: 150, height: 54 });
 const GEL_MORTAR_ASSET_LAYOUT = Object.freeze({
   assetWidthScale: 768 / 723,
   assetGroundAnchorY: 665 / 723,
@@ -1497,6 +1504,10 @@ export class TowerDefenseGame {
       }),
     ];
     this.drag = null;
+    this.skillDrag = null;
+    this.nextWaveIntelProvider = typeof options.nextWaveIntelProvider === 'function'
+      ? options.nextWaveIntelProvider : towerDefenseNextWaveIntel;
+    this.nextWaveIntelCache = null;
     this.keysDown = new Set();
     this.joystick = { active: false, x: 0, y: 0 };
     this.selectedPurchase = null;
@@ -1562,7 +1573,7 @@ export class TowerDefenseGame {
     this.boundPointerCancel = (event) => this.handlePointerCancel(event);
     this.boundKeyDown = (event) => this.handleKeyDown(event);
     this.boundKeyUp = (event) => this.handleKeyUp(event);
-    this.boundWindowBlur = () => this.resetHeroInput();
+    this.boundWindowBlur = () => this.cancelInteraction();
     this.keyboardTarget = options.keyboardTarget || safeGlobal('window') || canvas;
     this.bindInput();
     this.resize();
@@ -2538,7 +2549,7 @@ export class TowerDefenseGame {
         this.resetVisualState();
       }
       if (['run-start', 'wave-clear', 'run-end'].includes(event.type)) {
-        this.resetHeroInput();
+        this.cancelInteraction();
       }
       this.processCombatFeedbackEvent(event, feedbackIntake);
       if (event.type === 'run-end' || event.type === 'tutorial-complete') this.save();
@@ -2575,7 +2586,7 @@ export class TowerDefenseGame {
     this.scheduler.cancel(this.frameId);
     this.frameId = null;
     this.lastTimestamp = 0;
-    this.resetHeroInput();
+    this.cancelInteraction();
     this.resetVisualState();
     return this;
   }
@@ -2961,11 +2972,21 @@ export class TowerDefenseGame {
     const hit = this.hitAt(point);
     if (!this.tutorialAllows(hit)) return;
     this.hoverPoint = point;
-    if (this.drag) return;
     if (hit?.action === 'hero-skill') {
-      this.activateHit(hit);
+      const pointerId = event?.pointerId;
+      if (
+        this.skillDrag
+        || (this.drag?.pointerId != null && pointerId != null
+          && this.drag.pointerId === pointerId)
+      ) return;
+      this.skillDrag = {
+        kind: 'skill-aim', pointerId, hit,
+        start: point, point, moved: false,
+      };
+      this.canvas.setPointerCapture?.(pointerId);
       return;
     }
+    if (this.drag) return;
     if (hit?.action === 'hero-joystick') {
       this.drag = {
         kind: 'joystick', pointerId: event?.pointerId,
@@ -3012,6 +3033,22 @@ export class TowerDefenseGame {
 
   handlePointerMove(event) {
     event?.preventDefault?.();
+    const skillPointerMatches = this.skillDrag && (
+      this.skillDrag.pointerId == null
+      || event?.pointerId == null
+      || event.pointerId === this.skillDrag.pointerId
+    );
+    if (skillPointerMatches) {
+      const point = this.toGamePoint(event);
+      this.hoverPoint = point;
+      this.skillDrag.point = point;
+      if (
+        !this.skillDrag.moved
+        && pointDistance(point, this.skillDrag.start) >= SKILL_DRAG_THRESHOLD
+        && !insideRect(point, HERO_SKILL_RECT)
+      ) this.skillDrag.moved = true;
+      return;
+    }
     if (
       this.drag?.pointerId != null
       && event?.pointerId != null
@@ -3074,6 +3111,29 @@ export class TowerDefenseGame {
 
   handlePointerUp(event) {
     event?.preventDefault?.();
+    const skillPointerMatches = this.skillDrag && (
+      this.skillDrag.pointerId == null
+      || event?.pointerId == null
+      || event.pointerId === this.skillDrag.pointerId
+    );
+    if (skillPointerMatches) {
+      const point = this.toGamePoint(event);
+      const drag = this.skillDrag;
+      if (
+        !drag.moved
+        && pointDistance(point, drag.start) >= SKILL_DRAG_THRESHOLD
+        && !insideRect(point, HERO_SKILL_RECT)
+      ) drag.moved = true;
+      drag.point = point;
+      const aimPreview = drag.moved ? this.skillAimPreview(drag) : null;
+      this.skillDrag = null;
+      this.canvas.releasePointerCapture?.(event?.pointerId);
+      if (!drag.moved || aimPreview?.valid) {
+        activateTowerDefenseHeroSkill(this.state, drag.moved ? point : null);
+      }
+      this.processEvents();
+      return;
+    }
     if (
       this.drag?.pointerId != null
       && event?.pointerId != null
@@ -3167,16 +3227,39 @@ export class TowerDefenseGame {
   }
 
   handlePointerCancel(event) {
+    if (event?.pointerId == null) {
+      this.cancelInteraction();
+      return;
+    }
+    if (this.skillDrag?.pointerId === event.pointerId) {
+      this.skillDrag = null;
+      this.canvas.releasePointerCapture?.(event.pointerId);
+      return;
+    }
     if (
       this.drag?.pointerId != null
       && event?.pointerId != null
       && event.pointerId !== this.drag.pointerId
     ) return;
-    this.cancelInteraction();
+    const drag = this.drag;
+    this.drag = null;
+    this.hoverPoint = null;
+    this.canvas.releasePointerCapture?.(event.pointerId);
+    if (drag?.kind === 'joystick') this.resetHeroInput();
   }
 
   cancelInteraction() {
+    const pointerIds = new Set([this.drag?.pointerId, this.skillDrag?.pointerId]
+      .filter((pointerId) => pointerId != null));
+    for (const pointerId of pointerIds) {
+      try {
+        this.canvas.releasePointerCapture?.(pointerId);
+      } catch {
+        // Pointer capture may already have been released by the host runtime.
+      }
+    }
     this.drag = null;
+    this.skillDrag = null;
     this.hoverPoint = null;
     this.resetHeroInput();
   }
@@ -3553,6 +3636,11 @@ export class TowerDefenseGame {
       case 'hero-skill':
         activateTowerDefenseHeroSkill(this.state);
         this.processEvents();
+        break;
+      case 'focus-enemy':
+        if (issueTowerDefenseFocusCommand(this.state, hit.data.enemyUid)) {
+          this.processEvents();
+        }
         break;
       case 'choose-squad-ability':
         if (chooseTowerDefenseSquadAbility(this.state, hit.data.choiceId)) {
@@ -5260,6 +5348,8 @@ export class TowerDefenseGame {
     ctx.restore();
     this.drawCombatFlash(ctx);
     this.drawBattleHud(ctx, stage);
+    this.drawNextWaveIntel(ctx, stage);
+    this.drawFocusCommandHud(ctx);
     this.drawHeroControls(ctx);
     this.drawDragPreview(ctx);
     this.drawLongPressIndicator(ctx);
@@ -5388,6 +5478,111 @@ export class TowerDefenseGame {
         upgradeId: definition.id,
       });
     });
+  }
+
+  nextWaveIntelFor(stage) {
+    const key = [
+      stage?.id || this.state.stageId || '',
+      this.state.mode || '',
+      Math.max(0, Math.floor(Number(this.state.wave) || 0)),
+    ].join('|');
+    if (this.nextWaveIntelCache?.key === key) return this.nextWaveIntelCache.value;
+    const value = this.nextWaveIntelProvider(this.state);
+    this.nextWaveIntelCache = { key, value };
+    return value;
+  }
+
+  drawNextWaveIntel(ctx, stage) {
+    if (!this.isPreparation() || this.state.tutorial?.active) return;
+    const intel = this.nextWaveIntelFor(stage);
+    if (!intel?.lanes?.length) return;
+    const lanes = laneDescriptors(stage);
+    const maxThreat = Math.max(0, ...intel.lanes.map(({ threat }) => (
+      Math.max(0, Number(threat) || 0)
+    )));
+    label(ctx, `下一波 · ${intel.total} 敌`, TD_VIEW.width / 2, 112, {
+      size: 14, color: '#EFFFF4', weight: 900,
+    });
+    intel.lanes.forEach((laneIntel) => {
+      const lane = lanes[laneIntel.laneIndex];
+      if (!lane) return;
+      const threat = Math.max(0, Number(laneIntel.threat) || 0);
+      const ratio = maxThreat > 0 ? threat / maxThreat : 0;
+      const hot = ratio >= 0.8 && threat > 0;
+      const x = lane.x;
+      const y = 142;
+      ctx.save();
+      ctx.globalAlpha = laneIntel.count ? 0.68 + ratio * 0.28 : 0.2;
+      ctx.shadowColor = hot ? '#FF7A73' : '#73F1D2';
+      ctx.shadowBlur = hot ? 13 : 5;
+      ctx.fillStyle = hot ? '#FF7A73' : threat > 0 ? '#73E8C7' : '#74968D';
+      ctx.beginPath();
+      ctx.arc(x, y, 7 + ratio * 6, 0, TAU);
+      ctx.fill();
+      if (hot) {
+        ctx.strokeStyle = '#FFE178';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(x, y, 16 + Math.sin(this.state.time * 5 + x) * 1.5, 0, TAU);
+        ctx.stroke();
+      }
+      ctx.restore();
+      if (laneIntel.count) {
+        label(ctx, String(laneIntel.count), x, y + 1, {
+          size: 11, color: '#123E42', weight: 950,
+        });
+      }
+    });
+  }
+
+  drawFocusCommandHud(ctx) {
+    if (!this.state.waveActive || this.state.tutorial?.active) return;
+    const command = this.state.focusCommand || {};
+    const charges = clamp(
+      Math.floor(Number(command.charges) || 0),
+      0,
+      TD_FOCUS_COMMAND.maxCharges,
+    );
+    panel(ctx, TACTICAL_STATUS_RECT, {
+      fill: 'rgba(19,55,61,0.84)', stroke: '#5DE4E8', lineWidth: 2.5, radius: 20,
+    });
+    const firstHint = this.state.wave === 1 && command.used !== true;
+    label(ctx, firstHint ? '点怪集火' : '集火',
+      TACTICAL_STATUS_RECT.x + (firstHint ? 54 : 39),
+      TACTICAL_STATUS_RECT.y + TACTICAL_STATUS_RECT.height / 2 + 1, {
+        size: firstHint ? 15 : 14, color: '#EFFFFA', weight: 950,
+      });
+    const startX = TACTICAL_STATUS_RECT.x + (firstHint ? 111 : 78);
+    for (let index = 0; index < TD_FOCUS_COMMAND.maxCharges; index += 1) {
+      const x = startX + index * 18;
+      const y = TACTICAL_STATUS_RECT.y + TACTICAL_STATUS_RECT.height / 2;
+      const ready = index < charges;
+      ctx.save();
+      ctx.fillStyle = ready ? '#FFE36F' : 'rgba(196,228,220,0.2)';
+      ctx.strokeStyle = ready ? '#FFF7BD' : 'rgba(196,228,220,0.42)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x, y - 7);
+      ctx.lineTo(x + 7, y);
+      ctx.lineTo(x, y + 7);
+      ctx.lineTo(x - 7, y);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      if (!ready && index === charges && charges < TD_FOCUS_COMMAND.maxCharges) {
+        const progress = clamp(
+          Number(command.recharge) / TD_FOCUS_COMMAND.rechargeTime,
+          0,
+          1,
+        );
+        ctx.strokeStyle = '#66F4DB';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(x, y, 10, -Math.PI / 2, -Math.PI / 2 + TAU * progress);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
   }
 
   drawHeroControls(ctx) {
@@ -6210,6 +6405,37 @@ export class TowerDefenseGame {
       'move',
     );
     const facing = this.visualFacing(key, enemy.facing);
+    const command = this.state.focusCommand || {};
+    const focused = command.targetUid === enemy.uid && Number(command.remaining) > 0;
+    if (focused) {
+      const radius = Math.max(31, definition.size * 0.62);
+      const centerY = point.y - definition.size * 0.04;
+      const remainingRatio = clamp(
+        Number(command.remaining) / TD_FOCUS_COMMAND.duration,
+        0,
+        1,
+      );
+      ctx.save();
+      ctx.translate(point.x, centerY);
+      ctx.rotate(this.state.time * 1.9);
+      ctx.shadowColor = '#59F4FF';
+      ctx.shadowBlur = 14;
+      ctx.strokeStyle = '#78F4FF';
+      ctx.lineWidth = 4;
+      ctx.setLineDash?.([Math.max(12, radius * 0.42), Math.max(8, radius * 0.24)]);
+      ctx.beginPath();
+      ctx.arc(0, 0, radius + Math.sin(this.state.time * 7) * 2, 0, TAU);
+      ctx.stroke();
+      ctx.setLineDash?.([]);
+      ctx.rotate(-this.state.time * 3.2);
+      ctx.strokeStyle = '#FFE56C';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(0, 0, radius + 7, -Math.PI / 2,
+        -Math.PI / 2 + TAU * remainingRatio);
+      ctx.stroke();
+      ctx.restore();
+    }
     const drawOptions = {
       time: this.state.time,
       phase: Number(enemy.uid.split('-').at(-1)) * 0.31 || 0,
@@ -6245,6 +6471,14 @@ export class TowerDefenseGame {
       ctx.fill();
     }
     ctx.restore();
+    const hitSize = Math.max(82, definition.size * 1.18);
+    this.addHit(`focus-enemy-${enemy.uid}`, {
+      x: point.x - hitSize / 2,
+      y: point.y - definition.size * 0.72,
+      width: hitSize,
+      height: hitSize * 1.22,
+    }, 'focus-enemy', { enemyUid: enemy.uid },
+    this.state.waveActive && !this.state.tutorial?.active);
   }
 
   drawDefeatedTowers(ctx) {
@@ -9585,7 +9819,103 @@ export class TowerDefenseGame {
     ctx.restore();
   }
 
+  skillAimPreview(drag = this.skillDrag) {
+    if (!drag?.moved || !drag.point) return null;
+    const hero = this.state.hero;
+    const definition = HERO_TYPES[hero?.type] || HERO_TYPES.shell;
+    const skill = definition.skill;
+    if (!hero || !skill) return null;
+    const targeting = skill.targeting || 'cluster';
+    const castRange = Math.max(1, Number(skill.radius) || 1);
+    const dx = drag.point.x - hero.x;
+    const dy = drag.point.y - hero.y;
+    const distanceToAim = Math.hypot(dx, dy);
+    const scale = distanceToAim > castRange && distanceToAim > 0
+      ? castRange / distanceToAim : 1;
+    const aim = targeting === 'self'
+      ? { x: hero.x, y: hero.y }
+      : distanceToAim > 0.001
+        ? { x: hero.x + dx * scale, y: hero.y + dy * scale }
+        : { x: hero.x, y: hero.y - Math.min(1, castRange) };
+    const previewRadius = targeting === 'self'
+      ? Math.min(92, castRange * 0.42)
+      : targeting === 'direction'
+        ? clamp((Number(skill.steps?.[0]?.width) || 56) * 0.5, 22, 54)
+        : clamp(Number(skill.clusterRadius)
+          || Number(skill.steps?.[0]?.radius) || 42, 26, 92);
+
+    if (targeting === 'self' || targeting === 'direction') {
+      return {
+        hero, definition, skill, targeting, aim,
+        target: null, targetPoint: aim, previewRadius, valid: true,
+      };
+    }
+
+    const target = this.state.enemies.filter((enemy) => (
+      enemy.hp > 0
+      && pointDistance(hero, enemy) <= castRange
+      && pointDistance(aim, enemy) <= TD_SKILL_AIM_SNAP_RADIUS
+    )).sort((left, right) => (
+      pointDistance(aim, left) - pointDistance(aim, right)
+      || (Number(right.travelled) || 0) - (Number(left.travelled) || 0)
+      || String(left.uid).localeCompare(String(right.uid))
+    ))[0] || null;
+    return {
+      hero, definition, skill, targeting, aim,
+      target, targetPoint: target || aim, previewRadius, valid: Boolean(target),
+    };
+  }
+
+  drawSkillDragPreview(ctx) {
+    const preview = this.skillAimPreview();
+    if (!preview) return false;
+    const {
+      hero, definition, targeting, target, targetPoint, previewRadius, valid,
+    } = preview;
+    const accent = valid ? definition.color : SKILL_INVALID_COLOR;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(BATTLE_FIELD.left, BATTLE_FIELD.top,
+      BATTLE_FIELD.right - BATTLE_FIELD.left, BATTLE_FIELD.bottom - BATTLE_FIELD.top);
+    ctx.clip();
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = accent;
+    ctx.lineWidth = 5;
+    ctx.globalAlpha = valid ? 0.88 : 0.9;
+    ctx.shadowColor = accent;
+    ctx.shadowBlur = valid ? 13 : 8;
+    if (targeting !== 'self') {
+      ctx.setLineDash?.([12, 10]);
+      ctx.beginPath();
+      ctx.moveTo(hero.x, hero.y - 20);
+      ctx.lineTo(targetPoint.x, targetPoint.y);
+      ctx.stroke();
+      ctx.setLineDash?.([]);
+    }
+    ctx.beginPath();
+    ctx.arc(targetPoint.x, targetPoint.y,
+      previewRadius + Math.sin(this.state.time * 7) * 2, 0, TAU);
+    ctx.stroke();
+    ctx.fillStyle = valid ? `${definition.color}24` : 'rgba(255,101,115,0.14)';
+    ctx.fill();
+    if (!valid && !target) {
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.moveTo(targetPoint.x - 12, targetPoint.y - 12);
+      ctx.lineTo(targetPoint.x + 12, targetPoint.y + 12);
+      ctx.moveTo(targetPoint.x + 12, targetPoint.y - 12);
+      ctx.lineTo(targetPoint.x - 12, targetPoint.y + 12);
+      ctx.stroke();
+    }
+    ctx.restore();
+    return true;
+  }
+
   drawDragPreview(ctx) {
+    if (this.skillDrag?.moved && this.skillDrag.point) {
+      this.drawSkillDragPreview(ctx);
+      return;
+    }
     if (!this.drag?.moved || !this.drag.point) return;
     if (this.drag.kind === 'purchase') {
       const purchase = purchaseItemFor(this.drag.purchaseType);
@@ -10058,7 +10388,7 @@ export class TowerDefenseGame {
       start: { step: 5, text: '开始战斗' },
       move: { step: 6, text: '拖动摇杆' },
       'skill-wait': { step: 7, text: '等敌人出现' },
-      skill: { step: 7, text: '释放英雄技能' },
+      skill: { step: 7, text: '点按或拖动技能' },
     }[target.type] || { step: 1, text: '按高亮操作' };
     panel(ctx, TUTORIAL_PANEL_RECT, {
       fill: 'rgba(255, 251, 224, 0.97)',

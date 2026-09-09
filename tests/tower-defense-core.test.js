@@ -12,6 +12,7 @@ import {
   TD_CONTRACT_SUMMON_COSTS,
   TD_CONTRACT_TYPES,
   TD_EQUIPMENT_SUMMON_COSTS,
+  TD_FOCUS_COMMAND,
   TD_HERO_RARITY_SCALING,
   TD_META_START_COINS,
   TD_RECRUITMENT_POOLS,
@@ -48,6 +49,7 @@ import {
   heroExchangeCost,
   heroRankUpCost,
   heroStatsForRank,
+  issueTowerDefenseFocusCommand,
   mergeTowers,
   moveTowerToPad,
   normalizeTowerDefenseProgress,
@@ -68,6 +70,7 @@ import {
   summonTowerDefenseContracts,
   summonTowerDefenseEquipment,
   towerAttackEvolution,
+  towerDefenseNextWaveIntel,
   towerRange,
   turretStatsForRank,
   tutorialTargetForState,
@@ -1104,6 +1107,228 @@ test('hero auto-attacks and its active skill has cooldown and bounded area', () 
   assert.deepEqual(state, cooldown);
 });
 
+test('direction drag uses the real bounded point while a tap keeps automatic targeting', () => {
+  const aimed = createBattleState({
+    progress: { contractRanks: { shell: 1, needle: 1 }, selectedHero: 'needle' },
+  });
+  assert.equal(startNextTowerDefenseWave(aimed), true);
+  aimed.spawnQueue = [{ uid: 'held-spawn', type: 'bug', laneIndex: 0, at: 999 }];
+  aimed.hero.cooldown = 999;
+  aimed.enemies = [];
+  aimed.events = [];
+  const emptyPoint = { x: aimed.hero.x - 120, y: aimed.hero.y - 90 };
+  assert.equal(activateTowerDefenseHeroSkill(aimed, emptyPoint), true);
+  const aimedCast = aimed.events.find(({ type }) => type === 'hero-skill');
+  assert.deepEqual(aimedCast.geometry.target, emptyPoint);
+  assert.ok(aimed.heroSkillQueue.every(({ targetUid }) => targetUid == null));
+
+  const bounded = createBattleState({
+    progress: { contractRanks: { shell: 1, needle: 1 }, selectedHero: 'needle' },
+  });
+  assert.equal(startNextTowerDefenseWave(bounded), true);
+  bounded.spawnQueue = [{ uid: 'held-spawn', type: 'bug', laneIndex: 0, at: 999 }];
+  bounded.hero.cooldown = 999;
+  bounded.enemies = [];
+  assert.equal(activateTowerDefenseHeroSkill(bounded, { x: -1000, y: -1000 }), true);
+  const boundedTarget = bounded.events.find(({ type }) => type === 'hero-skill').geometry.target;
+  assert.ok(Math.abs(Math.hypot(
+    boundedTarget.x - bounded.hero.x,
+    boundedTarget.y - bounded.hero.y,
+  ) - HERO_TYPES.needle.skill.radius) < 1e-6, 'drag aim is clamped to the cast radius');
+
+  const automatic = createBattleState({
+    progress: { contractRanks: { shell: 1, needle: 1 }, selectedHero: 'needle' },
+  });
+  assert.equal(startNextTowerDefenseWave(automatic), true);
+  automatic.spawnQueue = [{ uid: 'held-spawn', type: 'bug', laneIndex: 0, at: 999 }];
+  automatic.hero.cooldown = 999;
+  automatic.enemies = [
+    enemyAt({ laneIndex: 2, y: 700, uid: 'auto-near', hp: 100_000 }),
+    enemyAt({ laneIndex: 0, y: 650, uid: 'auto-far', hp: 100_000 }),
+  ];
+  assert.equal(activateTowerDefenseHeroSkill(automatic), true);
+  assert.ok(automatic.heroSkillQueue.every(({ targetUid }) => targetUid === 'auto-near'));
+});
+
+test('cluster drag only snaps to an enemy within 110px and a miss spends no cooldown', () => {
+  const aimed = createBattleState({
+    progress: { contractRanks: { shell: 1, bubble: 1 }, selectedHero: 'bubble' },
+  });
+  assert.equal(startNextTowerDefenseWave(aimed), true);
+  aimed.spawnQueue = [{ uid: 'held-spawn', type: 'bug', laneIndex: 0, at: 999 }];
+  aimed.hero.cooldown = 999;
+  const chosen = enemyAt({ laneIndex: 2, y: 650, uid: 'cluster-chosen', hp: 100_000 });
+  const other = enemyAt({ laneIndex: 0, y: 700, uid: 'cluster-other', hp: 100_000 });
+  aimed.enemies = [other, chosen];
+  assert.equal(activateTowerDefenseHeroSkill(aimed, { x: chosen.x + 70, y: chosen.y }), true);
+  const cast = aimed.events.find(({ type }) => type === 'hero-skill');
+  assert.deepEqual(cast.geometry.target, { x: chosen.x, y: chosen.y });
+
+  const missed = createBattleState({
+    progress: { contractRanks: { shell: 1, bubble: 1 }, selectedHero: 'bubble' },
+  });
+  assert.equal(startNextTowerDefenseWave(missed), true);
+  missed.spawnQueue = [{ uid: 'held-spawn', type: 'bug', laneIndex: 0, at: 999 }];
+  missed.hero.cooldown = 999;
+  missed.enemies = [enemyAt({ laneIndex: 0, y: 700, uid: 'cluster-distant', hp: 100_000 })];
+  const before = clone(missed);
+  assert.equal(activateTowerDefenseHeroSkill(
+    missed,
+    { x: missed.hero.x + 200, y: missed.hero.y },
+  ), false);
+  assert.deepEqual(missed, before);
+});
+
+test('limited focus commands redirect allies, amplify damage, expire, and recharge', () => {
+  assert.deepEqual(TD_FOCUS_COMMAND, {
+    maxCharges: 2,
+    duration: 4,
+    rechargeTime: 20,
+    damageMultiplier: 1.12,
+  });
+  const state = createBattleState();
+  assert.equal(startNextTowerDefenseWave(state), true);
+  state.spawnQueue = [{ uid: 'held-spawn', type: 'bug', laneIndex: 0, at: 999 }];
+  const near = enemyAt({ laneIndex: 2, y: state.hero.y - 82, uid: 'focus-near', hp: 100_000 });
+  const marked = enemyAt({ laneIndex: 1, y: state.hero.y - 100, uid: 'focus-marked', hp: 100_000 });
+  state.enemies = [near, marked];
+  state.hero.cooldown = 0;
+  state.hero.skillCooldown = 999;
+  state.events = [];
+  assert.equal(issueTowerDefenseFocusCommand(state, marked.uid), marked);
+  assert.equal(state.focusCommand.charges, TD_FOCUS_COMMAND.maxCharges - 1);
+  assert.equal(issueTowerDefenseFocusCommand(state, marked.uid), false,
+    'tapping the already marked target cannot waste another charge');
+  updateTowerDefense(state, 0.01);
+  assert.equal(state.events.find(({ type }) => type === 'hero-shot')?.targetUid, marked.uid);
+  resolveProjectiles(state);
+  const focusedHit = state.events.find(({ type, enemyUid }) => (
+    type === 'enemy-hit' && enemyUid === marked.uid
+  ));
+  assert.equal(focusedHit.focusMultiplier, TD_FOCUS_COMMAND.damageMultiplier);
+
+  state.focusCommand.remaining = 0.01;
+  updateTowerDefense(state, 0.05);
+  assert.equal(state.focusCommand.targetUid, null);
+  state.focusCommand.charges = 0;
+  state.focusCommand.recharge = TD_FOCUS_COMMAND.rechargeTime - 0.02;
+  updateTowerDefense(state, 0.05);
+  assert.equal(state.focusCommand.charges, 1);
+  assert.ok(state.focusCommand.recharge < 0.05);
+});
+
+test('focus charges and partial recharge persist across waves without a free refill', () => {
+  const state = createBattleState();
+  state.focusCommand = {
+    charges: 0,
+    recharge: 7,
+    targetUid: 'stale-target',
+    remaining: 3,
+    used: true,
+  };
+  assert.equal(startNextTowerDefenseWave(state), true);
+  assert.deepEqual(state.focusCommand, {
+    charges: 0,
+    recharge: 7,
+    targetUid: null,
+    remaining: 0,
+    used: true,
+  }, 'starting a wave clears only the transient target');
+  state.spawnQueue = [];
+  state.enemies = [];
+  updateTowerDefense(state, 0);
+  assert.equal(state.waveActive, false);
+  assert.equal(state.focusCommand.charges, 0);
+  assert.equal(state.focusCommand.recharge, 7);
+  assert.equal(state.focusCommand.used, true);
+  assert.equal(startNextTowerDefenseWave(state), true);
+  assert.equal(state.focusCommand.charges, 0, 'neither wave clear nor wave start refills the command');
+  assert.equal(state.focusCommand.recharge, 7);
+});
+
+test('focus respects squad guard lanes while adjacent and local emergencies can respond', () => {
+  const state = createBattleState();
+  const stage = TD_STAGES[0];
+  const leftPad = stage.pads.findIndex(({ laneIndex, rowIndex }) => laneIndex === 0 && rowIndex === 3);
+  const rightPad = stage.pads.findIndex(({ laneIndex, rowIndex }) => laneIndex === 4 && rowIndex === 3);
+  const leftSquad = buyTowerDefenseSquad(state, 'ranged', leftPad);
+  const rightSquad = buyTowerDefenseSquad(state, 'ranged', rightPad);
+  holdCombat(state);
+  leftSquad.members.forEach((member) => { member.attackCooldown = 999; });
+  rightSquad.members.forEach((member) => { member.attackCooldown = 999; });
+  const marked = enemyAt({ laneIndex: 0, y: 450, uid: 'guard-focus-left' });
+  const rightThreat = enemyAt({ laneIndex: 4, y: 450, uid: 'guard-right-home' });
+  state.enemies = [marked, rightThreat];
+  assert.equal(issueTowerDefenseFocusCommand(state, marked.uid), marked);
+  assert.ok([...leftSquad.members, ...rightSquad.members].every(({ targetId }) => targetId == null),
+    'issuing a command does not rewrite every independent member immediately');
+  updateTowerDefense(state, 0.01);
+  assert.ok(leftSquad.members.every(({ targetId }) => targetId === marked.uid));
+  assert.deepEqual(rightSquad.members.map(({ targetId }) => targetId), Array(4).fill(rightThreat.uid),
+    'a remote non-emergency focus cannot pull defenders away from a live home lane');
+
+  const adjacent = createBattleState();
+  const middlePad = stage.pads.findIndex(({ laneIndex, rowIndex }) => laneIndex === 2 && rowIndex === 4);
+  const middleSquad = buyTowerDefenseSquad(adjacent, 'ranged', middlePad);
+  holdCombat(adjacent);
+  middleSquad.members.forEach((member) => { member.attackCooldown = 999; });
+  const adjacentMarked = enemyAt({ laneIndex: 1, y: 270, uid: 'adjacent-focus' });
+  const remoteFallback = enemyAt({ laneIndex: 4, y: 270, uid: 'remote-fallback' });
+  adjacent.enemies = [remoteFallback, adjacentMarked];
+  assert.equal(issueTowerDefenseFocusCommand(adjacent, adjacentMarked.uid), adjacentMarked);
+  updateTowerDefense(adjacent, 0.01);
+  assert.ok(middleSquad.members.every(({ targetId }) => targetId === adjacentMarked.uid),
+    'an empty home lane may answer a focus command in an adjacent lane');
+});
+
+test('a cross-lane enemy inside the final 160 route units overrides a distant home target', () => {
+  const state = createBattleState();
+  const stage = TD_STAGES[0];
+  const padIndex = stage.pads.findIndex(({ laneIndex, rowIndex }) => laneIndex === 0 && rowIndex === 4);
+  const squad = buyTowerDefenseSquad(state, 'ranged', padIndex);
+  holdCombat(state);
+  squad.members.forEach((member) => { member.attackCooldown = 999; });
+  const home = enemyAt({ laneIndex: 0, y: 300, uid: 'distant-home' });
+  const emergency = enemyAt({
+    laneIndex: 4,
+    y: stage.base.goalY - 150,
+    uid: 'cross-lane-core-emergency',
+  });
+  state.enemies = [home, emergency];
+  updateTowerDefense(state, 0.01);
+  assert.ok(squad.members.every(({ targetId }) => targetId === emergency.uid));
+});
+
+test('preparation intel reports the next wave pressure without mutating the run', () => {
+  const state = createBattleState();
+  const snapshot = clone(state);
+  const intel = towerDefenseNextWaveIntel(state);
+  assert.equal(intel.wave, 1);
+  assert.equal(intel.lanes.length, 5);
+  assert.equal(intel.lanes.reduce((total, lane) => total + lane.count, 0), intel.total);
+  assert.equal(
+    intel.lanes.reduce((total, lane) => total + lane.threat, 0),
+    intel.threat,
+  );
+  assert.ok(intel.total > 0);
+  assert.ok(intel.enemyTypes.length > 0);
+  assert.equal(Object.isFrozen(intel), true);
+  assert.deepEqual(state, snapshot);
+  assert.equal(startNextTowerDefenseWave(state), true);
+  assert.equal(towerDefenseNextWaveIntel(state), null);
+});
+
+test('next-wave threat values a lone boss above ordinary two-enemy lanes', () => {
+  const state = createBattleState();
+  state.wave = 4;
+  const intel = towerDefenseNextWaveIntel(state);
+  const bossLane = intel.lanes[2];
+  assert.deepEqual(bossLane.enemyTypes, ['boss']);
+  assert.equal(bossLane.count, 1);
+  assert.ok(bossLane.threat > intel.lanes[1].threat);
+  assert.ok(bossLane.threat > intel.lanes[3].threat);
+});
+
 test('all fifteen heroes own unique serialisable mechanics rather than five recoloured templates', () => {
   const snapshots = {};
   const expectedActions = {
@@ -1951,7 +2176,7 @@ test('portrait stages share one top entrance, smoothly split into five lanes, th
   }
 });
 
-test('four members keep separate positions and acquire targets in every direction', () => {
+test('four members keep separate positions, guard their lane, then pursue across the field', () => {
   const state = createBattleState();
   const stage = TD_STAGES[0];
   const padIndex = stage.pads.findIndex(({ laneIndex, rowIndex }) => (
@@ -1985,13 +2210,20 @@ test('four members keep separate positions and acquire targets in every directio
   assert.equal(new Set(squad.members.map(({ x, y }) => `${x}:${y}`)).size, 4);
   assert.deepEqual(
     [...squad.members.map(({ targetId }) => targetId)].sort(),
-    ['east', 'north', 'south', 'west'],
+    ['north', 'north', 'south', 'south'],
+    'deployment lanes matter while their own threats are alive',
   );
   const lockedTargets = squad.members.map(({ targetId }) => targetId);
   state.enemies.reverse();
   updateTowerDefense(state, 0.05);
   assert.deepEqual(squad.members.map(({ targetId }) => targetId), lockedTargets,
     'a living target stays locked instead of being replaced by a nearer enemy');
+  state.enemies.find(({ uid }) => uid === 'north').hp = 0;
+  state.enemies.find(({ uid }) => uid === 'south').hp = 0;
+  updateTowerDefense(state, 0.01);
+  assert.ok(squad.members.every(({ targetId }) => ['east', 'west'].includes(targetId)),
+    'the squad still crosses lanes instead of becoming idle');
+  assert.deepEqual(new Set(squad.members.map(({ targetId }) => targetId)), new Set(['east', 'west']));
   assert.ok(squad.members.every(({ x, y }) => (
     x >= TD_HERO_BOUNDS.minX && x <= TD_HERO_BOUNDS.maxX
     && y >= TD_HERO_BOUNDS.minY && y <= TD_HERO_BOUNDS.maxY

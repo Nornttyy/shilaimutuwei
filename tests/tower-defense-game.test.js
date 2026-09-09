@@ -10,6 +10,7 @@ import {
   SQUAD_TYPES,
   TURRET_TYPES,
   TD_ENEMIES,
+  TD_FOCUS_COMMAND,
   TD_STAGES,
   TD_STORAGE_KEY,
   TD_TUTORIAL_VERSION,
@@ -48,6 +49,8 @@ function createContext() {
     moveTo: (...args) => calls.push(['moveTo', ...args]),
     lineTo: (...args) => calls.push(['lineTo', ...args]),
     quadraticCurveTo: (...args) => calls.push(['quadraticCurveTo', ...args]),
+    rect: (...args) => calls.push(['rect', ...args]),
+    clip: (...args) => calls.push(['clip', ...args]),
     arc: (...args) => calls.push(['arc', ...args]),
     ellipse: (...args) => calls.push(['ellipse', ...args]),
     translate: (...args) => calls.push(['translate', ...args]),
@@ -3149,7 +3152,7 @@ test('seven-step spotlight tutorial teaches card categories, turret prep, moveme
   assert.ok(game.state.enemies.some(({ uid }) => uid === game.state.tutorial.trainingEnemyUid));
   assert.equal(game.hits.find(({ id }) => id === 'hero-skill').enabled, true);
   assert.ok(canvas.context.calls.some(([kind, text]) => (
-    kind === 'fillText' && text === '释放英雄技能'
+    kind === 'fillText' && text === '点按或拖动技能'
   )));
   assert.ok(canvas.context.calls.some(([kind, x, y, radius]) => (
     kind === 'arc' && x === 636 && y === 1190 && radius >= 70
@@ -3465,6 +3468,305 @@ test('battle dock purchases squads and a fixed turret, moves squads in prep, the
   }));
   assert.equal(game.state.hero.moveX, 0);
   assert.equal(game.state.hero.moveY, 0);
+  game.dispose();
+});
+
+test('battlefield taps issue limited focus orders and skill drags aim at a chosen threat', () => {
+  const canvas = createCanvas();
+  const game = new TowerDefenseGame(canvas, {
+    runtime: createRuntime({
+      tutorialSeen: true,
+      contractRanks: { shell: 1, bubble: 1 },
+      selectedHero: 'bubble',
+    }),
+    pixelRatio: 1,
+  });
+  assert.equal(beginTowerDefenseRun(game.state, { stageId: 'stage-1' }), true);
+  canvas.context.calls.length = 0;
+  game.render();
+  assert.ok(canvas.context.calls.some(([kind, text]) => (
+    kind === 'fillText' && String(text).startsWith('下一波 ')
+  )), 'preparation reveals compact next-wave lane pressure');
+
+  assert.equal(startNextTowerDefenseWave(game.state), true);
+  game.state.spawnQueue = [{ uid: 'held-spawn', type: 'bug', laneIndex: 0, at: 999 }];
+  game.state.hero.cooldown = 999;
+  const left = {
+    uid: 'tap-focus-left', type: 'bug', x: 230, y: 650,
+    hp: 100_000, maxHp: 100_000, travelled: 300, facing: -1, hitPulse: 0,
+  };
+  const right = {
+    uid: 'drag-aim-right', type: 'windcap', x: 490, y: 650,
+    hp: 100_000, maxHp: 100_000, travelled: 300, facing: -1, hitPulse: 0,
+  };
+  game.state.enemies = [left, right];
+  game.render();
+  const focusHit = game.hits.find(({ id }) => id === `focus-enemy-${left.uid}`);
+  assert.equal(focusHit?.enabled, true);
+  click(game, canvas, { x: left.x, y: left.y });
+  assert.equal(game.state.focusCommand.targetUid, left.uid);
+  assert.equal(game.state.focusCommand.charges, TD_FOCUS_COMMAND.maxCharges - 1);
+
+  game.render();
+  const skillButton = hitCenter(game, 'hero-skill');
+  canvas.dispatch('pointerdown', pointerEvent(game, canvas, skillButton));
+  canvas.dispatch('pointermove', pointerEvent(game, canvas, { x: right.x, y: right.y }));
+  assert.equal(game.skillDrag?.kind, 'skill-aim');
+  canvas.context.calls.length = 0;
+  game.render();
+  assert.ok(canvas.context.calls.some(([kind, strokeStyle]) => (
+    kind === 'stroke' && strokeStyle === HERO_TYPES.bubble.color
+  )), 'dragging the skill paints a live authored-color aim guide');
+  canvas.dispatch('pointerup', pointerEvent(game, canvas, { x: right.x, y: right.y }));
+  assert.ok(game.state.hero.skillCooldown > 0);
+  assert.ok(game.state.heroSkillQueue.length > 0);
+  assert.ok(game.state.heroSkillQueue.every(({ targetUid, targetX, targetY }) => (
+    targetUid === right.uid && targetX === right.x && targetY === right.y
+  )));
+  assert.equal(game.drag, null);
+  assert.equal(game.skillDrag, null);
+  game.dispose();
+});
+
+test('joystick and skill use independent pointers so movement survives a dragged cast', () => {
+  const canvas = createCanvas();
+  const game = new TowerDefenseGame(canvas, {
+    runtime: createRuntime({
+      tutorialSeen: true,
+      contractRanks: { shell: 1, bubble: 1 },
+      selectedHero: 'bubble',
+    }),
+    pixelRatio: 1,
+  });
+  assert.equal(beginTowerDefenseRun(game.state, { stageId: 'stage-1' }), true);
+  assert.equal(startNextTowerDefenseWave(game.state), true);
+  game.processEvents();
+  game.state.spawnQueue = [{ uid: 'held-spawn', type: 'bug', laneIndex: 0, at: 999 }];
+  game.state.hero.skillCooldown = 0;
+  const target = {
+    uid: 'two-thumb-target', type: 'bug',
+    x: game.state.hero.x + 80, y: game.state.hero.y - 180,
+    hp: 100_000, maxHp: 100_000, travelled: 240, facing: -1, hitPulse: 0,
+  };
+  game.state.enemies = [target];
+  game.render();
+  const joystick = hitCenter(game, 'hero-joystick');
+  const skill = hitCenter(game, 'hero-skill');
+
+  canvas.dispatch('pointerdown', pointerEvent(game, canvas, joystick, 11));
+  canvas.dispatch('pointermove', pointerEvent(game, canvas, {
+    x: joystick.x + 44, y: joystick.y,
+  }, 11));
+  assert.ok(game.state.hero.moveX > 0);
+  assert.equal(game.drag?.kind, 'joystick');
+
+  canvas.dispatch('pointerdown', pointerEvent(game, canvas, skill, 22));
+  canvas.dispatch('pointermove', pointerEvent(game, canvas, target, 22));
+  assert.equal(game.drag?.pointerId, 11);
+  assert.equal(game.skillDrag?.pointerId, 22);
+  assert.equal(game.skillDrag?.moved, true);
+  canvas.dispatch('pointerup', pointerEvent(game, canvas, target, 22));
+  assert.ok(game.state.hero.skillCooldown > 0);
+  assert.ok(game.state.hero.moveX > 0, 'releasing skill never releases the joystick');
+  assert.equal(game.drag?.pointerId, 11);
+  assert.equal(game.skillDrag, null);
+
+  canvas.dispatch('pointerup', pointerEvent(game, canvas, {
+    x: joystick.x + 44, y: joystick.y,
+  }, 11));
+  assert.equal(game.state.hero.moveX, 0);
+  assert.equal(game.drag, null);
+  game.dispose();
+});
+
+test('skill jitter stays a tap and an armed skill drag is cleared without casting on cancel', () => {
+  const canvas = createCanvas();
+  const game = new TowerDefenseGame(canvas, {
+    runtime: createRuntime({
+      tutorialSeen: true,
+      contractRanks: { shell: 1, bubble: 1 },
+      selectedHero: 'bubble',
+    }),
+    pixelRatio: 1,
+  });
+  assert.equal(beginTowerDefenseRun(game.state, { stageId: 'stage-1' }), true);
+  assert.equal(startNextTowerDefenseWave(game.state), true);
+  game.processEvents();
+  game.state.spawnQueue = [{ uid: 'held-spawn', type: 'bug', laneIndex: 0, at: 999 }];
+  game.state.enemies = [{
+    uid: 'tap-auto-target', type: 'bug',
+    x: game.state.hero.x, y: game.state.hero.y - 150,
+    hp: 100_000, maxHp: 100_000, travelled: 200, facing: -1, hitPulse: 0,
+  }];
+  game.state.hero.skillCooldown = 0;
+  game.render();
+  const hit = game.hits.find(({ id }) => id === 'hero-skill');
+  const center = hitCenter(game, 'hero-skill');
+
+  canvas.dispatch('pointerdown', pointerEvent(game, canvas, center, 31));
+  const insideAfterLargeJitter = { x: center.x + 40, y: center.y };
+  canvas.dispatch('pointermove', pointerEvent(game, canvas, insideAfterLargeJitter, 31));
+  assert.equal(game.skillDrag?.moved, false,
+    'distance alone does not arm aiming while the finger remains on the button');
+  canvas.dispatch('pointerup', pointerEvent(game, canvas, insideAfterLargeJitter, 31));
+  assert.ok(game.state.hero.skillCooldown > 0, 'button jitter keeps tap-to-auto-cast');
+
+  game.state.hero.skillCooldown = 0;
+  game.state.heroSkillQueue = [];
+  game.render();
+  const edgeStart = { x: hit.x + 2, y: center.y };
+  canvas.dispatch('pointerdown', pointerEvent(game, canvas, edgeStart, 32));
+  canvas.dispatch('pointermove', pointerEvent(game, canvas, {
+    x: edgeStart.x - 27, y: edgeStart.y,
+  }, 32));
+  assert.equal(game.skillDrag?.moved, false, '27px remains below the aim threshold');
+  canvas.dispatch('pointermove', pointerEvent(game, canvas, {
+    x: edgeStart.x - 29, y: edgeStart.y,
+  }, 32));
+  assert.equal(game.skillDrag?.moved, true, '29px outside the button arms aiming');
+  canvas.dispatch('pointercancel', pointerEvent(game, canvas, edgeStart, 32));
+  assert.equal(game.skillDrag, null);
+  assert.equal(game.state.hero.skillCooldown, 0, 'cancel never casts or spends cooldown');
+  game.dispose();
+});
+
+test('focused enemies keep large blocking hit targets instead of tapping through a front unit', () => {
+  const canvas = createCanvas();
+  const game = new TowerDefenseGame(canvas, {
+    runtime: createRuntime({ tutorialSeen: true }),
+    pixelRatio: 1,
+  });
+  assert.equal(beginTowerDefenseRun(game.state, { stageId: 'stage-1' }), true);
+  assert.equal(startNextTowerDefenseWave(game.state), true);
+  game.processEvents();
+  game.state.spawnQueue = [{ uid: 'held-spawn', type: 'bug', laneIndex: 0, at: 999 }];
+  const behind = {
+    uid: 'overlap-behind', type: 'windcap', x: 360, y: 640,
+    hp: 100_000, maxHp: 100_000, travelled: 100, facing: -1, hitPulse: 0,
+  };
+  const front = {
+    uid: 'overlap-front', type: 'bug', x: 360, y: 640,
+    hp: 100_000, maxHp: 100_000, travelled: 220, facing: -1, hitPulse: 0,
+  };
+  game.state.enemies = [front, behind];
+  game.render();
+  assert.equal(game.hitAt(front).data.enemyUid, front.uid);
+  click(game, canvas, front);
+  assert.equal(game.state.focusCommand.targetUid, front.uid);
+  const remainingCharges = game.state.focusCommand.charges;
+
+  game.render();
+  const frontHit = game.hits.find(({ id }) => id === `focus-enemy-${front.uid}`);
+  assert.ok(frontHit.width >= 82);
+  assert.ok(frontHit.height >= 82);
+  assert.equal(frontHit.enabled, true);
+  assert.equal(game.hitAt(front).data.enemyUid, front.uid,
+    'the focused front enemy still owns the overlapping point');
+  click(game, canvas, front);
+  assert.equal(game.state.focusCommand.targetUid, front.uid);
+  assert.equal(game.state.focusCommand.charges, remainingCharges,
+    're-tapping the focused unit cannot spend a charge on the unit behind it');
+  game.dispose();
+});
+
+test('skill preview clamps directions, snaps clusters by 110px, and clips invalid aim in red', () => {
+  const canvas = createCanvas();
+  const game = new TowerDefenseGame(canvas, {
+    runtime: createRuntime({
+      tutorialSeen: true,
+      contractRanks: { shell: 1, needle: 1, bubble: 1 },
+      selectedHero: 'needle',
+    }),
+    pixelRatio: 1,
+  });
+  assert.equal(beginTowerDefenseRun(game.state, { stageId: 'stage-1' }), true);
+  assert.equal(startNextTowerDefenseWave(game.state), true);
+  game.processEvents();
+  game.state.hero.x = 360;
+  game.state.hero.y = 760;
+  game.skillDrag = {
+    kind: 'skill-aim', pointerId: 41, moved: true,
+    start: { x: 636, y: 1190 }, point: { x: 1360, y: 760 },
+  };
+  const direction = game.skillAimPreview();
+  assert.equal(direction.targeting, 'direction');
+  assert.equal(direction.target, null);
+  assert.equal(direction.valid, true);
+  assert.equal(direction.targetPoint.x, game.state.hero.x + HERO_TYPES.needle.skill.radius);
+  assert.equal(direction.targetPoint.y, game.state.hero.y);
+
+  game.state.hero.type = 'bubble';
+  game.state.enemies = [
+    { uid: 'z-equal', type: 'bug', x: 350, y: 600, hp: 10, travelled: 20 },
+    { uid: 'a-equal', type: 'bug', x: 370, y: 600, hp: 10, travelled: 20 },
+  ];
+  game.skillDrag.point = { x: 360, y: 600 };
+  const cluster = game.skillAimPreview();
+  assert.equal(cluster.targeting, 'cluster');
+  assert.equal(cluster.target.uid, 'a-equal', 'UID is the stable final tie-breaker');
+  assert.equal(cluster.valid, true);
+
+  game.skillDrag.point = { x: 360, y: 420 };
+  assert.equal(game.skillAimPreview().valid, false,
+    'a cluster aim farther than 110px from every target is invalid');
+  canvas.context.calls.length = 0;
+  game.drawDragPreview(canvas.context);
+  assert.ok(canvas.context.calls.some((call) => (
+    call[0] === 'rect' && call[1] === 0 && call[2] === 96
+      && call[3] === 720 && call[4] === 992
+  )), 'skill aim is clipped to the portrait battlefield');
+  assert.ok(canvas.context.calls.some(([kind, strokeStyle]) => (
+    kind === 'stroke' && strokeStyle === '#FF6573'
+  )), 'invalid cluster aim is visibly red');
+  game.dispose();
+});
+
+test('next-wave threat rendering reuses one cached intel snapshot per stage mode and wave', () => {
+  let providerCalls = 0;
+  const intel = {
+    wave: 1,
+    total: 10,
+    lanes: [
+      { laneIndex: 0, count: 9, threat: 1, enemyTypes: ['bug'] },
+      { laneIndex: 1, count: 1, threat: 12, enemyTypes: ['boss'] },
+      { laneIndex: 2, count: 0, threat: 0, enemyTypes: [] },
+      { laneIndex: 3, count: 0, threat: 0, enemyTypes: [] },
+      { laneIndex: 4, count: 0, threat: 0, enemyTypes: [] },
+    ],
+  };
+  const canvas = createCanvas();
+  const game = new TowerDefenseGame(canvas, {
+    runtime: createRuntime({ tutorialSeen: true }),
+    pixelRatio: 1,
+    nextWaveIntelProvider: () => {
+      providerCalls += 1;
+      return intel;
+    },
+  });
+  assert.equal(beginTowerDefenseRun(game.state, { stageId: 'stage-1' }), true);
+  game.processEvents();
+  const stage = TD_STAGES[0];
+  canvas.context.calls.length = 0;
+  game.drawNextWaveIntel(canvas.context, stage);
+  game.drawNextWaveIntel(canvas.context, stage);
+  assert.equal(providerCalls, 1, 'repeated preparation frames reuse the cached snapshot');
+  const laneZeroMain = canvas.context.calls.find((call) => (
+    call[0] === 'arc' && call[1] === 88 && call[2] === 142
+  ));
+  const laneOneMain = canvas.context.calls.find((call) => (
+    call[0] === 'arc' && call[1] === 224 && call[2] === 142
+  ));
+  assert.ok(laneOneMain[3] > laneZeroMain[3],
+    'one boss is hotter than nine weak enemies because radius follows threat, not count');
+  assert.ok(canvas.context.calls.filter((call) => (
+    call[0] === 'arc' && call[1] === 224 && call[2] === 142
+  )).length > canvas.context.calls.filter((call) => (
+    call[0] === 'arc' && call[1] === 88 && call[2] === 142
+  )).length, 'only the highest-threat lane receives the warning ring');
+
+  game.state.wave += 1;
+  game.drawNextWaveIntel(canvas.context, stage);
+  assert.equal(providerCalls, 2, 'changing wave invalidates the cache key');
   game.dispose();
 });
 
